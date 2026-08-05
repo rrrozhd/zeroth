@@ -1489,6 +1489,204 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/enforcement/attestations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest Run Start
+         * @description Sign and record a run's start-of-run claims, if the run has none yet.
+         *
+         *     A run's evidence is fixed by the first attestation the server accepts.
+         *     A submission that loses to an earlier one answers 409 and reports
+         *     ``authoritative: false`` together with the digest of the attestation
+         *     actually in force -- never a bare 200, which would tell the client its
+         *     own claims are what the run will be judged on.
+         *
+         *     **The winner is disclosed only when it belongs to the deployment the
+         *     caller named.** Correlations are unique per tenant, not per deployment,
+         *     so a loser may have lost to a sibling deployment's run; that case
+         *     answers a fixed, opaque 409 instead, because the alternative is an
+         *     oracle for reading another deployment's digest and expiry.
+         *
+         *     **A retry of the attestation already in force is not a second
+         *     attestation.** The server stamps ``issued_at`` and ``expires_at`` on
+         *     arrival, so an adapter that lost its response cannot resubmit the bytes
+         *     it sent -- the digest and signature differ on every attempt, and an
+         *     envelope comparison alone would tell an honest retry that some other
+         *     attestation governs its run. ``is_identical_resubmission`` decides that
+         *     case on the claims plus a re-signature of the stored payload; when it
+         *     holds, the caller gets the *original* acceptance back. Changed claims,
+         *     a rotated key, and a signed/unsigned change all still answer 409.
+         *
+         *     **A losing insert is not always a lost race.** Two concurrent identical
+         *     requests stamped with the same ``issued_at`` build the same payload, so
+         *     deterministic signing gives the loser an envelope equal to the winner's:
+         *     a duplicate, not a conflict, and counting it as ``recorded`` would
+         *     overstate how many attestations were stored. The branch is chosen on
+         *     ``record``'s ``inserted`` -- did *this* write create the row -- and
+         *     every non-insert takes the same path: read the winner back
+         *     deployment-scoped, then classify with ``is_identical_resubmission``.
+         *
+         *     **``record``'s own ``authoritative`` is deliberately not consulted
+         *     here.** It is computed from the stored envelope *columns*, which are no
+         *     evidence that the stored ``payload_json`` derives from them, nor that
+         *     the row's flat ``deployment_ref`` matches the deployment named inside
+         *     its signed payload. Short-circuiting on it -- as an earlier revision
+         *     did -- let an internally inconsistent row answer 201 for claims it does
+         *     not carry, and skipped the scoped read that keeps a sibling
+         *     deployment's evidence unreadable. Re-signing the stored payload
+         *     recomputes its digest *from that payload*, so an inconsistent row fails
+         *     the comparison rather than passing it, and the scoped read is now on
+         *     every non-insert path rather than only on the slow one.
+         *
+         *     **What that costs: a 503 window this path did not previously have.**
+         *     The read happens *after* ``record`` has returned, and only on the
+         *     branch where this submission did **not** insert -- so a storage fault
+         *     between the two turns what would have been a 201 for an exact-envelope
+         *     duplicate into a fail-closed 503. Nothing is lost by that: this request
+         *     wrote nothing (it lost the insert), and the row it would have been
+         *     answered about is the winner's, already durably in place. A retry reads
+         *     that winner back and answers 201 as before. This is the intended
+         *     direction -- a row that cannot be read is no evidence, so it must not
+         *     be certified -- but it is a real behaviour change for a case that used
+         *     to answer without reading, and it is stated here rather than left for
+         *     someone to discover from a metric.
+         *
+         *     **The retry answer is byte-identical to the first one** (201,
+         *     ``authoritative: true``, the stored digest and the stored expiry): a
+         *     client that cannot tell a retry from the original is what idempotency
+         *     means, and the window reported is the one actually in force rather than
+         *     a fresh one the run does not have. Only the metric separates them, as
+         *     ``already_recorded`` -- nothing on the wire is false, and an operator
+         *     still gets to see retry volume instead of it inflating ``recorded``.
+         */
+        post: operations["attest_run_start_v1_enforcement_attestations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide Tool Call
+         * @description Return the verdict for one tool call, recorded once per key.
+         *
+         *     The idempotency key answers a repeat with the stored decision. It does
+         *     not serialize concurrent first requests: two racing calls under one new
+         *     key may both be evaluated, and exactly one of their decisions is
+         *     stored and returned to both.
+         */
+        post: operations["decide_tool_call_v1_enforcement_decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Run Status
+         * @description Report the level the server can prove for one attested run.
+         *
+         *     The correlation is attacker-suppliable, so the provider is bound to the
+         *     caller's tenant and to the resolved deployment: a correlation stored
+         *     under another tenant reads as absent, never as that tenant's evidence.
+         */
+        get: operations["read_run_status_v1_enforcement_deployments__deployment_ref__runs__correlation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/deployments/{deployment_ref}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Deployment Status
+         * @description Report a deployment's last-known level from its newest heartbeat.
+         *
+         *     The level is run through :class:`CapabilityReporter` rather than read
+         *     off the heartbeat, so the staleness window and the graph-version match
+         *     are applied by the same code that governs the gateway. A heartbeat can
+         *     never reach ``ENFORCED``: it proves no tool inventory.
+         */
+        get: operations["read_deployment_status_v1_enforcement_deployments__deployment_ref__status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/heartbeats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Heartbeat
+         * @description Append one liveness ping for a deployment.
+         */
+        post: operations["report_heartbeat_v1_enforcement_heartbeats_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/enforcement/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Tool Inventory
+         * @description Record the tool inventory an adapter declares for one deployment.
+         */
+        post: operations["register_tool_inventory_v1_enforcement_registrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/manifests": {
         parameters: {
             query?: never;
@@ -2094,6 +2292,55 @@ export interface components {
          */
         ApprovalStatus: "pending" | "resolved" | "escalated";
         /**
+         * AttestationAck
+         * @description Whether the submitted attestation is the one now in force.
+         *
+         *     ``run_attestations`` is first-write-wins per ``(tenant, correlation)``, so a
+         *     submission can be accepted by the transport and still not be the evidence
+         *     the run is judged on. :attr:`authoritative` is what distinguishes the two;
+         *     the digest and expiry describe the attestation actually in force, which is
+         *     the submitted one only when :attr:`authoritative` is true.
+         */
+        AttestationAck: {
+            /** Authoritative */
+            authoritative: boolean;
+            /** Correlation Id */
+            correlation_id: string;
+            /** Digest */
+            digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Status */
+            status: string;
+        };
+        /**
+         * AttestationSubmission
+         * @description Run-start claims a client asks the server to bind and record.
+         *
+         *     The client never signs: the signing key lives on the server (see
+         *     ``zeroth.platform.signing``), so the signature attributes the claim to the
+         *     server having accepted it from an authenticated principal. ``issued_at``
+         *     and ``expires_at`` are likewise server-assigned -- a client-chosen validity
+         *     window would let a run mint an attestation that never expires.
+         */
+        AttestationSubmission: {
+            /** Adapter Version */
+            adapter_version: string;
+            /** Claimed Level */
+            claimed_level: string;
+            /** Correlation Id */
+            correlation_id: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version */
+            graph_version: string;
+            /** Inventory Fingerprint */
+            inventory_fingerprint: string;
+        };
+        /**
          * AttestationVerificationResponse
          * @description Dual-check verification result for a deployment attestation.
          *
@@ -2395,6 +2642,87 @@ export interface components {
             name: string;
         };
         /**
+         * DecisionKind
+         * @description The verdicts the decision service can return for one attempted call.
+         *
+         *     The values match
+         *     ``zeroth.integrations.langgraph._tool_types.ToolDecisionKind`` exactly, so
+         *     the SDK-side client can map a response onto its own verdict without a
+         *     translation table. ``REQUIRE_APPROVAL`` is a verdict of its own rather than
+         *     a flavour of deny: a call waiting on a human has not been refused, and
+         *     collapsing the two would lose the distinction an auditor needs.
+         * @enum {string}
+         */
+        DecisionKind: "allow" | "deny" | "require_approval";
+        /**
+         * DecisionResponse
+         * @description One versioned verdict as it was recorded and is re-served.
+         *
+         *     Attributes:
+         *         schema_version: The wire version, pinned to ``1``.
+         *         decision_id: The stored decision's identity. A replay returns the
+         *             original, so two calls sharing an id shared a decision.
+         *         kind: The verdict.
+         *         reason_code: The registered audit term the verdict is recorded under.
+         *         approval_ref: The approval the call waits on, when applicable.
+         *         policy_version: The policy revision the verdict was reached against.
+         *         tenant_id: The tenant the decision is scoped to.
+         *         issued_at: When the decision was first recorded -- not when it was
+         *             re-served, so a replay does not look like a fresh evaluation.
+         */
+        DecisionResponse: {
+            /** Approval Ref */
+            approval_ref?: string | null;
+            /** Decision Id */
+            decision_id: string;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            kind: components["schemas"]["DecisionKind"];
+            /** Policy Version */
+            policy_version: string;
+            /** Reason Code */
+            reason_code: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * DecisionSubmission
+         * @description One tool call submitted for a verdict.
+         *
+         *     The client half of
+         *     :class:`~zeroth.governance.decisions.request.DecisionRequest`: the action,
+         *     the deployment it was made from, and the replay token. ``tenant_id`` and
+         *     ``principal_id`` are deliberately absent -- the route supplies them from
+         *     the authenticated principal.
+         */
+        DecisionSubmission: {
+            action: components["schemas"]["NormalizedAction"];
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Policy Bindings
+             * @default []
+             */
+            policy_bindings: string[];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
          * DependencyStatus
          * @description Status of a single dependency check.
          */
@@ -2470,6 +2798,20 @@ export interface components {
             deployment_ref: string;
             /** Total Cost Usd */
             total_cost_usd: number;
+        };
+        /**
+         * DeploymentEnforcementStatus
+         * @description A deployment's last-known governance level, recomputed server-side.
+         */
+        DeploymentEnforcementStatus: {
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Governance Level */
+            governance_level: string;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Stale After Seconds */
+            stale_after_seconds: number;
         };
         /**
          * DeploymentEngineMode
@@ -2876,6 +3218,35 @@ export interface components {
             status: string;
         };
         /**
+         * HeartbeatAck
+         * @description The identity and observation time the server recorded for a ping.
+         */
+        HeartbeatAck: {
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Heartbeat Id */
+            heartbeat_id: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+        };
+        /**
+         * HeartbeatSubmission
+         * @description One liveness ping from a deployment's adapter.
+         */
+        HeartbeatSubmission: {
+            /** Adapter Version */
+            adapter_version?: string | null;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version */
+            graph_version?: string | null;
+            /** Reported Level */
+            reported_level: string;
+        };
+        /**
          * HumanInteractionType
          * @description The kind of interaction the system is requesting from a human.
          *
@@ -2884,6 +3255,40 @@ export interface components {
          * @enum {string}
          */
         HumanInteractionType: "approval" | "clarification" | "request_input" | "notification";
+        /**
+         * InventoryAck
+         * @description The identity the server assigned to a recorded registration.
+         */
+        InventoryAck: {
+            /** Deployment Ref */
+            deployment_ref: string;
+            /**
+             * Registered At
+             * Format: date-time
+             */
+            registered_at: string;
+            /** Registration Id */
+            registration_id: string;
+        };
+        /**
+         * InventorySubmission
+         * @description A tool inventory an adapter declares for one deployment.
+         */
+        InventorySubmission: {
+            /** Adapter Version */
+            adapter_version: string;
+            /** Coverage */
+            coverage: string;
+            /** Deployment Ref */
+            deployment_ref: string;
+            /** Graph Version */
+            graph_version: string;
+            /**
+             * Tools
+             * @default []
+             */
+            tools: components["schemas"]["RegisteredTool"][];
+        };
         /**
          * LangGraphCompatibilityHealth
          * @description Evidence from the one bounded Agent Server startup detection.
@@ -3214,6 +3619,40 @@ export interface components {
             type: string;
         };
         /**
+         * NormalizedAction
+         * @description One tool call, already normalized, as a policy is written against it.
+         *
+         *     The name alone is not an identity -- whoever bound the tool chose it and can
+         *     reuse it for a different callable between runs -- so ``fingerprint`` is what
+         *     makes a decision reproducible.
+         *
+         *     Attributes:
+         *         name: The tool's bound name, as the framework reports it.
+         *         fingerprint: A stable digest of the tool's identifying material.
+         *         arguments_digest: A digest of the call arguments. The arguments
+         *             themselves are never carried.
+         *         contract_ref: The tool contract this call claims to satisfy, when one
+         *             is declared.
+         *         side_effect: The classification, defaulting to the refusable ``unknown``
+         *             rather than to anything the service would admit.
+         */
+        NormalizedAction: {
+            /** Arguments Digest */
+            arguments_digest: string;
+            /** Contract Ref */
+            contract_ref?: string | null;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Name */
+            name: string;
+            /**
+             * Side Effect
+             * @default unknown
+             * @enum {string}
+             */
+            side_effect: "read_only" | "side_effecting" | "unknown";
+        };
+        /**
          * PortDefinitionResponse
          * @description A port on a node type.
          */
@@ -3336,6 +3775,21 @@ export interface components {
             status: string;
         };
         /**
+         * RegisteredTool
+         * @description One governed tool: the name a call arrives under, and what answers it.
+         *
+         *     The fingerprint is what makes the identity meaningful. A registration
+         *     holding names alone says only which labels exist, so a tool swapped for
+         *     another under the same name would register identically -- exactly the
+         *     substitution ZER-6's suite exists to catch.
+         */
+        RegisteredTool: {
+            /** Fingerprint */
+            fingerprint: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * RetentionPolicyBody
          * @description Request body for PUT /retention/policy.
          */
@@ -3448,6 +3902,16 @@ export interface components {
         RollbackDeploymentRequest: {
             /** Target Graph Version */
             target_graph_version: number;
+        };
+        /**
+         * RunEnforcementStatus
+         * @description One run's governance level, recomputed from stored evidence.
+         */
+        RunEnforcementStatus: {
+            /** Correlation Id */
+            correlation_id: string;
+            /** Governance Level */
+            governance_level: string;
         };
         /**
          * RunEvidenceResponse
@@ -6414,6 +6878,201 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WasteRollup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attest_run_start_v1_enforcement_attestations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttestationSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttestationAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_tool_call_v1_enforcement_decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_run_status_v1_enforcement_deployments__deployment_ref__runs__correlation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+                correlation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEnforcementStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_deployment_status_v1_enforcement_deployments__deployment_ref__status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentEnforcementStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_heartbeat_v1_enforcement_heartbeats_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_tool_inventory_v1_enforcement_registrations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventorySubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryAck"];
                 };
             };
             /** @description Validation Error */
