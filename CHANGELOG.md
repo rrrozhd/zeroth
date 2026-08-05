@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.2] - 2026-08-05
+
+### Fixed
+
+- Consume persisted LangGraph approval decisions before replay policy checks,
+  preserve approved edits and injected tool-call identities, and terminalize
+  uncertain post-consume crashes without retrying their side effects.
+- Resume parallel approvals serially from the thread's current checkpoint and
+  add equivalent async checkpoint-confirmation and resume paths for async-only
+  governed graphs and durable savers.
+
 ## [0.16.0.1] - 2026-08-05
 
 ### Fixed

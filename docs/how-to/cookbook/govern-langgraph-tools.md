@@ -200,20 +200,48 @@ coordinator.resume(
 )
 ```
 
+For an async-only graph or saver, use the corresponding async coordinator
+paths:
+
+```python
+await coordinator.aconfirm_checkpoint(
+    approval_ref,
+    graph,
+    config=initial_config,
+    durable_checkpointer=durable_checkpointer,
+)
+await coordinator.aresume(
+    approval_ref,
+    graph,
+    owner="approval-worker-1",
+    config=resume_config,
+    durable_checkpointer=durable_checkpointer,
+)
+```
+
 The lifecycle persists `awaiting_checkpoint → ready → decided → resuming →
 resolved`, plus `expired` and `orphaned` terminal states. Identical deliveries
 are idempotent; conflicting decisions and invalid transitions fail closed and
-remain visible in `lifecycle.events(approval_ref)`. A resume rechecks the stored
-interrupt on the original `thread_id`, targets its exact LangGraph interrupt ID,
-and re-evaluates policy before any tool body runs. The coordinator replaces any
-caller-supplied thread or checkpoint position with the persisted one, while
-preserving the fresh `_zeroth` authentication token and other run config. Always
-resume through the governed graph so inventory and attestation hooks run again.
+remain visible in `lifecycle.events(approval_ref)`. On replay, the stored human
+rejection or approved edit is consumed before the one fresh policy evaluation,
+so a changing policy cannot bypass it. A resume rechecks the exact interrupt ID
+on the original `thread_id`, then invokes the thread's current snapshot without
+pinning the original checkpoint. A SQLite writer fence serializes resumes across
+processes, so a later parallel approval observes the checkpoint produced by the
+earlier one. Caller-supplied thread or checkpoint positions are removed while
+the fresh `_zeroth` authentication token and other run config are preserved.
+Always resume through the governed graph so inventory and attestation hooks run
+again.
+
+If a process dies after consuming a fenced delivery, the lifecycle does not
+retry the possibly executed side effect. Once its lease expires, reconciliation
+marks that uncertain delivery `orphaned` as a terminal, auditable outcome.
 
 Edited `BaseTool` arguments pass through the original Pydantic schema, coercion,
-and field validators before fresh policy evaluation; framework-injected fields
-cannot be edited. Only named arguments can be replayed safely on surfaces without
-that schema.
+and field validators before fresh policy evaluation. The original
+`InjectedToolCallId` is preserved for native validation; framework-injected
+fields cannot be edited. Only named arguments can be replayed safely on surfaces
+without that schema.
 
 Call `lifecycle.expire_due(limit=...)` and inspect `lifecycle.pending(limit=...)`
 from the existing approval worker or scheduled reconciliation loop. Zeroth does
@@ -221,6 +249,11 @@ not start a second worker or network service for this integration. Missing
 durable storage, a durable checkpointer, checkpoint access, or thread identity
 raises `ApprovalRequiresThreadError` with code
 `zeroth.approval_requires_thread`; the tool executes zero times.
+
+Durability for a custom `BaseCheckpointSaver` is an explicit caller attestation:
+the coordinator verifies that the attested object is the governed graph's exact
+checkpointer and rejects known `InMemorySaver` instances, but it cannot prove a
+custom saver's backend persistence.
 
 The returned wrappers go wherever the originals went — a `ToolNode`, a
 `StateGraph`, a `bind_tools` call — and answer to the same interfaces.

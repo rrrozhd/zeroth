@@ -342,9 +342,7 @@ def prepare_base_tool_approval_replay(
     with pytest.raises(Suspended):
         governed.invoke(call_input)
     repository.ready("approval-7", "checkpoint-1", "interrupt-1")
-    resolution = ApprovalResolution(
-        "approval-7", ApprovalDecision.APPROVE, edited_arguments
-    )
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, edited_arguments)
     repository.decide(resolution)
     claimed = repository.claim("approval-7", owner="worker")
     assert claimed.claim_token is not None
@@ -1401,6 +1399,47 @@ def test_approved_base_tool_edit_cannot_replace_an_injected_argument(tmp_path: A
 
     assert calls == []
     assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+def test_approved_base_tool_edit_preserves_the_injected_tool_call_id(tmp_path: Any) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(
+        query: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> str:
+        """Record the framework-injected call identity."""
+        calls.append((query, tool_call_id))
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    call = {
+        "name": "lookup",
+        "args": {"query": "original"},
+        "id": "call-original",
+        "type": "tool_call",
+    }
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        call,
+        {"query": "edited"},
+    )
+
+    governed.invoke(call)
+
+    assert calls == [("edited", "call-original")]
+    assert client.seen[-1].tool_call_id == "call-original"
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
 
 
 def test_approved_edit_validation_uses_the_pre_interrupt_schema_snapshot(
