@@ -38,6 +38,9 @@ _IDENTITY_FIELDS = (
 _IDENTITY_EXPRESSIONS = tuple(
     f"json_quote(json_extract(intent, '$.payload.{field}'))" for field in _IDENTITY_FIELDS
 )
+_IDENTITY_FENCE = (
+    "state NOT IN ('expired', 'orphaned') OR (state = 'orphaned' AND claim_consumed = 1)"
+)
 _RESUME_CLAIM: ContextVar[tuple[str, str] | None] = ContextVar(
     "zeroth_langgraph_approval_resume_claim", default=None
 )
@@ -241,12 +244,14 @@ class SQLiteApprovalRepository:
                     connection.execute(
                         f"ALTER TABLE langgraph_approval_lifecycle ADD COLUMN {name} {declaration}"
                     )
-            self._deduplicate_active_identities(connection)
+            self._validate_rows(connection)
+            self._deduplicate_identity_fences(connection)
+            connection.execute("DROP INDEX IF EXISTS langgraph_approval_active_identity")
             connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS langgraph_approval_active_identity "
                 "ON langgraph_approval_lifecycle "
                 f"({', '.join(_IDENTITY_EXPRESSIONS)}) "
-                "WHERE state NOT IN ('resolved', 'expired', 'orphaned')"
+                f"WHERE {_IDENTITY_FENCE}"
             )
         with sqlite3.connect(self._resume_path) as connection:
             connection.execute(
@@ -302,26 +307,65 @@ class SQLiteApprovalRepository:
         finally:
             connection.close()
 
-    def _intent(self, data: str, deadline: float) -> ApprovalIntent:
-        value = json.loads(data)
-        return ApprovalIntent(value["payload"], value["arguments"], deadline, value["version"])
+    @staticmethod
+    def _persisted_deadline(value: object, label: str) -> float:
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ToolGovernanceError(f"persisted {label} must be finite")
+        return float(value)
 
-    def _record(self, row: sqlite3.Row) -> ApprovalRecord:
-        resolution = row["resolution"]
-        return ApprovalRecord(
-            self._intent(row["intent"], row["deadline"]),
-            ApprovalState(row["state"]),
-            None if resolution is None else ApprovalResolution.from_payload(json.loads(resolution)),
-            row["checkpoint_id"],
-            row["interrupt_id"],
-            row["owner"],
-            row["lease_deadline"],
-            row["claim_token"],
-            bool(row["claim_consumed"]),
+    def _intent(self, data: str, deadline: object) -> ApprovalIntent:
+        value = json.loads(data)
+        return ApprovalIntent(
+            value["payload"],
+            value["arguments"],
+            self._persisted_deadline(deadline, "approval deadline"),
+            value["version"],
         )
 
-    def _deduplicate_active_identities(self, connection: sqlite3.Connection) -> None:
-        """Keep the oldest active intent when upgrading a pre-constraint database."""
+    def _record(self, row: sqlite3.Row) -> ApprovalRecord:
+        try:
+            resolution = row["resolution"]
+            state = ApprovalState(row["state"])
+            lease_deadline = row["lease_deadline"]
+            if state is ApprovalState.RESUMING and lease_deadline is None:
+                raise ToolGovernanceError(
+                    "persisted approval lease deadline must be finite while resuming"
+                )
+            return ApprovalRecord(
+                self._intent(row["intent"], row["deadline"]),
+                state,
+                (
+                    None
+                    if resolution is None
+                    else ApprovalResolution.from_payload(json.loads(resolution))
+                ),
+                row["checkpoint_id"],
+                row["interrupt_id"],
+                row["owner"],
+                (
+                    None
+                    if lease_deadline is None
+                    else self._persisted_deadline(lease_deadline, "approval lease deadline")
+                ),
+                row["claim_token"],
+                bool(row["claim_consumed"]),
+            )
+        except ToolGovernanceError:
+            raise
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError) as error:
+            raise ToolGovernanceError("persisted approval lifecycle record is invalid") from error
+
+    def _validate_rows(self, connection: sqlite3.Connection, *, active_only: bool = False) -> None:
+        query = "SELECT * FROM langgraph_approval_lifecycle"
+        parameters: tuple[str, ...] = ()
+        if active_only:
+            query += " WHERE state NOT IN (?, ?, ?)"
+            parameters = _TERMINAL
+        for row in connection.execute(query, parameters).fetchall():
+            self._record(row)
+
+    def _deduplicate_identity_fences(self, connection: sqlite3.Connection) -> None:
+        """Keep the oldest safe identity fence when upgrading an existing database."""
         selected = ", ".join(
             f"{expression} AS identity_{index}"
             for index, expression in enumerate(_IDENTITY_EXPRESSIONS)
@@ -329,14 +373,16 @@ class SQLiteApprovalRepository:
         rows = connection.execute(
             "SELECT rowid, *, "
             f"{selected} FROM langgraph_approval_lifecycle "
-            "WHERE state NOT IN (?, ?, ?) ORDER BY rowid",
-            _TERMINAL,
+            f"WHERE {_IDENTITY_FENCE} ORDER BY rowid",
         ).fetchall()
         seen: set[tuple[Any, ...]] = set()
         for row in rows:
             identity = tuple(row[f"identity_{index}"] for index in range(len(_IDENTITY_FIELDS)))
             if identity in seen:
-                self._orphan_locked(connection, row["approval_ref"], self._record(row))
+                current = self._record(row)
+                if current.claim_consumed or current.state is ApprovalState.RESOLVED:
+                    raise ToolGovernanceError("approval replay identity is ambiguous")
+                self._orphan_locked(connection, row["approval_ref"], current)
             else:
                 seen.add(identity)
 
@@ -346,7 +392,7 @@ class SQLiteApprovalRepository:
             raise ToolGovernanceError("approval action identity is incomplete")
         return tuple(identity[field] for field in _IDENTITY_FIELDS)
 
-    def _active_row(
+    def _fenced_row(
         self, connection: sqlite3.Connection, identity: tuple[Any, ...]
     ) -> sqlite3.Row | None:
         clauses = " AND ".join(
@@ -354,9 +400,9 @@ class SQLiteApprovalRepository:
         )
         rows = connection.execute(
             "SELECT * FROM langgraph_approval_lifecycle "
-            "WHERE state NOT IN (?, ?, ?) "
+            f"WHERE ({_IDENTITY_FENCE}) "
             f"AND {clauses} LIMIT 2",
-            (*_TERMINAL, *identity),
+            identity,
         ).fetchall()
         if len(rows) > 1:
             raise ToolGovernanceError("approval replay identity is ambiguous")
@@ -373,12 +419,12 @@ class SQLiteApprovalRepository:
         return self._record(row)
 
     def replay_for(self, identity: Mapping[str, Any]) -> ApprovalRecord | None:
-        """Return the one unresolved approval matching this replayed action."""
+        """Return the one live approval or permanent fence for this action."""
         identity = _mapping(identity, "approval action identity")
         values = self._identity_values(identity)
         try:
             with self._connect() as connection:
-                row = self._active_row(connection, values)
+                row = self._fenced_row(connection, values)
         except sqlite3.Error as error:
             raise ToolGovernanceError("approval replay lookup failed") from error
         return None if row is None else self._record(row)
@@ -491,7 +537,7 @@ class SQLiteApprovalRepository:
             ).fetchone()
             same_ref = row is not None
             if row is None:
-                row = self._active_row(connection, identity)
+                row = self._fenced_row(connection, identity)
             if row is None:
                 raise ToolGovernanceError("approval intent could not be persisted")
             current = self._record(row)
@@ -756,6 +802,7 @@ class SQLiteApprovalRepository:
         marks = ",".join("?" for _ in _TERMINAL)
         now = self._now()
         with self._connect() as connection:
+            self._validate_rows(connection, active_only=True)
             rows = connection.execute(
                 f"SELECT approval_ref FROM langgraph_approval_lifecycle "
                 f"WHERE state NOT IN ({marks}) AND "

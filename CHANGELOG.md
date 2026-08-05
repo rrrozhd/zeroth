@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.11] - 2026-08-05
+
+### Fixed
+
+- Retain terminal LangGraph approval identity fences after rejection, resolved
+  delivery, or uncertain consumed delivery while allowing pre-consume retries.
+- Reject invalid persisted approval deadlines and leases during restart and
+  reconciliation.
+
 ## [0.16.0.10] - 2026-08-05
 
 ### Fixed

@@ -80,6 +80,7 @@ from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalDecision,
     ApprovalRecord,
+    ApprovalState,
     SQLiteApprovalRepository,
     _current_resume_claim,
 )
@@ -672,6 +673,8 @@ def _authorize_tool_action(
         if type(approval_lifecycle) is SQLiteApprovalRepository
         else None
     )
+    if replay is not None and replay.state in (ApprovalState.RESOLVED, ApprovalState.ORPHANED):
+        raise ToolGovernanceError("approval terminal delivery permanently fences this action")
     if resume_claim is not None:
         if type(approval_lifecycle) is not SQLiteApprovalRepository:
             raise ApprovalRequiresThreadError("approval needs its durable lifecycle store")
