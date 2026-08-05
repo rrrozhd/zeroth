@@ -541,11 +541,15 @@ def _suspend_for_approval(
     actor: ActorIdentity | None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
     replay: ApprovalRecord | None = None,
-) -> tuple[ToolAction, str]:
+) -> tuple[ToolAction, str, str]:
     """Suspend, consume the current fence, and revalidate the exact resumed call."""
     if replay is None:
         payload = _approval_payload(action, governance, decision, approval_ref)
-        _record, created = lifecycle.begin_once(payload, action.arguments)
+        record, created = lifecycle.begin_once(payload, action.arguments)
+        approval_ref = normalize_identifier(record.intent.payload.get("approval_ref"))
+        if approval_ref is None:
+            raise ToolGovernanceError("persisted approval has no resumable reference")
+        payload = dict(record.intent.payload)
     else:
         if replay.intent.arguments != action.arguments:
             raise ToolGovernanceError("approval replay arguments changed before delivery")
@@ -610,7 +614,7 @@ def _suspend_for_approval(
             approval_action=_APPROVAL_APPROVE,
         )
         raise PolicyViolation("fresh policy refused the approved tool call")
-    return approved, claim_token
+    return approved, claim_token, approval_ref
 
 
 def _enforce(
@@ -663,7 +667,7 @@ def _authorize_tool_action(
             normalize_identifier(replay.intent.payload.get("reason_code")) or "policy_violation",
             approval_ref,
         )
-        approved, claim_token = _suspend_for_approval(
+        approved, claim_token, approval_ref = _suspend_for_approval(
             normalized,
             governance,
             decision,
@@ -698,7 +702,7 @@ def _authorize_tool_action(
         raise ApprovalRequiresThreadError("approval needs a durable lifecycle store")
     if decision.kind is ToolDecisionKind.REQUIRE_APPROVAL and approval_ref is not None:
         assert approval_lifecycle is not None
-        approved, claim_token = _suspend_for_approval(
+        approved, claim_token, approval_ref = _suspend_for_approval(
             normalized,
             governance,
             decision,
