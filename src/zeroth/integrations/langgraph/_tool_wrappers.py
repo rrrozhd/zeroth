@@ -227,10 +227,12 @@ _CALLABLE_PLANS: dict[object, _CallablePlan] = {}
 
 @dataclass(slots=True)
 class _BaseToolCall:
-    """One native ``BaseTool.run`` / ``arun`` identity awaiting its body."""
+    """One validated native ``BaseTool.invoke`` identity awaiting its body."""
 
     owner: object
     tool_call_id: str | None
+    entered: bool = False
+    parsed: bool = False
     claimed: bool = False
 
 
@@ -1950,7 +1952,9 @@ def _injected_tool_call_id(
     value = values[0]
     if normalize_identifier(value) != value:
         raise ToolGovernanceError("injected tool-call identity is unavailable")
-    if trusted_tool_call_id is not None and value != trusted_tool_call_id:
+    if trusted_tool_call_id is None:
+        raise ToolGovernanceError("injected tool-call identity requires a trusted full tool call")
+    if value != trusted_tool_call_id:
         raise ToolGovernanceError("injected tool-call identity does not match the outer identity")
     return value
 
@@ -2061,28 +2065,98 @@ class GovernedTool(BaseTool):
         """Report the governed tool's own input schema, not this wrapper's signature."""
         return self._plan().target.get_input_schema(config)
 
-    @functools.wraps(BaseTool.run)
-    def run(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
-        """Carry native ``BaseTool`` call identity into this invocation only."""
+    def _full_tool_call_id(self, tool_input: Any) -> str | None:
+        """Validate the complete native call envelope before trusting its id."""
+        if not isinstance(tool_input, dict) or dict.get(tool_input, "type") != "tool_call":
+            return None
+        call_id = dict.get(tool_input, "id")
+        if (
+            type(tool_input) is not dict
+            or dict.get(tool_input, "name") != self.name
+            or type(dict.get(tool_input, "args")) is not dict
+            or type(call_id) is not str
+            or normalize_identifier(call_id) != call_id
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        return call_id
+
+    @functools.wraps(BaseTool.invoke)
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """Seed call identity only from a validated native ``ToolCall``."""
+        tool_call_id = self._full_tool_call_id(input)
+        if tool_call_id is None:
+            return super().invoke(input, config, **kwargs)
         token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
         try:
-            return super().run(*args, tool_call_id=tool_call_id, **kwargs)
+            return super().invoke(input, config, **kwargs)
         finally:
             _BASE_TOOL_CALL.reset(token)
 
-    @functools.wraps(BaseTool.arun)
-    async def arun(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
-        """Carry native async ``BaseTool`` call identity into this invocation only."""
+    @functools.wraps(BaseTool.ainvoke)
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """Seed async call identity only from a validated native ``ToolCall``."""
+        tool_call_id = self._full_tool_call_id(input)
+        if tool_call_id is None:
+            return await super().ainvoke(input, config, **kwargs)
         token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
         try:
-            return await super().arun(*args, tool_call_id=tool_call_id, **kwargs)
+            return await super().ainvoke(input, config, **kwargs)
         finally:
             _BASE_TOOL_CALL.reset(token)
+
+    @functools.wraps(BaseTool.run)
+    def run(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Accept an id only from this invocation's validated call envelope."""
+        call = _BASE_TOOL_CALL.get()
+        if tool_call_id is not None and (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or call.entered
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        if tool_call_id is not None:
+            call.entered = True
+        return super().run(*args, tool_call_id=tool_call_id, **kwargs)
+
+    @functools.wraps(BaseTool.arun)
+    async def arun(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Accept an async id only from this invocation's validated call envelope."""
+        call = _BASE_TOOL_CALL.get()
+        if tool_call_id is not None and (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or call.entered
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        if tool_call_id is not None:
+            call.entered = True
+        return await super().arun(*args, tool_call_id=tool_call_id, **kwargs)
+
+    def _to_args_and_kwargs(
+        self, tool_input: Any, tool_call_id: str | None
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Arm the validated identity only after native input parsing succeeds."""
+        parsed = super()._to_args_and_kwargs(tool_input, tool_call_id)
+        if tool_call_id is None:
+            return parsed
+        call = _BASE_TOOL_CALL.get()
+        if (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or not call.entered
+            or call.parsed
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        call.parsed = True
+        return parsed
 
     def _claim_outer_tool_call_id(self) -> str | None:
         """Claim this invocation's native identity once, never across nested calls."""
         call = _BASE_TOOL_CALL.get()
-        if call is None or call.owner is not self or call.claimed:
+        if call is None or call.owner is not self or not call.parsed or call.claimed:
             return None
         call.claimed = True
         return call.tool_call_id

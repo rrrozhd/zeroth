@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.6] - 2026-08-05
+
+### Fixed
+
+- Trust native LangGraph tool-call identities only from validated full call
+  envelopes and refuse direct or unmatched injected identities.
+- Resume approval-gated graphs from the latest thread state without retaining
+  stale checkpoint IDs, namespaces, or checkpoint maps.
+- Expire consumed approval leases by their effective deadline even when a
+  bounded non-due request backlog precedes them.
+
 ## [0.16.0.5] - 2026-08-05
 
 ### Fixed

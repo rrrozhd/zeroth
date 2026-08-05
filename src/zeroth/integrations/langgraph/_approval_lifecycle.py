@@ -670,10 +670,24 @@ class SQLiteApprovalRepository:
         return tuple(self._record(row) for row in rows)
 
     def expire_due(self, limit: int = 100) -> tuple[ApprovalRecord, ...]:
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ToolGovernanceError("approval pending limit must be between 1 and 1000")
+        marks = ",".join("?" for _ in _TERMINAL)
+        now = self._clock()
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT approval_ref FROM langgraph_approval_lifecycle "
+                f"WHERE state NOT IN ({marks}) AND "
+                "((claim_consumed = 1 AND "
+                "(lease_deadline IS NULL OR lease_deadline <= ?)) OR "
+                "(claim_consumed = 0 AND deadline <= ?)) "
+                "ORDER BY CASE WHEN claim_consumed = 1 "
+                "THEN lease_deadline ELSE deadline END, approval_ref LIMIT ?",
+                (*_TERMINAL, now, now, limit),
+            ).fetchall()
         expired: list[ApprovalRecord] = []
-        for record in self.pending(limit):
-            ref = _identifier(record.intent.payload.get("approval_ref"), "approval ref")
-            current = self._expire_due(ref)
+        for row in rows:
+            current = self._expire_due(row["approval_ref"])
             if current is not None:
                 expired.append(current)
         return tuple(expired)

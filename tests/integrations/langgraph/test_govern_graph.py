@@ -217,6 +217,8 @@ def test_public_config_cannot_request_latest_checkpoint(marker: object, entrypoi
         "configurable": {
             "thread_id": "thread-1",
             "checkpoint_id": "caller-checkpoint",
+            "checkpoint_ns": "caller|child",
+            "checkpoint_map": {"caller|child": "caller-checkpoint"},
             "_zeroth_resume_latest_checkpoint": marker,
         }
     }
@@ -233,6 +235,8 @@ def test_public_config_cannot_request_latest_checkpoint(marker: object, entrypoi
 
     delivered = spy.configs[-1]["configurable"]
     assert delivered["checkpoint_id"] == "caller-checkpoint"
+    assert delivered["checkpoint_ns"] == "caller|child"
+    assert delivered["checkpoint_map"] == {"caller|child": "caller-checkpoint"}
     assert delivered["_zeroth_resume_latest_checkpoint"] is marker
 
 

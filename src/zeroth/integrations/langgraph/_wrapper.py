@@ -66,7 +66,8 @@ def _consume_latest_checkpoint_marker(
             return config
         current = dict(configurable)
         current.pop(_RESUME_LATEST_CHECKPOINT)
-        current.pop("checkpoint_id", None)
+        for key in ("checkpoint_id", "checkpoint_ns", "checkpoint_map"):
+            current.pop(key, None)
         return {**config, "configurable": current}
 
     if "config" in kwargs:
