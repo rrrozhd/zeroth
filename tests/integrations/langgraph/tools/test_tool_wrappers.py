@@ -35,11 +35,17 @@ import json
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Annotated, Any
 
 import pydantic
 import pytest
-from langchain_core.tools import BaseTool, StructuredTool, ToolException, tool
+from langchain_core.tools import (
+    BaseTool,
+    InjectedToolCallId,
+    StructuredTool,
+    ToolException,
+    tool,
+)
 from pydantic import BaseModel, ConfigDict
 
 from tests.integrations.langgraph.tools._hostile import (
@@ -50,7 +56,12 @@ from tests.integrations.langgraph.tools._hostile import (
 )
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ActorIdentity, AuthMethod
-from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
+from zeroth.integrations.langgraph._approval_lifecycle import (
+    ApprovalDecision,
+    ApprovalResolution,
+    ApprovalState,
+    SQLiteApprovalRepository,
+)
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
     GovernanceContextError,
@@ -128,6 +139,35 @@ class RecordingSubmitter:
     def submit(self, record: NodeAuditRecord) -> None:
         """Keep *record*, as the delivery queue's non-blocking hand-off does."""
         self.records.append(record)
+
+
+@dataclasses.dataclass
+class ApprovalReplayClient:
+    """Require the initial and replayed interrupt, then revalidate as allowed."""
+
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del context
+        self.seen.append(action)
+        return ALLOW if len(self.seen) >= 3 else APPROVE
+
+
+@dataclasses.dataclass
+class ApprovalReplayInterrupt:
+    """Suspend once, then deliver the repository's current fenced resolution."""
+
+    payloads: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    delivery: dict[str, Any] | None = None
+    before_delivery: Any = None
+
+    def __call__(self, payload: Any) -> Any:
+        self.payloads.append(dict(payload))
+        if self.delivery is None:
+            raise Suspended
+        if self.before_delivery is not None:
+            self.before_delivery()
+        return dict(self.delivery)
 
 
 def read_only(_target: object) -> SideEffectClass:
@@ -274,6 +314,45 @@ def wrap(target: Any, *, client: CountingClient, context: object = THREADED, **k
 
 
 _LIFECYCLE_DIRS: list[tempfile.TemporaryDirectory[str]] = []
+
+
+def prepare_base_tool_approval_replay(
+    tmp_path: Any,
+    original: BaseTool,
+    call_input: Any,
+    edited_arguments: dict[str, Any],
+) -> tuple[
+    GovernedTool,
+    SQLiteApprovalRepository,
+    ApprovalReplayClient,
+    ApprovalReplayInterrupt,
+]:
+    """Pause a real BaseTool call and prepare its fenced edited replay."""
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = ApprovalReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [original],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+    with pytest.raises(Suspended):
+        governed.invoke(call_input)
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution(
+        "approval-7", ApprovalDecision.APPROVE, edited_arguments
+    )
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {
+        **resolution.to_payload(),
+        "claim_token": claimed.claim_token,
+    }
+    return governed, repository, client, interrupt
 
 
 # --------------------------------------------------------------------------- #
@@ -1198,6 +1277,154 @@ def test_a_stateful_validator_cannot_slip_past_the_async_surface_either() -> Non
     assert dict(decided.arguments) == {"query": "safe"}
     assert ran == ["safe"]
     assert len(passes) == 1
+
+
+def test_approved_base_tool_edit_uses_native_schema_coercion(tmp_path: Any) -> None:
+    received: list[tuple[str, int]] = []
+
+    def update_row(table: str, row: int) -> int:
+        """Record the exact values that reached the tool body."""
+        received.append((table, row))
+        return row
+
+    original = StructuredTool.from_function(
+        func=update_row,
+        name="update_row",
+        description="Update one row.",
+        args_schema=Args,
+    )
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "42"},
+    )
+
+    assert governed.invoke({"table": "invoices", "row": 1}) == 42
+    assert received == [("invoices", 42)]
+    assert dict(client.seen[-1].arguments) == {"table": "invoices", "row": 42}
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_invalid_approved_base_tool_edit_fails_before_execution(tmp_path: Any) -> None:
+    body = Body()
+    governed, repository, _client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        sync_tool_with_schema(body),
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "not-an-integer"},
+    )
+
+    with pytest.raises(pydantic.ValidationError):
+        governed.invoke({"table": "invoices", "row": 1})
+
+    assert body.calls == 0
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+def test_approved_base_tool_edit_runs_field_validation_once_before_policy(
+    tmp_path: Any,
+) -> None:
+    passes: list[str] = []
+    received: list[str] = []
+
+    class NormalizedQuery(BaseModel):
+        query: str
+
+        @pydantic.field_validator("query")
+        @classmethod
+        def normalize(cls, value: str) -> str:
+            passes.append(value)
+            return value.strip().lower()
+
+    def search(query: str) -> str:
+        """Record the schema-normalized query."""
+        received.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=search,
+        name="search",
+        description="Search.",
+        args_schema=NormalizedQuery,
+    )
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"query": "original"},
+        {"query": "  SAFE  "},
+    )
+
+    assert governed.invoke({"query": "original"}) == "safe"
+    assert passes == ["original", "original", "  SAFE  "]
+    assert received == ["safe"]
+    assert dict(client.seen[-1].arguments) == {"query": "safe"}
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_approved_base_tool_edit_cannot_replace_an_injected_argument(tmp_path: Any) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(
+        query: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> str:
+        """Record the framework-injected call identity."""
+        calls.append((query, tool_call_id))
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    call = {
+        "name": "lookup",
+        "args": {"query": "original"},
+        "id": "call-original",
+        "type": "tool_call",
+    }
+    governed, repository, _client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        call,
+        {"query": "edited", "tool_call_id": "call-replacement"},
+    )
+
+    with pytest.raises(ToolGovernanceError, match="injected"):
+        governed.invoke(call)
+
+    assert calls == []
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+def test_approved_edit_validation_uses_the_pre_interrupt_schema_snapshot(
+    tmp_path: Any,
+) -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    governed, repository, _client, interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "not-an-integer"},
+    )
+
+    class PermissiveArgs(BaseModel):
+        table: str
+        row: str
+
+    interrupt.before_delivery = lambda: setattr(original, "args_schema", PermissiveArgs)
+    with pytest.raises(pydantic.ValidationError):
+        governed.invoke({"table": "invoices", "row": 1})
+
+    assert body.calls == 0
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
 
 
 def test_running_the_delegate_unvalidated_does_not_strip_the_delegates_own_validation() -> None:

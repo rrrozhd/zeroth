@@ -139,9 +139,11 @@ legacy correlation semantics and reports only a single, unambiguous match.
 
 ### Resume approvals durably
 
-Approval-gated tools require both a LangGraph checkpointer and a durable lifecycle
-store. Use a stable, writable SQLite path shared by the process that runs the graph
-and the process that resolves approvals:
+Approval-gated tools require both a persistent LangGraph checkpointer and a durable
+lifecycle store. Use production checkpointer storage and a stable, writable SQLite
+path shared by the process that runs the graph and the process that resolves
+approvals. `InMemorySaver` is suitable for tests, but is rejected by approval
+confirmation:
 
 ```python
 from zeroth.integrations.langgraph import (
@@ -159,32 +161,66 @@ governed = govern_tools(
     approval_lifecycle=lifecycle,
     **tool_policy,
 )
+compiled_graph = graph_builder.compile(checkpointer=durable_checkpointer)
+graph = govern_graph(compiled_graph, gateway_client=gateway)
+
+initial_config = {
+    "configurable": {
+        "thread_id": context.thread_id,
+        "_zeroth": initial_context_token,
+    }
+}
+graph.invoke(graph_input, config=initial_config)
 
 # After the graph has interrupted, confirm that the request reached a durable
-# checkpoint before exposing it to an approver.
+# checkpoint before exposing it to an approver. The attested saver must be the
+# exact saver used to compile the governed graph.
 coordinator = ApprovalCoordinator(lifecycle)
-coordinator.confirm_checkpoint(approval_ref, compiled_graph)
+coordinator.confirm_checkpoint(
+    approval_ref,
+    graph,
+    config=initial_config,
+    durable_checkpointer=durable_checkpointer,
+)
 
 # An approval API or worker may run these calls in another process.
 lifecycle.decide(
     ApprovalResolution(approval_ref, ApprovalDecision.APPROVE, edited_arguments)
 )
-coordinator.resume(approval_ref, compiled_graph, owner="approval-worker-1")
+resume_config = {
+    "configurable": {"_zeroth": fresh_authenticated_context_token},
+    "tags": ["approval-resume"],
+}
+coordinator.resume(
+    approval_ref,
+    graph,
+    owner="approval-worker-1",
+    config=resume_config,
+    durable_checkpointer=durable_checkpointer,
+)
 ```
 
 The lifecycle persists `awaiting_checkpoint → ready → decided → resuming →
 resolved`, plus `expired` and `orphaned` terminal states. Identical deliveries
 are idempotent; conflicting decisions and invalid transitions fail closed and
 remain visible in `lifecycle.events(approval_ref)`. A resume rechecks the stored
-interrupt on the original `thread_id`, passes a LangGraph `Command(resume=...)`
-to that checkpoint, and re-evaluates policy before any tool body runs. If an
-approver supplies edited arguments, only named arguments can be replayed safely.
+interrupt on the original `thread_id`, targets its exact LangGraph interrupt ID,
+and re-evaluates policy before any tool body runs. The coordinator replaces any
+caller-supplied thread or checkpoint position with the persisted one, while
+preserving the fresh `_zeroth` authentication token and other run config. Always
+resume through the governed graph so inventory and attestation hooks run again.
+
+Edited `BaseTool` arguments pass through the original Pydantic schema, coercion,
+and field validators before fresh policy evaluation; framework-injected fields
+cannot be edited. Only named arguments can be replayed safely on surfaces without
+that schema.
 
 Call `lifecycle.expire_due(limit=...)` and inspect `lifecycle.pending(limit=...)`
 from the existing approval worker or scheduled reconciliation loop. Zeroth does
 not start a second worker or network service for this integration. Missing
-durable storage or thread identity raises `ApprovalRequiresThreadError` with
-code `zeroth.approval_requires_thread`; the tool executes zero times.
+durable storage, a durable checkpointer, checkpoint access, or thread identity
+raises `ApprovalRequiresThreadError` with code
+`zeroth.approval_requires_thread`; the tool executes zero times.
 
 The returned wrappers go wherever the originals went — a `ToolNode`, a
 `StateGraph`, a `bind_tools` call — and answer to the same interfaces.
@@ -202,6 +238,7 @@ than optional. The public surface is:
 | Connect to Zeroth | `LangGraphGatewayClient`, `LangGraphGatewayError` |
 | Describe a call | `ToolGovernanceContext`, `ToolIdentity`, `ToolAction`, `SideEffectClass` |
 | Decide a call | `ToolDecisionClient`, `ToolDecision`, `ToolDecisionKind`, `FailClosedToolDecisionClient`, `UnknownSideEffectPolicy`, `ToolAuditSubmitter` |
+| Resume approvals | `SQLiteApprovalRepository`, `ApprovalCoordinator`, `ApprovalIntent`, `ApprovalResolution`, `ApprovalDecision`, `ApprovalState`, `ApprovalRecord`, `ApprovalTransition` |
 | Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError` |
 | Read the surface | `ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`, `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`, `report_tool_enforcement`, `match_tool_inventory`, `attest_complete_inventory` |
 

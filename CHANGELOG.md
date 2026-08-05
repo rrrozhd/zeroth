@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.1] - 2026-08-05
+
+### Fixed
+
+- Harden LangGraph approval resume with durable-checkpointer attestation,
+  interrupt-ID targeting, deadline and execution fencing, fresh authenticated
+  governed-graph resume, native validation of edited tool arguments, and
+  idempotent typed audit records.
+
 ## [0.16] - 2026-08-05
 
 ### Added
