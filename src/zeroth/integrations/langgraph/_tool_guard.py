@@ -81,6 +81,7 @@ from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalDecision,
     ApprovalRecord,
     SQLiteApprovalRepository,
+    _current_resume_claim,
 )
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
@@ -541,6 +542,7 @@ def _suspend_for_approval(
     actor: ActorIdentity | None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
     replay: ApprovalRecord | None = None,
+    resume_claim: tuple[str, str] | None = None,
 ) -> tuple[ToolAction, str, str]:
     """Suspend, consume the current fence, and revalidate the exact resumed call."""
     if replay is None:
@@ -551,7 +553,9 @@ def _suspend_for_approval(
             raise ToolGovernanceError("persisted approval has no resumable reference")
         payload = dict(record.intent.payload)
     else:
-        if replay.intent.arguments != action.arguments:
+        replay_ref = normalize_identifier(replay.intent.payload.get("approval_ref"))
+        resume_ref = None if resume_claim is None else resume_claim[0]
+        if replay_ref != resume_ref and replay.intent.arguments != action.arguments:
             raise ToolGovernanceError("approval replay arguments changed before delivery")
         payload, created = dict(replay.intent.payload), False
     if created:
@@ -564,8 +568,14 @@ def _suspend_for_approval(
             approval_ref=approval_ref,
         )
     suspend = _langgraph_interrupt if interrupt is None else interrupt
-    delivery = lifecycle.consume(suspend(payload))
+    resumed = suspend(payload)
+    delivery = lifecycle.consume(resumed)
     resolution, claim_token = delivery.resolution, delivery.claim_token
+    expected_delivery = (approval_ref, claim_token) if resume_claim is None else resume_claim
+    if (resolution.approval_ref, claim_token) != expected_delivery:
+        lifecycle.fail(resolution.approval_ref, claim_token)
+        raise ToolGovernanceError("approval delivery does not match the resumed action")
+    approval_ref = expected_delivery[0]
     if resolution.decision is ApprovalDecision.REJECT:
         lifecycle.finish(approval_ref, claim_token)
         _emit_decision_audit(
@@ -579,6 +589,8 @@ def _suspend_for_approval(
             approval_action=_APPROVAL_REJECT,
         )
         raise PolicyViolation("approval rejected this tool call")
+    if resume_claim is not None:
+        lifecycle._replay_for_claim(*resume_claim, _approval_action_identity(action, governance))
     try:
         arguments = action.arguments
         if resolution.arguments is not None:
@@ -653,11 +665,23 @@ def _authorize_tool_action(
     governance = require_governance_context(context)
     normalized = _require_stable_identity(action)
     _require_matching_principal(normalized, governance)
+    action_identity = _approval_action_identity(normalized, governance)
+    resume_claim = _current_resume_claim()
     replay = (
-        approval_lifecycle.replay_for(_approval_action_identity(normalized, governance))
+        approval_lifecycle.replay_for(action_identity)
         if type(approval_lifecycle) is SQLiteApprovalRepository
         else None
     )
+    if resume_claim is not None:
+        if type(approval_lifecycle) is not SQLiteApprovalRepository:
+            raise ApprovalRequiresThreadError("approval needs its durable lifecycle store")
+        claimed = approval_lifecycle._claimed_replay(*resume_claim)
+        if claimed is None:
+            if replay is not None and replay.intent.payload.get("approval_ref") == resume_claim[0]:
+                replay = None
+            resume_claim = None
+        elif replay is None:
+            replay = claimed
     if replay is not None:
         approval_ref = normalize_identifier(replay.intent.payload.get("approval_ref"))
         if approval_ref is None:
@@ -680,6 +704,7 @@ def _authorize_tool_action(
             actor,
             prepare_edited_arguments,
             replay,
+            resume_claim,
         )
         return _Authorization(
             decision,
