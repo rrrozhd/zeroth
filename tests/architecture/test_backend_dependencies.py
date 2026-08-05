@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).parents[2]
 SOURCE_ROOT = REPO_ROOT / "src"
 
@@ -243,3 +242,109 @@ def test_real_repository_obeys_backend_dependency_direction() -> None:
         f"{item.path.relative_to(REPO_ROOT)}:{item.line}: {item.importer} imports {item.imported}"
         for item in scan.violations
     )
+
+
+def test_langgraph_gateway_modules_classify_into_the_expected_domains() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+
+    assert {
+        module: architecture._canonical_domain(module)
+        for module in (
+            "zeroth.core.langgraph_gateway",
+            "zeroth.core.langgraph_gateway.models",
+            "zeroth.core.langgraph_gateway.inventory",
+            "zeroth.core.langgraph_gateway.capabilities",
+            "zeroth.core.langgraph_gateway.events",
+            "zeroth.core.langgraph_gateway.admission",
+            "zeroth.core.langgraph_gateway.compatibility",
+            "zeroth.core.langgraph_gateway.context",
+            "zeroth.core.langgraph_gateway.enforcement",
+            "zeroth.core.langgraph_gateway.enforcement_store",
+            "zeroth.core.langgraph_gateway.headers",
+            "zeroth.core.langgraph_gateway.proxy",
+            "zeroth.core.langgraph_gateway.routes",
+            "zeroth.core.langgraph_gateway.transport",
+        )
+    } == {
+        "zeroth.core.langgraph_gateway": "service",
+        "zeroth.core.langgraph_gateway.models": "contracts",
+        "zeroth.core.langgraph_gateway.inventory": "contracts",
+        "zeroth.core.langgraph_gateway.capabilities": "governance",
+        "zeroth.core.langgraph_gateway.events": "governance",
+        "zeroth.core.langgraph_gateway.admission": "service",
+        "zeroth.core.langgraph_gateway.compatibility": "service",
+        "zeroth.core.langgraph_gateway.context": "service",
+        "zeroth.core.langgraph_gateway.enforcement": "service",
+        "zeroth.core.langgraph_gateway.enforcement_store": "service",
+        "zeroth.core.langgraph_gateway.headers": "service",
+        "zeroth.core.langgraph_gateway.proxy": "service",
+        "zeroth.core.langgraph_gateway.routes": "service",
+        "zeroth.core.langgraph_gateway.transport": "service",
+    }
+
+
+def test_legacy_domain_prefixes_pin_the_exact_gateway_mapping_set() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+
+    gateway_prefixes = {
+        key: value
+        for key, value in architecture.LEGACY_DOMAIN_PREFIXES.items()
+        if key.startswith("zeroth.core.langgraph_gateway")
+    }
+
+    assert gateway_prefixes == {
+        "zeroth.core.langgraph_gateway": "service",
+        "zeroth.core.langgraph_gateway.models": "contracts",
+        "zeroth.core.langgraph_gateway.inventory": "contracts",
+        "zeroth.core.langgraph_gateway.capabilities": "governance",
+        "zeroth.core.langgraph_gateway.events": "governance",
+    }
+
+
+def test_every_langgraph_gateway_file_on_disk_classifies_to_a_domain() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    gateway_root = SOURCE_ROOT / "zeroth" / "core" / "langgraph_gateway"
+
+    for path in sorted(gateway_root.glob("*.py")):
+        module, _ = architecture._module_name(path, SOURCE_ROOT)
+        assert architecture._canonical_domain(module) is not None, module
+
+
+def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    scan = architecture.scan_backend_dependencies(SOURCE_ROOT, exceptions={})
+    gateway_edges = {
+        (item.importer, item.imported)
+        for item in scan.violations
+        if item.importer.startswith("zeroth.core.langgraph_gateway")
+        or item.imported.startswith("zeroth.core.langgraph_gateway")
+    }
+
+    assert gateway_edges == {
+        ("zeroth.governance.decisions.service", "zeroth.core.langgraph_gateway.admission"),
+        (
+            "zeroth.integrations.langgraph._gateway_client",
+            "zeroth.core.langgraph_gateway.enforcement",
+        ),
+    }
+
+
+def test_langgraph_gateway_exceptions_are_the_only_gateway_entries_and_documented() -> None:
+    architecture = importlib.import_module("zeroth._architecture")
+    gateway_exceptions = {
+        edge
+        for edge in architecture.TEMPORARY_EXCEPTIONS
+        if "langgraph_gateway" in edge[0] + edge[1]
+    }
+
+    assert gateway_exceptions == {
+        ("zeroth.governance.decisions.service", "zeroth.core.langgraph_gateway.admission"),
+        (
+            "zeroth.integrations.langgraph._gateway_client",
+            "zeroth.core.langgraph_gateway.enforcement",
+        ),
+    }
+    for edge in sorted(gateway_exceptions):
+        exception = architecture.TEMPORARY_EXCEPTIONS[edge]
+        assert exception.reason.strip()
+        assert exception.removal_task.startswith("Task ")

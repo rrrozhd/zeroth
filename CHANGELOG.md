@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.15.1.0.1] - 2026-08-05
+
+### Changed
+
+- Classify `zeroth.core.langgraph_gateway` under the backend architecture
+  policy through five legacy prefix mappings, so every module in the package
+  resolves to a domain instead of escaping the dependency scanner.
+- Record the two forbidden edges the classification exposes as documented
+  temporary exceptions — the governance decision service's admission reuse and
+  the LangGraph integration client's enforcement reuse — with removal tracked
+  by the gateway relocation task.
+
 ## [0.15.1] - 2026-08-05
 
 ### Added
