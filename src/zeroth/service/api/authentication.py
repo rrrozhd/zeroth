@@ -6,12 +6,14 @@ import hmac
 import inspect
 import json
 import os
+import threading
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import urlopen
+from urllib.request import HTTPRedirectHandler, build_opener
 from uuid import uuid4
 
 from fastapi import Request
@@ -28,6 +30,17 @@ except ImportError:  # pragma: no cover - graceful until dependency is added
 
 _REMOTE_JWKS_MAX_BYTES = 64 * 1024
 _REMOTE_JWKS_CACHE_SECONDS = 300.0
+_REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS = 5.0
+
+
+class _HTTPOnlyRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme.lower() not in {"http", "https"}:
+            raise HTTPError(req.full_url, code, msg, headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_open_remote_jwks = build_opener(_HTTPOnlyRedirectHandler()).open
 
 
 class AuthenticationError(RuntimeError):
@@ -89,11 +102,7 @@ class ServiceAuthConfig(BaseModel):
 
 _auth_parameters = inspect.signature(ServiceAuthConfig).parameters
 ServiceAuthConfig.__signature__ = inspect.signature(ServiceAuthConfig).replace(
-    parameters=[
-        parameter
-        for name, parameter in _auth_parameters.items()
-        if name != "custom_roles"
-    ]
+    parameters=[parameter for name, parameter in _auth_parameters.items() if name != "custom_roles"]
 )
 
 
@@ -103,6 +112,8 @@ class JWTBearerTokenVerifier:
     def __init__(self, config: BearerTokenConfig):
         self._config = config
         self._cached_jwks: tuple[float, dict[str, Any]] | None = None
+        self._jwks_lock = threading.Lock()
+        self._next_remote_fetch_at = 0.0
 
     def verify(self, token: str) -> AuthenticatedPrincipal:
         if jwt is None:
@@ -112,22 +123,11 @@ class JWTBearerTokenVerifier:
         except Exception as exc:  # pragma: no cover - dependency-specific details
             raise AuthenticationError("invalid bearer token") from exc
         try:
-            cached_jwks = self._cached_jwks
-            cached_remote_jwks = (
-                cached_jwks
-                if not self._config.jwks
-                and cached_jwks is not None
-                and cached_jwks[0] > time.monotonic()
-                else None
+            key = (
+                self._resolve_signing_key(header.get("kid"), self._config.jwks)
+                if self._config.jwks
+                else self._resolve_remote_signing_key(header.get("kid"))
             )
-            jwks = self._config.jwks or (
-                cached_remote_jwks[1]
-                if cached_remote_jwks is not None
-                else self._load_jwks()
-            )
-            key = self._resolve_signing_key(header.get("kid"), jwks)
-            if key is None and cached_remote_jwks is not None:
-                key = self._resolve_signing_key(header.get("kid"), self._load_jwks())
             if key is None:
                 raise AuthenticationError("invalid bearer token")
         except Exception as exc:  # pragma: no cover - dependency-specific details
@@ -152,10 +152,42 @@ class JWTBearerTokenVerifier:
             claims=dict(claims),
         )
 
+    def _resolve_remote_signing_key(self, kid: str | None) -> Any:
+        with self._jwks_lock:
+            cached_jwks = self._cached_jwks
+            cached_remote_jwks = (
+                cached_jwks
+                if cached_jwks is not None and cached_jwks[0] > time.monotonic()
+                else None
+            )
+            jwks = cached_remote_jwks[1] if cached_remote_jwks is not None else None
+            if jwks is None:
+                if time.monotonic() < self._next_remote_fetch_at:
+                    return None
+                try:
+                    jwks = self._load_jwks()
+                except Exception:
+                    self._next_remote_fetch_at = (
+                        time.monotonic() + _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS
+                    )
+                    raise
+            key = self._resolve_signing_key(kid, jwks)
+            if key is None and cached_remote_jwks is not None:
+                if time.monotonic() < self._next_remote_fetch_at:
+                    return None
+                try:
+                    jwks = self._load_jwks()
+                finally:
+                    self._next_remote_fetch_at = (
+                        time.monotonic() + _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS
+                    )
+                key = self._resolve_signing_key(kid, jwks)
+            return key
+
     def _load_jwks(self) -> dict[str, Any]:
         if urlsplit(self._config.jwks_url or "").scheme.lower() not in {"http", "https"}:
             raise ValueError("remote JWKS URL must use HTTP(S)")
-        with urlopen(
+        with _open_remote_jwks(
             self._config.jwks_url, timeout=3.0
         ) as response:  # pragma: no cover - network path
             payload = response.read(_REMOTE_JWKS_MAX_BYTES + 1)
