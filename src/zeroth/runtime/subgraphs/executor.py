@@ -30,7 +30,7 @@ from zeroth.runtime.subgraphs.resolver import (
 )
 
 if TYPE_CHECKING:
-    from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+    from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 
 logger = logging.getLogger(__name__)
 
