@@ -12,9 +12,9 @@ from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityResult,
     CompatibilityStatus,
 )
-from zeroth.core.service.app import create_app
-from zeroth.core.service.health import DependencyStatus, register_health_routes
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.service.api.health import DependencyStatus, register_health_routes
+from zeroth.service.app import create_app
 from zeroth.service.langgraph_gateway.routes import GatewayWebSocketEndpoint
 
 

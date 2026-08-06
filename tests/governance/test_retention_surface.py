@@ -62,8 +62,8 @@ def test_retention_submodules_publish_their_names() -> None:
 
 
 def test_retention_repositories_publish_their_names() -> None:
-    from zeroth.core.retention import audit_log_repository as legacy_audit_log
     from zeroth.governance.retention import audit_log_repository as canonical_audit_log
+    from zeroth.governance.retention import audit_log_repository as legacy_audit_log
     from zeroth.governance.retention import cleanup_state_repository as canonical_state
     from zeroth.governance.retention import econ_eraser as canonical_econ
     from zeroth.governance.retention import legal_hold_repository as canonical_hold

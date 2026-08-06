@@ -44,7 +44,7 @@ def main() -> int:
     # any extras. Phase 30 will replace this with a proper graph walkthrough.
     from litellm import completion
 
-    import zeroth.core  # noqa: F401
+    import zeroth.runtime  # noqa: F401
 
     response = completion(
         model="anthropic/claude-3-haiku-20240307",

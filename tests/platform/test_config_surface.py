@@ -40,8 +40,8 @@ def test_the_composed_settings_sections_are_platform_owned() -> None:
     legacy ``zeroth.core.econ.models`` and ``zeroth.core.http.models`` paths
     republish the same class objects.
     """
-    from zeroth.core.econ import models as legacy_econ_models
-    from zeroth.core.http import models as legacy_http_models
+    from zeroth.econ.analytics import models as legacy_econ_models
+    from zeroth.integrations.http import models as legacy_http_models
     from zeroth.platform.config.models import HttpClientSettings, RegulusSettings
 
     assert RegulusSettings is legacy_econ_models.RegulusSettings

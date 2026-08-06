@@ -35,8 +35,14 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command, Send
 
 from tests.integrations.langgraph.test_enforcement_attestations import _signer, _token
-from zeroth.core.langgraph_gateway.context import ReservedContextCodec
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.integrations.langgraph import (
+    InventoryCoverage,
+    LangGraphGatewayClient,
+    ToolInventory,
+    ToolInventoryEntry,
+    govern_tools,
+)
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalCoordinator,
     ApprovalDecision,
@@ -60,14 +66,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolGovernanceContext,
 )
 from zeroth.integrations.langgraph._wrapper import govern_graph
-from zeroth.integrations.langgraph import (
-    InventoryCoverage,
-    LangGraphGatewayClient,
-    ToolIdentity,
-    ToolInventory,
-    ToolInventoryEntry,
-    govern_tools,
-)
+from zeroth.service.langgraph_gateway.context import ReservedContextCodec
 
 CONTEXT = ToolGovernanceContext(
     tenant_id="tenant-a",

@@ -54,34 +54,40 @@ def test_graph_submodules_publish_their_names() -> None:
     from zeroth.contracts.graph import errors as canonical_errors
     from zeroth.contracts.graph import models as canonical_models
     from zeroth.contracts.graph import validation_errors as canonical_validation_errors
-    from zeroth.core.graph import validation_errors as legacy_validation_errors
 
     assert hasattr(canonical_errors, "GraphLifecycleError")
     assert hasattr(canonical_models, "Graph")
     assert hasattr(canonical_models, "NodeBase")
-    assert (
-        canonical_validation_errors.GraphValidationError
-        is legacy_validation_errors.GraphValidationError
-    )
+    assert hasattr(canonical_validation_errors, "GraphValidationError")
     assert hasattr(canonical_validation_errors, "ValidationIssue")
 
 
 def test_separated_node_models_have_one_contract_owned_definition() -> None:
+    """The node models the runtime packages expose are the contract's own objects.
+
+    The comparison used to run through the legacy republishers; it now runs
+    against the canonical runtime packages, which is what it was always really
+    asserting -- that these packages do not fork the contract's definitions.
+    """
     from zeroth.contracts.graph import models as canonical
-    from zeroth.core.context_window import models as context_window_models
-    from zeroth.core.parallel import models as parallel_models
-    from zeroth.core.subgraph import models as subgraph_models
+    from zeroth.runtime.context import models as context_window_models
+    from zeroth.runtime.parallel import models as parallel_models
+    from zeroth.runtime.subgraphs import models as subgraph_models
 
     assert subgraph_models.SubgraphNodeData is canonical.SubgraphNodeData
     assert parallel_models.ParallelConfig is canonical.ParallelConfig
     assert context_window_models.ContextWindowSettings is canonical.ContextWindowSettings
 
 
-def test_graph_validator_stays_runtime_owned_and_lazily_republished() -> None:
-    from zeroth.core.graph import validation as legacy_validation
+def test_graph_validator_stays_runtime_owned() -> None:
+    """``GraphValidator`` is defined by the runtime, not by the contracts layer.
+
+    The legacy ``zeroth.core.graph.validation`` facade this used to compare
+    against is gone; the ownership it was pinning is asserted directly.
+    """
     from zeroth.runtime.graph_validation import GraphValidator
 
-    assert legacy_validation.GraphValidator is GraphValidator
+    assert GraphValidator.__module__ == "zeroth.runtime.graph_validation"
 
 
 def test_models_imports_in_a_cold_interpreter() -> None:

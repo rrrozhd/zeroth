@@ -53,7 +53,7 @@ def test_registry_errors_publish_their_names() -> None:
 
 def test_execution_placement_has_one_contract_owned_definition() -> None:
     from zeroth.contracts.registry import tooling
-    from zeroth.core.governed.tools import base
+    from zeroth.runtime.agents.tooling import base
 
     assert base.ExecutionPlacement is tooling.ExecutionPlacement
 

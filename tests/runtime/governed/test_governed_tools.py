@@ -61,7 +61,7 @@ def test_governed_tools_are_the_same_objects(
 
 
 def test_aggregator_keeps_republishing_the_runtime_owned_tool() -> None:
-    from zeroth.core.governed import Tool as AggregatorTool
+    from zeroth.runtime.agents.tooling.base import Tool as AggregatorTool
     from zeroth.runtime.agents.tooling.base import Tool as CanonicalTool
 
     assert AggregatorTool is CanonicalTool

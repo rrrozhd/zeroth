@@ -25,14 +25,14 @@ from starlette.routing import Route
 # Import the service package through its bootstrap path before importing the proxy;
 # the package initializer itself imports bootstrap and otherwise creates a standalone
 # subprocess-only circular import through ``proxy -> service.auth``.
-import zeroth.core.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
+import zeroth.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
 from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.econ.budget import BudgetCheckResult
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.policy.models import RunAdmissionResult
-from zeroth.core.secrets.provider import EnvSecretProvider
-from zeroth.core.signing import EnvHmacSigner
+from zeroth.econ.analytics import BudgetCheckResult
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.policy import RunAdmissionResult
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.secrets import EnvSecretProvider
+from zeroth.platform.signing import EnvHmacSigner
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
 from zeroth.service.langgraph_gateway.proxy import GatewayProxy
@@ -792,7 +792,7 @@ def _capture_subscription_frames(
 
     def subscribe() -> None:
         try:
-            with httpx.Client(timeout=httpx.Timeout(15, read=15)) as subscriber:
+            with httpx.Client(timeout=httpx.Timeout(15, read=15)) as subscriber:  # noqa: SIM117
                 with subscriber.stream(
                     case.method,
                     f"{base_url}{case.path(context)}",

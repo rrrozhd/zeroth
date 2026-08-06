@@ -109,10 +109,8 @@ def test_econ_package_exports_are_the_same_through_both_paths() -> None:
 def test_unit_economics_stays_the_callable_not_the_submodule() -> None:
     import types
 
-    import zeroth.core.econ as legacy
     import zeroth.econ.analytics as canonical
 
-    assert not isinstance(legacy.unit_economics, types.ModuleType)
     assert not isinstance(canonical.unit_economics, types.ModuleType)
     assert hasattr(canonical, "unit_economics")
 
@@ -121,10 +119,9 @@ def test_unit_economics_stays_the_callable_not_the_submodule() -> None:
 def test_econ_analytics_modules_publish_their_names(
     module_name: str,
 ) -> None:
-    legacy_module = importlib.import_module(f"zeroth.core.econ.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.econ.analytics.{module_name}")
 
-    for name in getattr(legacy_module, "__all__", []):
+    for name in getattr(canonical_module, "__all__", []):
         assert hasattr(canonical_module, name), name
 
 
@@ -142,17 +139,22 @@ def test_regulus_settings_stays_the_platform_owned_model() -> None:
     assert RepublishedSettings is PlatformSettings
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [],
-)
-def test_econ_cold_imports_from_both_directions(first: str, second: str) -> None:
+@pytest.mark.parametrize("module", ("zeroth.econ.analytics", "zeroth.econ.analytics.models"))
+def test_analytics_modules_import_in_a_cold_interpreter(module: str) -> None:
+    """Each canonical module imports with nothing else pre-warmed.
+
+    The original ran every ordered pair of canonical and legacy packages to
+    catch a cycle between them. With the legacy packages gone, an emptied
+    parameter list would collect zero cases and pass while proving nothing --
+    so it asserts each canonical module stands up on its own instead.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", f"import {module}"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, f"cold import of {module} failed:\n{result.stderr}"
 
 
 def test_importing_econ_models_keeps_the_run_domain_off_the_import_path() -> None:
@@ -163,7 +165,7 @@ def test_importing_econ_models_keeps_the_run_domain_off_the_import_path() -> Non
             "-c",
             "import sys\n"
             "import zeroth.econ.analytics.models\n"
-            "assert 'zeroth.core.runs' not in sys.modules, 'run domain loaded'\n",
+            "assert 'zeroth.runtime.runs' not in sys.modules, 'run domain loaded'\n",
         ],
         capture_output=True,
         text=True,
