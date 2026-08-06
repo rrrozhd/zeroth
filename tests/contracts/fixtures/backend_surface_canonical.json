@@ -4140,8 +4140,8 @@
       "legacy_ids": [
         "zeroth.core.examples.quickstart:build_demo_graph"
       ],
-      "module": "zeroth.core.examples.quickstart",
       "name": "build_demo_graph",
+      "repository_path": "examples/quickstart.py",
       "signature": "(instruction: 'str' = 'You are a friendly assistant. Answer the user briefly, then call the `echo` tool with your answer.', llm_model: 'str' = 'openai/gpt-4o-mini', *, include_approval: 'bool' = False) -> 'Graph'"
     },
     {
