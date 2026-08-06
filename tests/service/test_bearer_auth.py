@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -10,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service
 from zeroth.governance.identity import ServiceRole
+from zeroth.platform.observability.correlation import get_correlation_id
 from zeroth.service.api import authentication
 from zeroth.service.api.authentication import BearerTokenConfig, ServiceAuthConfig
 from zeroth.service.api.authentication import AuthenticationError, JWTBearerTokenVerifier
@@ -135,7 +142,7 @@ async def test_runs_rejects_bearer_token_when_remote_jwks_is_unavailable(
     def unavailable(*_args: object, **_kwargs: object) -> object:
         raise OSError("unavailable")
 
-    monkeypatch.setattr(authentication, "urlopen", unavailable)
+    monkeypatch.setattr(authentication, "_open_remote_jwks", unavailable)
     service, _ = await deploy_service(
         sqlite_db,
         approval_resume_graph(graph_id="graph-bearer-jwks-unavailable"),
@@ -154,6 +161,74 @@ async def test_runs_rejects_bearer_token_when_remote_jwks_is_unavailable(
     assert response.json() == {"detail": "invalid bearer token"}
 
 
+async def test_remote_jwks_fetch_does_not_block_http_event_loop(
+    sqlite_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth_config, private_key, _ = _remote_bearer_auth_fixture()
+    token = _encode_token(private_key)
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+    heartbeat = threading.Event()
+    heartbeat_before_release: list[bool] = []
+    seen_correlation: list[str] = []
+    downstream_called = False
+
+    def unavailable(*_args: object, **_kwargs: object) -> object:
+        seen_correlation.append(get_correlation_id())
+        fetch_started.set()
+        assert release_fetch.wait(timeout=1)
+        raise OSError("unavailable")
+
+    def observe_then_release() -> None:
+        assert fetch_started.wait(timeout=1)
+        heartbeat_before_release.append(heartbeat.wait(timeout=0.2))
+        release_fetch.set()
+
+    monkeypatch.setattr(authentication, "_open_remote_jwks", unavailable)
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-bearer-jwks-off-loop"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+
+    @app.get("/auth-event-loop-probe")
+    async def protected_probe() -> dict[str, bool]:
+        nonlocal downstream_called
+        downstream_called = True
+        return {"ok": True}
+
+    async def beat_after_fetch_starts() -> None:
+        assert await asyncio.to_thread(fetch_started.wait, 1)
+        heartbeat.set()
+
+    observer = threading.Thread(target=observe_then_release, daemon=True)
+    observer.start()
+    heartbeat_task = asyncio.create_task(beat_after_fetch_starts())
+    await asyncio.sleep(0)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/auth-event-loop-probe",
+            headers={
+                **_token_headers(token),
+                "X-Correlation-ID": "corr-off-loop-auth",
+            },
+        )
+    await heartbeat_task
+    observer.join(timeout=1)
+
+    assert heartbeat_before_release == [True]
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+    assert downstream_called is False
+    assert seen_correlation == ["corr-off-loop-auth"]
+
+
 def test_remote_jwks_fetch_uses_short_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -165,7 +240,7 @@ def test_remote_jwks_fetch_uses_short_timeout(
         seen_timeout.append(float(kwargs["timeout"]))
         raise TimeoutError
 
-    monkeypatch.setattr(authentication, "urlopen", timeout)
+    monkeypatch.setattr(authentication, "_open_remote_jwks", timeout)
 
     with pytest.raises(AuthenticationError, match="^invalid bearer token$"):
         JWTBearerTokenVerifier(auth_config.bearer).verify(token)  # type: ignore[arg-type]
@@ -182,7 +257,7 @@ def test_remote_jwks_rejects_oversized_response(
     oversized = json.dumps({**jwks, "padding": "x" * (1024 * 1024)}).encode()
     monkeypatch.setattr(
         authentication,
-        "urlopen",
+        "_open_remote_jwks",
         lambda *_args, **_kwargs: _JWKSResponse(oversized),
     )
 
@@ -197,7 +272,7 @@ def test_remote_jwks_rejects_malformed_json(
     token = _encode_token(private_key)
     monkeypatch.setattr(
         authentication,
-        "urlopen",
+        "_open_remote_jwks",
         lambda *_args, **_kwargs: _JWKSResponse(b"{not-json"),
     )
 
@@ -219,7 +294,7 @@ def test_remote_jwks_cache_reuses_key_set_for_300_seconds(
         calls += 1
         return _JWKSResponse(payload)
 
-    monkeypatch.setattr(authentication, "urlopen", fetch)
+    monkeypatch.setattr(authentication, "_open_remote_jwks", fetch)
     monkeypatch.setattr(authentication.time, "monotonic", lambda: now)
     verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
 
@@ -230,6 +305,83 @@ def test_remote_jwks_cache_reuses_key_set_for_300_seconds(
     now = 300.0
     assert verifier.verify(token).subject == "reviewer-bearer"
     assert calls == 2
+
+
+def test_remote_jwks_concurrent_initial_miss_fetches_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth_config, private_key, jwks = _remote_bearer_auth_fixture()
+    token = _encode_token(private_key)
+    payload = json.dumps(jwks).encode()
+    worker_count = 8
+    start = threading.Barrier(worker_count + 1)
+    first_fetch = threading.Event()
+    second_fetch = threading.Event()
+    release_fetch = threading.Event()
+    calls_lock = threading.Lock()
+    calls = 0
+
+    def fetch(*_args: object, **_kwargs: object) -> _JWKSResponse:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+            if calls > 1:
+                second_fetch.set()
+        first_fetch.set()
+        assert release_fetch.wait(timeout=1)
+        return _JWKSResponse(payload)
+
+    verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
+
+    def verify_shared() -> str:
+        start.wait(timeout=1)
+        return verifier.verify(token).subject
+
+    monkeypatch.setattr(authentication, "_open_remote_jwks", fetch)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(verify_shared) for _ in range(worker_count)]
+        start.wait(timeout=1)
+        assert first_fetch.wait(timeout=1)
+        second_fetch.wait(timeout=0.2)
+        release_fetch.set()
+        assert [future.result(timeout=1) for future in futures] == [
+            "reviewer-bearer"
+        ] * worker_count
+
+    assert calls == 1
+
+
+def test_remote_jwks_concurrent_initial_failure_fetches_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth_config, private_key, _ = _remote_bearer_auth_fixture()
+    token = _encode_token(private_key)
+    worker_count = 8
+    start = threading.Barrier(worker_count + 1)
+    calls_lock = threading.Lock()
+    calls = 0
+
+    def unavailable(*_args: object, **_kwargs: object) -> object:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        raise OSError("unavailable")
+
+    verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
+
+    def verify_shared() -> bool:
+        start.wait(timeout=1)
+        with pytest.raises(AuthenticationError, match="^invalid bearer token$"):
+            verifier.verify(token)
+        return True
+
+    monkeypatch.setattr(authentication, "_open_remote_jwks", unavailable)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(verify_shared) for _ in range(worker_count)]
+        start.wait(timeout=1)
+        assert all(future.result(timeout=1) for future in futures)
+
+    assert calls == 1
 
 
 def test_remote_jwks_cached_unknown_kid_refreshes_once_for_rotation(
@@ -248,13 +400,43 @@ def test_remote_jwks_cached_unknown_kid_refreshes_once_for_rotation(
         calls += 1
         return _JWKSResponse(next(responses))
 
-    monkeypatch.setattr(authentication, "urlopen", fetch)
+    monkeypatch.setattr(authentication, "_open_remote_jwks", fetch)
     verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
 
     assert verifier.verify(_encode_token(old_key, kid="old-key")).subject
     replacement = _encode_token(replacement_key, kid="replacement-key")
     assert verifier.verify(replacement).subject == "reviewer-bearer"
     assert verifier.verify(replacement).subject == "reviewer-bearer"
+
+    for index in range(20):
+        with pytest.raises(AuthenticationError, match="^invalid bearer token$"):
+            verifier.verify(_encode_token(old_key, kid=f"unknown-{index}"))
+
+    assert calls == 2
+
+
+def test_remote_jwks_failed_forced_refresh_enters_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth_config, private_key, jwks = _remote_bearer_auth_fixture()
+    payload = json.dumps(jwks).encode()
+    calls = 0
+
+    def fetch(*_args: object, **_kwargs: object) -> _JWKSResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _JWKSResponse(payload)
+        raise OSError("unavailable")
+
+    monkeypatch.setattr(authentication, "_open_remote_jwks", fetch)
+    verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
+
+    assert verifier.verify(_encode_token(private_key)).subject == "reviewer-bearer"
+    for index in range(20):
+        with pytest.raises(AuthenticationError, match="^invalid bearer token$"):
+            verifier.verify(_encode_token(private_key, kid=f"unknown-{index}"))
+
     assert calls == 2
 
 
@@ -272,12 +454,27 @@ def test_remote_jwks_rejects_non_http_url_before_fetch(
         calls += 1
         return _JWKSResponse(json.dumps(jwks).encode())
 
-    monkeypatch.setattr(authentication, "urlopen", fetch)
+    monkeypatch.setattr(authentication, "_open_remote_jwks", fetch)
 
     with pytest.raises(AuthenticationError, match="^invalid bearer token$"):
         JWTBearerTokenVerifier(auth_config.bearer).verify(token)
 
     assert calls == 0
+
+
+@pytest.mark.parametrize("target", ["file:///private/tmp/jwks", "ftp://example.test/jwks"])
+def test_remote_jwks_redirect_handler_rejects_non_http_target(target: str) -> None:
+    handler_type = getattr(authentication, "_HTTPOnlyRedirectHandler", HTTPRedirectHandler)
+
+    with pytest.raises(HTTPError):
+        handler_type().redirect_request(
+            Request("https://issuer.example.test/jwks"),
+            None,
+            302,
+            "Found",
+            {},
+            target,
+        )
 
 
 async def test_runs_rejects_expired_bearer_token(sqlite_db) -> None:

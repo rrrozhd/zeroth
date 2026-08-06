@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Protocol
 
@@ -143,7 +144,9 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
         set_correlation_id(cid)
         bootstrap = app.state.bootstrap
         try:
-            request.state.principal = bootstrap.authenticator.authenticate_headers(request.headers)
+            request.state.principal = await asyncio.to_thread(
+                bootstrap.authenticator.authenticate_headers, request.headers
+            )
         except AuthenticationError as exc:
             logger.info("authentication failed: %s", exc)
             await record_service_denial(
