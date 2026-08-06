@@ -64,6 +64,7 @@ digest.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
@@ -947,7 +948,8 @@ async def aguard_tool_call(
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
     """Async twin of :func:`guard_tool_call` with the same completion fence."""
-    authorization = _authorize_tool_action(
+    authorization = await asyncio.to_thread(
+        _authorize_tool_action,
         action,
         context,
         client=client,
