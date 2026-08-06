@@ -9,22 +9,9 @@ from typing import Any
 import httpx
 import pytest
 
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
-from zeroth.core.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
-from zeroth.core.langgraph_gateway.enforcement import (
-    ActionDescriptorV1,
-    DecisionRequestV1,
-    EnforcementBoundaryError,
-    HeartbeatV1,
-    InventoryEntryV1,
-    InventoryRegistrationV1,
-    LangGraphEnforcementRepository,
-    LangGraphEnforcementService,
-    RunAttestationV1,
-    inventory_fingerprint,
-)
-from zeroth.core.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.core.signing import EnvHmacSigner
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.policy import PolicyDecision, PolicyGuard
 from zeroth.governance.policy.registry import default_capability_registry
 from zeroth.integrations.langgraph import (
@@ -36,8 +23,8 @@ from zeroth.integrations.langgraph import (
     ToolAction,
     ToolDecision,
     ToolDecisionKind,
-    ToolGovernanceError,
     ToolGovernanceContext,
+    ToolGovernanceError,
     ToolIdentity,
     ToolInventory,
     ToolInventoryEntry,
@@ -47,6 +34,19 @@ from zeroth.integrations.langgraph import (
     record_tool_inventory,
 )
 from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
+from zeroth.service.langgraph_gateway.enforcement import (
+    ActionDescriptorV1,
+    DecisionRequestV1,
+    EnforcementBoundaryError,
+    HeartbeatV1,
+    InventoryEntryV1,
+    InventoryRegistrationV1,
+    LangGraphEnforcementRepository,
+    LangGraphEnforcementService,
+    RunAttestationV1,
+    inventory_fingerprint,
+)
 
 NOW = datetime(2026, 8, 4, 18, 0, tzinfo=UTC)
 

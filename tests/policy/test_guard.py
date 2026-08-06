@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from zeroth.contracts.graph import AgentNode, AgentNodeData, ExecutionSettings, Graph
-from zeroth.core.langgraph_gateway.models import AdmissionRequest
+from zeroth.contracts.langgraph_gateway.models import AdmissionRequest
 from zeroth.governance.policy import (
     Capability,
     CapabilityRegistry,

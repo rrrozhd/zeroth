@@ -1,386 +1,102 @@
-"""Route registration and governed protocol-v2 WebSocket handling."""
+"""Legacy import path for the gateway routes module.
+
+It now lives in :mod:`zeroth.service.langgraph_gateway.routes`; this module
+republishes exactly the names it published before ZER-24 relocated it. Import
+from the canonical location instead (see docs/backend-import-migration.md).
+
+Resolution is lazy on purpose: importing this shim must not drag the
+``service`` package onto the import path of anything that merely touches
+``zeroth.core.langgraph_gateway``.
+
+The export list is the surface captured *before* the move, in
+``tests/langgraph_gateway/fixtures/legacy_surface_manifest.json``. It is wider than a curated
+``__all__`` because this module never declared one -- its public surface was
+whatever a star-import saw, incidental imports included -- and narrowing it now
+would break a caller that relied on the old behaviour.
+
+The shim declares that surface as ``__all__`` even though the pre-move module did
+not. Overriding ``__dir__`` alone is not enough: ``from X import *`` reads the
+module namespace and never consults ``__dir__``, so a lazy shim without
+``__all__`` exports only its own globals. Declaring it is what keeps the
+observable star-import surface identical.
+"""
 
 from __future__ import annotations
 
-import json
-import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Protocol
-from uuid import uuid4
+from typing import Any
 
-from fastapi import APIRouter, FastAPI, Request, WebSocket
-from pydantic import ValidationError
-from starlette.routing import WebSocketRoute
-
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.identity import AuthenticatedPrincipal
-from zeroth.core.langgraph_gateway.admission import (
-    BudgetChecker,
-    InputClassifier,
-    PolicyAdmissionChecker,
-    UnclassifiedInputClassifier,
-    admit,
+_EXPORTS = frozenset(
+    {
+        "APIRouter",
+        "AdmissionRequest",
+        "Any",
+        "AuthenticatedPrincipal",
+        "AuthenticationError",
+        "BudgetChecker",
+        "Callable",
+        "CompatibilityResult",
+        "CompatibilityStatus",
+        "FastAPI",
+        "GatewayContextError",
+        "GatewayWebSocketEndpoint",
+        "HTTPGatewayProxy",
+        "HTTPGatewayTransport",
+        "InputClassifier",
+        "LangGraphGatewaySettings",
+        "PolicyAdmissionChecker",
+        "Protocol",
+        "Request",
+        "ReservedContextClaims",
+        "ReservedContextCodec",
+        "RouteDisposition",
+        "ServiceAuthenticator",
+        "UnclassifiedInputClassifier",
+        "UpstreamCredentialUnavailableError",
+        "ValidationError",
+        "WebSocket",
+        "WebSocketClientError",
+        "WebSocketGatewayCloseError",
+        "WebSocketGatewayHandler",
+        "WebSocketMessage",
+        "WebSocketRoute",
+        "admit",
+        "annotations",
+        "classify_protocol_command",
+        "dataclass",
+        "inject_reserved_context",
+        "json",
+        "register_gateway_routes",
+        "set_correlation_id",
+        "time",
+        "uuid4",
+    }
 )
-from zeroth.core.langgraph_gateway.context import (
-    GatewayContextError,
-    ReservedContextClaims,
-    ReservedContextCodec,
-    inject_reserved_context,
-)
-from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
-from zeroth.core.langgraph_gateway.inventory import classify_protocol_command
-from zeroth.core.langgraph_gateway.models import (
-    AdmissionRequest,
-    CompatibilityResult,
-    CompatibilityStatus,
-    RouteDisposition,
-)
-from zeroth.core.langgraph_gateway.transport import (
-    HTTPGatewayTransport,
-    WebSocketClientError,
-    WebSocketMessage,
-)
-from zeroth.core.observability.correlation import set_correlation_id
-from zeroth.core.service.auth import AuthenticationError, ServiceAuthenticator
 
-_CORRELATION_HEADER = "X-Correlation-ID"
-_AUTHENTICATION_CLOSE_CODE = 4401
+# Declared even though the pre-move module did not declare one. ``from X import *``
+# reads the module namespace when ``__all__`` is absent -- it never consults
+# ``__dir__`` -- so without this a star-import of this shim would yield only the
+# shim's own globals and silently drop the recorded surface. Laziness is unaffected:
+# each name still resolves through ``__getattr__`` when it is actually read.
+__all__ = sorted(_EXPORTS)
 
 
-class HTTPGatewayProxy(Protocol):
-    async def handle_http(self, request: Any) -> Any: ...
+def __getattr__(name: str) -> Any:
+    # Every non-dunder name delegates, not only the recorded ones. ``_EXPORTS``
+    # is the *declared* surface and is what ``__dir__`` reports, but a module
+    # that declared ``__all__`` still let callers reach attributes outside it --
+    # ``proxy.TeeObserver`` is one such caller in the test suite. Narrowing to
+    # ``_EXPORTS`` here would silently break them.
+    if name.startswith("__") and name.endswith("__"):
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    import zeroth.service.langgraph_gateway.routes as _canonical
+
+    try:
+        return getattr(_canonical, name)
+    except AttributeError:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg) from None
 
 
-@dataclass(frozen=True, slots=True)
-class WebSocketGatewayCloseError(Exception):
-    """Stable gateway-owned WebSocket close without sensitive values."""
-
-    code: int
-    reason: str
-    preserve_downstream_close = True
-
-
-class _DuplicateJSONKeyError(ValueError):
-    """A JSON object cannot be classified safely when a key is repeated."""
-
-
-class WebSocketGatewayHandler:
-    """Apply admission and signed context to in-band run commands."""
-
-    def __init__(
-        self,
-        *,
-        settings: LangGraphGatewaySettings,
-        transport: HTTPGatewayTransport,
-        context_codec: ReservedContextCodec | None,
-        policy_guard: PolicyAdmissionChecker,
-        budget_checker: BudgetChecker,
-        classifier: InputClassifier | None = None,
-        clock: Callable[[], int | float] = time.time,
-    ) -> None:
-        self._settings = settings
-        self._transport = transport
-        self._context_codec = context_codec
-        self._policy_guard = policy_guard
-        self._budget_checker = budget_checker
-        self._classifier = classifier or UnclassifiedInputClassifier()
-        self._clock = clock
-
-    async def handle(self, websocket: WebSocket) -> None:
-        """Resolve the upstream handshake and run the structured duplex bridge."""
-        principal = self._principal(websocket)
-        correlation_id = self._correlation_id(websocket)
-        try:
-            await self._transport.forward_websocket(
-                websocket,
-                tenant_id=principal.tenant_id,
-                correlation_id=correlation_id,
-                transform_client_message=lambda message: self.transform_client_message(
-                    websocket, message
-                ),
-            )
-        except BaseExceptionGroup as group:
-            close = _find_gateway_close(group)
-            if close is None:
-                return
-            await websocket.close(code=close.code, reason=close.reason)
-        except WebSocketGatewayCloseError as exc:
-            await websocket.close(code=exc.code, reason=exc.reason)
-        except WebSocketClientError as exc:
-            await websocket.close(code=exc.code, reason=exc.reason)
-        except GatewayContextError as exc:
-            await websocket.close(code=_context_close_code(exc), reason=exc.code)
-        except UpstreamCredentialUnavailableError:
-            if _websocket_was_accepted(websocket):
-                raise
-            await websocket.close(
-                code=4503,
-                reason="zeroth.upstream_credential_unavailable",
-            )
-        except TimeoutError:
-            if _websocket_was_accepted(websocket):
-                raise
-            await websocket.close(code=4504, reason="zeroth.upstream_timeout")
-        except Exception as exc:
-            if not _websocket_was_accepted(websocket) and _is_upstream_handshake_failure(exc):
-                await websocket.close(code=4502, reason="zeroth.upstream_unavailable")
-                return
-            raise
-
-    async def transform_client_message(
-        self,
-        websocket: WebSocket,
-        message: WebSocketMessage,
-    ) -> WebSocketMessage:
-        """Govern run commands while leaving every other frame byte-identical."""
-        if isinstance(message, bytes):
-            return message
-        raw = message.encode("utf-8")
-        if len(raw) > self._settings.max_governed_body_bytes:
-            raise WebSocketGatewayCloseError(4400, "zeroth.request_too_large")
-        try:
-            payload = json.loads(
-                message,
-                parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
-                object_pairs_hook=_unique_json_object,
-            )
-        except _DuplicateJSONKeyError:
-            raise WebSocketGatewayCloseError(4400, "zeroth.invalid_request") from None
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
-            return message
-        if classify_protocol_command(payload) is not RouteDisposition.GOVERNED:
-            return message
-        if not isinstance(payload, dict) or not isinstance(payload.get("params"), dict):
-            raise WebSocketGatewayCloseError(4400, "zeroth.invalid_request")
-
-        principal = self._principal(websocket)
-        params = payload["params"]
-        classification: str | None = None
-        active_classifier = self._classifier
-
-        class CapturingClassifier:
-            async def classify(self, value: object) -> str:
-                nonlocal classification
-                classification = await active_classifier.classify(value)
-                return classification
-
-        request = AdmissionRequest(
-            tenant_id=principal.tenant_id,
-            principal_id=principal.subject,
-            roles=tuple(str(role) for role in principal.roles),
-            deployment_ref=self._required_setting("deployment_ref"),
-            assistant_id=_optional_identifier(params.get("assistant_id")),
-            thread_id=_optional_identifier(websocket.path_params.get("thread_id")),
-            operation=str(payload.get("method")),
-            input_payload=params.get("input"),
-            input_size_bytes=len(raw),
-            policy_bindings=self._settings.policy_bindings,
-        )
-        decision = await admit(
-            request,
-            policy_guard=self._policy_guard,
-            budget_checker=self._budget_checker,
-            classifier=CapturingClassifier(),
-        )
-        if not decision.allowed:
-            reason = decision.reason or "zeroth.policy_denied"
-            if not reason.startswith("zeroth."):
-                reason = "zeroth.policy_denied"
-            raise WebSocketGatewayCloseError(4403, reason)
-        if self._context_codec is None:
-            raise WebSocketGatewayCloseError(4503, "zeroth.context_signing_unavailable")
-
-        issued_at = int(self._clock())
-        correlation_id = self._correlation_id(websocket)
-        claims = ReservedContextClaims(
-            tenant_id=principal.tenant_id,
-            principal_id=principal.subject,
-            roles=tuple(str(role) for role in principal.roles),
-            deployment_ref=self._required_setting("deployment_ref"),
-            audience=self._required_setting("upstream_audience"),
-            correlation_id=correlation_id,
-            run_id=_optional_identifier(params.get("run_id")) or uuid4().hex,
-            policy_version=decision.policy_version,
-            issued_at=issued_at,
-            expires_at=issued_at + self._settings.context_ttl_seconds,
-            content_classification=classification,
-        )
-        token = self._context_codec.encode(claims)
-        try:
-            mutated = inject_reserved_context(
-                raw,
-                token,
-                max_body_bytes=self._settings.max_governed_body_bytes,
-                protocol_v2=True,
-            )
-        except GatewayContextError as exc:
-            raise WebSocketGatewayCloseError(_context_close_code(exc), exc.code) from None
-        return mutated.decode("utf-8")
-
-    @staticmethod
-    def _principal(websocket: WebSocket) -> AuthenticatedPrincipal:
-        principal = getattr(websocket.state, "principal", None)
-        if not isinstance(principal, AuthenticatedPrincipal):
-            raise WebSocketGatewayCloseError(4401, "zeroth.authentication_required")
-        return principal
-
-    @staticmethod
-    def _correlation_id(websocket: WebSocket) -> str:
-        correlation_id = getattr(websocket.state, "correlation_id", None)
-        if not isinstance(correlation_id, str) or not correlation_id:
-            raise WebSocketGatewayCloseError(4503, "zeroth.gateway_misconfigured")
-        return correlation_id
-
-    def _required_setting(self, name: str) -> str:
-        value = getattr(self._settings, name)
-        if not isinstance(value, str) or not value:
-            raise WebSocketGatewayCloseError(4503, "zeroth.gateway_misconfigured")
-        return value
-
-
-class GatewayWebSocketEndpoint:
-    """Authenticate a WebSocket scope before accepting or dialing upstream."""
-
-    def __init__(
-        self,
-        *,
-        authenticator: ServiceAuthenticator,
-        handler: WebSocketGatewayHandler,
-        compatibility: CompatibilityResult | None = None,
-        correlation_factory: Callable[[], str] = lambda: uuid4().hex,
-    ) -> None:
-        self._authenticator = authenticator
-        self._handler = handler
-        self._compatibility = compatibility
-        self._correlation_factory = correlation_factory
-
-    async def __call__(self, websocket: WebSocket) -> None:
-        correlation_id = websocket.headers.get(_CORRELATION_HEADER) or self._correlation_factory()
-        try:
-            principal = self._authenticator.authenticate_headers(websocket.headers)
-        except (AuthenticationError, ValidationError):
-            await websocket.close(
-                code=_AUTHENTICATION_CLOSE_CODE,
-                reason="zeroth.authentication_required",
-            )
-            return
-        if self._compatibility is not None:
-            if self._compatibility.status is CompatibilityStatus.UNSUPPORTED:
-                await websocket.close(code=4501, reason="zeroth.unsupported_upstream")
-                return
-            if self._compatibility.status is CompatibilityStatus.UNAVAILABLE:
-                await websocket.close(code=4502, reason="zeroth.upstream_unavailable")
-                return
-        websocket.state.principal = principal
-        websocket.state.correlation_id = correlation_id
-        set_correlation_id(correlation_id)
-        await self._handler.handle(websocket)
-
-
-def register_gateway_routes(
-    app: FastAPI | APIRouter,
-    *,
-    proxy: HTTPGatewayProxy,
-    websocket_handler: WebSocketGatewayHandler,
-    authenticator: ServiceAuthenticator,
-    compatibility: CompatibilityResult | None = None,
-    correlation_factory: Callable[[], str] = lambda: uuid4().hex,
-) -> None:
-    """Register the exact event WebSocket followed by the HTTP catch-all."""
-    websocket_endpoint = GatewayWebSocketEndpoint(
-        authenticator=authenticator,
-        handler=websocket_handler,
-        compatibility=compatibility,
-        correlation_factory=correlation_factory,
-    )
-
-    async def protocol_events(websocket: WebSocket) -> None:
-        await websocket_endpoint(websocket)
-
-    async def catch_all(request: Request) -> Any:
-        return await proxy.handle_http(request)
-
-    add_api_websocket_route = getattr(app, "add_api_websocket_route", None)
-    if callable(add_api_websocket_route):
-        add_api_websocket_route(
-            "/threads/{thread_id}/stream/events",
-            protocol_events,
-            name="langgraph-protocol-events",
-        )
-    else:
-        app.router.routes.append(  # type: ignore[attr-defined]
-            WebSocketRoute(
-                "/threads/{thread_id}/stream/events",
-                protocol_events,
-                name="langgraph-protocol-events",
-            )
-        )
-
-    methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
-    add_api_route = getattr(app, "add_api_route", None)
-    if callable(add_api_route):
-        add_api_route(
-            "/{path:path}",
-            catch_all,
-            methods=methods,
-            include_in_schema=False,
-            name="langgraph-gateway",
-        )
-    else:
-        app.add_route(  # type: ignore[attr-defined]
-            "/{path:path}",
-            catch_all,
-            methods=methods,
-            name="langgraph-gateway",
-        )
-
-
-def _optional_identifier(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
-            raise _DuplicateJSONKeyError
-        value[key] = item
-    return value
-
-
-def _context_close_code(exc: GatewayContextError) -> int:
-    if exc.code == "zeroth.request_too_large":
-        return 4400
-    if exc.code == "zeroth.context_signing_unavailable":
-        return 4503
-    return 4400
-
-
-def _find_gateway_close(
-    group: BaseExceptionGroup[BaseException],
-) -> WebSocketGatewayCloseError | WebSocketClientError | None:
-    for exception in group.exceptions:
-        if isinstance(exception, (WebSocketGatewayCloseError, WebSocketClientError)):
-            return exception
-        if isinstance(exception, BaseExceptionGroup):
-            nested = _find_gateway_close(exception)
-            if nested is not None:
-                return nested
-    return None
-
-
-def _is_upstream_handshake_failure(exc: Exception) -> bool:
-    # websockets intentionally has several handshake exception subclasses;
-    # matching their public module keeps this boundary stable across patches.
-    return isinstance(exc, (OSError, TimeoutError)) or exc.__class__.__module__.startswith(
-        "websockets."
-    )
-
-
-def _websocket_was_accepted(websocket: WebSocket) -> bool:
-    accepted = getattr(websocket, "accepted", None)
-    if isinstance(accepted, bool):
-        return accepted
-    application_state = getattr(websocket, "application_state", None)
-    return getattr(application_state, "name", None) == "CONNECTED"
+def __dir__() -> list[str]:
+    return sorted(_EXPORTS)

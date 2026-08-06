@@ -436,14 +436,14 @@ class ZerothMiddleware(AgentMiddleware):
         level the other could not.
 
         **It can never be
-        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED`.**
+        :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ENFORCED`.**
         That level needs signed, fresh, ``tool_manifest_complete`` run evidence;
         nothing in this package mints any, and this middleware mints none either.
         A tool-only run reports
-        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.OBSERVED`
+        :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.OBSERVED`
         with ``partial`` coverage and an explicit list of the tools declared
         governed, or
-        :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION`
+        :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ADMISSION`
         when none were.
 
         **The inventory is not an allowlist.** A call naming a tool nobody

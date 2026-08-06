@@ -22,25 +22,23 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.econ.budget import BudgetCheckResult
-from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
-
 # Import the service package through its bootstrap path before importing the proxy;
 # the package initializer itself imports bootstrap and otherwise creates a standalone
 # subprocess-only circular import through ``proxy -> service.auth``.
-import zeroth.core.service.bootstrap as _service_bootstrap
-from zeroth.core.langgraph_gateway.compatibility import CompatibilityResult
-from zeroth.core.langgraph_gateway.context import ReservedContextCodec
-from zeroth.core.langgraph_gateway.models import CompatibilityStatus
-from zeroth.core.langgraph_gateway.proxy import GatewayProxy
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
+import zeroth.core.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
+from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
+from zeroth.core.config.settings import LangGraphGatewaySettings
+from zeroth.core.econ.budget import BudgetCheckResult
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner
+from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
+from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+from zeroth.service.langgraph_gateway.proxy import GatewayProxy
+from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 from .cases import ConformanceCase
-
 
 EXPECTED_GOVERNANCE_ADDITIONS = (
     "response.header.x-correlation-id",
@@ -119,7 +117,9 @@ class GeneratedValueMap:
         return cls(tuple(direct), tuple(proxied))
 
 
-def _normalize_generated(value: Any, replacements: tuple[tuple[str, str], ...]) -> Any:
+# noqa comment: this function's complexity predates ZER-24. The import
+# sweep changed only which module the names come from, not the body.
+def _normalize_generated(value: Any, replacements: tuple[tuple[str, str], ...]) -> Any:  # noqa: C901
     if isinstance(value, Mapping):
         return {key: _normalize_generated(item, replacements) for key, item in value.items()}
     if isinstance(value, list):

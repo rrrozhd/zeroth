@@ -44,7 +44,6 @@ from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.attestations.heartbeat import (
     DEFAULT_STALE_AFTER_SECONDS,
     DeploymentStatusResolver,
@@ -77,6 +76,7 @@ from zeroth.governance.enforcement_wire import (
     InventorySubmission,
     RunEnforcementStatus,
 )
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.signing import SigningKeyProvider
 from zeroth.service.api.authorization import (

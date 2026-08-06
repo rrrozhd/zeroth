@@ -17,7 +17,7 @@ have.
 from __future__ import annotations
 
 from zeroth.contracts.governed.models.approval import ApprovalDecisionType
-from zeroth.core.langgraph_gateway.models import GovernanceLevel, RouteDisposition
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RouteDisposition
 from zeroth.governance.audit.capture_vocabulary import METADATA_VOCABULARIES
 from zeroth.governance.policy.models import PolicyDecision
 from zeroth.integrations.execution.sandbox import SandboxStrictnessMode

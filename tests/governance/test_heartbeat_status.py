@@ -30,14 +30,14 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
-from zeroth.core.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
 from zeroth.governance.attestations import (
     DEFAULT_STALE_AFTER_SECONDS,
     DeploymentStatusResolver,
     Heartbeat,
     HeartbeatRepository,
 )
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 
 TENANT = "tenant-alpha"
 OTHER_TENANT = "tenant-beta"

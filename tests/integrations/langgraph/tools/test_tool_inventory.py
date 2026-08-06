@@ -35,7 +35,7 @@ import pytest
 from langchain_core.tools import StructuredTool
 
 from tests.integrations.langgraph.tools._hostile import HostileList, HostileStr
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.audit.capture_projection import ContentFreeProjection
 from zeroth.governance.audit.capture_scrub import RedactionChain
 from zeroth.integrations.langgraph._tool_errors import (

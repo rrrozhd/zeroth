@@ -1104,6 +1104,146 @@ canonical-surface update that follows a verified production move.
 | `zeroth.core.webhooks.repository:WebhookRepository` | `zeroth.service.webhooks.repository:WebhookRepository` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.webhooks.service:WebhookService` | `zeroth.service.webhooks.service:WebhookService` | Move webhook service domain | Legacy path still re-exports | Same class object | Not removed |
 | `zeroth.core.webhooks.signing:sign_payload` | `zeroth.service.webhooks.signing:sign_payload` | Move webhook service domain | Legacy path still re-exports | Same function object | Not removed |
+| `zeroth.core.langgraph_gateway.models:AdmissionDecision` | `zeroth.contracts.langgraph_gateway.models:AdmissionDecision` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:AdmissionRequest` | `zeroth.contracts.langgraph_gateway.models:AdmissionRequest` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:CompatibilityResult` | `zeroth.contracts.langgraph_gateway.models:CompatibilityResult` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:CompatibilityStatus` | `zeroth.contracts.langgraph_gateway.models:CompatibilityStatus` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:EndpointKind` | `zeroth.contracts.langgraph_gateway.models:EndpointKind` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:GatewayCorrelation` | `zeroth.contracts.langgraph_gateway.models:GatewayCorrelation` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:GatewayError` | `zeroth.contracts.langgraph_gateway.models:GatewayError` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:GatewayEvent` | `zeroth.contracts.langgraph_gateway.models:GatewayEvent` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:GatewayEventStatus` | `zeroth.contracts.langgraph_gateway.models:GatewayEventStatus` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:GovernanceLevel` | `zeroth.contracts.langgraph_gateway.models:GovernanceLevel` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:RouteDisposition` | `zeroth.contracts.langgraph_gateway.models:RouteDisposition` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.models:RunCapabilityEvidence` | `zeroth.contracts.langgraph_gateway.models:RunCapabilityEvidence` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.inventory:ENDPOINT_RULES` | `zeroth.contracts.langgraph_gateway.inventory:ENDPOINT_RULES` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.inventory:EndpointRule` | `zeroth.contracts.langgraph_gateway.inventory:EndpointRule` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.inventory:classify_endpoint` | `zeroth.contracts.langgraph_gateway.inventory:classify_endpoint` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.inventory:classify_protocol_command` | `zeroth.contracts.langgraph_gateway.inventory:classify_protocol_command` | Move gateway data shapes to contracts (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:ADAPTER_PROTOCOL_VERSION` | `zeroth.integrations.langgraph.enforcement_protocol:ADAPTER_PROTOCOL_VERSION` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:ActionDescriptorV1` | `zeroth.integrations.langgraph.enforcement_protocol:ActionDescriptorV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:DecisionRequestV1` | `zeroth.integrations.langgraph.enforcement_protocol:DecisionRequestV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:DecisionResponseV1` | `zeroth.integrations.langgraph.enforcement_protocol:DecisionResponseV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:HeartbeatV1` | `zeroth.integrations.langgraph.enforcement_protocol:HeartbeatV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:InventoryEntryV1` | `zeroth.integrations.langgraph.enforcement_protocol:InventoryEntryV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:InventoryRegistrationV1` | `zeroth.integrations.langgraph.enforcement_protocol:InventoryRegistrationV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:RunAttestationV1` | `zeroth.integrations.langgraph.enforcement_protocol:RunAttestationV1` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:inventory_fingerprint` | `zeroth.integrations.langgraph.enforcement_protocol:inventory_fingerprint` | Move enforcement wire protocol to integrations (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:Callable` | `zeroth.governance.langgraph_gateway.capabilities:Callable` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:CapabilityEvidenceProvider` | `zeroth.governance.langgraph_gateway.capabilities:CapabilityEvidenceProvider` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:CapabilityReporter` | `zeroth.governance.langgraph_gateway.capabilities:CapabilityReporter` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:GovernanceLevel` | `zeroth.governance.langgraph_gateway.capabilities:GovernanceLevel` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:NoCapabilityEvidenceProvider` | `zeroth.governance.langgraph_gateway.capabilities:NoCapabilityEvidenceProvider` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:Protocol` | `zeroth.governance.langgraph_gateway.capabilities:Protocol` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:RunCapabilityEvidence` | `zeroth.governance.langgraph_gateway.capabilities:RunCapabilityEvidence` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.capabilities:UTC` | `zeroth.governance.langgraph_gateway.capabilities:UTC` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.events:AuditGatewayEventSink` | `zeroth.governance.langgraph_gateway.events:AuditGatewayEventSink` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.events:AuditRecordSubmitter` | `zeroth.governance.langgraph_gateway.events:AuditRecordSubmitter` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.events:TeeObserver` | `zeroth.governance.langgraph_gateway.events:TeeObserver` | Move gateway governance surfaces (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:AdmissionDecision` | `zeroth.service.langgraph_gateway.admission:AdmissionDecision` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:AdmissionRequest` | `zeroth.service.langgraph_gateway.admission:AdmissionRequest` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:BudgetCheckResult` | `zeroth.service.langgraph_gateway.admission:BudgetCheckResult` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:BudgetChecker` | `zeroth.service.langgraph_gateway.admission:BudgetChecker` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:InputClassifier` | `zeroth.service.langgraph_gateway.admission:InputClassifier` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:PolicyAdmissionChecker` | `zeroth.service.langgraph_gateway.admission:PolicyAdmissionChecker` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:Protocol` | `zeroth.service.langgraph_gateway.admission:Protocol` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:RunAdmissionResult` | `zeroth.service.langgraph_gateway.admission:RunAdmissionResult` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:UnclassifiedInputClassifier` | `zeroth.service.langgraph_gateway.admission:UnclassifiedInputClassifier` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:admit` | `zeroth.service.langgraph_gateway.admission:admit` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.admission:suppress` | `zeroth.service.langgraph_gateway.admission:suppress` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:Any` | `zeroth.service.langgraph_gateway.compatibility:Any` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:CompatibilityDetector` | `zeroth.service.langgraph_gateway.compatibility:CompatibilityDetector` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:CompatibilityResult` | `zeroth.service.langgraph_gateway.compatibility:CompatibilityResult` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:CompatibilityStatus` | `zeroth.service.langgraph_gateway.compatibility:CompatibilityStatus` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:DEFAULT_TESTED_AGENT_SERVER_VERSIONS` | `zeroth.service.langgraph_gateway.compatibility:DEFAULT_TESTED_AGENT_SERVER_VERSIONS` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:DEFAULT_TESTED_LANGGRAPH_VERSIONS` | `zeroth.service.langgraph_gateway.compatibility:DEFAULT_TESTED_LANGGRAPH_VERSIONS` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS` | `zeroth.service.langgraph_gateway.compatibility:EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:Mapping` | `zeroth.service.langgraph_gateway.compatibility:Mapping` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:dataclass` | `zeroth.service.langgraph_gateway.compatibility:dataclass` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:fingerprint_openapi` | `zeroth.service.langgraph_gateway.compatibility:fingerprint_openapi` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.compatibility:httpx` | `zeroth.service.langgraph_gateway.compatibility:httpx` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.context:GatewayContextError` | `zeroth.service.langgraph_gateway.context:GatewayContextError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.context:ReservedContextClaims` | `zeroth.service.langgraph_gateway.context:ReservedContextClaims` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.context:ReservedContextCodec` | `zeroth.service.langgraph_gateway.context:ReservedContextCodec` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.context:inject_reserved_context` | `zeroth.service.langgraph_gateway.context:inject_reserved_context` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:Iterable` | `zeroth.service.langgraph_gateway.headers:Iterable` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:LangGraphGatewaySettings` | `zeroth.service.langgraph_gateway.headers:LangGraphGatewaySettings` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:RawHeader` | `zeroth.service.langgraph_gateway.headers:RawHeader` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:SecretProvider` | `zeroth.service.langgraph_gateway.headers:SecretProvider` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:UpstreamCredentialUnavailableError` | `zeroth.service.langgraph_gateway.headers:UpstreamCredentialUnavailableError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:httpx` | `zeroth.service.langgraph_gateway.headers:httpx` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:prepare_upstream_request_headers` | `zeroth.service.langgraph_gateway.headers:prepare_upstream_request_headers` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:resolve_secret_async` | `zeroth.service.langgraph_gateway.headers:resolve_secret_async` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.headers:strip_hop_by_hop_headers` | `zeroth.service.langgraph_gateway.headers:strip_hop_by_hop_headers` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Any` | `zeroth.service.langgraph_gateway.transport:Any` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:AsyncIterator` | `zeroth.service.langgraph_gateway.transport:AsyncIterator` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Awaitable` | `zeroth.service.langgraph_gateway.transport:Awaitable` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Callable` | `zeroth.service.langgraph_gateway.transport:Callable` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:ClientConnection` | `zeroth.service.langgraph_gateway.transport:ClientConnection` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:ConnectionClosed` | `zeroth.service.langgraph_gateway.transport:ConnectionClosed` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:HTTPGatewayTransport` | `zeroth.service.langgraph_gateway.transport:HTTPGatewayTransport` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:LangGraphGatewaySettings` | `zeroth.service.langgraph_gateway.transport:LangGraphGatewaySettings` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Receive` | `zeroth.service.langgraph_gateway.transport:Receive` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Request` | `zeroth.service.langgraph_gateway.transport:Request` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Scope` | `zeroth.service.langgraph_gateway.transport:Scope` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:SecretProvider` | `zeroth.service.langgraph_gateway.transport:SecretProvider` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:Send` | `zeroth.service.langgraph_gateway.transport:Send` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:StreamingResponse` | `zeroth.service.langgraph_gateway.transport:StreamingResponse` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:WebSocketClientError` | `zeroth.service.langgraph_gateway.transport:WebSocketClientError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:WebSocketMessage` | `zeroth.service.langgraph_gateway.transport:WebSocketMessage` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:dataclass` | `zeroth.service.langgraph_gateway.transport:dataclass` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:httpx` | `zeroth.service.langgraph_gateway.transport:httpx` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:prepare_upstream_request_headers` | `zeroth.service.langgraph_gateway.transport:prepare_upstream_request_headers` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:quote` | `zeroth.service.langgraph_gateway.transport:quote` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:strip_hop_by_hop_headers` | `zeroth.service.langgraph_gateway.transport:strip_hop_by_hop_headers` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:suppress` | `zeroth.service.langgraph_gateway.transport:suppress` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.transport:websockets` | `zeroth.service.langgraph_gateway.transport:websockets` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:EnforcementBoundaryError` | `zeroth.service.langgraph_gateway.enforcement:EnforcementBoundaryError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:LangGraphEnforcementRepository` | `zeroth.service.langgraph_gateway.enforcement:LangGraphEnforcementRepository` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:LangGraphEnforcementService` | `zeroth.service.langgraph_gateway.enforcement:LangGraphEnforcementService` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement:StoredCapabilityEvidenceProvider` | `zeroth.service.langgraph_gateway.enforcement:StoredCapabilityEvidenceProvider` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement_store:LangGraphEnforcementRepository` | `zeroth.service.langgraph_gateway.enforcement_store:LangGraphEnforcementRepository` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.enforcement_store:StoredCapabilityEvidenceProvider` | `zeroth.service.langgraph_gateway.enforcement_store:StoredCapabilityEvidenceProvider` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.proxy:GatewayEventSink` | `zeroth.service.langgraph_gateway.proxy:GatewayEventSink` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.proxy:GatewayProxy` | `zeroth.service.langgraph_gateway.proxy:GatewayProxy` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:APIRouter` | `zeroth.service.langgraph_gateway.routes:APIRouter` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:AdmissionRequest` | `zeroth.service.langgraph_gateway.routes:AdmissionRequest` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:Any` | `zeroth.service.langgraph_gateway.routes:Any` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:AuthenticatedPrincipal` | `zeroth.service.langgraph_gateway.routes:AuthenticatedPrincipal` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:AuthenticationError` | `zeroth.service.langgraph_gateway.routes:AuthenticationError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:BudgetChecker` | `zeroth.service.langgraph_gateway.routes:BudgetChecker` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:Callable` | `zeroth.service.langgraph_gateway.routes:Callable` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:CompatibilityResult` | `zeroth.service.langgraph_gateway.routes:CompatibilityResult` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:CompatibilityStatus` | `zeroth.service.langgraph_gateway.routes:CompatibilityStatus` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:FastAPI` | `zeroth.service.langgraph_gateway.routes:FastAPI` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:GatewayContextError` | `zeroth.service.langgraph_gateway.routes:GatewayContextError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:GatewayWebSocketEndpoint` | `zeroth.service.langgraph_gateway.routes:GatewayWebSocketEndpoint` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:HTTPGatewayProxy` | `zeroth.service.langgraph_gateway.routes:HTTPGatewayProxy` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:HTTPGatewayTransport` | `zeroth.service.langgraph_gateway.routes:HTTPGatewayTransport` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:InputClassifier` | `zeroth.service.langgraph_gateway.routes:InputClassifier` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:LangGraphGatewaySettings` | `zeroth.service.langgraph_gateway.routes:LangGraphGatewaySettings` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:PolicyAdmissionChecker` | `zeroth.service.langgraph_gateway.routes:PolicyAdmissionChecker` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:Protocol` | `zeroth.service.langgraph_gateway.routes:Protocol` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:Request` | `zeroth.service.langgraph_gateway.routes:Request` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:ReservedContextClaims` | `zeroth.service.langgraph_gateway.routes:ReservedContextClaims` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:ReservedContextCodec` | `zeroth.service.langgraph_gateway.routes:ReservedContextCodec` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:RouteDisposition` | `zeroth.service.langgraph_gateway.routes:RouteDisposition` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:ServiceAuthenticator` | `zeroth.service.langgraph_gateway.routes:ServiceAuthenticator` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:UnclassifiedInputClassifier` | `zeroth.service.langgraph_gateway.routes:UnclassifiedInputClassifier` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:UpstreamCredentialUnavailableError` | `zeroth.service.langgraph_gateway.routes:UpstreamCredentialUnavailableError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:ValidationError` | `zeroth.service.langgraph_gateway.routes:ValidationError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocket` | `zeroth.service.langgraph_gateway.routes:WebSocket` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocketClientError` | `zeroth.service.langgraph_gateway.routes:WebSocketClientError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocketGatewayCloseError` | `zeroth.service.langgraph_gateway.routes:WebSocketGatewayCloseError` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocketGatewayHandler` | `zeroth.service.langgraph_gateway.routes:WebSocketGatewayHandler` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocketMessage` | `zeroth.service.langgraph_gateway.routes:WebSocketMessage` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:WebSocketRoute` | `zeroth.service.langgraph_gateway.routes:WebSocketRoute` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:admit` | `zeroth.service.langgraph_gateway.routes:admit` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:classify_protocol_command` | `zeroth.service.langgraph_gateway.routes:classify_protocol_command` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:dataclass` | `zeroth.service.langgraph_gateway.routes:dataclass` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:inject_reserved_context` | `zeroth.service.langgraph_gateway.routes:inject_reserved_context` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:register_gateway_routes` | `zeroth.service.langgraph_gateway.routes:register_gateway_routes` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
+| `zeroth.core.langgraph_gateway.routes:set_correlation_id` | `zeroth.service.langgraph_gateway.routes:set_correlation_id` | Move gateway service machinery (ZER-24) | Legacy path still re-exports | Same object | Not removed |
 
 The two repositories are persistence, not runtime contracts, which is why they
 land under `zeroth.integrations.persistence.runs` rather than
@@ -1512,3 +1652,72 @@ bootstrap`, restoring the reverse-coverage total to the exact pre-refactor 234
 models (64 under `zeroth.service`), and the transitional guard was retired in
 the same commit. The sequence above remains the template for any future
 schema-bearing module relocation.
+
+## ZER-24 — LangGraph gateway relocation, and where `enforcement` landed
+
+ZER-23 classified `zeroth.core.langgraph_gateway` under the backend dependency
+policy but left two modules unmapped and two temporary exceptions standing.
+ZER-24 relocates the package and removes both exceptions. The mapping table
+below records the domain each module went to, the reason, and the resulting
+edge count — the same rigor as the ZER-23 table.
+
+| Module | Canonical domain | Why |
+| --- | --- | --- |
+| `models`, `inventory` | `contracts` | Pure data shapes plus endpoint classification rules. `models` imports only stdlib and pydantic; `inventory` imports only `models`. |
+| `capabilities`, `events` | `governance` | Governance-level reporting and audit event emission. |
+| `admission`, `compatibility`, `context`, `headers`, `transport`, `proxy`, `routes`, `enforcement` (service slice), `enforcement_store` | `service` | Request-time orchestration and persistence owned by the gateway service. |
+| `enforcement` (wire-protocol slice) | `integrations` | See below. |
+
+### Why the enforcement wire protocol went to `integrations`, not `contracts`
+
+`enforcement.py` postdates the ZER-23 mapping table, so its home was explicitly
+a ZER-24 decision. It splits along a clean line: a versioned DTO/wire-protocol
+slice that `zeroth.integrations.langgraph._gateway_client` consumes, and a
+service slice (`LangGraphEnforcementService`, its metrics, its boundary errors)
+that only the gateway runs.
+
+The DTO slice was originally planned for `contracts`. That was **wrong on
+measurement**: `ActionDescriptorV1`, `DecisionRequestV1`, `InventoryEntryV1` and
+`InventoryRegistrationV1` name `SideEffectClass`, `ToolDecisionKind` and
+`InventoryCoverage` from `zeroth.integrations.langgraph._tool_types`, and
+`contracts` may import only `platform`. Housing the slice in `contracts` would
+have replaced the forbidden `integrations → service` edge with a worse
+`contracts → integrations` one.
+
+Two repairs were considered and rejected. Moving `_tool_types` into `contracts`
+would work on dependencies — it is pure stdlib — but it is a 251-line
+non-gateway module with eleven in-tree dependents, which is scope expansion
+rather than a consequence of this relocation. Restating the three enums, the
+technique `zeroth.governance.decisions.request` uses, would split the identity
+of a type that travels the wire between client and server; governance restates
+only because it has no legal alternative, whereas integrations importing
+integrations is ordinary.
+
+The slice therefore lives at
+`zeroth.integrations.langgraph.enforcement_protocol`. The client reaches it
+without leaving its own domain, and the gateway service reaches it across the
+`service → integrations` edge the policy already permits.
+
+**Resulting forbidden-edge count: zero**, and no exception. To be precise about
+what that does and does not claim: the gateway *service* still depends on
+`integrations` to reach the protocol, which is an ordinary **permitted** edge
+under the policy — the earlier wording here said "not one permitted edge — none",
+which overstated it. What ZER-24 drives to zero is the count of **forbidden**
+edges and temporary exceptions touching `langgraph_gateway`. The client reaches
+the protocol without leaving its own domain, so no edge is created on that side
+at all. The distinction is worth stating because exception E2's own
+`removal_task` text anticipated "a canonical home in a domain integrations may
+import", which does not name `integrations` itself. That text was ZER-23-era
+guidance, not the gate. The gate is the dependency scan plus the
+exact-exceptions bijection in
+`tests/architecture/test_backend_dependencies.py`, and both now assert the empty
+set for gateway edges and gateway exceptions.
+
+The companion exception E1
+(`zeroth.governance.decisions.service → …langgraph_gateway.admission`) was
+removed by inverting the dependency rather than relocating it:
+`ToolDecisionService` now requires a governance-owned `AdmissionEvaluator`
+(`zeroth.governance.decisions.admission`), and the service domain injects a
+`BoundAdmissionEvaluator` that binds the existing `admit` combiner. There is
+still exactly one admission combiner; only the direction of the dependency
+changed.
