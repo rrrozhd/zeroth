@@ -18,6 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.3] - 2026-08-06
+
+### Changed
+
+- Ship the quickstart tutorial helper and the demo scripts from the repository's
+  `examples/` tree instead of inside the wheel, and move typing metadata to
+  `zeroth/py.typed` and the vendored governed licence and provenance to
+  `zeroth/contracts/governed/`.
+- `build_demo_graph` is no longer an importable library symbol. It remains a
+  pinned capability, verified by loading `examples/quickstart.py` from disk.
+
+### Added
+
+- Add wheel-packaging tests that inspect the built distribution's ZIP listing
+  directly, so relocated resources cannot regress silently.
+
 ## [0.16.1.2] - 2026-08-06
 
 ### Changed
