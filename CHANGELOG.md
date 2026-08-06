@@ -18,6 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.1] - 2026-08-06
+
+### Fixed
+
+- Close four defects the initial audit found in ZER-25's own conversion: two
+  more `parametrize` lists that collected zero cases, a self-comparison and a
+  duplicated assertion, guards still naming deleted namespaces, and maintained
+  guidance that pointed at an unimportable `quickstart` module and a retired
+  entrypoint.
+
+### Added
+
+- Add a repo-wide guard rejecting tests that pass without proving anything —
+  empty parametrizations, self-comparisons, and same-scope duplicated
+  assertions. Every shape it rejects was produced by this task's own mechanical
+  test conversion and survived a green suite.
+- Add regression coverage for the interrupt expiry path, whose error was
+  unreachable before this release.
+- Extend the canonical-imports guard to source docstrings and example scripts,
+  which the AST scanner cannot see because they are prose, not imports.
+
 ## [0.17] - 2026-08-06
 
 ### Removed

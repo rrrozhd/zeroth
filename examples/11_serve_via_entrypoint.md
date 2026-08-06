@@ -1,10 +1,10 @@
-# 11 — Serve via the stock entrypoint (`python -m zeroth.core.service.entrypoint`)
+# 11 — Serve via the stock entrypoint (`python -m zeroth.service.entrypoint`)
 
 `examples/10_serve_in_python.py` shows you how to boot a service
 programmatically. This file shows the **production path** that the
 Docker image uses: a persistent database, a `zeroth.yaml` config file,
 environment-variable overrides, and the `uvicorn` factory pattern
-from `zeroth.core.service.entrypoint`.
+from `zeroth.service.entrypoint`.
 
 Everything under `examples/service/` is designed to drop straight into
 your own container image or systemd unit (see the
@@ -19,7 +19,7 @@ for the isolation-focused recipe).
 | `examples/service/seed_deployment.py`    | One-shot: runs migrations, registers contracts, publishes + deploys the graph. |
 | `examples/service/entrypoint.py`         | Extends the stock entrypoint to register the example's `AgentRunner`.  |
 
-The stock `python -m zeroth.core.service.entrypoint` doesn't know about
+The stock `python -m zeroth.service.entrypoint` doesn't know about
 your agent runners — that's user code. `examples/service/entrypoint.py`
 is the canonical "drop-in extension" pattern: it mirrors the stock
 `_bootstrap()` function, adds `agent_runners=...` and `auth_config=...`,

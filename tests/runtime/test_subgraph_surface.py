@@ -82,8 +82,8 @@ def test_subgraph_resolver_carries_no_deployment_service_import() -> None:
             "-c",
             "import sys\n"
             "import zeroth.runtime.subgraphs.resolver\n"
-            "assert 'zeroth.core.deployments' not in sys.modules, 'deployments loaded'\n"
-            "assert 'zeroth.core.deployments.service' not in sys.modules\n",
+            "assert 'zeroth.service.deployments' not in sys.modules, 'deployments loaded'\n"
+            "assert 'zeroth.service.deployments.service' not in sys.modules\n",
         ],
         capture_output=True,
         text=True,

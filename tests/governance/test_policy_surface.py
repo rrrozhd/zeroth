@@ -79,7 +79,7 @@ def test_policy_package_stays_off_the_run_domain_import_path() -> None:
     probe = (
         "import sys\n"
         "import zeroth.governance.policy\n"
-        "assert 'zeroth.core.runs' not in sys.modules, 'policy pulled the run domain'\n"
+        "assert 'zeroth.runtime.runs' not in sys.modules, 'policy pulled the run domain'\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe],

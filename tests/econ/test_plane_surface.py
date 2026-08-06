@@ -22,9 +22,14 @@ def test_config_exposes_a_single_settings_object() -> None:
     republisher, which ZER-25 removed; the property it pinned -- that the
     module exposes one settings instance -- is asserted directly.
     """
+    import importlib
+
     from zeroth.econ.plane import config
 
-    assert config.settings is config.settings
+    # Re-importing must hand back the *same* instance: the control plane's
+    # settings are a module-level singleton, and a second instance would give
+    # two halves of the process different configuration.
+    assert importlib.import_module("zeroth.econ.plane.config").settings is config.settings
     assert not isinstance(config.settings, type)
 
 

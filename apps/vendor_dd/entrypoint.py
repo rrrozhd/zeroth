@@ -166,7 +166,7 @@ async def build_app_async():
 async def _serve() -> None:
     # Bootstrap and uvicorn must share one event loop (the durable worker and
     # webhook delivery tasks bind to it) — same pattern as the stock
-    # zeroth.core.service.entrypoint.
+    # zeroth.service.entrypoint.
     app = await build_app_async()
     config = uvicorn.Config(app, host=HOST, port=PORT, proxy_headers=True)
     await uvicorn.Server(config).serve()

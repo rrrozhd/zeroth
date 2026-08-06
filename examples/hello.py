@@ -34,7 +34,7 @@ def main() -> int:
         )
         return 0
 
-    # Import-smoke for PKG-06: prove the zeroth.core namespace actually loads
+    # Import-smoke for PKG-06: prove the installed zeroth package actually loads
     # from the installed wheel. If this import fails in the release-workflow
     # clean-venv step, the wheel is broken.
     # Phase 28 intentionally uses the ``litellm`` direct-call fallback described

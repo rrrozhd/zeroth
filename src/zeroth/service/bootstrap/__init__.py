@@ -2,9 +2,8 @@
 
 Configuration defaults, Alembic migrations, the dependency container, the
 factory, and the application lifespan each own one concern. The exports
-resolve lazily for the same reason as ``zeroth.service``: the legacy
-``zeroth.core.service.bootstrap`` shim imports these submodules while this
-package initializes.
+resolve lazily for the same reason as ``zeroth.service``: importing one
+concern must not execute the other four.
 """
 
 from __future__ import annotations
@@ -21,12 +20,12 @@ _EXPORTS = {
 }
 
 __all__ = [
-    "DeploymentBootstrapError",
-    "ServiceBootstrap",
-    "bootstrap_app",
-    "bootstrap_service",
-    "run_migrations",
-    "service_lifespan",
+    "DeploymentBootstrapError",  # noqa: F822 - resolved lazily by __getattr__
+    "ServiceBootstrap",  # noqa: F822 - resolved lazily by __getattr__
+    "bootstrap_app",  # noqa: F822 - resolved lazily by __getattr__
+    "bootstrap_service",  # noqa: F822 - resolved lazily by __getattr__
+    "run_migrations",  # noqa: F822 - resolved lazily by __getattr__
+    "service_lifespan",  # noqa: F822 - resolved lazily by __getattr__
 ]
 
 

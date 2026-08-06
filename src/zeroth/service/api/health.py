@@ -325,7 +325,7 @@ class HealthResponse(BaseModel):
     discovery in tests/architecture/test_library_surface.py treats any app.py
     whose parent directory is literally "service" as schema-bearing, which
     would discover this model under the app module's destination path before
-    the canonical fixture can follow. The legacy zeroth.core.service.app path
+    the canonical fixture can follow. The legacy zeroth.service path
     still resolves the same class object.
     """
 
