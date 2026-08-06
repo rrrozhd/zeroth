@@ -1595,7 +1595,7 @@ def _call_arguments(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> dict[st
 
 @dataclass(frozen=True, slots=True)
 class _EffectiveCall:
-    """One call to a plain callable, in the two forms a governed invocation needs.
+    """One call in the two forms a governed invocation needs.
 
     ``arguments`` is what the policy is shown; ``args`` and ``kwargs`` are what
     the body is invoked with. They are carried together because they must be the
@@ -1734,9 +1734,13 @@ def _published_signature(
 
 
 def _effective_call(
-    target: Any, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    target: Any,
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+    *,
+    preserve_input_shape: bool = False,
 ) -> _EffectiveCall:
-    """Resolve one call to a plain callable *once*, for both the policy and the body.
+    """Resolve one callable body *once*, for both the policy and execution.
 
     Binding against the callable's own signature is what keeps this surface and
     the middleware surface describing the same call: the middleware is handed
@@ -1776,6 +1780,8 @@ def _effective_call(
         target: The callable whose signature defines the call.
         args: The positional arguments the caller passed.
         kwargs: The named arguments the caller passed.
+        preserve_input_shape: Whether to keep raw positional and variadic names
+            while adding defaults supplied by the callable's signature.
 
     Returns:
         The one call this invocation will be decided on and executed with.
@@ -1790,9 +1796,21 @@ def _effective_call(
         bound = signature.bind(*args, **kwargs)
     except TypeError as error:
         raise ToolGovernanceError("this call does not fit the callable's own signature") from error
+    provided = frozenset(bound.arguments)
     bound.apply_defaults()
     _drop_empty_variadics(bound)
-    return _EffectiveCall(_call_arguments((), bound.arguments), bound.args, bound.kwargs)
+    arguments = (
+        _call_arguments(
+            args,
+            {
+                **kwargs,
+                **{name: value for name, value in bound.arguments.items() if name not in provided},
+            },
+        )
+        if preserve_input_shape
+        else _call_arguments((), bound.arguments)
+    )
+    return _EffectiveCall(arguments, bound.args, bound.kwargs)
 
 
 def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
@@ -2169,13 +2187,17 @@ class GovernedTool(BaseTool):
         """Govern this call, then execute its frozen sync body directly."""
         outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
-        arguments = _call_arguments(args, kwargs)
+        body, _ = _snapshot_body_with_state(plan.facts.snapshot, "func", "_run")
+        call = (
+            _effective_call(body, args, kwargs, preserve_input_shape=True)
+            if plan.facts.args_schema is None
+            else _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+        )
         action, context, facts = _governed_action(
             plan,
-            arguments,
-            tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
+            call.arguments,
+            tool_call_id=_injected_tool_call_id(plan, call.arguments, outer_tool_call_id),
         )
-        body, _ = _snapshot_body_with_state(facts.snapshot, "func", "_run")
         edited_call: _EffectiveCall | None = None
 
         def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -2191,7 +2213,7 @@ class GovernedTool(BaseTool):
         return guard_tool_call(
             action,
             context,
-            lambda: execute_snapshot(facts.snapshot, args, kwargs),
+            lambda: execute_snapshot(facts.snapshot, call.args, call.kwargs),
             invoke_with_arguments=execute_edited,
             prepare_edited_arguments=prepare_edited,
             **_enforcement_seams(plan),
@@ -2201,19 +2223,23 @@ class GovernedTool(BaseTool):
         """Govern this call, then execute its frozen async body directly."""
         outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
-        arguments = _call_arguments(args, kwargs)
+        body, _ = _snapshot_body_with_state(plan.facts.snapshot, "coroutine", "_arun")
+        if body is None:
+            body, _ = _snapshot_body_with_state(plan.facts.snapshot, "func", "_run")
+        call = (
+            _effective_call(body, args, kwargs, preserve_input_shape=True)
+            if plan.facts.args_schema is None
+            else _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+        )
         action, context, facts = _governed_action(
             plan,
-            arguments,
-            tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
+            call.arguments,
+            tool_call_id=_injected_tool_call_id(plan, call.arguments, outer_tool_call_id),
         )
-        body, _ = _snapshot_body_with_state(facts.snapshot, "coroutine", "_arun")
-        if body is None:
-            body, _ = _snapshot_body_with_state(facts.snapshot, "func", "_run")
         edited_call: _EffectiveCall | None = None
 
         async def execute() -> Any:
-            return await aexecute_snapshot(facts.snapshot, args, kwargs)
+            return await aexecute_snapshot(facts.snapshot, call.args, call.kwargs)
 
         def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
             nonlocal edited_call
