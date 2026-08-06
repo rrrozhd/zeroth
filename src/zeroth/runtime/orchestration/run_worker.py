@@ -26,9 +26,9 @@ from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph
-    from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.governance.guardrails.dead_letter import DeadLetterManager
     from zeroth.platform.observability.metrics import MetricsCollector
+    from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 
 logger = logging.getLogger(__name__)
 

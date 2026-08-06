@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from zeroth.runtime.orchestration.errors import (
         OrchestratorError as OrchestratorError,
     )
+    from zeroth.runtime.orchestration.orchestrator import (
+        RuntimeOrchestrator as RuntimeOrchestrator,
+    )
     from zeroth.runtime.orchestration.parallel_executor import (
         RuntimeParallelExecutor as RuntimeParallelExecutor,
     )
@@ -175,6 +178,7 @@ _EXPORTS = {
     "OrchestratorError": ("errors", "OrchestratorError"),
     "RunWorker": ("run_worker", "RunWorker"),
     "RuntimeAuditRecorder": ("audit_recorder", "RuntimeAuditRecorder"),
+    "RuntimeOrchestrator": ("orchestrator", "RuntimeOrchestrator"),
     "RuntimeParallelExecutor": ("parallel_executor", "RuntimeParallelExecutor"),
     "RuntimePolicyGate": ("policy_gate", "RuntimePolicyGate"),
     "RuntimeToolExecutor": ("tool_executor", "RuntimeToolExecutor"),

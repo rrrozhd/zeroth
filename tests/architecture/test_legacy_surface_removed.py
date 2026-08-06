@@ -15,6 +15,8 @@ on its own terms.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from tests.architecture.legacy_imports import (
@@ -25,6 +27,61 @@ from tests.architecture.legacy_imports import (
 )
 
 BASELINE_PATH = Path(__file__).with_name("legacy_import_baseline.txt")
+
+
+def _cold(code: str) -> subprocess.CompletedProcess[str]:
+    """Run ``code`` in a fresh interpreter.
+
+    In-process assertions cannot answer import questions here: ``conftest``
+    imports service bootstrap at collection time, so ``zeroth.core`` and most of
+    the service graph are already in ``sys.modules`` by the time any test body
+    runs. Only a cold interpreter sees what a library consumer sees.
+    """
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+
+
+def test_the_orchestrator_is_defined_in_the_runtime_domain() -> None:
+    """``RuntimeOrchestrator`` is owned by the runtime, not by a legacy module."""
+    from zeroth.runtime.orchestration import RuntimeOrchestrator
+
+    assert RuntimeOrchestrator.__module__ == "zeroth.runtime.orchestration.orchestrator"
+
+
+def test_importing_light_runtime_contracts_does_not_load_the_orchestrator() -> None:
+    """The orchestrator stays lazy behind the runtime package surface.
+
+    Persistence adapters import the narrow runtime protocols. If reaching them
+    dragged in the orchestrator, it would also drag in the service and the
+    persistence adapters it drives -- the cycle the lazy package init exists to
+    prevent.
+    """
+    result = _cold(
+        "import sys\n"
+        "import zeroth.runtime.runs\n"
+        "import zeroth.runtime.orchestration\n"
+        "eager = [\n"
+        "    name\n"
+        "    for name in (\n"
+        "        'zeroth.runtime.orchestration.orchestrator',\n"
+        "        'zeroth.service',\n"
+        "        'zeroth.integrations.persistence.runs',\n"
+        "    )\n"
+        "    if name in sys.modules\n"
+        "]\n"
+        "assert not eager, eager\n"
+    )
+
+    assert result.returncode == 0, f"light runtime imports are not lazy:\n{result.stderr}"
+
+
+def test_the_orchestrator_resolves_from_the_canonical_package() -> None:
+    """Lazy must not mean absent: the name still resolves on first access."""
+    result = _cold(
+        "from zeroth.runtime.orchestration import RuntimeOrchestrator\n"
+        "assert RuntimeOrchestrator.__name__ == 'RuntimeOrchestrator'\n"
+    )
+
+    assert result.returncode == 0, f"canonical orchestrator does not resolve:\n{result.stderr}"
 
 
 def test_the_scanner_detects_every_import_form(tmp_path: Path) -> None:
