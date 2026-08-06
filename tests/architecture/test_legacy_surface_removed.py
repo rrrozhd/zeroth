@@ -1,16 +1,15 @@
-"""Ratchet the retired ``zeroth.core`` / ``zeroth.econ_plane`` import surface to zero.
+"""The retired ``zeroth.core`` / ``zeroth.econ_plane`` surfaces are gone for good.
 
-ZER-25 removes both trees outright. The removal touches roughly a sixth of the
-repository's Python files, so the conversion runs as a ratchet rather than one
-commit: ``legacy_import_baseline.txt`` lists every file that still imports a
-retired module, and the two guards below let that list shrink but never grow and
-never go stale.
+ZER-25 removed both trees outright. While the conversion was in progress this
+module carried a baseline listing the files that still imported them, which was
+allowed to shrink but never grow. The baseline reached zero, so it and the
+allowlist machinery were deleted with the trees: what remains is the flat
+prohibition, with no exemptions to erode.
 
-The baseline is scaffolding. When it reaches zero the trees are deleted and this
-module keeps only the flat prohibition -- no allowlist, no exemptions -- which is
-the end state the task specifies. Assertions that describe a relocation land in
-the commit that performs it, not here, so every commit in the sequence is green
-on its own terms.
+Every import assertion here runs in a subprocess. ``tests/conftest.py`` imports
+service bootstrap at collection time, so by the time an in-process test body
+runs, most of the package graph is already warm and an import question cannot be
+answered honestly from inside it.
 """
 
 from __future__ import annotations
@@ -20,32 +19,114 @@ import sys
 from pathlib import Path
 
 from tests.architecture.legacy_imports import (
+    LEGACY_ROOTS,
     REPO_ROOT,
     is_legacy_module,
     legacy_imports_in,
     scan_repository,
 )
 
-BASELINE_PATH = Path(__file__).with_name("legacy_import_baseline.txt")
-
 
 def _cold(code: str) -> subprocess.CompletedProcess[str]:
-    """Run ``code`` in a fresh interpreter.
-
-    In-process assertions cannot answer import questions here: ``conftest``
-    imports service bootstrap at collection time, so ``zeroth.core`` and most of
-    the service graph are already in ``sys.modules`` by the time any test body
-    runs. Only a cold interpreter sees what a library consumer sees.
-    """
+    """Run ``code`` in a fresh interpreter."""
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
-def test_alembic_resolves_migrations_only_from_the_service_domain() -> None:
-    """No configuration may still point Alembic at the retired package.
+def test_no_file_imports_a_retired_module() -> None:
+    """The flat prohibition: nothing under any scanned tree may import them."""
+    offenders = scan_repository()
 
-    A stale ``script_location`` fails at deploy time, not at import time, so a
-    green suite is not evidence on its own -- the paths are asserted directly.
+    assert not offenders, "these files import a retired module:\n  " + "\n  ".join(
+        f"{path}:{line} imports {module}"
+        for path, hits in sorted(offenders.items())
+        for line, module in hits
+    )
+
+
+def test_the_retired_packages_have_no_spec_in_a_fresh_interpreter() -> None:
+    """A consumer cannot import them, however the process was started."""
+    result = _cold(
+        "import importlib.util\n"
+        "resolved = [\n"
+        "    name\n"
+        "    for name in ('zeroth.core', 'zeroth.econ_plane')\n"
+        "    if importlib.util.find_spec(name) is not None\n"
+        "]\n"
+        "assert not resolved, resolved\n"
+    )
+
+    assert result.returncode == 0, f"retired packages still resolve:\n{result.stderr}"
+
+
+def test_the_retired_trees_are_absent_from_the_source_checkout() -> None:
+    """Deleted, not merely unreachable."""
+    for tree in ("src/zeroth/core", "src/zeroth/econ_plane"):
+        assert not (REPO_ROOT / tree).exists(), f"{tree} still exists"
+
+
+def test_every_backend_domain_imports_without_loading_a_retired_module() -> None:
+    """Each canonical package stands up cold, touching nothing retired.
+
+    This is the check the task's own risk section calls for: the suite's
+    ``conftest`` used to warm ``zeroth.core`` transitively, so an in-process
+    assertion proved nothing about a real consumer.
     """
+    from zeroth._architecture import BACKEND_DOMAINS
+
+    modules = sorted(f"zeroth.{domain}" for domain in BACKEND_DOMAINS)
+    result = _cold(
+        "import sys\n"
+        f"for name in {modules!r}:\n"
+        "    __import__(name)\n"
+        "leaked = [n for n in sys.modules if n.startswith(('zeroth.core', 'zeroth.econ_plane'))]\n"
+        "assert not leaked, leaked\n"
+    )
+
+    assert result.returncode == 0, f"a backend domain reaches a retired module:\n{result.stderr}"
+
+
+def test_the_scanner_detects_every_import_form(tmp_path: Path) -> None:
+    """A guard that cannot see an offender would pass vacuously forever.
+
+    Covers the four shapes the repository used, plus the two kinds of false
+    positive that make a substring search useless here: prose naming the old
+    path, and a canonical module whose name merely starts the same way.
+    """
+    module = tmp_path / "sample.py"
+    module.write_text(
+        '"""Docstring mentioning zeroth.core.runs, which is not an import."""\n'
+        "import zeroth.core\n"
+        "import zeroth.econ_plane.config\n"
+        "from zeroth.core.runs import RunRepository\n"
+        "from zeroth.core.audit.models import AuditRecord\n"
+        "import zeroth.runtime.runs\n"
+        "from zeroth.contracts.graph import Capability\n"
+        'LEGACY = "zeroth.core.cli"\n',
+        encoding="utf-8",
+    )
+
+    assert [name for _, name in legacy_imports_in(module)] == [
+        "zeroth.core",
+        "zeroth.econ_plane.config",
+        "zeroth.core.runs",
+        "zeroth.core.audit.models",
+    ]
+
+
+def test_a_canonical_module_sharing_a_prefix_is_not_a_legacy_module() -> None:
+    """``zeroth.core`` matches itself and its descendants -- nothing else."""
+    assert LEGACY_ROOTS == ("zeroth.core", "zeroth.econ_plane")
+    assert is_legacy_module("zeroth.core")
+    assert is_legacy_module("zeroth.core.runs.models")
+    assert is_legacy_module("zeroth.econ_plane")
+    assert not is_legacy_module("zeroth.econ")
+    assert not is_legacy_module("zeroth.econ.plane")
+    assert not is_legacy_module("zeroth.corex")
+    assert not is_legacy_module(None)
+
+
+def test_alembic_resolves_migrations_only_from_the_service_domain() -> None:
+    """No configuration may still point Alembic at the retired package."""
     config = (REPO_ROOT / "alembic.ini").read_text(encoding="utf-8")
     bootstrap = (REPO_ROOT / "src/zeroth/service/bootstrap/migrations.py").read_text(
         encoding="utf-8"
@@ -86,13 +167,7 @@ def test_the_orchestrator_is_defined_in_the_runtime_domain() -> None:
 
 
 def test_importing_light_runtime_contracts_does_not_load_the_orchestrator() -> None:
-    """The orchestrator stays lazy behind the runtime package surface.
-
-    Persistence adapters import the narrow runtime protocols. If reaching them
-    dragged in the orchestrator, it would also drag in the service and the
-    persistence adapters it drives -- the cycle the lazy package init exists to
-    prevent.
-    """
+    """The orchestrator stays lazy behind the runtime package surface."""
     result = _cold(
         "import sys\n"
         "import zeroth.runtime.runs\n"
@@ -120,83 +195,3 @@ def test_the_orchestrator_resolves_from_the_canonical_package() -> None:
     )
 
     assert result.returncode == 0, f"canonical orchestrator does not resolve:\n{result.stderr}"
-
-
-def test_the_scanner_detects_every_import_form(tmp_path: Path) -> None:
-    """A guard that cannot see an offender would pass vacuously forever.
-
-    Covers the four shapes the repository actually uses, plus the two kinds of
-    false positive that make a substring search useless here: prose naming the
-    old path, and a canonical module whose name merely starts the same way.
-    """
-    module = tmp_path / "sample.py"
-    module.write_text(
-        '"""Docstring mentioning zeroth.core.runs, which is not an import."""\n'
-        "import zeroth.core\n"
-        "import zeroth.econ_plane.config\n"
-        "from zeroth.core.runs import RunRepository\n"
-        "from zeroth.core.audit.models import AuditRecord\n"
-        "import zeroth.runtime.runs\n"
-        "from zeroth.contracts.graph import Capability\n"
-        'LEGACY = "zeroth.core.cli"\n',
-        encoding="utf-8",
-    )
-
-    assert [name for _, name in legacy_imports_in(module)] == [
-        "zeroth.core",
-        "zeroth.econ_plane.config",
-        "zeroth.core.runs",
-        "zeroth.core.audit.models",
-    ]
-
-
-def test_a_canonical_module_sharing_a_prefix_is_not_a_legacy_module() -> None:
-    """``zeroth.core`` matches itself and its descendants -- nothing else."""
-    assert is_legacy_module("zeroth.core")
-    assert is_legacy_module("zeroth.core.runs.models")
-    assert is_legacy_module("zeroth.econ_plane")
-    assert not is_legacy_module("zeroth.econ")
-    assert not is_legacy_module("zeroth.econ.plane")
-    assert not is_legacy_module("zeroth.corex")
-    assert not is_legacy_module(None)
-
-
-def _baseline() -> set[str]:
-    lines = BASELINE_PATH.read_text(encoding="utf-8").splitlines()
-    return {line.strip() for line in lines if line.strip() and not line.startswith("#")}
-
-
-def test_no_file_outside_the_baseline_imports_a_retired_module() -> None:
-    """New legacy imports are rejected; the conversion may only move forward."""
-    offenders = set(scan_repository())
-    added = sorted(offenders - _baseline())
-
-    assert not added, (
-        "these files import zeroth.core or zeroth.econ_plane and are not in the "
-        "ZER-25 baseline -- import the canonical package instead:\n  " + "\n  ".join(added)
-    )
-
-
-def test_the_baseline_lists_no_file_that_is_already_converted() -> None:
-    """A converted file must leave the baseline in the same commit that converts it.
-
-    Without this the list would decay into a permanent exemption roster: entries
-    for files that no longer offend would sit there indefinitely, and the guard
-    above would silently stop protecting them.
-    """
-    offenders = set(scan_repository())
-    stale = sorted(entry for entry in _baseline() if entry not in offenders)
-
-    assert not stale, (
-        "these files no longer import a retired module but are still listed in "
-        f"{BASELINE_PATH.name} -- delete their lines:\n  " + "\n  ".join(stale)
-    )
-
-
-def test_every_baseline_entry_names_a_file_that_exists() -> None:
-    """A deleted file leaves the baseline too, so the list stays a live inventory."""
-    missing = sorted(entry for entry in _baseline() if not (REPO_ROOT / entry).exists())
-
-    assert not missing, f"{BASELINE_PATH.name} names files that no longer exist:\n  " + "\n  ".join(
-        missing
-    )

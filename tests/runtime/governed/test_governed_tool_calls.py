@@ -14,8 +14,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
-
 NAMES = (
     "GovernedToolCallLoop",
     "NormalizedToolCall",
@@ -24,33 +22,25 @@ NAMES = (
 )
 
 
-def test_tool_calls_are_the_same_surface_through_both_paths() -> None:
+def test_tool_calls_publishes_its_whole_surface() -> None:
+    """The merged module still exports every name the vendored one did.
+
+    This compared the canonical module against the vendored
+    ``zeroth.core.governed.integrations.tool_calls`` republisher, which ZER-25
+    removed; the surface it pinned is asserted directly.
+    """
     import importlib
 
-    legacy = importlib.import_module("zeroth.core.governed.integrations.tool_calls")
     canonical = importlib.import_module("zeroth.runtime.agents.tooling.tool_calls")
 
-    for name in NAMES:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+    missing = sorted(name for name in NAMES if not hasattr(canonical, name))
+    assert not missing, f"tool_calls no longer publishes: {missing}"
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        (
-            "zeroth.runtime.agents.tooling.tool_calls",
-            "zeroth.core.governed.integrations.tool_calls",
-        ),
-        (
-            "zeroth.core.governed.integrations.tool_calls",
-            "zeroth.runtime.agents.tooling.tool_calls",
-        ),
-    ],
-)
-def test_tool_calls_cold_import_from_both_directions(first: str, second: str) -> None:
+def test_tool_calls_cold_imports() -> None:
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.runtime.agents.tooling.tool_calls"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+    assert result.returncode == 0, f"tool_calls is not cold-importable:\n{result.stderr}"
