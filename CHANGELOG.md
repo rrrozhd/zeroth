@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.4] - 2026-08-06
+
+### Fixed
+
+- Keep async LangGraph tool graphs responsive while synchronous policy
+  authorization waits, preserving fail-closed decisions and approval revalidation.
+
 ## [0.16.1.3] - 2026-08-06
 
 ### Security
