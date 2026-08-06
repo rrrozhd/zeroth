@@ -13,6 +13,7 @@ The wheel is built once per session; a build is slow and nothing here mutates it
 from __future__ import annotations
 
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -32,12 +33,10 @@ REQUIRED_ENTRIES = (
     "zeroth/service/_migrations/versions/001_initial_schema.py",
 )
 
-#: Prefixes that must not appear anywhere in the distribution. The retired
-#: ``zeroth/core/`` and ``zeroth/econ_plane/`` trees join this tuple in the
-#: commit that deletes them, together with the installed-wheel ``find_spec``
-#: guard -- asserting their absence before then would just be a red test
-#: describing work that has not happened yet.
+#: Prefixes that must not appear anywhere in the distribution.
 FORBIDDEN_PREFIXES = (
+    "zeroth/core/",
+    "zeroth/econ_plane/",
     "zeroth/examples/",
     "zeroth/demos/",
 )
@@ -78,3 +77,37 @@ def test_the_wheel_ships_no_retired_or_example_tree(prefix: str, wheel_names: li
     shipped = sorted(name for name in wheel_names if name.startswith(prefix))
 
     assert not shipped, f"wheel ships {prefix}:\n  " + "\n  ".join(shipped)
+
+
+def test_no_retired_package_resolves_against_the_installed_wheel(
+    wheel: Path, tmp_path: Path
+) -> None:
+    """A consumer installing the wheel cannot import the retired trees.
+
+    Unpacking and pointing an interpreter at the result exercises exactly what
+    import resolution does with an installed distribution, without paying for a
+    virtualenv and a dependency solve.
+    """
+    site = tmp_path / "site"
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(site)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib.util\n"
+            "resolved = [\n"
+            "    name\n"
+            "    for name in ('zeroth.core', 'zeroth.econ_plane')\n"
+            "    if importlib.util.find_spec(name) is not None\n"
+            "]\n"
+            "assert not resolved, resolved\n",
+        ],
+        cwd=site,
+        env={"PYTHONPATH": str(site), "PATH": ""},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"retired packages resolve from the wheel:\n{result.stderr}"

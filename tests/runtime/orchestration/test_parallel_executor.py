@@ -20,9 +20,9 @@ from typing import Any
 
 import pytest
 
+from zeroth.runtime.orchestration import RuntimeParallelExecutor
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
 from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
-from zeroth.runtime.orchestration import RuntimeParallelExecutor
 
 
 class _EchoRunRepository:
@@ -191,7 +191,6 @@ class _ParallelNode:
     "statement",
     [
         "from zeroth.runtime.orchestration import RuntimeParallelExecutor",
-        "import zeroth.core.orchestrator.runtime",
     ],
 )
 def test_the_package_imports_in_a_cold_interpreter(statement: str) -> None:

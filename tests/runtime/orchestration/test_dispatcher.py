@@ -255,8 +255,6 @@ class _AnyRun:
     [
         "from zeroth.runtime.orchestration import NodeDispatcher, RuntimeToolExecutor",
         "from zeroth.runtime.orchestration.errors import OrchestratorError",
-        "import zeroth.core.orchestrator.runtime",
-        "from zeroth.core.orchestrator import RuntimeOrchestrator",
     ],
 )
 def test_the_package_imports_in_a_cold_interpreter(statement: str) -> None:

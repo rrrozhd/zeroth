@@ -56,13 +56,13 @@ jobs:
           pip install "${WHEEL}[${{ matrix.extra }}]"
           case "${{ matrix.extra }}" in
             memory-pg)
-              python -c "import zeroth.core.memory.pgvector_connector; print('memory-pg OK')"
+              python -c "import zeroth.integrations.memory.pgvector_connector; print('memory-pg OK')"
               ;;
             memory-chroma)
-              python -c "import zeroth.core.memory.chroma_connector; print('memory-chroma OK')"
+              python -c "import zeroth.integrations.memory.chroma_connector; print('memory-chroma OK')"
               ;;
             memory-es)
-              python -c "import zeroth.core.memory.elastic_connector; print('memory-es OK')"
+              python -c "import zeroth.integrations.memory.elastic_connector; print('memory-es OK')"
               ;;
             dispatch)
               python -c "import arq, redis, zeroth.platform.dispatch.arq_wakeup; print('dispatch OK')"
@@ -71,10 +71,10 @@ jobs:
               # [sandbox] extra is intentionally empty (sandbox_sidecar shells
               # out to docker CLI at runtime). Gate is: install resolves and
               # the module imports from base deps only.
-              python -c "import zeroth.core.sandbox_sidecar; print('sandbox OK')"
+              python -c "import zeroth.integrations.sandbox; print('sandbox OK')"
               ;;
             all)
-              python -c "import arq, redis, zeroth.platform.dispatch.arq_wakeup, zeroth.core.memory.pgvector_connector, zeroth.core.memory.chroma_connector, zeroth.core.sandbox_sidecar; print('all OK')"
+              python -c "import arq, redis, zeroth.platform.dispatch.arq_wakeup, zeroth.integrations.memory.pgvector_connector, zeroth.integrations.memory.chroma_connector, zeroth.integrations.sandbox; print('all OK')"
               ;;
             *)
               echo "::error::Unknown matrix entry: ${{ matrix.extra }}"
@@ -129,7 +129,7 @@ jobs:
           cd /tmp  # away from the checkout so the repo fallback can't mask the package
           python -c "
           from fastapi import FastAPI
-          from zeroth.core.service.console_ui import find_console_dir, mount_console
+          from zeroth.service.api.console_ui import find_console_dir, mount_console
           d = find_console_dir()
           assert d is not None and 'zeroth_console' in str(d), f'console dir: {d}'
           assert mount_console(FastAPI()) is True

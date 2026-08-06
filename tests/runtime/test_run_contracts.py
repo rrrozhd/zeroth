@@ -47,7 +47,7 @@ def test_canonical_package_imports_in_a_cold_interpreter() -> None:
     """``zeroth.runtime.runs`` must import without ``zeroth.core`` being loaded first.
 
     This runs in a subprocess on purpose. ``tests/conftest.py`` imports
-    ``zeroth.core.service.bootstrap`` at collection time, so by the time any
+    ``zeroth.service.bootstrap`` at collection time, so by the time any
     in-process test runs, ``zeroth.core`` is already in ``sys.modules`` and a
     circular import between the canonical package and ``zeroth.core`` is
     invisible. A library consumer following the migration guide has no such

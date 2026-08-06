@@ -29,8 +29,8 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.orchestration import GraphDriver
+from zeroth.runtime.runs import Run, RunStatus
 
 
 class _EchoRunRepository:
@@ -184,9 +184,7 @@ def test_tool_edges_are_never_used_for_payload_routing() -> None:
     """Tool edges connect the same pair but carry no mapping and route nothing."""
     driver = _driver()
     graph = _graph()
-    graph.edges.append(
-        Edge(edge_id="tool", source_node_id="a", target_node_id="b", kind="tool")
-    )
+    graph.edges.append(Edge(edge_id="tool", source_node_id="a", target_node_id="b", kind="tool"))
 
     edge = driver.edge_for(graph, "a", "b")
 
@@ -235,8 +233,6 @@ async def test_artifact_ttl_refresh_never_raises() -> None:
     "statement",
     [
         "from zeroth.runtime.orchestration import GraphDriver",
-        "import zeroth.core.orchestrator.runtime",
-        "from zeroth.core.orchestrator import RuntimeOrchestrator",
     ],
 )
 def test_the_package_imports_in_a_cold_interpreter(statement: str) -> None:

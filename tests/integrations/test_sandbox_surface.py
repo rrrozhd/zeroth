@@ -48,16 +48,16 @@ def test_sandbox_publishes_its_whole_surface() -> None:
         ),
     ],
 )
-def test_sandbox_modules_are_the_same_surface_through_both_paths(
+def test_sandbox_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
+    """Each relocated submodule still exports the names it was pinned for."""
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.sandbox_sidecar.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.integrations.sandbox.{module_name}")
 
-    for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+    missing = sorted(name for name in names if not hasattr(canonical_module, name))
+    assert not missing, f"{module_name} no longer publishes: {missing}"
 
 
 def test_sandbox_imports_in_a_cold_interpreter() -> None:

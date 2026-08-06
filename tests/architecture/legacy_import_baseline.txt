@@ -1,8 +1,0 @@
-# Files that still import the retired zeroth.core / zeroth.econ_plane trees.
-# ZER-25 ratchet: this list may only shrink, and every entry must still be an
-# offender. When it empties, the trees themselves must be gone -- the guard in
-# test_legacy_surface_removed.py enforces both halves of that equivalence.
-src/zeroth/core/conditions/__init__.py
-src/zeroth/core/econ/__init__.py
-src/zeroth/core/governed/__init__.py
-src/zeroth/core/storage/__init__.py

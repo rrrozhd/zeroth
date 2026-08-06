@@ -96,10 +96,10 @@ jobs:
           source /tmp/smoke-venv/bin/activate
           pip install --upgrade pip
           pip install dist/*.whl
-          python -c "import zeroth.core; print('zeroth.core path:', zeroth.core.__path__)"
+          python -c "import zeroth.runtime; print('zeroth.runtime path:', zeroth.runtime.__path__)"
           # Console dist: the bundled static export must resolve and mount.
           python -c "
-          from zeroth.core.service.console_ui import find_console_dir
+          from zeroth.service.api.console_ui import find_console_dir
           d = find_console_dir()
           assert d is not None and (d / 'index.html').is_file(), f'console dir: {d}'
           print('zeroth-console static export OK:', d)

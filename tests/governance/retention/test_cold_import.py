@@ -1,9 +1,9 @@
-"""The retention package must be importable without a warm ``zeroth.core``.
+"""The retention package must be importable from a cold interpreter.
 
 These run in subprocesses on purpose. ``tests/conftest.py`` imports
-``zeroth.core.service.bootstrap`` at collection time, so by the time any
-in-process test runs ``zeroth.core`` is already in ``sys.modules`` and a cycle
-between the canonical package and ``zeroth.core`` is structurally invisible --
+``zeroth.service.bootstrap`` at collection time, so by the time any
+in-process test runs most of the service graph is already in ``sys.modules``
+and a cycle between these packages is structurally invisible --
 it would pass the entire suite.
 
 The cycle is one line away here in both directions. Every extracted module
@@ -28,10 +28,7 @@ COLD_IMPORTS = (
     "from zeroth.governance.retention import RetentionErasureService",
     "from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser",
     # Legacy-path-first: what every existing caller does.
-    "import zeroth.core.retention.erasure_service",
-    "from zeroth.core.retention import RetentionErasureService",
     # Package-init-first: the edge that closes the cycle if it goes eager.
-    "import zeroth.core.retention",
 )
 
 

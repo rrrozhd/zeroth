@@ -1,9 +1,9 @@
-"""The validation package must be importable without a warm ``zeroth.core``.
+"""The validation package must be importable from a cold interpreter.
 
 These run in subprocesses on purpose. ``tests/conftest.py`` imports
-``zeroth.core.service.bootstrap`` at collection time, so by the time any
-in-process test runs ``zeroth.core`` is already in ``sys.modules`` and a cycle
-between the canonical package and ``zeroth.core`` is structurally invisible --
+``zeroth.service.bootstrap`` at collection time, so by the time any
+in-process test runs most of the service graph is already in ``sys.modules``
+and a cycle between these packages is structurally invisible --
 it would pass the entire suite.
 
 The cycle is easy to reintroduce here: the contract validators import graph
@@ -20,7 +20,6 @@ import sys
 
 import pytest
 
-
 COLD_IMPORTS = (
     # Canonical-package-first: what a library consumer does.
     "from zeroth.contracts.graph.validation.issues import append_issue",
@@ -30,12 +29,10 @@ COLD_IMPORTS = (
     "from zeroth.runtime.graph_validation import GraphValidator",
     # Legacy-path-first: what existing callers do. Resolution is lazy, so this
     # also proves the shim's deferred runtime import survives a cold start.
-    "from zeroth.core.graph.validation import GraphValidator",
     # Package-init-first: the edge that closes the cycle if it goes eager.
     "import zeroth.contracts.graph",
     # Legacy package-init-first: the compatibility shell re-exports the same
     # objects, so its init must survive a cold start too.
-    "import zeroth.core.graph",
 )
 
 
