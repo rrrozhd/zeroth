@@ -35,8 +35,8 @@ def test_wrapper_health_response_moved_next_to_the_health_routes() -> None:
     out of that trap; the legacy ``zeroth.core.service.app`` path still
     resolves the same class object.
     """
-    from zeroth.core.service.app import HealthResponse as LegacyHealthResponse
     from zeroth.service.api.health import HealthResponse
+    from zeroth.service.api.health import HealthResponse as LegacyHealthResponse
 
     assert HealthResponse is LegacyHealthResponse
     assert HealthResponse.__module__ == "zeroth.service.api.health"

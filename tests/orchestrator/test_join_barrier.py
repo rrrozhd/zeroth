@@ -20,11 +20,6 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.runtime.agents import AgentConfig, AgentRunner
-from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
-from zeroth.governance.audit import AuditRepository
-from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
@@ -35,12 +30,17 @@ from zeroth.contracts.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.contracts.graph.validation_errors import ValidationCode
+from zeroth.governance.approvals import ApprovalDecision, ApprovalRepository, ApprovalService
+from zeroth.governance.audit import AuditRepository
 from zeroth.governance.identity import ActorIdentity, AuthMethod
-from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.runtime.parallel.models import JoinConfig, ParallelConfig
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.parallel.models import JoinConfig, ParallelConfig
 from zeroth.runtime.runs import Run, RunStatus
 
 pytestmark = pytest.mark.asyncio
@@ -134,9 +134,7 @@ def _graph(nodes, edges, *, flag: bool, entry: str = "A") -> Graph:
         graph_id="join-test",
         name="join-test",
         entry_step=entry,
-        execution_settings=ExecutionSettings(
-            max_total_steps=60, sequential_join_enabled=flag
-        ),
+        execution_settings=ExecutionSettings(max_total_steps=60, sequential_join_enabled=flag),
         nodes=nodes,
         edges=edges,
     )
@@ -177,9 +175,7 @@ def _diamond_runners(sqlite_db) -> RuntimeOrchestrator:
             "B": _runner(_emit(b=10), OutB),
             "C": _runner(_emit(c=20), OutC),
             # D echoes whatever it received so the merged payload is observable.
-            "D": _runner(
-                lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))
-            ),
+            "D": _runner(lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))),
         },
         sqlite_db,
     )
@@ -248,9 +244,7 @@ def _unbalanced_orch(sqlite_db) -> RuntimeOrchestrator:
             "B": _runner(_emit(b=10), OutB),
             "C": _runner(_emit(c=20), OutC),
             "E": _runner(_emit(e=30), OutE),
-            "D": _runner(
-                lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))
-            ),
+            "D": _runner(lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))),
         },
         sqlite_db,
     )
@@ -324,7 +318,7 @@ def _conditional_orch(sqlite_db) -> RuntimeOrchestrator:
 
 @pytest.mark.parametrize("flag", [False, True])
 async def test_conditional_reconvergence_unchanged(sqlite_db, flag: bool) -> None:
-    """report dispatches once with the single delivered payload — flag on OR off.
+    """Report dispatches once with the single delivered payload — flag on OR off.
 
     ``score`` emits tier='low', so exactly one inbound edge of ``report``
     (``score-report``) delivers; the high branch (``review``) never fires.
@@ -392,9 +386,7 @@ async def test_skip_cascade_resolves_not_deadlock(sqlite_db) -> None:
             "A": _runner(_emit(value=1)),
             "B": _runner(_emit(b=10), OutB),
             "C": _runner(_emit(c=20), OutC),
-            "D": _runner(
-                lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))
-            ),
+            "D": _runner(lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))),
         },
         sqlite_db,
     )
@@ -465,9 +457,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
             HumanApprovalNode(
                 node_id="gate",
                 graph_version_ref="join-test:v1",
-                human_approval=HumanApprovalNodeData(
-                    approval_policy_config={"allow_edits": True}
-                ),
+                human_approval=HumanApprovalNodeData(approval_policy_config={"allow_edits": True}),
             ),
             d,
         ],
@@ -490,9 +480,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
             "A": _runner(_emit(value=1)),
             "B": _runner(_emit(b=10), OutB),
             "C": _runner(_emit(c=20), OutC),
-            "D": _runner(
-                lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))
-            ),
+            "D": _runner(lambda req: ProviderResponse(content=dict(req.metadata["input_payload"]))),
         },
         sqlite_db,
         approval_service=approval_service,
@@ -512,9 +500,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
         actor=ActorIdentity(subject="user-1", auth_method=AuthMethod.API_KEY),
         edited_payload={"g": 99},
     )
-    resumed = await approval_service.continue_run(
-        approval_id, graph=graph, orchestrator=orch
-    )
+    resumed = await approval_service.continue_run(approval_id, graph=graph, orchestrator=orch)
 
     assert resumed.status is RunStatus.COMPLETED
     assert _counts(resumed)["D"] == 1
@@ -654,11 +640,14 @@ async def test_collect_shape_follows_config_not_delivery_count(sqlite_db) -> Non
         # reduce == built-in last-wins fold over [{b:10},{c:20}] → {c:20} (b dropped)
         (JoinConfig(merge_strategy="reduce"), {"c": 20}),
         # custom sum_scores folds {total:...} dicts
-        (JoinConfig(merge_strategy="custom", reducer_ref="tests._fixtures.reducers.sum_scores"), None),
+        (
+            JoinConfig(merge_strategy="custom", reducer_ref="tests._fixtures.reducers.sum_scores"),
+            None,
+        ),
     ],
 )
 async def test_merge_policies(sqlite_db, join_config: JoinConfig, expected) -> None:
-    """merge / reduce / custom each produce the expected combined payload."""
+    """Merge / reduce / custom each produce the expected combined payload."""
     d = _agent("D")
     d.join_config = join_config
     graph = _diamond_from(d, flag=True)
@@ -1008,8 +997,16 @@ async def test_multi_latch_loop_rejected() -> None:
     not downstream of a body join, so this shape is rejected until a token engine.
     """
     graph = _graph(
-        [_agent("A"), _agent("H"), _agent("X"), _agent("Y"), _agent("J"),
-         _agent("L1"), _agent("L2"), _agent("M")],
+        [
+            _agent("A"),
+            _agent("H"),
+            _agent("X"),
+            _agent("Y"),
+            _agent("J"),
+            _agent("L1"),
+            _agent("L2"),
+            _agent("M"),
+        ],
         [
             Edge(edge_id="A-H", source_node_id="A", target_node_id="H"),
             Edge(edge_id="H-X", source_node_id="H", target_node_id="X"),
@@ -1019,16 +1016,27 @@ async def test_multi_latch_loop_rejected() -> None:
             Edge(edge_id="Y-M", source_node_id="Y", target_node_id="M"),
             Edge(edge_id="M-J", source_node_id="M", target_node_id="J"),
             Edge(edge_id="J-L1", source_node_id="J", target_node_id="L1"),
-            Edge(edge_id="L1-H", source_node_id="L1", target_node_id="H",
-                 condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True)),
-            Edge(edge_id="L2-H", source_node_id="L2", target_node_id="H",
-                 condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True)),
+            Edge(
+                edge_id="L1-H",
+                source_node_id="L1",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True),
+            ),
+            Edge(
+                edge_id="L2-H",
+                source_node_id="L2",
+                target_node_id="H",
+                condition=Condition(expression="payload.value < 3", allow_cycle_traversal=True),
+            ),
         ],
         flag=True,
         entry="A",
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.MULTI_LATCH_LOOP in codes
 
 
@@ -1052,8 +1060,11 @@ async def test_fanout_successor_that_is_a_join_rejected() -> None:
         flag=True,
         entry="A",
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_SUCCESSOR_JOIN in codes
 
 
@@ -1069,13 +1080,20 @@ async def test_fanout_inside_loop_rejected() -> None:
         [
             Edge(edge_id="A-F", source_node_id="A", target_node_id="F"),
             Edge(edge_id="F-W", source_node_id="F", target_node_id="W"),
-            Edge(edge_id="W-F", source_node_id="W", target_node_id="F",
-                 condition=Condition(expression="payload.value < 2", allow_cycle_traversal=True)),
+            Edge(
+                edge_id="W-F",
+                source_node_id="W",
+                target_node_id="F",
+                condition=Condition(expression="payload.value < 2", allow_cycle_traversal=True),
+            ),
         ],
         flag=True,
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP in codes
 
 
@@ -1090,8 +1108,11 @@ async def test_fanout_outside_loop_not_flagged() -> None:
         ],
         flag=True,
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP not in codes
 
 
@@ -1115,54 +1136,81 @@ def _wellformed_loop_graphs() -> dict[str, Graph]:
         # S14 do-while: latch W->H(<3) XOR conditional exit W->Z(>=3).
         "do_while": _graph(
             [_agent("A"), _agent("H"), _agent("W"), _agent("Z"), _agent("END")],
-            [_e("A", "Z"), _e("A", "H"), _e("H", "W"),
-             _e("W", "H", "payload.value < 3", cycle=True),
-             _e("W", "Z", "payload.value >= 3"), _e("Z", "END")],
+            [
+                _e("A", "Z"),
+                _e("A", "H"),
+                _e("H", "W"),
+                _e("W", "H", "payload.value < 3", cycle=True),
+                _e("W", "Z", "payload.value >= 3"),
+                _e("Z", "END"),
+            ],
             flag=True,
         ),
         # S15 header-tested: H decides continue H->W(<3) XOR exit H->Z(>=3).
         "header_tested": _graph(
             [_agent("A"), _agent("H"), _agent("W"), _agent("Z"), _agent("END")],
-            [_e("A", "Z"), _e("A", "H"),
-             _e("H", "W", "payload.value < 3", cycle=True),
-             _e("H", "Z", "payload.value >= 3"),
-             _e("W", "H", "True", cycle=True), _e("Z", "END")],
+            [
+                _e("A", "Z"),
+                _e("A", "H"),
+                _e("H", "W", "payload.value < 3", cycle=True),
+                _e("H", "Z", "payload.value >= 3"),
+                _e("W", "H", "True", cycle=True),
+                _e("Z", "END"),
+            ],
             flag=True,
         ),
         # S16 decision node D: exit D->Z(>=3) XOR continue D->L(<3), latch L->H.
         "decision_node": _graph(
             [_agent("A"), _agent("H"), _agent("D"), _agent("L"), _agent("Z"), _agent("END")],
-            [_e("A", "Z"), _e("A", "H"), _e("H", "D"),
-             _e("D", "Z", "payload.value >= 3"),
-             _e("D", "L", "payload.value < 3", cycle=True),
-             _e("L", "H", "payload.value < 3", cycle=True), _e("Z", "END")],
+            [
+                _e("A", "Z"),
+                _e("A", "H"),
+                _e("H", "D"),
+                _e("D", "Z", "payload.value >= 3"),
+                _e("D", "L", "payload.value < 3", cycle=True),
+                _e("L", "H", "payload.value < 3", cycle=True),
+                _e("Z", "END"),
+            ],
             flag=True,
         ),
         # S6 diamond inside a loop: H->B, H->C reconverge at D, D->H back.
         "diamond_in_loop": _graph(
             [_agent("H"), _agent("B"), _agent("C"), _agent("D")],
-            [_e("H", "B"), _e("H", "C"), _e("B", "D"), _e("C", "D"),
-             _e("D", "H", "payload.step < 5", cycle=True)],
-            flag=True, entry="H",
+            [
+                _e("H", "B"),
+                _e("H", "C"),
+                _e("B", "D"),
+                _e("C", "D"),
+                _e("D", "H", "payload.step < 5", cycle=True),
+            ],
+            flag=True,
+            entry="H",
         ),
         # S17 multi-exit: latch W->H(<3), two conditional exits ==3 / >3.
         "multi_exit": _graph(
             [_agent("A"), _agent("H"), _agent("W"), _agent("Z"), _agent("OUT")],
-            [_e("A", "H"), _e("H", "W"),
-             _e("W", "H", "payload.value < 3", cycle=True),
-             _e("W", "Z", "payload.value == 3"),
-             _e("W", "OUT", "payload.value > 3")],
+            [
+                _e("A", "H"),
+                _e("H", "W"),
+                _e("W", "H", "payload.value < 3", cycle=True),
+                _e("W", "Z", "payload.value == 3"),
+                _e("W", "OUT", "payload.value > 3"),
+            ],
             flag=True,
         ),
         # S10 nested: inner IB->IH(<0) XOR conditional inner-exit IB->OB(>=0).
         # IB->OB needs cycle traversal — OB is revisited each outer iteration.
         "nested": _graph(
             [_agent("OH"), _agent("IH"), _agent("IB"), _agent("OB")],
-            [_e("OH", "IH"), _e("IH", "IB"),
-             _e("IB", "IH", "payload.value < 0", cycle=True),
-             _e("IB", "OB", "payload.value >= 0", cycle=True),
-             _e("OB", "OH", "payload.value < 2", cycle=True)],
-            flag=True, entry="OH",
+            [
+                _e("OH", "IH"),
+                _e("IH", "IB"),
+                _e("IB", "IH", "payload.value < 0", cycle=True),
+                _e("IB", "OB", "payload.value >= 0", cycle=True),
+                _e("OB", "OH", "payload.value < 2", cycle=True),
+            ],
+            flag=True,
+            entry="OH",
         ),
     }
 
@@ -1173,23 +1221,36 @@ def _fork_loop_graphs() -> dict[str, Graph]:
         # Latch W->H(<3) AND an UNCONDITIONAL exit W->Z fire together.
         "uncond_exit": _graph(
             [_agent("A"), _agent("H"), _agent("W"), _agent("Z")],
-            [_e("A", "H"), _e("H", "W"),
-             _e("W", "H", "payload.step < 5", cycle=True), _e("W", "Z")],
+            [
+                _e("A", "H"),
+                _e("H", "W"),
+                _e("W", "H", "payload.step < 5", cycle=True),
+                _e("W", "Z"),
+            ],
             flag=True,
         ),
         # Back-edge D->B AND unconditional D->C fork into the loop and out of it.
         "tail_fork": _graph(
             [_agent("A"), _agent("B"), _agent("C"), _agent("D")],
-            [_e("A", "B"), _e("B", "D"), _e("C", "D"),
-             _e("D", "B", "payload.step < 5", cycle=True), _e("D", "C")],
+            [
+                _e("A", "B"),
+                _e("B", "D"),
+                _e("C", "D"),
+                _e("D", "B", "payload.step < 5", cycle=True),
+                _e("D", "C"),
+            ],
             flag=True,
         ),
         # Two back-edges from D re-enter two nested headers at once.
         "two_back_edges": _graph(
             [_agent("A"), _agent("B"), _agent("C"), _agent("D")],
-            [_e("A", "B"), _e("B", "C"), _e("C", "D"),
-             _e("D", "B", "payload.step < 5", cycle=True),
-             _e("D", "C", "payload.step < 5", cycle=True)],
+            [
+                _e("A", "B"),
+                _e("B", "C"),
+                _e("C", "D"),
+                _e("D", "B", "payload.step < 5", cycle=True),
+                _e("D", "C", "payload.step < 5", cycle=True),
+            ],
             flag=True,
         ),
         # H forks one loop token into two arms. Continuing arms reconverge at L,
@@ -1197,22 +1258,31 @@ def _fork_loop_graphs() -> dict[str, Graph]:
         # same out-of-loop join. The exiting tokens do not reconverge before the
         # boundary, so the token engine cannot safely deduplicate J (D3).
         "exiting_diamond": _graph(
-            [_agent("H"), _agent("B"), _agent("C"), _agent("L"),
-             _agent("J"), _agent("END")],
-            [_e("H", "B"), _e("H", "C"),
-             _e("B", "L", "payload.step < 2", cycle=True),
-             _e("C", "L", "payload.step < 2", cycle=True),
-             _e("L", "H", "True", cycle=True),
-             _e("B", "J", "payload.step >= 2"),
-             _e("C", "J", "payload.step >= 2"), _e("J", "END")],
-            flag=True, entry="H",
+            [_agent("H"), _agent("B"), _agent("C"), _agent("L"), _agent("J"), _agent("END")],
+            [
+                _e("H", "B"),
+                _e("H", "C"),
+                _e("B", "L", "payload.step < 2", cycle=True),
+                _e("C", "L", "payload.step < 2", cycle=True),
+                _e("L", "H", "True", cycle=True),
+                _e("B", "J", "payload.step >= 2"),
+                _e("C", "J", "payload.step >= 2"),
+                _e("J", "END"),
+            ],
+            flag=True,
+            entry="H",
         ),
         # Unconditional exit B->OUT alongside a conditional in-loop branch B->X.
         "uncond_exit_cond_branch": _graph(
             [_agent("H"), _agent("B"), _agent("X"), _agent("OUT")],
-            [_e("H", "B"), _e("B", "H", "payload.step < 5", cycle=True),
-             _e("B", "X", "payload.step < 2"), _e("B", "OUT")],
-            flag=True, entry="H",
+            [
+                _e("H", "B"),
+                _e("B", "H", "payload.step < 5", cycle=True),
+                _e("B", "X", "payload.step < 2"),
+                _e("B", "OUT"),
+            ],
+            flag=True,
+            entry="H",
         ),
     }
 
@@ -1221,8 +1291,11 @@ def _fork_loop_graphs() -> dict[str, Graph]:
 async def test_wellformed_loops_pass_fanout_guard(name: str) -> None:
     """Every single-token loop shape the engine supports must publish clean."""
     graph = _wellformed_loop_graphs()[name]
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP not in codes, f"{name} wrongly flagged as fan-out"
 
 
@@ -1230,8 +1303,11 @@ async def test_wellformed_loops_pass_fanout_guard(name: str) -> None:
 async def test_multi_token_fork_shapes_rejected(name: str) -> None:
     """Every shape that splits the single circulating token must fail publish."""
     graph = _fork_loop_graphs()[name]
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP in codes, f"{name} not caught as fan-out"
 
 
@@ -1241,32 +1317,43 @@ async def test_exiting_diamond_guard_is_inert_when_token_engine_disabled() -> No
     graph = _fork_loop_graphs()["exiting_diamond"].model_copy(
         update={"execution_settings": ExecutionSettings(sequential_join_enabled=False)}
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP not in codes
 
 
 async def test_disabled_edge_does_not_hide_loop_fork() -> None:
-    """Review #2 (round 2): the fan-out guard must model loops from ENABLED edges
+    """Review #2 (round 2): the fan-out guard must model loops from ENABLED edges.
+
     only — the runtime (token_scope) drops disabled edges. A disabled back-edge
     that inflates the loop body would hide a real fork: X unconditionally forks to
     Y (in the loop) and Z (outside it) every iteration, but a disabled Z->Y pulls
     Z into the body and makes it look like a diamond. The guard must still fire.
     """
+
     def _mk(*, z_to_y_enabled: bool) -> Graph:
         return _graph(
             [_agent("H"), _agent("X"), _agent("Y"), _agent("Z")],
             [
-                _e("H", "X"), _e("X", "Y"), _e("X", "Z"),
+                _e("H", "X"),
+                _e("X", "Y"),
+                _e("X", "Z"),
                 _e("Y", "H", "payload.step < 3", cycle=True),
-                Edge(edge_id="Z-Y", source_node_id="Z", target_node_id="Y",
-                     enabled=z_to_y_enabled),
+                Edge(edge_id="Z-Y", source_node_id="Z", target_node_id="Y", enabled=z_to_y_enabled),
             ],
-            flag=True, entry="H",
+            flag=True,
+            entry="H",
         )
+
     # Disabled Z->Y: Z is outside the loop → X forks (Y continues, Z exits) → reject.
-    codes = {i.code for i in (await GraphValidator().validate(_mk(z_to_y_enabled=False))).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(_mk(z_to_y_enabled=False))).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.FANOUT_IN_LOOP in codes, codes
 
 
@@ -1282,12 +1369,19 @@ async def test_unreachable_loop_not_flagged_irreducible() -> None:
             Edge(edge_id="A-B", source_node_id="A", target_node_id="B"),
             # U<->V is an unreachable reducible loop (no edge from the reachable set).
             Edge(edge_id="U-V", source_node_id="U", target_node_id="V"),
-            Edge(edge_id="V-U", source_node_id="V", target_node_id="U",
-                 condition=Condition(expression="payload.value < 1", allow_cycle_traversal=True)),
+            Edge(
+                edge_id="V-U",
+                source_node_id="V",
+                target_node_id="U",
+                condition=Condition(expression="payload.value < 1", allow_cycle_traversal=True),
+            ),
         ],
         flag=True,
         entry="A",
     )
-    codes = {i.code for i in (await GraphValidator().validate(graph)).issues
-             if i.severity.value == "error"}
+    codes = {
+        i.code
+        for i in (await GraphValidator().validate(graph)).issues
+        if i.severity.value == "error"
+    }
     assert ValidationCode.IRREDUCIBLE_LOOP not in codes

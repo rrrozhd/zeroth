@@ -13,12 +13,11 @@ from typing import Any
 
 import pytest
 
-from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Graph
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
 from zeroth.contracts.templates.models import TemplateReference
-from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
-
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -226,7 +225,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Alice", "api_key": "sk-123"})
+        run = await orchestrator.run_graph(graph, {"name": "Alice", "api_key": "sk-123"})  # noqa: F841
 
         # The runner should have received the rendered instruction, not the raw one.
         assert runner.instruction_received is not None
@@ -242,7 +241,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Alice"})
+        run = await orchestrator.run_graph(graph, {"name": "Alice"})  # noqa: F841
 
         # Without template_ref, should use raw instruction unchanged.
         assert runner.instruction_received == "raw instruction"
@@ -255,7 +254,7 @@ class TestOrchestratorTemplateResolution:
             executable_unit_runner=None,
             # No template_registry / template_renderer
         )
-        run = await orchestrator.run_graph(graph, {"name": "Alice"})
+        run = await orchestrator.run_graph(graph, {"name": "Alice"})  # noqa: F841
 
         # Should fall through to raw instruction.
         assert runner.instruction_received == "raw instruction"
@@ -269,7 +268,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Bob"})
+        run = await orchestrator.run_graph(graph, {"name": "Bob"})  # noqa: F841
 
         # Latest version (2) template is "Hi {{ input.name }}!"
         assert runner.instruction_received is not None
@@ -277,7 +276,6 @@ class TestOrchestratorTemplateResolution:
 
     @pytest.mark.asyncio()
     async def test_template_not_found_raises(self, registry, renderer, runner):
-        from zeroth.contracts.templates.errors import TemplateNotFoundError
 
         graph = self._make_graph(template_ref=TemplateReference(name="nonexistent"))
         orchestrator = _token_orchestrator(
@@ -302,7 +300,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Charlie"})
+        run = await orchestrator.run_graph(graph, {"name": "Charlie"})  # noqa: F841
 
         assert len(audit_repo.records) == 1
         exec_meta = audit_repo.records[0].execution_metadata
@@ -323,7 +321,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Dan", "api_key": "sk-000"})
+        run = await orchestrator.run_graph(graph, {"name": "Dan", "api_key": "sk-000"})  # noqa: F841
 
         assert len(audit_repo.records) == 1
         exec_meta = audit_repo.records[0].execution_metadata
@@ -336,6 +334,7 @@ class TestOrchestratorTemplateResolution:
     async def test_template_variables_include_input_and_state(self, renderer, runner):
         """Template variables should include input payload and run state metadata."""
         from zeroth.contracts.templates.registry import TemplateRegistry
+
         reg = TemplateRegistry()
         reg.register("state_test", 1, "Input={{ input.val }} State={{ state }}")
         graph = self._make_graph(template_ref=TemplateReference(name="state_test", version=1))
@@ -345,7 +344,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=reg,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"val": "hello"})
+        run = await orchestrator.run_graph(graph, {"val": "hello"})  # noqa: F841
         assert runner.instruction_received is not None
         assert "Input=hello" in runner.instruction_received
 
@@ -359,7 +358,7 @@ class TestOrchestratorTemplateResolution:
             template_registry=registry,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Eve"})
+        run = await orchestrator.run_graph(graph, {"name": "Eve"})  # noqa: F841
         # After execution completes, runner config should be restored.
         assert runner.config.instruction == "raw instruction"
 
@@ -425,7 +424,7 @@ class TestAuditRedaction:
             template_registry=reg,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(
+        run = await orchestrator.run_graph(  # noqa: F841
             graph,
             {"name": "Alice", "api_key": "sk-secret-123"},
         )
@@ -458,7 +457,7 @@ class TestAuditRedaction:
             template_registry=reg,
             template_renderer=renderer,
         )
-        run = await orchestrator.run_graph(graph, {"name": "Bob"})
+        run = await orchestrator.run_graph(graph, {"name": "Bob"})  # noqa: F841
 
         assert len(audit_repo.records) == 1
         exec_meta = audit_repo.records[0].execution_metadata

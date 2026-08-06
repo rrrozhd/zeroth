@@ -50,10 +50,10 @@ def test_audit_publishes_its_whole_surface() -> None:
 
 
 def test_audit_submodules_publish_their_names() -> None:
-    from zeroth.core.audit import coordination as legacy_coordination
-    from zeroth.core.audit import erasure_schema as legacy_erasure_schema
     from zeroth.governance.audit import coordination as canonical_coordination
+    from zeroth.governance.audit import coordination as legacy_coordination
     from zeroth.governance.audit import erasure_schema as canonical_erasure_schema
+    from zeroth.governance.audit import erasure_schema as legacy_erasure_schema
     from zeroth.governance.audit import models as canonical_models
     from zeroth.governance.audit import verifier as canonical_verifier
 

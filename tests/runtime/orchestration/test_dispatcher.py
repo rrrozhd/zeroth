@@ -94,21 +94,13 @@ def test_the_error_hierarchy_is_preserved_across_the_move() -> None:
     definitions now live in the canonical package; the legacy modules
     re-export the same class objects.
     """
-    from zeroth.core.orchestrator import (
-        NodeDispatcherError as LegacyPackageNodeDispatcherError,
-    )
-    from zeroth.core.orchestrator import (
-        OrchestratorError as LegacyPackageOrchestratorError,
-    )
-    from zeroth.core.orchestrator.runtime import (
+    from zeroth.runtime.orchestration import (
         MemoryBindingResolutionError as LegacyMemoryBindingResolutionError,
     )
-    from zeroth.core.orchestrator.runtime import (
-        NodeDispatcherError as LegacyNodeDispatcherError,
-    )
-    from zeroth.core.orchestrator.runtime import (
-        OrchestratorError as LegacyOrchestratorError,
-    )
+    from zeroth.runtime.orchestration import NodeDispatcherError as LegacyNodeDispatcherError
+    from zeroth.runtime.orchestration import NodeDispatcherError as LegacyPackageNodeDispatcherError
+    from zeroth.runtime.orchestration import OrchestratorError as LegacyOrchestratorError
+    from zeroth.runtime.orchestration import OrchestratorError as LegacyPackageOrchestratorError
 
     assert LegacyOrchestratorError is OrchestratorError
     assert LegacyPackageOrchestratorError is OrchestratorError

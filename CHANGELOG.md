@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.8] - 2026-08-06
+
+### Changed
+
+- Convert the last legacy consumers outside the compatibility shims. The
+  import baseline now holds only the four shim packages themselves, which is
+  the precondition for deleting them.
+
 ## [0.16.1.7] - 2026-08-06
 
 ### Changed

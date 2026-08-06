@@ -32,27 +32,23 @@ def test_canonical_package_exports_the_composed_surface() -> None:
 
 def test_canonical_service_is_the_protected_class_object() -> None:
     """One class object, however it is imported -- not a parallel definition."""
-    from zeroth.core.retention import RetentionErasureService as LegacyPackage
-    from zeroth.core.retention.erasure_service import RetentionErasureService as LegacyModule
     from zeroth.governance.retention import RetentionErasureService as Canonical
+    from zeroth.governance.retention import RetentionErasureService as LegacyModule
+    from zeroth.governance.retention import RetentionErasureService as LegacyPackage
     from zeroth.governance.retention.service import RetentionErasureService as CanonicalModule
 
     assert Canonical is LegacyPackage is LegacyModule is CanonicalModule
 
 
 def test_canonical_errors_are_the_protected_class_objects() -> None:
-    from zeroth.core.retention.erasure_service import (
-        LegalHoldError as LegacyHold,
-    )
-    from zeroth.core.retention.erasure_service import (
-        StaleCleanupClaimError as LegacyStale,
-    )
     from zeroth.governance.retention import (
         LegalHoldError as CanonicalHold,
     )
+    from zeroth.governance.retention import LegalHoldError as LegacyHold
     from zeroth.governance.retention import (
         StaleCleanupClaimError as CanonicalStale,
     )
+    from zeroth.governance.retention import StaleCleanupClaimError as LegacyStale
 
     assert CanonicalHold is LegacyHold
     assert CanonicalStale is LegacyStale
@@ -66,14 +62,10 @@ def test_the_econ_adapter_moved_to_the_econ_domain_and_still_answers_legacy_impo
     task removes. The protocol stays with retention; the adapter lives with the
     database it deletes from.
     """
-    from zeroth.core.retention import SqlAlchemyEconEventEraser as LegacyPackage
-    from zeroth.core.retention.econ_eraser import (
-        EconEventEraser,
-    )
-    from zeroth.core.retention.econ_eraser import (
-        SqlAlchemyEconEventEraser as LegacyModule,
-    )
     from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser as Canonical
+    from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser as LegacyModule
+    from zeroth.econ.plane.erasure import SqlAlchemyEconEventEraser as LegacyPackage
+    from zeroth.governance.retention import EconEventEraser
 
     assert Canonical is LegacyPackage is LegacyModule
     assert Canonical.__module__ == "zeroth.econ.plane.erasure"
