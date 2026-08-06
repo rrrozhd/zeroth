@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.2] - 2026-08-06
+
+### Changed
+
+- Move the `zeroth-core` command-line interface to `zeroth.service.cli` and the
+  shipped demo seeder to `zeroth.service.demo`. The distribution name and the
+  `zeroth-core` console command are unchanged; only the target module moves.
+
 ## [0.16.1.1] - 2026-08-06
 
 ### Changed

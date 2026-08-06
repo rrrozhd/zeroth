@@ -11,7 +11,6 @@ apps/vendor_dd/units.py
 apps/vendor_dd/verify.py
 examples/hello.py
 src/zeroth/contracts/graph/repository.py
-src/zeroth/core/cli.py
 src/zeroth/core/conditions/__init__.py
 src/zeroth/core/econ/__init__.py
 src/zeroth/core/governed/__init__.py
@@ -42,7 +41,6 @@ src/zeroth/service/api/econ_analytics_api.py
 src/zeroth/service/api/run_api.py
 src/zeroth/service/app.py
 src/zeroth/service/bootstrap/factory.py
-src/zeroth/service/entrypoint.py
 src/zeroth/service/langgraph_gateway/admission.py
 src/zeroth/service/langgraph_gateway/context.py
 src/zeroth/service/langgraph_gateway/enforcement.py
@@ -154,7 +152,6 @@ tests/service/test_audit_delivery_wiring.py
 tests/service/test_auth_api.py
 tests/service/test_authorization.py
 tests/service/test_bearer_auth.py
-tests/service/test_cli_and_factory.py
 tests/service/test_connector_api.py
 tests/service/test_connector_runtime_api.py
 tests/service/test_console_ui_surface.py
