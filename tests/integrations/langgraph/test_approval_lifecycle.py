@@ -51,7 +51,10 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
 )
 from zeroth.integrations.langgraph._tool_guard import aguard_tool_call, guard_tool_call
-from zeroth.integrations.langgraph._tool_normalize import normalize_tool_action
+from zeroth.integrations.langgraph._tool_normalize import (
+    argument_fingerprint,
+    normalize_tool_action,
+)
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
     ToolAction,
@@ -516,6 +519,18 @@ def _resume(
     )
 
 
+def _raw_approval_payloads(
+    path: Path, approval_ref: str = "approval-7"
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT intent, resolution FROM langgraph_approval_lifecycle WHERE approval_ref = ?",
+            (approval_ref,),
+        ).fetchone()
+    assert row is not None
+    return json.loads(row[0]), None if row[1] is None else json.loads(row[1])
+
+
 def test_payload_round_trip_is_persisted_before_interrupt(tmp_path: Any) -> None:
     path = tmp_path / "approvals.sqlite3"
     with sqlite3.connect(path) as connection:
@@ -538,6 +553,125 @@ def test_payload_round_trip_is_persisted_before_interrupt(tmp_path: Any) -> None
     invalid["version"] = True
     with pytest.raises(ToolGovernanceError):
         ApprovalResolution.from_payload(invalid)
+
+
+@pytest.mark.parametrize(
+    "terminal_state",
+    [ApprovalState.RESOLVED, ApprovalState.EXPIRED, ApprovalState.ORPHANED],
+    ids=("resolved", "expired", "orphaned"),
+)
+def test_terminal_rows_compact_original_and_edited_arguments(
+    tmp_path: Any, terminal_state: ApprovalState
+) -> None:
+    now = [0.0]
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path, ttl_seconds=1, clock=lambda: now[0])
+    _request(repository, SequencedClient(), Pause())
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution(
+        "approval-7", ApprovalDecision.APPROVE, {"token": "edited-sensitive-value"}
+    )
+    repository.decide(resolution)
+    payload = dict(repository.get("approval-7").intent.payload)
+
+    active_intent, active_resolution = _raw_approval_payloads(path)
+    assert active_intent["arguments"]["table"] == "invoices"
+    assert active_resolution is not None
+    assert active_resolution["arguments"]["token"] == "edited-sensitive-value"
+
+    if terminal_state is ApprovalState.EXPIRED:
+        now[0] = 2.0
+        [terminal] = repository.expire_due()
+    else:
+        claimed = repository.claim("approval-7", owner="worker")
+        assert claimed.claim_token is not None
+        if terminal_state is ApprovalState.RESOLVED:
+            repository.consume({**resolution.to_payload(), "claim_token": claimed.claim_token})
+            active_intent, active_resolution = _raw_approval_payloads(path)
+            assert "invoices" in json.dumps(active_intent)
+            assert "edited-sensitive-value" in json.dumps(active_resolution)
+            terminal = repository.finish("approval-7", claimed.claim_token)
+        else:
+            terminal = repository.fail("approval-7", claimed.claim_token)
+
+    compact_intent, compact_resolution = _raw_approval_payloads(path)
+    assert "arguments" not in compact_intent
+    assert compact_resolution is not None and "arguments" not in compact_resolution
+    assert "invoices" not in json.dumps(compact_intent)
+    assert "edited-sensitive-value" not in json.dumps(compact_resolution)
+    assert dict(terminal.intent.payload) == payload
+    assert dict(terminal.intent.arguments) == {}
+    assert terminal.resolution is not None and terminal.resolution.arguments is None
+    assert terminal.state is terminal_state
+
+
+def test_repository_startup_compacts_existing_terminal_arguments(tmp_path: Any) -> None:
+    path = tmp_path / "approvals.sqlite3"
+    repository = SQLiteApprovalRepository(path)
+    _request(repository, SequencedClient(), Pause())
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    repository.decide(
+        ApprovalResolution(
+            "approval-7", ApprovalDecision.APPROVE, {"token": "edited-sensitive-value"}
+        )
+    )
+    active_intent, active_resolution = _raw_approval_payloads(path)
+    assert active_resolution is not None
+    repository.terminal("approval-7", ApprovalState.EXPIRED)
+    history = repository.events("approval-7")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE langgraph_approval_lifecycle SET intent = ?, resolution = ? "
+            "WHERE approval_ref = ?",
+            (json.dumps(active_intent), json.dumps(active_resolution), "approval-7"),
+        )
+
+    reopened = SQLiteApprovalRepository(path)
+
+    compact_intent, compact_resolution = _raw_approval_payloads(path)
+    assert "arguments" not in compact_intent
+    assert compact_resolution is not None and "arguments" not in compact_resolution
+    assert reopened.events("approval-7") == history
+    record = reopened.get("approval-7")
+    assert record.state is ApprovalState.EXPIRED
+    assert dict(record.intent.arguments) == {}
+    assert record.resolution is not None and record.resolution.arguments is None
+
+
+def test_begin_once_validates_argument_fingerprint_and_rearms_only_exact_arguments(
+    tmp_path: Any,
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    pause = Pause()
+    _request(repository, SequencedClient(), pause)
+    assert pause.payload is not None
+    forged = {
+        **pause.payload,
+        "approval_ref": "approval-forged",
+        "tool_call_id": "call-forged",
+        "argument_fingerprint": "forged-fingerprint",
+    }
+
+    with pytest.raises(ToolGovernanceError, match="argument fingerprint"):
+        repository.begin_once(forged, {"token": "forged-sensitive-value"})
+
+    repository.terminal("approval-7", ApprovalState.EXPIRED)
+    rearmed, created = repository.begin_once(pause.payload, ACTION.arguments)
+    assert created and rearmed.state is ApprovalState.AWAITING_CHECKPOINT
+    assert dict(rearmed.intent.arguments) == dict(ACTION.arguments)
+
+    repository.terminal("approval-7", ApprovalState.EXPIRED)
+    conflicting = {**dict(ACTION.arguments), "id": 42}
+    with pytest.raises(ToolGovernanceError, match="argument fingerprint"):
+        repository.begin_once(pause.payload, conflicting)
+    with pytest.raises(ToolGovernanceError, match="conflicts with its durable record"):
+        repository.begin_once(
+            {
+                **pause.payload,
+                "argument_fingerprint": argument_fingerprint(conflicting),
+            },
+            conflicting,
+        )
 
 
 def test_unavailable_lifecycle_storage_fails_with_the_typed_durability_error(
@@ -861,14 +995,15 @@ def test_expire_due_selects_an_expired_consumed_lease_before_non_due_backlog(
     )
     payload = dict(consumed_repository.get("approval-7").intent.payload)
     for index in range(3):
+        arguments = {"backlog": index}
         backlog_repository.begin(
             {
                 **payload,
                 "approval_ref": f"approval-backlog-{index}",
                 "tool_call_id": f"call-backlog-{index}",
-                "argument_fingerprint": f"arguments-backlog-{index}",
+                "argument_fingerprint": argument_fingerprint(arguments),
             },
-            {},
+            arguments,
         )
 
     now[0] = 2.0

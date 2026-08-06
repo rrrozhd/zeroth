@@ -21,6 +21,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
     ToolGovernanceError,
 )
+from zeroth.integrations.langgraph._tool_normalize import argument_fingerprint
 
 _VERSION = 1
 _REQUEST_KIND = "tool_approval"
@@ -305,6 +306,7 @@ class SQLiteApprovalRepository:
                     )
             self._validate_rows(connection)
             self._deduplicate_identity_fences(connection)
+            self._compact_terminal_arguments(connection)
             connection.execute("DROP INDEX IF EXISTS langgraph_approval_active_identity")
             connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS langgraph_approval_active_identity "
@@ -378,11 +380,11 @@ class SQLiteApprovalRepository:
             raise ToolGovernanceError(f"persisted {label} must be finite")
         return float(value)
 
-    def _intent(self, data: str, deadline: object) -> ApprovalIntent:
+    def _intent(self, data: str, deadline: object, *, compacted: bool = False) -> ApprovalIntent:
         value = json.loads(data)
         return ApprovalIntent(
             value["payload"],
-            value["arguments"],
+            value.get("arguments", {}) if compacted else value["arguments"],
             self._persisted_deadline(deadline, "approval deadline"),
             value["version"],
         )
@@ -397,7 +399,7 @@ class SQLiteApprovalRepository:
                     "persisted approval lease deadline must be finite while resuming"
                 )
             return ApprovalRecord(
-                self._intent(row["intent"], row["deadline"]),
+                self._intent(row["intent"], row["deadline"], compacted=state.value in _TERMINAL),
                 state,
                 (
                     None
@@ -428,6 +430,24 @@ class SQLiteApprovalRepository:
             parameters = _TERMINAL
         for row in connection.execute(query, parameters).fetchall():
             self._record(row)
+
+    @staticmethod
+    def _compact_terminal_arguments(
+        connection: sqlite3.Connection, approval_ref: str | None = None
+    ) -> None:
+        scope = "state IN (?, ?, ?)"
+        parameters: tuple[str, ...] = _TERMINAL
+        if approval_ref is not None:
+            scope += " AND approval_ref = ?"
+            parameters += (approval_ref,)
+        connection.execute(
+            "UPDATE langgraph_approval_lifecycle "
+            "SET intent = json_remove(intent, '$.arguments'), "
+            "resolution = CASE WHEN resolution IS NULL THEN NULL "
+            "ELSE json_remove(resolution, '$.arguments') END "
+            f"WHERE {scope}",
+            parameters,
+        )
 
     def _deduplicate_identity_fences(self, connection: sqlite3.Connection) -> None:
         """Keep the oldest safe identity fence when upgrading an existing database."""
@@ -593,6 +613,9 @@ class SQLiteApprovalRepository:
         if not math.isfinite(deadline):
             raise ToolGovernanceError("approval deadline must be finite")
         intent = ApprovalIntent(payload, arguments, deadline)
+        incoming_fingerprint = argument_fingerprint(intent.arguments)
+        if payload["argument_fingerprint"] != incoming_fingerprint:
+            raise ToolGovernanceError("approval argument fingerprint does not match tool arguments")
         encoded = _dump(
             {
                 "version": intent.version,
@@ -633,8 +656,13 @@ class SQLiteApprovalRepository:
             if row is None:
                 raise ToolGovernanceError("approval intent could not be persisted")
             current = self._record(row)
+            arguments_match = (
+                current.intent.payload.get("argument_fingerprint") == incoming_fingerprint
+                if current.state.value in _TERMINAL
+                else _dump(current.intent.arguments) == _dump(intent.arguments)
+            )
             if (same_ref and _dump(current.intent.payload) != _dump(intent.payload)) or (
-                _dump(current.intent.arguments) != _dump(intent.arguments)
+                not arguments_match
             ):
                 self._event(
                     connection,
@@ -663,6 +691,7 @@ class SQLiteApprovalRepository:
             "WHERE approval_ref = ?",
             (ApprovalState.EXPIRED.value, ref),
         )
+        self._compact_terminal_arguments(connection, ref)
         self._event(connection, ref, current.state, ApprovalState.EXPIRED, True)
 
     def _orphan_locked(
@@ -673,6 +702,7 @@ class SQLiteApprovalRepository:
             "WHERE approval_ref = ?",
             (ApprovalState.ORPHANED.value, ref),
         )
+        self._compact_terminal_arguments(connection, ref)
         self._event(connection, ref, current.state, ApprovalState.ORPHANED, True)
 
     def ready(self, ref: str, checkpoint_id: str, interrupt_id: str) -> ApprovalRecord:
@@ -827,6 +857,7 @@ class SQLiteApprovalRepository:
                 "WHERE approval_ref = ?",
                 (ApprovalState.RESOLVED.value, ref),
             )
+            self._compact_terminal_arguments(connection, ref)
             self._event(connection, ref, current.state, ApprovalState.RESOLVED, True)
         return self.get(ref)
 
@@ -846,12 +877,7 @@ class SQLiteApprovalRepository:
             if current.state is not ApprovalState.RESUMING or current.claim_token != claim_token:
                 self._event(connection, ref, current.state, ApprovalState.ORPHANED, False)
                 return current
-            connection.execute(
-                "UPDATE langgraph_approval_lifecycle SET state = ?, lease_deadline = NULL "
-                "WHERE approval_ref = ?",
-                (ApprovalState.ORPHANED.value, ref),
-            )
-            self._event(connection, ref, current.state, ApprovalState.ORPHANED, True)
+            self._orphan_locked(connection, ref, current)
         return self.get(ref)
 
     def terminal(self, ref: str, state: ApprovalState) -> ApprovalRecord:
@@ -877,6 +903,7 @@ class SQLiteApprovalRepository:
                 "WHERE approval_ref = ?",
                 (target.value, ref),
             )
+            self._compact_terminal_arguments(connection, ref)
             self._event(connection, ref, current.state, target, True)
         return self.get(ref)
 
