@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.14] - 2026-08-06
+
+### Fixed
+
+- Materialize frozen schema-less tool defaults before initial policy evaluation
+  and execute the exact authorized call.
+
 ## [0.16.0.13] - 2026-08-06
 
 ### Fixed

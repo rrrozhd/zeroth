@@ -1664,6 +1664,49 @@ def test_a_stateful_validator_cannot_slip_past_the_async_surface_either() -> Non
 
 
 @pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize("policy", ["deny-danger", "allow-exact"])
+def test_unedited_schemaless_base_tool_materializes_defaults_before_policy(
+    async_call: bool, policy: str
+) -> None:
+    effects: list[str] = []
+    original: BaseTool = (
+        AsyncDefaultingSchemalessTool(effects=effects)
+        if async_call
+        else DefaultingSchemalessTool(effects=effects)
+    )
+
+    @dataclasses.dataclass
+    class DefaultAwarePolicy:
+        seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            del context
+            self.seen.append(action)
+            visible = dict(action.arguments) == {"path": "/danger"}
+            if policy == "deny-danger":
+                return DENY if visible else ALLOW
+            return ALLOW if visible else DENY
+
+    client = DefaultAwarePolicy()
+    governed = wrap(original, client=client)  # type: ignore[arg-type]
+
+    def invoke() -> Any:
+        return asyncio.run(governed.ainvoke({})) if async_call else governed.invoke({})
+
+    if policy == "deny-danger":
+        with pytest.raises(PolicyViolation):
+            invoke()
+        assert effects == []
+    else:
+        assert invoke() == "/danger"
+        assert effects == ["/danger"]
+
+    assert [dict(action.arguments) for action in client.seen] == [{"path": "/danger"}]
+    if effects:
+        assert client.seen[0].arguments["path"] == effects[0]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
 def test_approved_callable_edit_materializes_defaults_before_fresh_policy(
     tmp_path: Any, async_call: bool
 ) -> None:
