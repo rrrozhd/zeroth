@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from datetime import UTC
 
-import zeroth.core.runs.models as run_models
-from zeroth.contracts.governed import RunStatus
-
-from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, Thread, ThreadMemoryBinding
+import zeroth.runtime.runs.models as run_models
 from zeroth.contracts.conditions.models import RunConditionResult
-from zeroth.runtime.runs import ThreadStatus
+from zeroth.contracts.governed import RunStatus
 from zeroth.platform.primitives import utc_now
+from zeroth.runtime.runs import (
+    Run,
+    RunFailureState,
+    RunHistoryEntry,
+    Thread,
+    ThreadMemoryBinding,
+    ThreadStatus,
+)
 
 
 def test_run_models_consume_platform_clock_per_instance() -> None:

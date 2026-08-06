@@ -2,39 +2,7 @@
 # ZER-25 ratchet: this list may only shrink, and every entry must still be an
 # offender. When it empties, the trees themselves must be gone -- the guard in
 # test_legacy_surface_removed.py enforces both halves of that equivalence.
-examples/hello.py
 src/zeroth/core/conditions/__init__.py
 src/zeroth/core/econ/__init__.py
 src/zeroth/core/governed/__init__.py
 src/zeroth/core/storage/__init__.py
-tests/contracts/test_graph_surface.py
-tests/contracts/test_registry_surface.py
-tests/econ/test_analytics_surface.py
-tests/econ/test_plane_surface.py
-tests/governance/retention/test_composition.py
-tests/governance/test_audit_surface.py
-tests/governance/test_retention_surface.py
-tests/integrations/langgraph/test_approval_lifecycle.py
-tests/langgraph_gateway/conformance/harness.py
-tests/langgraph_gateway/test_health.py
-tests/langgraph_gateway/test_http_proxy.py
-tests/langgraph_gateway/test_resilience.py
-tests/orchestrator/test_failed_node_replay.py
-tests/orchestrator/test_join_barrier.py
-tests/orchestrator/test_join_barrier_stress.py
-tests/platform/test_config_surface.py
-tests/runs/test_models.py
-tests/runtime/governed/test_governed_runtime_stores.py
-tests/runtime/governed/test_governed_tools.py
-tests/runtime/orchestration/test_dispatcher.py
-tests/runtime/test_agents_surface.py
-tests/service/bootstrap/test_bootstrap_factory.py
-tests/service/bootstrap/test_container.py
-tests/service/test_app.py
-tests/service/test_audit_delivery_wiring.py
-tests/service/test_econ_dashboard_api.py
-tests/service/test_gateway_evidence_wiring.py
-tests/service/test_health.py
-tests/templates/test_integration.py
-tests/test_api_versioning.py
-tests/test_smoke.py

@@ -33,7 +33,6 @@ from fastapi.testclient import TestClient
 
 from tests.service.helpers import admin_headers, agent_graph, deploy_service
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
-from zeroth.core.service.bootstrap import bootstrap_app
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.service.api.health import (
@@ -41,7 +40,7 @@ from zeroth.service.api.health import (
     audit_delivery_health,
     determine_readiness_status,
 )
-from zeroth.service.bootstrap import lifecycle
+from zeroth.service.bootstrap import bootstrap_app, lifecycle
 from zeroth.service.bootstrap.lifecycle import service_lifespan
 
 
@@ -184,8 +183,8 @@ async def _app_with_delivery(
 
 async def _gateway_bootstrap(sqlite_db: Any, monkeypatch: Any, graph_id: str) -> Any:
     """Bootstrap the service with the gateway enabled and every upstream faked."""
-    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
-    from zeroth.core.signing import EnvHmacSigner
+    from zeroth.platform.config import LangGraphGatewaySettings, get_settings
+    from zeroth.platform.signing import EnvHmacSigner
     from zeroth.service.bootstrap.factory import bootstrap_service
 
     service, _ = await deploy_service(

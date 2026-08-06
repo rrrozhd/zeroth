@@ -108,7 +108,7 @@ def test_agents_factory_publishes_its_whole_surface() -> None:
 
 
 def test_legacy_factory_still_republishes_the_service_wiring() -> None:
-    from zeroth.core.agent_runtime.factory import build_runners_for_deployment
+    from zeroth.service.bootstrap.factory import build_runners_for_deployment
     from zeroth.service.bootstrap.factory import (
         build_runners_for_deployment as canonical_wiring,
     )
@@ -148,7 +148,7 @@ def test_importing_the_thread_store_does_not_load_a_persistence_adapter() -> Non
 
 def test_memory_scope_is_the_contract_owned_enum() -> None:
     from zeroth.contracts.governed import MemoryScope as ContractMemoryScope
-    from zeroth.core.governed.memory.models import MemoryScope as LegacyMemoryScope
+    from zeroth.contracts.governed import MemoryScope as LegacyMemoryScope
 
     assert LegacyMemoryScope is ContractMemoryScope
 
