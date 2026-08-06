@@ -17,11 +17,6 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
-from zeroth.runtime.agents import AgentConfig, AgentRunner
-from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.governance.audit import AuditRepository
-from zeroth.runtime.context.models import ContextWindowSettings
-from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
@@ -30,16 +25,19 @@ from zeroth.contracts.graph import (
     Graph,
     SubgraphNode,
 )
-from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.runtime.parallel.errors import FanOutValidationError
-from zeroth.runtime.parallel.models import ParallelConfig
-from zeroth.integrations.persistence.runs import RunRepository
-from zeroth.runtime.runs import RunStatus
-from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.contracts.templates.models import TemplateReference
 from zeroth.contracts.templates.registry import TemplateRegistry
 from zeroth.contracts.templates.renderer import TemplateRenderer
-
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.context.models import ContextWindowSettings
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.parallel.models import ParallelConfig
+from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.subgraphs.models import SubgraphNodeData
 
 # ---------------------------------------------------------------------------
 # Test models
@@ -262,7 +260,8 @@ async def test_parallel_branches_respect_context_window(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_subgraph_node_in_parallel_without_executor_fails(sqlite_db) -> None:
-    """Phase 43 (D-05/D-23): SubgraphNode inside fan-out is supported
+    """Phase 43 (D-05/D-23): SubgraphNode inside fan-out is supported.
+
     composition when ``SubgraphExecutor`` is wired on the orchestrator.
     When the executor is NOT wired (the bootstrap under test here),
     the branch factory raises a clear error so the run still fails —
@@ -376,8 +375,7 @@ async def test_template_resolution_in_subgraph(sqlite_db) -> None:
     """SubgraphNode with template_ref on child graph's agent resolves template."""
     from unittest.mock import MagicMock
 
-    from zeroth.contracts.graph.serialization import serialize_graph
-    from zeroth.core.runs.models import Run
+    from zeroth.runtime.runs import Run
 
     registry = TemplateRegistry()
     registry.register(
@@ -397,7 +395,7 @@ async def test_template_resolution_in_subgraph(sqlite_db) -> None:
             template_ref=TemplateReference(name="child-tmpl", version=1),
         ),
     )
-    child_graph = Graph(
+    child_graph = Graph(  # noqa: F841
         graph_id="child-g",
         name="child-workflow",
         version=1,

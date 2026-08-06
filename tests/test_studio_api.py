@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.service.bootstrap.migrations import run_migrations
-from zeroth.service.api.studio_api import router as studio_router
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.api.studio_api import router as studio_router
+from zeroth.service.bootstrap.migrations import run_migrations
 
 
 def _make_app(
@@ -65,7 +65,7 @@ def _make_repo(tmp_path: Path | None = None) -> GraphRepository:
 
 
 class TestCreateWorkflow:
-    """POST /api/studio/v1/workflows"""
+    """POST /api/studio/v1/workflows."""
 
     def test_create_workflow(self) -> None:
         repo = _make_repo()
@@ -94,7 +94,7 @@ class TestCreateWorkflow:
 
 
 class TestListWorkflows:
-    """GET /api/studio/v1/workflows"""
+    """GET /api/studio/v1/workflows."""
 
     def test_list_workflows(self) -> None:
         repo = _make_repo()
@@ -121,7 +121,7 @@ class TestListWorkflows:
 
 
 class TestGetWorkflow:
-    """GET /api/studio/v1/workflows/{workflow_id}"""
+    """GET /api/studio/v1/workflows/{workflow_id}."""
 
     def test_get_workflow(self) -> None:
         repo = _make_repo()
@@ -150,7 +150,7 @@ class TestGetWorkflow:
 
 
 class TestUpdateWorkflow:
-    """PUT /api/studio/v1/workflows/{workflow_id}"""
+    """PUT /api/studio/v1/workflows/{workflow_id}."""
 
     def test_update_workflow_name(self) -> None:
         repo = _make_repo()
@@ -174,7 +174,7 @@ class TestUpdateWorkflow:
 
 
 class TestDeleteWorkflow:
-    """DELETE /api/studio/v1/workflows/{workflow_id}"""
+    """DELETE /api/studio/v1/workflows/{workflow_id}."""
 
     def test_delete_workflow(self) -> None:
         repo = _make_repo()
@@ -197,7 +197,7 @@ class TestDeleteWorkflow:
 
 
 class TestListNodeTypes:
-    """GET /api/studio/v1/node-types"""
+    """GET /api/studio/v1/node-types."""
 
     def test_list_node_types(self) -> None:
         repo = _make_repo()
@@ -510,11 +510,13 @@ def _branching_graph(metadata: dict | None = None):
 
 
 class TestStudioAutoLayout:
-    """A graph deployed outside the Studio carries no positions; the canvas must
-    not stack every node at the origin."""
+    """A graph deployed outside the Studio carries no positions; the canvas must.
+
+    not stack every node at the origin.
+    """
 
     def test_no_positions_gets_non_overlapping_layout(self) -> None:
-        from zeroth.core.service.studio_api import _graph_to_detail
+        from zeroth.service.api.studio_api import _graph_to_detail
 
         detail = _graph_to_detail(_branching_graph())
         positions = {n.id: (n.position.x, n.position.y) for n in detail.nodes}
@@ -528,7 +530,7 @@ class TestStudioAutoLayout:
         assert positions["b"][1] != positions["c"][1]
 
     def test_stored_positions_win_over_auto_layout(self) -> None:
-        from zeroth.core.service.studio_api import _graph_to_detail
+        from zeroth.service.api.studio_api import _graph_to_detail
 
         graph = _branching_graph(metadata={"studio": {"node_positions": {"a": {"x": 5, "y": 7}}}})
         detail = _graph_to_detail(graph)
@@ -541,7 +543,7 @@ class TestStudioAutoLayout:
         assert positions["b"] != positions["c"]
 
     def test_no_entry_step_does_not_collapse_to_one_column(self) -> None:
-        from zeroth.core.service.studio_api import _auto_layout
+        from zeroth.service.api.studio_api import _auto_layout
 
         graph = _branching_graph().model_copy(update={"entry_step": ""})  # falsy entry_step
         layout = _auto_layout(graph)

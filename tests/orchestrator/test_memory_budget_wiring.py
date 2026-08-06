@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import BaseModel
 
+from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.integrations.execution import ExecutableUnitRunner
-from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
-from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.runtime.runs import RunStatus
 
 
@@ -57,7 +57,7 @@ def _make_runner(*, raise_on_run: Exception | None = None) -> AgentRunner:
     runner = AgentRunner(config, CallableProviderAdapter(_provider_fn))
 
     if raise_on_run is not None:
-        original_run = runner.run
+        original_run = runner.run  # noqa: F841
 
         async def _failing_run(*args, **kwargs):
             raise raise_on_run

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.service.deployments.models import Deployment
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -15,10 +14,8 @@ from zeroth.contracts.graph.models import (
     Graph,
     SubgraphNode,
 )
-from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.core.orchestrator.runtime import OrchestratorError, RuntimeOrchestrator
-from zeroth.runtime.runs import Run
-from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -28,7 +25,6 @@ from zeroth.runtime.subgraphs.errors import (
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -222,7 +218,7 @@ class TestDriveSubgraphNode:
         parent_graph = _make_parent_graph_with_subgraph()
         parent_run = _make_run(parent_graph)
 
-        result = await orch._drive(parent_graph, parent_run)
+        result = await orch._drive(parent_graph, parent_run)  # noqa: F841
 
         mock_executor.execute.assert_called_once()
         call_kwargs = mock_executor.execute.call_args[1]
@@ -326,9 +322,7 @@ class TestDriveSubgraphErrors:
     @pytest.mark.asyncio
     async def test_resolution_error_fails_run(self) -> None:
         mock_executor = MagicMock(spec=SubgraphExecutor)
-        mock_executor.execute = AsyncMock(
-            side_effect=SubgraphResolutionError("not found")
-        )
+        mock_executor.execute = AsyncMock(side_effect=SubgraphResolutionError("not found"))
 
         run_repo = _make_run_repository()
         orch = _make_orchestrator(run_repository=run_repo, subgraph_executor=mock_executor)
@@ -343,9 +337,7 @@ class TestDriveSubgraphErrors:
     @pytest.mark.asyncio
     async def test_cycle_error_fails_run(self) -> None:
         mock_executor = MagicMock(spec=SubgraphExecutor)
-        mock_executor.execute = AsyncMock(
-            side_effect=SubgraphCycleError("circular reference")
-        )
+        mock_executor.execute = AsyncMock(side_effect=SubgraphCycleError("circular reference"))
 
         run_repo = _make_run_repository()
         orch = _make_orchestrator(run_repository=run_repo, subgraph_executor=mock_executor)
@@ -359,9 +351,7 @@ class TestDriveSubgraphErrors:
     @pytest.mark.asyncio
     async def test_execution_error_fails_run(self) -> None:
         mock_executor = MagicMock(spec=SubgraphExecutor)
-        mock_executor.execute = AsyncMock(
-            side_effect=SubgraphExecutionError("boom")
-        )
+        mock_executor.execute = AsyncMock(side_effect=SubgraphExecutionError("boom"))
 
         run_repo = _make_run_repository()
         orch = _make_orchestrator(run_repository=run_repo, subgraph_executor=mock_executor)
@@ -382,19 +372,21 @@ class TestBootstrapSubgraphWiring:
     """ServiceBootstrap has subgraph_executor field and bootstrap_service wires it."""
 
     def test_service_bootstrap_has_subgraph_executor_field(self) -> None:
-        from zeroth.core.service.bootstrap import ServiceBootstrap
-
         # Check the dataclass field exists
         import dataclasses
+
+        from zeroth.service.bootstrap import ServiceBootstrap
 
         field_names = [f.name for f in dataclasses.fields(ServiceBootstrap)]
         assert "subgraph_executor" in field_names
 
     def test_service_bootstrap_subgraph_executor_default_none(self) -> None:
         """ServiceBootstrap.subgraph_executor defaults to None."""
-        from zeroth.core.service.bootstrap import ServiceBootstrap
-
         import dataclasses
 
-        field = next(f for f in dataclasses.fields(ServiceBootstrap) if f.name == "subgraph_executor")
+        from zeroth.service.bootstrap import ServiceBootstrap
+
+        field = next(
+            f for f in dataclasses.fields(ServiceBootstrap) if f.name == "subgraph_executor"
+        )
         assert field.default is None

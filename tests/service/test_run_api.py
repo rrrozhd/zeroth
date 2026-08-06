@@ -16,8 +16,8 @@ from tests.service.helpers import (
 )
 from zeroth.contracts.graph import GraphRepository
 from zeroth.runtime.runs import Run, RunFailureState, RunStatus
-from zeroth.core.service.bootstrap import bootstrap_app
 from zeroth.service.api.run_api import RunInvocationRequest, RunStatusResponse
+from zeroth.service.bootstrap import bootstrap_app
 
 
 async def test_run_creation_accepts_input_and_supplied_thread_id(sqlite_db) -> None:

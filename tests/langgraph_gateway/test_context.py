@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from zeroth.core.signing import EnvHmacSigner, NullSigner
+from zeroth.platform.signing import EnvHmacSigner, NullSigner
 from zeroth.service.langgraph_gateway.context import (
     GatewayContextError,
     ReservedContextClaims,

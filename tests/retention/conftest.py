@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from tests.conftest import content_capture
+from zeroth.contracts.governed.models.approval import ApprovalRequest
 from zeroth.contracts.graph import (
     CancellationFence,
     SchedulingState,
@@ -23,10 +24,9 @@ from zeroth.governance.retention import (
     RetentionErasureService,
     RetentionPolicyRepository,
 )
-from zeroth.contracts.governed.models.approval import ApprovalRequest
-from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 
 
 async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) -> None:
@@ -286,11 +286,13 @@ async def env(sqlite_db) -> RetentionEnv:
 
 @pytest.fixture
 async def encrypted_env(tmp_path):
-    """A RetentionEnv over an at-rest-encrypted DB (encryption_key set), so
-    erasure exercises the decrypt-before-parse path (audit F1 part b)."""
-    from zeroth.core.service.bootstrap import run_migrations
+    """A RetentionEnv over an at-rest-encrypted DB (encryption_key set), so.
+
+    erasure exercises the decrypt-before-parse path (audit F1 part b).
+    """
     from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
     from zeroth.platform.storage.sqlite import EncryptedField
+    from zeroth.service.bootstrap import run_migrations
 
     db_path = str(tmp_path / "encrypted.db")
     run_migrations(f"sqlite:///{db_path}")

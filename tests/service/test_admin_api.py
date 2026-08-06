@@ -12,11 +12,11 @@ from tests.service.helpers import (
     operator_headers,
     scoped_auth_config,
 )
-from zeroth.governance.identity import ServiceRole
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
+from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
 from zeroth.runtime.runs import RunStatus
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "admin-test"
 

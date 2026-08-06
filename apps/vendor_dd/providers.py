@@ -19,7 +19,7 @@ import os
 from typing import Any
 
 from apps.vendor_dd.graphs import CHAT_TAG, DIMENSION_TAG, REPORT_TAG, SCREEN_TAG
-from zeroth.core.agent_runtime.provider import (
+from zeroth.runtime.agents import (
     LiteLLMProviderAdapter,
     ProviderAdapter,
     ProviderRequest,
@@ -33,7 +33,8 @@ _ROLE_ALIASES = {"ai": "assistant", "human": "user"}
 
 
 def _message_parts(message: Any) -> tuple[str, str]:
-    """Return (role, content) for PromptMessage objects, dicts, and LangChain
+    """Return (role, content) for PromptMessage objects, dicts, and LangChain.
+
     messages (which carry ``type`` — e.g. ToolMessage(type="tool") — instead
     of ``role``).
     """
