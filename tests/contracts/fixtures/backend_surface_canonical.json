@@ -770,7 +770,7 @@
       ],
       "module": "zeroth.runtime.agents",
       "name": "ThreadResolution",
-      "signature": "(*, thread: zeroth.core.runs.models.Thread, created: bool = False, restored_state: dict[str, typing.Any] | None = None, checkpoint_id: str | None = None) -> None"
+      "signature": "(*, thread: zeroth.runtime.runs.models.Thread, created: bool = False, restored_state: dict[str, typing.Any] | None = None, checkpoint_id: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -8616,7 +8616,7 @@
       ],
       "module": "zeroth.runtime.runs",
       "name": "Run",
-      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.contracts.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.contracts.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
+      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.contracts.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.contracts.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.runtime.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None) -> None"
     },
     {
       "evidence": [
@@ -8720,7 +8720,7 @@
       ],
       "module": "zeroth.runtime.runs",
       "name": "Thread",
-      "signature": "(*, thread_id: str = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.core.runs.models.ThreadStatus = <ThreadStatus.ACTIVE: 'active'>, participating_agent_refs: list[str] = <factory>, state_snapshot_refs: list[str] = <factory>, checkpoint_refs: list[str] = <factory>, memory_bindings: list[zeroth.core.runs.models.ThreadMemoryBinding] = <factory>, run_ids: list[str] = <factory>, active_run_id: str | None = None, last_run_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, thread_id: str = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.runtime.runs.models.ThreadStatus = <ThreadStatus.ACTIVE: 'active'>, participating_agent_refs: list[str] = <factory>, state_snapshot_refs: list[str] = <factory>, checkpoint_refs: list[str] = <factory>, memory_bindings: list[zeroth.runtime.runs.models.ThreadMemoryBinding] = <factory>, run_ids: list[str] = <factory>, active_run_id: str | None = None, last_run_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
@@ -8766,15 +8766,15 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.runtime.runs.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:Run"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.runtime.runs.models",
       "name": "Run",
-      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.contracts.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.contracts.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.core.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None) -> None"
+      "signature": "(*, run_id: str = <factory>, thread_id: str | None = None, checkpoint_id: str | None = None, parent_checkpoint_id: str | None = None, epoch: int = 0, workflow_name: str = '', status: zeroth.contracts.governed.models.common.RunStatus = <RunStatus.PENDING: 'PENDING'>, current_step: str | None = None, completed_steps: list[str] = <factory>, artifacts: dict[str, typing.Any] = <factory>, channels: dict[str, typing.Any] = <factory>, pending_approval: zeroth.contracts.governed.models.approval.ApprovalRequest | None = None, pending_interrupt_id: str | None = None, started_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>, error: str | None = None, metadata: dict[str, typing.Any] = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, parent_run_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_node_ids: list[str] = <factory>, pending_node_ids: list[str] = <factory>, execution_history: list[zeroth.runtime.runs.models.RunHistoryEntry] = <factory>, node_visit_counts: dict[str, int] = <factory>, condition_results: list[zeroth.contracts.conditions.models.RunConditionResult] = <factory>, audit_refs: list[str] = <factory>, final_output: dict[str, typing.Any] | list[typing.Any] | str | int | float | bool | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None) -> None"
     },
     {
       "evidence": [
@@ -8790,49 +8790,49 @@
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.runtime.runs.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:RunFailureState"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.runtime.runs.models",
       "name": "RunFailureState",
       "signature": "(*, reason: str, message: str | None = None, details: dict[str, typing.Any] = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.runtime.runs.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:RunHistoryEntry"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.runtime.runs.models",
       "name": "RunHistoryEntry",
       "signature": "(*, node_id: str, status: str, attempt: int = 1, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, audit_ref: str | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None, cost_usd: float | None = None) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.runtime.runs.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:Thread"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.runtime.runs.models",
       "name": "Thread",
-      "signature": "(*, thread_id: str = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.core.runs.models.ThreadStatus = <ThreadStatus.ACTIVE: 'active'>, participating_agent_refs: list[str] = <factory>, state_snapshot_refs: list[str] = <factory>, checkpoint_refs: list[str] = <factory>, memory_bindings: list[zeroth.core.runs.models.ThreadMemoryBinding] = <factory>, run_ids: list[str] = <factory>, active_run_id: str | None = None, last_run_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
+      "signature": "(*, thread_id: str = <factory>, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, status: zeroth.runtime.runs.models.ThreadStatus = <ThreadStatus.ACTIVE: 'active'>, participating_agent_refs: list[str] = <factory>, state_snapshot_refs: list[str] = <factory>, checkpoint_refs: list[str] = <factory>, memory_bindings: list[zeroth.runtime.runs.models.ThreadMemoryBinding] = <factory>, run_ids: list[str] = <factory>, active_run_id: str | None = None, last_run_id: str | None = None, created_at: datetime.datetime = <factory>, updated_at: datetime.datetime = <factory>) -> None"
     },
     {
       "evidence": [
-        "schema_model:zeroth.core.runs.models"
+        "schema_model:zeroth.runtime.runs.models"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.runs.models:ThreadMemoryBinding"
       ],
-      "module": "zeroth.core.runs.models",
+      "module": "zeroth.runtime.runs.models",
       "name": "ThreadMemoryBinding",
       "signature": "(*, connector_id: str, instance_id: str, scope: str | None = None) -> None"
     },
@@ -9955,7 +9955,7 @@
       ],
       "module": "zeroth.service.api.run_api",
       "name": "RunInvocationResponse",
-      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -9967,7 +9967,7 @@
       ],
       "module": "zeroth.service.api.run_api",
       "name": "RunStatusResponse",
-      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.core.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
+      "signature": "(*, run_id: str, status: zeroth.service.api.run_api.RunPublicStatus, deployment_ref: str, graph_version_ref: str, thread_id: str, tenant_id: str = 'default', workspace_id: str | None = None, submitted_by: zeroth.governance.identity.models.ActorIdentity | None = None, current_step: str | None = None, terminal_output: typing.Any | None = None, failure_state: zeroth.runtime.runs.models.RunFailureState | None = None, approval_paused_state: zeroth.service.api.run_api.ApprovalPausedState | None = None, audit_refs: list[str] = <factory>, timeline_ref: str | None = None, evidence_ref: str | None = None) -> None"
     },
     {
       "evidence": [

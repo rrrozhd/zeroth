@@ -23,7 +23,7 @@ import importlib
 from typing import TYPE_CHECKING
 
 from zeroth.contracts.governed import RunState
-from zeroth.core.runs.models import (
+from zeroth.runtime.runs.models import (
     Run,
     RunConditionResult,
     RunFailureState,

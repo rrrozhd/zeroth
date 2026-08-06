@@ -31,7 +31,6 @@ from zeroth.runtime.runs import (
     ThreadStore,
 )
 
-
 CANONICAL_MODELS = (
     "Run",
     "RunConditionResult",
@@ -55,10 +54,9 @@ def test_canonical_package_imports_in_a_cold_interpreter() -> None:
     warm cache: ``from zeroth.runtime.runs import Run`` may be the very first
     ``zeroth`` import in the process.
 
-    ``zeroth.runtime.runs`` re-exports models defined under ``zeroth.core``,
-    and importing anything from ``zeroth.core`` executes its eager package
-    ``__init__``. So no module reachable from ``zeroth.core.__init__`` may
-    import ``zeroth.runtime.runs`` while that remains true.
+    Since ZER-25 the dependency runs the other way: this package defines the
+    models and ``zeroth.core.runs`` republishes them, so a cold import here
+    must not reach the legacy package at all.
     """
     result = subprocess.run(
         [sys.executable, "-c", "from zeroth.runtime.runs import Run, RunReader, ThreadStore"],
@@ -92,23 +90,26 @@ def test_canonical_models_are_the_protected_model_objects(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", CANONICAL_MODELS)
-def test_canonical_models_are_republished_rather_than_redefined(name: str) -> None:
-    """The canonical package must not shadow the models with new definitions.
+def test_canonical_models_have_exactly_one_defining_module(name: str) -> None:
+    """No run model may be shadowed by a second definition.
 
     Pinning each defining module keeps accidental shadowing out of the tree:
-    a redefinition here would satisfy the identity-free checks while quietly
-    forking the type. The allowed set names every deliberate owner —
-    ``zeroth.core.runs.models`` for the run shapes, the governed bundle for
+    a redefinition would satisfy the identity-free checks while quietly forking
+    the type. The allowed set names every deliberate owner —
+    ``zeroth.runtime.runs.models`` for the run shapes, the governed bundle for
     ``RunState``/``RunStatus``, and ``zeroth.contracts.conditions.models``
     for ``RunConditionResult``, the conditions domain's evaluation-outcome
     vocabulary that the run surface republishes (Task 12).
+
+    ZER-25 moved the run shapes here from ``zeroth.core.runs.models``, which is
+    now the republishing side. The invariant is unchanged; only the owner is.
     """
     import zeroth.runtime.runs as canonical
 
     model = getattr(canonical, name)
 
     assert model.__module__ in {
-        "zeroth.core.runs.models",
+        "zeroth.runtime.runs.models",
         "zeroth.contracts.governed.models.common",
         "zeroth.contracts.conditions.models",
     }
