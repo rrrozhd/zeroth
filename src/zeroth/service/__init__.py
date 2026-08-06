@@ -1,9 +1,8 @@
 """Backend service composition.
 
-The exports resolve lazily, mirroring the legacy ``zeroth.core.service``
-shell: eager imports here would load the FastAPI app closure on any
-``zeroth.service.*`` submodule import, and the legacy shims import those
-submodules while this package initializes.
+The exports resolve lazily. Eager imports here would load the FastAPI app
+closure on any ``zeroth.service.*`` submodule import, so a caller that only
+wanted a bootstrap helper would pay for the whole service shell.
 """
 
 from __future__ import annotations
@@ -19,11 +18,11 @@ _EXPORTS = {
 }
 
 __all__ = [
-    "DeploymentBootstrapError",
-    "ServiceBootstrap",
-    "bootstrap_app",
-    "bootstrap_service",
-    "create_app",
+    "DeploymentBootstrapError",  # noqa: F822 - resolved lazily by __getattr__
+    "ServiceBootstrap",  # noqa: F822 - resolved lazily by __getattr__
+    "bootstrap_app",  # noqa: F822 - resolved lazily by __getattr__
+    "bootstrap_service",  # noqa: F822 - resolved lazily by __getattr__
+    "create_app",  # noqa: F822 - resolved lazily by __getattr__
 ]
 
 

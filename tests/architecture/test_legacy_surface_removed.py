@@ -257,6 +257,19 @@ MAINTAINED_DOCS = (
 )
 HISTORICAL_DOCS = ("CHANGELOG.md", "docs/backend-import-migration.md")
 
+#: Prose that must also stop naming retired paths. Docstrings and example
+#: scripts are guidance a reader follows, so a stale one is as broken as a stale
+#: page -- and the AST scanner cannot see them, because they are not imports.
+GUIDANCE_TREES = ("src/zeroth", "examples", "apps/vendor_dd")
+
+#: Two files legitimately keep the old names. ``_architecture.py`` explains, in
+#: its exception rationale, what the shim classification used to hide;
+#: ``PROVENANCE.md`` records the vendoring event that produced the tree.
+GUIDANCE_EXEMPT = (
+    "src/zeroth/_architecture.py",
+    "src/zeroth/contracts/governed/PROVENANCE.md",
+)
+
 
 def test_docs_use_canonical_imports() -> None:
     """No maintained page may still tell a reader to import a retired module."""
@@ -294,3 +307,104 @@ def test_the_historical_records_are_still_present() -> None:
     """The exemption is a real pair of files, not a hole in the guard."""
     for entry in HISTORICAL_DOCS:
         assert (REPO_ROOT / entry).exists(), entry
+
+
+def test_docs_use_canonical_imports_in_source_prose_too() -> None:
+    """Docstrings and example scripts must not point a reader at a retired path.
+
+    The AST scanner cannot catch these -- they are prose, not imports -- so a
+    stale docstring survived the conversion telling readers to run
+    ``python -m zeroth.core.service.entrypoint``. This closes that gap.
+    """
+    offenders = []
+    for tree in GUIDANCE_TREES:
+        root = REPO_ROOT / tree
+        if not root.exists():
+            continue
+        for page in sorted(list(root.rglob("*.py")) + list(root.rglob("*.md"))):
+            if "__pycache__" in page.parts:
+                continue
+            if page.relative_to(REPO_ROOT).as_posix() in GUIDANCE_EXEMPT:
+                continue
+            text = page.read_text(encoding="utf-8")
+            for root_name in LEGACY_ROOTS:
+                if root_name in text:
+                    offenders.append(f"{page.relative_to(REPO_ROOT)} mentions {root_name}")
+
+    assert not offenders, "source prose still names a retired module:\n  " + "\n  ".join(
+        offenders
+    )
+
+
+def test_the_guidance_exemptions_are_real_files_that_still_need_the_old_names() -> None:
+    """An exemption with nothing behind it is a hole, not an exemption."""
+    for entry in GUIDANCE_EXEMPT:
+        path = REPO_ROOT / entry
+        assert path.exists(), entry
+        text = path.read_text(encoding="utf-8")
+        assert any(name in text for name in LEGACY_ROOTS), (
+            f"{entry} no longer needs its exemption -- remove it"
+        )
+
+
+#: Assertions that are trivially true and therefore prove nothing. ZER-25's
+#: mechanical parity-test conversion produced all three shapes -- an emptied
+#: ``parametrize`` collects zero cases, a self-comparison compares a module with
+#: itself, and a duplicated assertion adds no information. Every one of them
+#: passed a green suite. This is the guard that would have caught them.
+VACUITY_EXEMPT_DUPLICATES = (
+    # Repeated calls whose point IS the repetition: consecutive acquisitions,
+    # idempotent reads, cached lookups.
+    "tests/http/test_circuit_breaker.py",
+    "tests/secrets/test_vault_provider.py",
+    "tests/runtime/orchestration/test_driver.py",
+)
+
+
+def test_no_test_is_vacuously_true() -> None:
+    """No empty parametrization, self-comparison, or duplicated assertion."""
+    import ast
+    import re
+
+    problems: list[str] = []
+    for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and "parametrize" in ast.dump(node.func):
+                for argument in node.args:
+                    if isinstance(argument, ast.List | ast.Tuple) and not argument.elts:
+                        problems.append(f"{relative}:{node.lineno} parametrizes zero cases")
+
+        # Sorted by line, not ``ast.walk`` order: walk is breadth-first, so
+        # "the previous assertion" in walk order can come from a different
+        # function entirely -- which reports duplicates that do not exist.
+        asserts = sorted(
+            (
+                (node.lineno, node.col_offset, ast.unparse(node.test))
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Assert)
+            ),
+        )
+        previous: tuple[int, int, str] | None = None
+        for lineno, column, rendered in asserts:
+            sides = re.match(r"^(.+?) is (.+)$", rendered)
+            if sides and sides.group(1).strip() == sides.group(2).strip():
+                problems.append(f"{relative}:{lineno} compares a value with itself")
+            # Same text, adjacent line, *and* same indentation. A repeat at a
+            # different indent is a different scope -- asserting a value both
+            # inside and after a context manager is meaningful, not redundant.
+            if (
+                previous
+                and previous[2] == rendered
+                and previous[1] == column
+                and lineno - previous[0] == 1
+                and relative not in VACUITY_EXEMPT_DUPLICATES
+            ):
+                problems.append(f"{relative}:{lineno} repeats the previous assertion")
+            previous = (lineno, column, rendered)
+
+    assert not problems, "these tests pass without proving anything:\n  " + "\n  ".join(problems)

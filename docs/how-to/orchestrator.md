@@ -11,7 +11,11 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-# examples/quickstart.py in the repository -- a tutorial helper, not a shipped module
+# ``build_demo_graph`` is a tutorial helper that ships in the repository, not in
+# the wheel. Run this from the repository root, or copy the function into your code.
+import sys
+
+sys.path.insert(0, "examples")
 from quickstart import build_demo_graph
 from zeroth.contracts.graph import GraphRepository
 from zeroth.service.bootstrap.factory import bootstrap_service

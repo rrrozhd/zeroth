@@ -190,7 +190,7 @@ def test_scanner_parses_unclassified_modules_and_reports_syntax_errors(
     source_root = tmp_path / "src"
     module = _write_module(
         source_root,
-        "zeroth.core.examples.broken",
+        "zeroth.contracts.examples.broken",
         "def broken(:\n",
     )
 
@@ -265,8 +265,7 @@ def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
     gateway_edges = {
         (item.importer, item.imported)
         for item in scan.violations
-        if item.importer.startswith("zeroth.core.langgraph_gateway")
-        or item.imported.startswith("zeroth.core.langgraph_gateway")
+        if "langgraph_gateway" in item.importer or "langgraph_gateway" in item.imported
     }
 
     # ZER-24 removed both gateway exceptions by moving the dependencies rather
@@ -274,6 +273,11 @@ def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
     # evaluator, and S3a moved the enforcement wire protocol into
     # ``integrations``, where the client reaches it without leaving its own
     # domain. Neither produces a permitted edge -- there is no edge at all.
+    #
+    # The filter matches ``langgraph_gateway`` anywhere in either endpoint. It
+    # used to match the ``zeroth.core.langgraph_gateway`` prefix, which ZER-25
+    # deleted -- leaving a set that was empty because nothing could ever match
+    # it, rather than because the edges are gone.
     assert gateway_edges == set()
 
 

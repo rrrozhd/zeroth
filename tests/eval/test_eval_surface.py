@@ -61,9 +61,7 @@ def test_eval_publishes_its_whole_surface() -> None:
         ),
     ],
 )
-def test_eval_modules_publish_their_names(
-    module_name: str, names: tuple[str, ...]
-) -> None:
+def test_eval_modules_publish_their_names(module_name: str, names: tuple[str, ...]) -> None:
     import importlib
 
     canonical_module = importlib.import_module(f"zeroth.eval.{module_name}")
@@ -73,14 +71,20 @@ def test_eval_modules_publish_their_names(
 
 
 @pytest.mark.parametrize(
-    ("first", "second"),
-    [
-    ],
+    "module", ("zeroth.eval", "zeroth.eval.models", "zeroth.eval.runner", "zeroth.eval.scorers")
 )
-def test_eval_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_eval_modules_import_in_a_cold_interpreter(module: str) -> None:
+    """Each canonical module imports with nothing else pre-warmed.
+
+    The original ran every ordered pair of canonical and legacy packages to
+    catch a cycle between them. An emptied parameter list would collect zero
+    cases and pass while proving nothing, so each canonical module is asserted
+    to stand up on its own instead.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", f"import {module}"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, f"cold import of {module} failed:\n{result.stderr}"

@@ -2,7 +2,7 @@
 
 Runs Alembic migrations (SQLite or Postgres), bootstraps the service,
 and starts uvicorn. Invoked by `zeroth-core serve` or directly via
-`python -m zeroth.core.service.entrypoint`.
+`python -m zeroth.service.entrypoint`.
 """
 
 from __future__ import annotations
