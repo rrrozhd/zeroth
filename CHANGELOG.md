@@ -18,6 +18,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17] - 2026-08-06
+
+### Removed
+
+- **Breaking:** delete the `zeroth.core` and `zeroth.econ_plane` import
+  surfaces. Both trees, and every compatibility shim in them, are gone; the
+  canonical eight-domain packages are the only import locations. A consumer on
+  a legacy path must move to the canonical one — see
+  `docs/backend-import-migration.md`.
+- Remove `LEGACY_DOMAIN_PREFIXES` from the architecture policy. While it
+  existed a dependency routed through a shim was scored as if it went straight
+  to the canonical package, so several real cross-domain edges were invisible;
+  they are now recorded as documented exceptions.
+- Delete the compatibility suites whose only subject was the legacy paths. Each
+  canonical assertion they carried — surface, cold-import, laziness — was moved
+  into a canonical-only test rather than dropped.
+
+### Changed
+
+- Point CI's docstring gate at `src/zeroth` and set its threshold to the
+  coverage that tree actually has. The old 92.3% was measured over a
+  shim-dominated package; the denominator changed, not the bar.
+
 ## [0.16.1.8] - 2026-08-06
 
 ### Changed
