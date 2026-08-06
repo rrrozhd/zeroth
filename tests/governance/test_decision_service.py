@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.langgraph_gateway.models import AdmissionRequest
+from zeroth.contracts.langgraph_gateway.models import AdmissionRequest
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit.capture_vocabulary import REASON_CODES
@@ -41,6 +41,7 @@ from zeroth.governance.decisions import (
     ToolDecisionService,
     request_digest,
 )
+from zeroth.service.bootstrap.admission import BoundAdmissionEvaluator
 
 POLICY_VERSION = f"sha256:{'a' * 64}"
 
@@ -205,8 +206,10 @@ def make_service(
     """
     return ToolDecisionService(
         repository=DecisionRepository(database),
-        policy_guard=policy_guard or RecordingPolicyGuard(),
-        budget_checker=budget_checker or StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=policy_guard or RecordingPolicyGuard(),
+            budget_checker=budget_checker or StubBudgetChecker(),
+        ),
         approval_gate=approval_gate,
         inventory=inventory or StubInventory(),
         deployment_policies=deployment_policies or StubDeploymentPolicies(),
@@ -403,8 +406,10 @@ async def test_require_approval_does_not_degrade_to_allow_during_an_outage(
 
     holding = ToolDecisionService(
         repository=repository,
-        policy_guard=RecordingPolicyGuard(),
-        budget_checker=StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=RecordingPolicyGuard(),
+            budget_checker=StubBudgetChecker(),
+        ),
         approval_gate=StubApprovalGate("approval-1"),
         inventory=StubInventory(),
         deployment_policies=StubDeploymentPolicies(),
@@ -414,8 +419,10 @@ async def test_require_approval_does_not_degrade_to_allow_during_an_outage(
 
     degraded = ToolDecisionService(
         repository=repository,
-        policy_guard=RaisingPolicyGuard(),
-        budget_checker=RaisingBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=RaisingPolicyGuard(),
+            budget_checker=RaisingBudgetChecker(),
+        ),
         approval_gate=RaisingApprovalGate(),
         inventory=StubInventory(),
         deployment_policies=StubDeploymentPolicies(),
@@ -433,8 +440,10 @@ async def test_a_denial_is_not_upgraded_to_allow_on_retry(sqlite_db: Any) -> Non
 
     down = ToolDecisionService(
         repository=repository,
-        policy_guard=RaisingPolicyGuard(),
-        budget_checker=StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=RaisingPolicyGuard(),
+            budget_checker=StubBudgetChecker(),
+        ),
         inventory=StubInventory(),
         deployment_policies=StubDeploymentPolicies(),
     )
@@ -443,8 +452,10 @@ async def test_a_denial_is_not_upgraded_to_allow_on_retry(sqlite_db: Any) -> Non
 
     recovered = ToolDecisionService(
         repository=repository,
-        policy_guard=RecordingPolicyGuard(),
-        budget_checker=StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=RecordingPolicyGuard(),
+            budget_checker=StubBudgetChecker(),
+        ),
         inventory=StubInventory(),
         deployment_policies=StubDeploymentPolicies(),
     )
@@ -558,8 +569,10 @@ async def test_an_unclassified_denial_is_still_recorded(sqlite_db: Any) -> None:
     repository = DecisionRepository(sqlite_db)
     service = ToolDecisionService(
         repository=repository,
-        policy_guard=RecordingPolicyGuard(),
-        budget_checker=StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=RecordingPolicyGuard(),
+            budget_checker=StubBudgetChecker(),
+        ),
         inventory=StubInventory(),
         deployment_policies=StubDeploymentPolicies(),
     )

@@ -9,20 +9,8 @@ from fastapi import FastAPI
 from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
+from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
-from zeroth.core.langgraph_gateway.compatibility import CompatibilityDetector
-from zeroth.core.langgraph_gateway.context import ReservedContextCodec
-from zeroth.core.langgraph_gateway.enforcement import (
-    LangGraphEnforcementRepository,
-    LangGraphEnforcementService,
-    StoredCapabilityEvidenceProvider,
-)
-from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
-from zeroth.core.langgraph_gateway.models import CompatibilityResult
-from zeroth.core.langgraph_gateway.proxy import GatewayProxy
-from zeroth.core.langgraph_gateway.routes import WebSocketGatewayHandler
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
 from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
@@ -49,6 +37,8 @@ from zeroth.governance.guardrails.rate_limit import (
     TokenBucketRateLimiter,
 )
 from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.governance.policy import (
     PolicyGuard,
     PolicyRegistry,
@@ -87,11 +77,22 @@ from zeroth.service.api.authentication import (
 )
 from zeroth.service.api.authorization import RoleRegistry
 from zeroth.service.app import create_app
+from zeroth.service.bootstrap.admission import BoundAdmissionEvaluator
 from zeroth.service.bootstrap.container import (
     DeploymentBootstrapError,
     ServiceBootstrap,
 )
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
+from zeroth.service.langgraph_gateway.compatibility import CompatibilityDetector
+from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+from zeroth.service.langgraph_gateway.enforcement import (
+    LangGraphEnforcementRepository,
+    LangGraphEnforcementService,
+    StoredCapabilityEvidenceProvider,
+)
+from zeroth.service.langgraph_gateway.proxy import GatewayProxy
+from zeroth.service.langgraph_gateway.routes import WebSocketGatewayHandler
+from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 
 async def bootstrap_service(
@@ -552,8 +553,13 @@ async def bootstrap_service(
     # ceiling, and an unwired resolver is exactly the state the audit found.
     tool_decision_service = ToolDecisionService(
         repository=decision_repository,
-        policy_guard=policy_guard,
-        budget_checker=budget_enforcer,
+        # The admission combiner is injected rather than imported by the
+        # decision service (ZER-24): governance may not depend on the
+        # service-classified gateway package that owns ``admit``.
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=policy_guard,
+            budget_checker=budget_enforcer,
+        ),
         inventory=RegisteredInventoryLookup(inventory_registration_repository),
         deployment_policies=DeploymentRecordPolicyResolver(deployment_service.get),
         # Without a gate the service defaults to ``NoApprovalRequired``,

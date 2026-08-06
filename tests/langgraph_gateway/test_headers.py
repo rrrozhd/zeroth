@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.langgraph_gateway.headers import (
+from zeroth.service.langgraph_gateway.headers import (
     UpstreamCredentialUnavailableError,
     prepare_upstream_request_headers,
     strip_hop_by_hop_headers,

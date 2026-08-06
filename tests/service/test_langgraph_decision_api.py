@@ -7,8 +7,15 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
-from zeroth.core.langgraph_gateway.enforcement import (
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
+from zeroth.core.signing import EnvHmacSigner
+from zeroth.econ.analytics.budget import BudgetCheckResult
+from zeroth.governance.policy import PolicyDecision, PolicyGuard
+from zeroth.governance.policy.registry import default_capability_registry
+from zeroth.integrations.langgraph import InventoryCoverage, SideEffectClass, ToolDecisionKind
+from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
+from zeroth.service.langgraph_gateway.enforcement import (
     ActionDescriptorV1,
     DecisionRequestV1,
     DecisionResponseV1,
@@ -21,13 +28,6 @@ from zeroth.core.langgraph_gateway.enforcement import (
     RunAttestationV1,
     inventory_fingerprint,
 )
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
-from zeroth.core.signing import EnvHmacSigner
-from zeroth.econ.analytics.budget import BudgetCheckResult
-from zeroth.governance.policy import PolicyDecision, PolicyGuard
-from zeroth.governance.policy.registry import default_capability_registry
-from zeroth.integrations.langgraph import InventoryCoverage, SideEffectClass, ToolDecisionKind
-from zeroth.platform.observability.metrics import MetricsCollector
 
 NOW = datetime(2026, 8, 4, 17, 0, tzinfo=UTC)
 POLICY_VERSION = "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"

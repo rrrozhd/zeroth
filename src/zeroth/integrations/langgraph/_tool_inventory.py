@@ -4,7 +4,7 @@ Two questions, one module. *Which tools can this run reach* -- recorded from wha
 the pinning stage observed, matched against the list an operator declared -- and
 *what governance level may be reported on the strength of that*. The second
 answer is deliberately capped below
-:attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED`.
+:attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ENFORCED`.
 
 **Two recorders, because the two install surfaces hold their bindings
 differently, and exactly one reporter.**
@@ -53,13 +53,13 @@ ungoverned tool that cannot be *seen*, and the "no extras" direction of the matc
 stops working precisely where it matters.
 
 **R13: this module never reports ``enforced``, and mints no evidence to make it
-possible.** :class:`~zeroth.core.langgraph_gateway.capabilities.CapabilityReporter`
+possible.** :class:`~zeroth.governance.langgraph_gateway.capabilities.CapabilityReporter`
 promotes a run to
-:attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED` only for
+:attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ENFORCED` only for
 signed, fresh, governance-run-matched
-:class:`~zeroth.core.langgraph_gateway.models.RunCapabilityEvidence` that *also*
+:class:`~zeroth.contracts.langgraph_gateway.models.RunCapabilityEvidence` that *also*
 carries ``tool_manifest_complete``; absent that it fails closed to
-:attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION`. Nothing
+:attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ADMISSION`. Nothing
 in this package produces such evidence and nothing here starts:
 :func:`report_tool_enforcement` has no branch that can return ``ENFORCED``, and
 an inventory attested :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.COMPLETE`
@@ -68,9 +68,9 @@ reports exactly what a partial one does. Coverage is a statement about the tool
 two are not the same claim.
 
 What the report does say is
-:attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.OBSERVED`, with the
+:attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.OBSERVED`, with the
 names of the tools actually governed -- and
-:attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION` when
+:attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ADMISSION` when
 there are none, because "observed" is a claim about something and an empty
 inventory observes nothing. This is a description of the tool surface, not a run
 attestation: it is not fed to a ``CapabilityReporter``, and a consumer that asks
@@ -91,7 +91,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
@@ -346,7 +346,7 @@ class ToolEnforcementReport:
 
     Attributes:
         level: The governance level this surface supports. Never
-            :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED`
+            :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ENFORCED`
             -- see the module docstring for the evidence that would be required
             and is never minted here.
         coverage: Whether the inventory expects it saw every reachable tool.
@@ -537,11 +537,11 @@ def report_tool_enforcement(inventory: object) -> ToolEnforcementReport:
     """Report the level a governed tool surface supports, and on which tools.
 
     The level is
-    :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.OBSERVED` when
+    :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.OBSERVED` when
     the inventory holds at least one governed tool and
-    :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ADMISSION` when
+    :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ADMISSION` when
     it holds none. There is no third branch:
-    :attr:`~zeroth.core.langgraph_gateway.models.GovernanceLevel.ENFORCED` needs
+    :attr:`~zeroth.contracts.langgraph_gateway.models.GovernanceLevel.ENFORCED` needs
     signed, fresh, ``tool_manifest_complete`` run evidence, nothing in this
     package mints any, and an inventory's coverage is not a substitute for it.
 

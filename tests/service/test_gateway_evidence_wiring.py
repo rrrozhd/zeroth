@@ -31,7 +31,7 @@ from typing import Any
 import pytest
 
 from tests.service.helpers import agent_graph, deploy_service
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityResult,
     CompatibilityStatus,
     GovernanceLevel,
