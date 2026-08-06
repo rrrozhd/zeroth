@@ -1,4 +1,4 @@
-"""Drive the vendor-dd scenarios end-to-end over HTTP.
+r"""Drive the vendor-dd scenarios end-to-end over HTTP.
 
 Requires both services running (see README):
 
@@ -38,7 +38,7 @@ API_KEY = "vendor-dd-ops-key"
 TENANT = "tenant-acme"
 RECEIVER_PORT = 8790
 
-from apps.vendor_dd.fixtures.dossiers import CLEAN_VENDOR, RISKY_VENDOR
+from apps.vendor_dd.fixtures.dossiers import CLEAN_VENDOR, RISKY_VENDOR  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tiny HTTP helpers (stdlib-only so the runbook needs no extra deps).
@@ -121,7 +121,7 @@ def start_receiver() -> HTTPServer:
 
 
 def econ_headers() -> dict:
-    from zeroth.core.econ.service_auth import mint_econ_service_token
+    from zeroth.econ.analytics.service_auth import mint_econ_service_token
 
     token = mint_econ_service_token()
     if token is None:

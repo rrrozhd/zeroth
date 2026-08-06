@@ -8,24 +8,20 @@ contract validates reference structure.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.platform.artifacts.errors import ArtifactTTLError
-from zeroth.platform.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
-from zeroth.platform.artifacts.models import ArtifactReference, ArtifactStoreSettings
-from zeroth.platform.artifacts.store import FilesystemArtifactStore
+from zeroth.contracts.registry import validate_artifact_reference
 from zeroth.governance.audit.evidence import (
     build_summary,
     resolve_artifact_references,
 )
 from zeroth.governance.audit.models import NodeAuditRecord
-from zeroth.contracts.registry import validate_artifact_reference
-from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-
+from zeroth.platform.artifacts.helpers import extract_artifact_refs, refresh_artifact_ttls
+from zeroth.platform.artifacts.models import ArtifactReference
+from zeroth.platform.artifacts.store import FilesystemArtifactStore
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 
 # ---------------------------------------------------------------------------
 # Orchestrator integration tests
@@ -264,7 +260,7 @@ class TestBootstrapArtifactWiring:
 
     def test_service_bootstrap_has_artifact_store_field(self) -> None:
         """ServiceBootstrap has artifact_store field defaulting to None."""
-        from zeroth.core.service.bootstrap import ServiceBootstrap
+        from zeroth.service.bootstrap import ServiceBootstrap
 
         # Build with minimal required fields
         sb = ServiceBootstrap(

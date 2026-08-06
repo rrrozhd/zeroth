@@ -50,13 +50,11 @@ from zeroth.runtime.parallel.errors import (
 )
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
-    BranchContext,
     BranchResult,
     FanInResult,
     ParallelConfig,
 )
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
-
 
 # ---------------------------------------------------------------------------
 # Task 1: data layer
@@ -95,9 +93,7 @@ class TestSplitFanOutSubgraphUnblock:
         # hasattr/node_type comparison so this is representative.
         node = MagicMock()
         node.node_type = "subgraph"
-        branches = executor.split_fan_out(
-            "run1", {"items": [{"a": 1}, {"b": 2}]}, config, node
-        )
+        branches = executor.split_fan_out("run1", {"items": [{"a": 1}, {"b": 2}]}, config, node)
         assert len(branches) == 2
         assert branches[0].branch_index == 0
         assert branches[1].branch_index == 1
@@ -129,7 +125,8 @@ class TestBranchApprovalPauseSignal:
         assert isinstance(sig, BaseException)
 
     def test_is_not_exception(self) -> None:
-        """BaseException subclass that is NOT an Exception — this is the
+        """BaseException subclass that is NOT an Exception — this is the.
+
         whole point: asyncio.gather(return_exceptions=True) only captures
         Exception (and subclasses), leaving BaseException to escape.
         """
@@ -209,9 +206,7 @@ class TestBranchApprovalPauseSignal:
         async def _noop() -> int:
             return 42
 
-        results = await asyncio.gather(
-            _raises_pause(), _noop(), return_exceptions=True
-        )
+        results = await asyncio.gather(_raises_pause(), _noop(), return_exceptions=True)
         assert any(isinstance(r, BranchApprovalPauseSignal) for r in results)
         assert 42 in results
 
@@ -270,13 +265,9 @@ class TestNamespaceSubgraphBranchIndex:
         node = AgentNode(
             node_id="a1",
             graph_version_ref="g@1",
-            agent=AgentNodeData(
-                instruction="x", model_provider="openai/gpt-4"
-            ),
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
         )
-        graph = Graph(
-            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
-        )
+        graph = Graph(graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1")
         ns = namespace_subgraph(graph, "g", depth=1)
         assert ns.nodes[0].node_id == "subgraph:g:1:a1"
         assert ns.entry_step == "subgraph:g:1:a1"
@@ -288,13 +279,9 @@ class TestNamespaceSubgraphBranchIndex:
         node = AgentNode(
             node_id="a1",
             graph_version_ref="g@1",
-            agent=AgentNodeData(
-                instruction="x", model_provider="openai/gpt-4"
-            ),
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
         )
-        graph = Graph(
-            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
-        )
+        graph = Graph(graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1")
         ns = namespace_subgraph(graph, "g", depth=1, branch_index=2)
         assert ns.nodes[0].node_id == "branch:2:subgraph:g:1:a1"
         assert ns.entry_step == "branch:2:subgraph:g:1:a1"
@@ -307,13 +294,9 @@ class TestNamespaceSubgraphBranchIndex:
         node = AgentNode(
             node_id="a1",
             graph_version_ref="g@1",
-            agent=AgentNodeData(
-                instruction="x", model_provider="openai/gpt-4"
-            ),
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
         )
-        graph = Graph(
-            graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1"
-        )
+        graph = Graph(graph_id="g", name="g", version=1, nodes=[node], edges=[], entry_step="a1")
         first = namespace_subgraph(graph, "g", depth=1, branch_index=3)
         # Second pass on the ORIGINAL graph with same args — byte identical.
         second = namespace_subgraph(graph, "g", depth=1, branch_index=3)
@@ -326,9 +309,11 @@ class TestNamespaceSubgraphBranchIndex:
 
 
 class TestScenario1SubgraphInFanOutBranch:
-    """D-05 + D-23 end-to-end: fan-out with SubgraphNode downstream
+    """D-05 + D-23 end-to-end: fan-out with SubgraphNode downstream.
+
     executes one child run per branch and merges their outputs via
-    collect fan-in."""
+    collect fan-in.
+    """
 
     pytestmark = pytest.mark.legacy_engine
 
@@ -336,15 +321,16 @@ class TestScenario1SubgraphInFanOutBranch:
     async def test_fan_out_to_subgraph_collect(self) -> None:
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.contracts.governed import RunStatus
         from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,
             Graph,
         )
-        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-        from zeroth.core.runs.models import Run, RunStatus
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run
         from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         # Parent graph: source AgentNode (fan-out) -> SubgraphNode (downstream).
@@ -383,9 +369,7 @@ class TestScenario1SubgraphInFanOutBranch:
 
         source_runner = AsyncMock()
         source_runner.run = AsyncMock(
-            return_value=_FakeResult(
-                {"items": [{"v": 1}, {"v": 2}, {"v": 3}]}
-            )
+            return_value=_FakeResult({"items": [{"v": 1}, {"v": 2}, {"v": 3}]})
         )
 
         # Mock SubgraphExecutor: return a distinct completed child Run per
@@ -434,35 +418,35 @@ class TestScenario1SubgraphInFanOutBranch:
         assert branch_indices == [0, 1, 2]
         # Shared step tracker threaded through every call.
         trackers = {
-            id(call.kwargs.get("step_tracker"))
-            for call in mock_executor.execute.call_args_list
+            id(call.kwargs.get("step_tracker")) for call in mock_executor.execute.call_args_list
         }
         assert len(trackers) == 1  # single identity, not None and not per-branch
         assert None not in {
-            call.kwargs.get("step_tracker")
-            for call in mock_executor.execute.call_args_list
+            call.kwargs.get("step_tracker") for call in mock_executor.execute.call_args_list
         }
 
     @pytest.mark.asyncio
     async def test_fan_out_subgraph_approval_pause_stashes_pending(
         self,
     ) -> None:
-        """D-11: one branch's child hits WAITING_APPROVAL → parent run
+        """D-11: one branch's child hits WAITING_APPROVAL → parent run.
+
         is persisted with status WAITING_APPROVAL and
         ``pending_parallel_subgraph`` metadata carries the paused
         branch + completed siblings.
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.contracts.governed import RunStatus
         from zeroth.contracts.graph.models import (
             AgentNode,
             AgentNodeData,
             Edge,
             Graph,
         )
-        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-        from zeroth.core.runs.models import Run, RunStatus
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run
         from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 
         source_node = AgentNode(
@@ -498,9 +482,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 self.audit_record = {"model": "test", "token_usage": None}
 
         source_runner = AsyncMock()
-        source_runner.run = AsyncMock(
-            return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]})
-        )
+        source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         async def _fake_execute(**kwargs: Any) -> Run:
             idx = kwargs["branch_context"].branch_index
@@ -541,15 +523,9 @@ class TestScenario1SubgraphInFanOutBranch:
         # Use best_effort so branch 0 runs to completion and we can assert
         # the completed-branch-rehydration metadata field is populated.
         source_node_best = source_node.model_copy(
-            update={
-                "parallel_config": ParallelConfig(
-                    split_path="items", fail_mode="best_effort"
-                )
-            }
+            update={"parallel_config": ParallelConfig(split_path="items", fail_mode="best_effort")}
         )
-        parent_graph_best = parent_graph.model_copy(
-            update={"nodes": [source_node_best, sub_node]}
-        )
+        parent_graph_best = parent_graph.model_copy(update={"nodes": [source_node_best, sub_node]})
 
         result = await orch.run_graph(parent_graph_best, {"input": "test"})
 
@@ -566,7 +542,8 @@ class TestScenario1SubgraphInFanOutBranch:
         assert pending["paused_branch"]["node_id"] == "sub-step"
 
     async def test_nested_pause_on_resume_persists_waiting_approval(self, sqlite_db) -> None:
-        """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch
+        """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch.
+
         must persist the run as WAITING_APPROVAL — not silently complete it.
 
         Before the fix the nested-pause branch re-queued the fan-out node in
@@ -579,12 +556,13 @@ class TestScenario1SubgraphInFanOutBranch:
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        from zeroth.core.execution_units import ExecutableUnitRunner
-        from zeroth.core.graph.models import AgentNode, AgentNodeData, Edge, Graph
-        from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-        from zeroth.core.runs import RunRepository
-        from zeroth.core.runs.models import Run, RunStatus
-        from zeroth.core.subgraph.executor import SubgraphExecutor
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.integrations.persistence.runs import RunRepository
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run
+        from zeroth.runtime.subgraphs import SubgraphExecutor
 
         source_node = AgentNode(
             node_id="source",
@@ -613,9 +591,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 self.audit_record = {"model": "test", "token_usage": None}
 
         source_runner = AsyncMock()
-        source_runner.run = AsyncMock(
-            return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]})
-        )
+        source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         def _waiting_child() -> Run:
             return Run(

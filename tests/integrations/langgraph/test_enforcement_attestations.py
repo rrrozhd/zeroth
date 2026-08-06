@@ -10,7 +10,6 @@ import httpx
 import pytest
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
-from zeroth.core.signing import EnvHmacSigner
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.policy import PolicyDecision, PolicyGuard
 from zeroth.governance.policy.registry import default_capability_registry
@@ -34,6 +33,7 @@ from zeroth.integrations.langgraph import (
     record_tool_inventory,
 )
 from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.signing import EnvHmacSigner
 from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 from zeroth.service.langgraph_gateway.enforcement import (
     ActionDescriptorV1,

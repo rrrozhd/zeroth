@@ -28,8 +28,8 @@ os.environ.setdefault("ZEROTH_WEBHOOK__ENABLED", "false")
 os.environ.setdefault("ZEROTH_APPROVAL_SLA__ENABLED", "false")
 os.environ.setdefault("ZEROTH_REDIS__MODE", "disabled")
 
-from apps.vendor_dd.contracts import CONTRACTS
-from apps.vendor_dd.graphs import (
+from apps.vendor_dd.contracts import CONTRACTS  # noqa: E402
+from apps.vendor_dd.graphs import (  # noqa: E402
     CHAT_DEPLOYMENT_REF,
     DIMENSION_DEPLOYMENT_REF,
     MAIN_DEPLOYMENT_REF,
@@ -37,13 +37,13 @@ from apps.vendor_dd.graphs import (
     build_dimension_graph,
     build_main_graph,
 )
-from zeroth.core.config.settings import get_settings
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-from zeroth.core.graph import GraphRepository
-from zeroth.core.graph.validation import GraphValidator
-from zeroth.core.service.bootstrap import run_migrations
-from zeroth.core.storage.factory import create_database
+from zeroth.contracts.graph import GraphRepository  # noqa: E402
+from zeroth.contracts.registry import ContractRegistry  # noqa: E402
+from zeroth.platform.config import get_settings  # noqa: E402
+from zeroth.platform.storage import create_database  # noqa: E402
+from zeroth.runtime.graph_validation import GraphValidator  # noqa: E402
+from zeroth.service.bootstrap import run_migrations  # noqa: E402
+from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository  # noqa: E402
 
 
 async def main() -> int:

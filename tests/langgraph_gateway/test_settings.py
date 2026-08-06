@@ -2,8 +2,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.config.settings import LangGraphGatewaySettings, ZerothSettings
-
+from zeroth.platform.config import LangGraphGatewaySettings, ZerothSettings
 
 VALID_ENABLED = {
     "enabled": True,

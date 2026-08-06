@@ -8,8 +8,8 @@ import httpx
 import pytest
 
 from zeroth.contracts.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
-from zeroth.core.econ.budget import BudgetCheckResult, BudgetEnforcer
-from zeroth.core.policy.models import RunAdmissionResult
+from zeroth.econ.analytics import BudgetCheckResult, BudgetEnforcer
+from zeroth.governance.policy import RunAdmissionResult
 from zeroth.service.langgraph_gateway.admission import admit
 
 

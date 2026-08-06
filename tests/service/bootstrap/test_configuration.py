@@ -14,7 +14,7 @@ def test_bootstrap_memory_defaults_disable_every_external_backend() -> None:
 
 
 def test_run_migrations_is_the_same_object_through_both_paths() -> None:
-    from zeroth.core.service.bootstrap import run_migrations as legacy
+    from zeroth.service.bootstrap import run_migrations as legacy
     from zeroth.service.bootstrap.migrations import run_migrations as canonical
 
     assert canonical is legacy

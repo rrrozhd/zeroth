@@ -6,7 +6,14 @@ arithmetic before the token join engine (P2/P3) is wired into the drive loop.
 
 from __future__ import annotations
 
-from zeroth.contracts.graph import AgentNode, AgentNodeData, Condition, Edge, ExecutionSettings, Graph
+from zeroth.contracts.graph import (
+    AgentNode,
+    AgentNodeData,
+    Condition,
+    Edge,
+    ExecutionSettings,
+    Graph,
+)
 from zeroth.runtime.orchestration import token_scope as ts
 from zeroth.runtime.parallel.models import ParallelConfig
 
@@ -157,8 +164,8 @@ def test_tag_key_is_stable_and_readable():
 
 
 def test_back_edges_match_runtime_classifier():
-    from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
     from zeroth.integrations.persistence.runs import RunRepository
+    from zeroth.runtime.orchestration import RuntimeOrchestrator
 
     g = _graph(["OH", "IH", "IB", "OB", "DONE"],
                [_edge("OH", "IH"), _edge("IH", "IB"), _edge("IB", "IH", back=True),

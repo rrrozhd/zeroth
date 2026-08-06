@@ -10,9 +10,13 @@ from fastapi.testclient import TestClient
 
 from tests.service.helpers import approval_resume_graph, deploy_service
 from zeroth.governance.identity import ServiceRole
-from zeroth.service.api.authentication import BearerTokenConfig, ServiceAuthConfig
-from zeroth.service.api.authentication import AuthenticationError, JWTBearerTokenVerifier
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.api.authentication import (
+    AuthenticationError,
+    BearerTokenConfig,
+    JWTBearerTokenVerifier,
+    ServiceAuthConfig,
+)
+from zeroth.service.bootstrap import bootstrap_app
 
 
 def _bearer_auth_fixture() -> tuple[ServiceAuthConfig, object]:

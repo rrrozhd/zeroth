@@ -8,18 +8,11 @@ tracker enforces max_total_steps as the sum across all branches.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
-from zeroth.integrations.memory.governed.models import MemoryScope
 from pydantic import BaseModel
 
-from zeroth.runtime.agents import AgentConfig, AgentRunner
-from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.governance.audit import AuditRepository
-from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
@@ -27,27 +20,27 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
+from zeroth.governance.audit import AuditRepository
+from zeroth.governance.policy import (
+    PolicyDecision,
+    PolicyGuard,
+    default_capability_registry,
+)
+from zeroth.governance.policy.models import EnforcementResult
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.memory import (
     ConnectorManifest,
     InMemoryConnectorRegistry,
     KeyValueMemoryConnector,
     MemoryConnectorResolver,
 )
-from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.runtime.parallel.models import ParallelConfig
-from zeroth.governance.policy import (
-    Capability,
-    CapabilityRegistry,
-    PolicyDecision,
-    PolicyDefinition,
-    PolicyGuard,
-    PolicyRegistry,
-    default_capability_registry,
-)
-from zeroth.governance.policy.models import EnforcementResult
+from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.runtime.runs import RunStatus
-
 
 # ---------------------------------------------------------------------------
 # Test models
@@ -364,7 +357,7 @@ async def test_policy_denial_in_branch(sqlite_db) -> None:
     """Policy denies one branch node, that branch fails, others continue (best-effort)."""
     # Create a guard that denies "sink" (all branches fail)
     # For best-effort, the run should still complete with failed branches
-    call_count = 0
+    call_count = 0  # noqa: F841
 
     class SelectiveDenyGuard(PolicyGuard):
         """Denies the second branch call to sink."""
@@ -432,7 +425,7 @@ class MockBudgetEnforcer:
 
 @pytest.mark.asyncio
 async def test_budget_check_before_spawn(sqlite_db) -> None:
-    """BudgetEnforcer.check_budget called before any branch executes; if not allowed, fan-out does not proceed."""
+    """BudgetEnforcer.check_budget called before any branch executes; if not allowed, fan-out does not proceed."""  # noqa: E501
     budget = MockBudgetEnforcer(allowed=False, spend=100.0, cap=50.0)
     orchestrator = _make_orchestrator(
         {"source": _source_runner(), "sink": _sink_runner()},
@@ -551,9 +544,11 @@ async def test_branch_visit_counts_isolated(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_per_branch_contract_validation(sqlite_db) -> None:
-    """Each branch's output is validated independently -- since contract validation
+    """Each branch's output is validated independently -- since contract validation.
+
     happens inside _dispatch_node for agent runners via output_model, this verifies
-    that each branch runs _dispatch_node with its own payload."""
+    that each branch runs _dispatch_node with its own payload.
+    """
     results_seen: list[dict] = []
 
     def recording_sink_handler(req):
@@ -656,9 +651,11 @@ def _memory_fan_out(sqlite_db, *, sink_capabilities: list[str]):
 
 @pytest.mark.asyncio
 async def test_branch_memory_op_allowed_when_capability_declared(sqlite_db) -> None:
-    """A fan-out branch agent that DECLARES memory_read/write and performs a
+    """A fan-out branch agent that DECLARES memory_read/write and performs a.
+
     memory op SUCCEEDS under enforcement — the branch's granted capabilities are
-    now persisted, so the dispatch reads them instead of an empty (deny) set."""
+    now persisted, so the dispatch reads them instead of an empty (deny) set.
+    """
     orchestrator, graph = _memory_fan_out(
         sqlite_db, sink_capabilities=["memory_read", "memory_write"]
     )
@@ -674,11 +671,13 @@ async def test_branch_memory_op_allowed_when_capability_declared(sqlite_db) -> N
 
 @pytest.mark.asyncio
 async def test_branch_memory_op_denied_when_capability_not_declared(sqlite_db) -> None:
-    """Control: a branch agent that does NOT declare the capability is DENIED the
+    """Control: a branch agent that does NOT declare the capability is DENIED the.
+
     memory op (fail-closed), failing the branch and — under fail_fast — the run.
 
     Proves the allow-case above passes because of the declared capability, not
-    because enforcement was silently skipped on the branch path."""
+    because enforcement was silently skipped on the branch path.
+    """
     orchestrator, graph = _memory_fan_out(sqlite_db, sink_capabilities=[])
 
     run = await orchestrator.run_graph(graph, {"value": 1})

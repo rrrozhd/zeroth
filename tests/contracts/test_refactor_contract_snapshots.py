@@ -19,16 +19,6 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationSeverity,
 )
 from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
-from zeroth.core.runs import (
-    Run,
-    RunHistoryEntry,
-    RunRepository,
-    Thread,
-    ThreadMemoryBinding,
-    ThreadRepository,
-)
-from zeroth.core.service.app import create_app
-from zeroth.core.service.bootstrap import run_migrations
 from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.audit.capture_policy import AuditCapturePolicy
@@ -41,6 +31,10 @@ from zeroth.governance.retention.cleanup_manifest import (
     operation_id,
 )
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
+from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.runtime.runs import Run, RunHistoryEntry, Thread, ThreadMemoryBinding
+from zeroth.service.app import create_app
+from zeroth.service.bootstrap import run_migrations
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REPO_ROOT = Path(__file__).parents[2]

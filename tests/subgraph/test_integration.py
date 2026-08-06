@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -31,15 +30,14 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.service.deployments.models import Deployment
-from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
-from zeroth.runtime.runs import Run
-from zeroth.runtime.runs import RunStatus
+from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.subgraphs.errors import SubgraphCycleError, SubgraphDepthLimitError
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver
-
+from zeroth.service.deployments.models import Deployment
 
 pytestmark = pytest.mark.legacy_engine
 
@@ -198,7 +196,7 @@ class TestHappyPath:
     @pytest.mark.asyncio
     async def test_parent_completes_with_child_output(self) -> None:
         """Parent graph runs SubgraphNode, child executes, parent uses child output."""
-        child_graph = _make_agent_graph("child-g", "c1")
+        child_graph = _make_agent_graph("child-g", "c1")  # noqa: F841
         parent_graph = _make_subgraph_parent("parent-g", "child-g")
 
         # Child run returned by executor -- completed with output
@@ -288,7 +286,7 @@ class TestThreadInheritance:
         run_repo = _make_run_repository()
         orch = _build_orchestrator(run_repository=run_repo, subgraph_executor=mock_executor)
 
-        result = await orch.run_graph(parent_graph, {"input": "test"}, thread_id="parent-thread-1")
+        result = await orch.run_graph(parent_graph, {"input": "test"}, thread_id="parent-thread-1")  # noqa: F841
 
         # Verify the executor was called -- thread mode is handled inside executor
         mock_executor.execute.assert_called_once()
@@ -313,7 +311,7 @@ class TestThreadInheritance:
         run_repo = _make_run_repository()
         orch = _build_orchestrator(run_repository=run_repo, subgraph_executor=mock_executor)
 
-        result = await orch.run_graph(parent_graph, {"input": "test"})
+        result = await orch.run_graph(parent_graph, {"input": "test"})  # noqa: F841
 
         mock_executor.execute.assert_called_once()
         call_kwargs = mock_executor.execute.call_args[1]
@@ -507,7 +505,7 @@ class TestNodeIdNamespacing:
     @pytest.mark.asyncio
     async def test_child_history_has_namespaced_node_ids(self) -> None:
         """Child run's execution_history should have 'subgraph:' prefixed IDs."""
-        from zeroth.core.runs.models import RunHistoryEntry
+        from zeroth.runtime.runs import RunHistoryEntry
 
         child_run = Run(
             run_id="child-run-1",
@@ -613,7 +611,7 @@ class TestFullApprovalFlow:
 
     @pytest.mark.asyncio
     async def test_approval_pause_and_resume_completes(self) -> None:
-        """Full flow: run parent -> child pauses at approval -> parent pauses -> resume -> complete."""
+        """Full flow: run parent -> child pauses at approval -> parent pauses -> resume -> complete."""  # noqa: E501
         # Phase 1: child returns WAITING_APPROVAL
         child_run_paused = Run(
             run_id="child-run-approval-1",
