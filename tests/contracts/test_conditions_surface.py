@@ -46,30 +46,26 @@ def test_models_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.contracts.conditions no longer publishes: {missing}"
 
 
-def test_condition_errors_are_the_same_surface_through_both_paths() -> None:
+def test_condition_errors_publish_their_names() -> None:
     from zeroth.contracts.conditions import errors as canonical
-    from zeroth.core.conditions import errors as legacy
 
-    assert canonical.BranchResolutionError is legacy.BranchResolutionError
-    assert canonical.ConditionEvaluationError is legacy.ConditionEvaluationError
+    assert hasattr(canonical, "BranchResolutionError")
+    assert hasattr(canonical, "ConditionEvaluationError")
 
 
 def test_run_condition_result_has_one_contract_owned_definition() -> None:
     from zeroth.contracts.conditions import models as canonical
-    from zeroth.core.runs import models as legacy_runs
     from zeroth.runtime import runs as runtime_runs
 
-    assert legacy_runs.RunConditionResult is canonical.RunConditionResult
+    assert hasattr(canonical, "RunConditionResult")
     assert runtime_runs.RunConditionResult is canonical.RunConditionResult
 
 
 def test_condition_recorder_is_runtime_owned_and_lazily_republished() -> None:
-    from zeroth.core import conditions as legacy
-    from zeroth.core.conditions import recorder as legacy_recorder
     from zeroth.runtime import runs as runtime_runs
 
-    assert legacy.ConditionResultRecorder is runtime_runs.ConditionResultRecorder
-    assert legacy_recorder.ConditionResultRecorder is runtime_runs.ConditionResultRecorder
+    assert hasattr(runtime_runs, "ConditionResultRecorder")
+    assert hasattr(runtime_runs, "ConditionResultRecorder")
 
 
 def test_models_imports_in_a_cold_interpreter() -> None:

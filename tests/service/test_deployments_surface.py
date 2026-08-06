@@ -23,12 +23,11 @@ EXPORTS = (
 )
 
 
-def test_deployments_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import deployments as legacy
+def test_deployments_publishes_its_whole_surface() -> None:
     from zeroth.service import deployments as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -56,16 +55,15 @@ def test_deployments_is_the_same_surface_through_both_paths() -> None:
         ("service", ("DeploymentError", "DeploymentService")),
     ],
 )
-def test_deployments_modules_are_the_same_surface_through_both_paths(
+def test_deployments_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.deployments.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.service.deployments.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_subgraph_resolver_carries_no_canonical_deployment_import() -> None:

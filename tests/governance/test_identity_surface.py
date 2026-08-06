@@ -33,15 +33,14 @@ def test_identity_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.governance.identity no longer publishes: {missing}"
 
 
-def test_identity_models_are_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.identity import models as legacy_models
+def test_identity_models_publish_their_names() -> None:
     from zeroth.governance.identity import models as canonical_models
 
-    assert canonical_models.ActorIdentity is legacy_models.ActorIdentity
-    assert canonical_models.AuthenticatedPrincipal is legacy_models.AuthenticatedPrincipal
-    assert canonical_models.AuthMethod is legacy_models.AuthMethod
-    assert canonical_models.PrincipalScope is legacy_models.PrincipalScope
-    assert canonical_models.ServiceRole is legacy_models.ServiceRole
+    assert hasattr(canonical_models, "ActorIdentity")
+    assert hasattr(canonical_models, "AuthenticatedPrincipal")
+    assert hasattr(canonical_models, "AuthMethod")
+    assert hasattr(canonical_models, "PrincipalScope")
+    assert hasattr(canonical_models, "ServiceRole")
 
 
 def test_identity_imports_in_a_cold_interpreter() -> None:

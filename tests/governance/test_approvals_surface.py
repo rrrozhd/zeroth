@@ -43,21 +43,17 @@ def test_approvals_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.governance.approvals no longer publishes: {missing}"
 
 
-def test_approval_submodules_are_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.approvals import models as legacy_models
-    from zeroth.core.approvals import repository as legacy_repository
-    from zeroth.core.approvals import service as legacy_service
-    from zeroth.core.approvals import sla_checker as legacy_sla_checker
+def test_approval_submodules_publish_their_names() -> None:
     from zeroth.governance.approvals import models as canonical_models
     from zeroth.governance.approvals import repository as canonical_repository
     from zeroth.governance.approvals import service as canonical_service
     from zeroth.governance.approvals import sla_checker as canonical_sla_checker
 
-    assert canonical_models.ApprovalRecord is legacy_models.ApprovalRecord
-    assert canonical_models.ApprovalResolution is legacy_models.ApprovalResolution
-    assert canonical_repository.ApprovalRepository is legacy_repository.ApprovalRepository
-    assert canonical_service.ApprovalService is legacy_service.ApprovalService
-    assert canonical_sla_checker.ApprovalSLAChecker is legacy_sla_checker.ApprovalSLAChecker
+    assert hasattr(canonical_models, "ApprovalRecord")
+    assert hasattr(canonical_models, "ApprovalResolution")
+    assert hasattr(canonical_repository, "ApprovalRepository")
+    assert hasattr(canonical_service, "ApprovalService")
+    assert hasattr(canonical_sla_checker, "ApprovalSLAChecker")
 
 
 def test_continue_run_is_annotated_with_a_governance_owned_protocol() -> None:

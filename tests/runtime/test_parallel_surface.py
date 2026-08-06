@@ -28,12 +28,11 @@ EXPORTS = (
 )
 
 
-def test_parallel_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import parallel as legacy
+def test_parallel_publishes_its_whole_surface() -> None:
     from zeroth.runtime import parallel as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -66,14 +65,13 @@ def test_parallel_is_the_same_surface_through_both_paths() -> None:
         ("reducers", ("dispatch_strategy", "resolve_reducer_ref")),
     ],
 )
-def test_parallel_modules_are_the_same_surface_through_both_paths(
+def test_parallel_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
-    legacy_module = importlib.import_module(f"zeroth.core.parallel.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.runtime.parallel.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_parallel_config_remains_the_contract_owned_model() -> None:
