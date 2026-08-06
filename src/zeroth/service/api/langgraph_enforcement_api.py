@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from zeroth.core.langgraph_gateway.enforcement import (
+from zeroth.contracts.langgraph_gateway.models import GatewayError, RunCapabilityEvidence
+from zeroth.platform.observability.correlation import get_correlation_id
+from zeroth.service.api.authorization import (
+    Permission,
+    require_deployment_scope,
+    require_permission,
+)
+from zeroth.service.langgraph_gateway.enforcement import (
     DecisionRequestV1,
     DecisionResponseV1,
     EnforcementBoundaryError,
@@ -12,13 +19,6 @@ from zeroth.core.langgraph_gateway.enforcement import (
     InventoryRegistrationV1,
     LangGraphEnforcementService,
     RunAttestationV1,
-)
-from zeroth.core.langgraph_gateway.models import GatewayError, RunCapabilityEvidence
-from zeroth.platform.observability.correlation import get_correlation_id
-from zeroth.service.api.authorization import (
-    Permission,
-    require_deployment_scope,
-    require_permission,
 )
 
 

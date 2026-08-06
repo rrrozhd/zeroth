@@ -36,11 +36,11 @@ pytest.importorskip("langgraph", reason="requires the gateway-conformance depend
 from langchain_core.callbacks import AsyncCallbackManager, CallbackManager
 from langgraph.graph import END, START, StateGraph
 
-from zeroth.core.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 from zeroth.core.signing import EnvHmacSigner
 from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.integrations.langgraph import govern_graph
 from zeroth.integrations.langgraph._correlation import current_correlation
+from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 
 pytestmark = pytest.mark.langgraph_conformance
 

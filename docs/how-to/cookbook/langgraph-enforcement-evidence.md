@@ -55,7 +55,7 @@ principal — never from the request body.
   heartbeat.
 
 ## The three levels, and why there is no "partial" level
-`GovernanceLevel` (`src/zeroth/core/langgraph_gateway/models.py:12`) has
+`GovernanceLevel` (`src/zeroth/contracts/langgraph_gateway/models.py:13`) has
 exactly three members:
 
 - **`admission`** — the run or deployment passed through the gateway,
@@ -88,7 +88,7 @@ produces a distinct level of its own.
 through `PersistedCapabilityEvidenceProvider` and
 `CapabilityReporter._validated_level`
 (`src/zeroth/governance/attestations/provider.py`,
-`src/zeroth/core/langgraph_gateway/capabilities.py:52-93`), every one of
+`src/zeroth/governance/langgraph_gateway/capabilities.py:75-140`), every one of
 these must hold:
 
 1. **A signed run-start attestation that verifies.**
@@ -159,7 +159,7 @@ the client asserts about its own coverage.
 ## The stale threshold: 90 seconds
 `CapabilityReporter` is constructed with `stale_after_seconds`, which
 defaults to **90.0** seconds
-(`src/zeroth/core/langgraph_gateway/capabilities.py:39`). It is
+(`src/zeroth/governance/langgraph_gateway/capabilities.py:44`). It is
 configurable through `LangGraphGatewaySettings.stale_threshold_seconds`,
 which also defaults to `90`
 (`src/zeroth/platform/config/settings.py:322`).

@@ -4,20 +4,20 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
-from zeroth.core.langgraph_gateway.events import (
-    AuditGatewayEventSink,
-    TeeObserver,
-)
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     GatewayCorrelation,
     GatewayEvent,
     GatewayEventStatus,
     GovernanceLevel,
     RouteDisposition,
 )
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.governance.audit.delivery import AuditDeliveryQueue, DeliveryRejection
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.langgraph_gateway.events import (
+    AuditGatewayEventSink,
+    TeeObserver,
+)
 
 
 def test_json_observer_extracts_only_known_identifiers_and_tracks_safe_output_metadata():

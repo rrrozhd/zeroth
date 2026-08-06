@@ -11,9 +11,9 @@ from starlette.routing import Match
 from tests.graph.test_models import build_graph
 from tests.service.helpers import default_service_auth_config, operator_headers
 from zeroth.contracts.graph import GraphRepository
+from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 from zeroth.service.app import create_app

@@ -5,7 +5,7 @@ this module exists to make hard to write.**
 
 * :attr:`ToolGovernanceError.code` -- the ``zeroth.``-prefixed *caller-facing*
   code, the namespace the gateway's error envelope requires
-  (:class:`~zeroth.core.langgraph_gateway.models.GatewayError` rejects a code
+  (:class:`~zeroth.contracts.langgraph_gateway.models.GatewayError` rejects a code
   that does not start with ``zeroth.``). It names the condition, without the
   ``Error`` suffix, matching ``zeroth.policy_denied`` and the rest.
 * The *audit* reason code, which nothing here spells out: it is derived from the

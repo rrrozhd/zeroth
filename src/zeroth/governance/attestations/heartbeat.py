@@ -12,12 +12,12 @@ That weakness is deliberate and load-bearing:
 **R14 -- a heartbeat can never upgrade an individual run.**
 ``CapabilityReporter.level_for_run`` already discards the
 ``deployment_evidence`` parameter outright (see
-``zeroth.core.langgraph_gateway.capabilities:103``); this module does not
+``zeroth.governance.langgraph_gateway.capabilities:103``); this module does not
 touch that path and relies on it being structural, not re-derived here.
 
 **R13 -- a stale heartbeat downgrades the deployment-level last-known
 status.** :class:`DeploymentStatusResolver` builds
-:class:`~zeroth.core.langgraph_gateway.models.RunCapabilityEvidence` with
+:class:`~zeroth.contracts.langgraph_gateway.models.RunCapabilityEvidence` with
 ``observed_at`` taken verbatim from the heartbeat, so
 ``CapabilityReporter._validated_level`` applies its own
 ``0 <= age <= stale_after_seconds`` window -- the staleness rule lives in one
@@ -41,7 +41,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
 from zeroth.platform.config.settings import LangGraphGatewaySettings
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase

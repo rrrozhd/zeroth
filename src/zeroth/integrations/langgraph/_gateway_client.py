@@ -12,18 +12,7 @@ from typing import Any
 
 import httpx
 
-from zeroth.core.langgraph_gateway.enforcement import (
-    ADAPTER_PROTOCOL_VERSION,
-    ActionDescriptorV1,
-    DecisionRequestV1,
-    DecisionResponseV1,
-    HeartbeatV1,
-    InventoryEntryV1,
-    InventoryRegistrationV1,
-    RunAttestationV1,
-    inventory_fingerprint,
-)
-from zeroth.core.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
 from zeroth.integrations.langgraph._correlation import (
     current_reserved_context_token,
     governance_run_id_from_token,
@@ -36,6 +25,17 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
     ToolGovernanceContext,
     ToolInventory,
+)
+from zeroth.integrations.langgraph.enforcement_protocol import (
+    ADAPTER_PROTOCOL_VERSION,
+    ActionDescriptorV1,
+    DecisionRequestV1,
+    DecisionResponseV1,
+    HeartbeatV1,
+    InventoryEntryV1,
+    InventoryRegistrationV1,
+    RunAttestationV1,
+    inventory_fingerprint,
 )
 
 

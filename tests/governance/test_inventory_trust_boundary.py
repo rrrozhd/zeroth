@@ -31,7 +31,7 @@ from tests.governance.test_capability_evidence_provider import (
     make_provider,
     make_signer,
 )
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.attestations.inventory import (
     RegisteredTool,
     recompute_inventory_fingerprint,

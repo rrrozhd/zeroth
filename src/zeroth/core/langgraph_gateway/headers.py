@@ -1,115 +1,71 @@
-"""HTTP header sanitization for transparent Agent Server forwarding."""
+"""Legacy import path for the gateway headers module.
+
+It now lives in :mod:`zeroth.service.langgraph_gateway.headers`; this module
+republishes exactly the names it published before ZER-24 relocated it. Import
+from the canonical location instead (see docs/backend-import-migration.md).
+
+Resolution is lazy on purpose: importing this shim must not drag the
+``service`` package onto the import path of anything that merely touches
+``zeroth.core.langgraph_gateway``.
+
+The export list is the surface captured *before* the move, in
+``tests/langgraph_gateway/fixtures/legacy_surface_manifest.json``. It is wider than a curated
+``__all__`` because this module never declared one -- its public surface was
+whatever a star-import saw, incidental imports included -- and narrowing it now
+would break a caller that relied on the old behaviour.
+
+The shim declares that surface as ``__all__`` even though the pre-move module did
+not. Overriding ``__dir__`` alone is not enough: ``from X import *`` reads the
+module namespace and never consults ``__dir__``, so a lazy shim without
+``__all__`` exports only its own globals. Declaring it is what keeps the
+observable star-import surface identical.
+"""
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
+from typing import Any
 
-import httpx
-
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.secrets.provider import SecretProvider, resolve_secret_async
-
-RawHeader = tuple[bytes, bytes]
-
-_HOP_BY_HOP_HEADERS = frozenset(
+_EXPORTS = frozenset(
     {
-        b"connection",
-        b"keep-alive",
-        b"proxy-authenticate",
-        b"proxy-authorization",
-        b"proxy-connection",
-        b"te",
-        b"trailer",
-        b"transfer-encoding",
-        b"upgrade",
+        "Iterable",
+        "LangGraphGatewaySettings",
+        "RawHeader",
+        "SecretProvider",
+        "UpstreamCredentialUnavailableError",
+        "annotations",
+        "httpx",
+        "prepare_upstream_request_headers",
+        "re",
+        "resolve_secret_async",
+        "strip_hop_by_hop_headers",
     }
 )
-_CLIENT_CREDENTIAL_HEADERS = frozenset({b"authorization", b"x-api-key"})
-_CREDENTIAL_HEADER_PROHIBITED = _HOP_BY_HOP_HEADERS | {b"host", b"content-length"}
-_HTTP_TOKEN = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+# Declared even though the pre-move module did not declare one. ``from X import *``
+# reads the module namespace when ``__all__`` is absent -- it never consults
+# ``__dir__`` -- so without this a star-import of this shim would yield only the
+# shim's own globals and silently drop the recorded surface. Laziness is unaffected:
+# each name still resolves through ``__getattr__`` when it is actually read.
+__all__ = sorted(_EXPORTS)
 
 
-class UpstreamCredentialUnavailableError(RuntimeError):
-    """A configured upstream credential could not be resolved safely."""
+def __getattr__(name: str) -> Any:
+    # Every non-dunder name delegates, not only the recorded ones. ``_EXPORTS``
+    # is the *declared* surface and is what ``__dir__`` reports, but a module
+    # that declared ``__all__`` still let callers reach attributes outside it --
+    # ``proxy.TeeObserver`` is one such caller in the test suite. Narrowing to
+    # ``_EXPORTS`` here would silently break them.
+    if name.startswith("__") and name.endswith("__"):
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    import zeroth.service.langgraph_gateway.headers as _canonical
 
-    code = "zeroth.upstream_credential_unavailable"
-
-    def __init__(self) -> None:
-        super().__init__("The configured upstream credential is unavailable")
-
-
-def _connection_tokens(headers: Iterable[RawHeader]) -> set[bytes]:
-    tokens: set[bytes] = set()
-    for name, value in headers:
-        if name.lower() != b"connection":
-            continue
-        tokens.update(token.strip().lower() for token in value.split(b",") if token.strip())
-    return tokens
-
-
-def strip_hop_by_hop_headers(headers: Iterable[RawHeader]) -> list[RawHeader]:
-    """Remove standard and ``Connection``-nominated hop-by-hop fields."""
-    raw_headers = list(headers)
-    blocked = _HOP_BY_HOP_HEADERS | _connection_tokens(raw_headers)
-    return [(name, value) for name, value in raw_headers if name.lower() not in blocked]
-
-
-def _credential_header_name(name: str, headers: list[RawHeader]) -> bytes:
     try:
-        encoded = name.encode("ascii")
-    except UnicodeEncodeError:
-        raise UpstreamCredentialUnavailableError from None
-    if (
-        _HTTP_TOKEN.fullmatch(encoded) is None
-        or encoded.lower() in _CREDENTIAL_HEADER_PROHIBITED
-        or encoded.lower() in _connection_tokens(headers)
-    ):
-        raise UpstreamCredentialUnavailableError
-    return encoded
+        return getattr(_canonical, name)
+    except AttributeError:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg) from None
 
 
-def _credential_header_value(scheme: str, credential: str | None) -> bytes:
-    if credential is None or not credential.strip():
-        raise UpstreamCredentialUnavailableError
-    try:
-        encoded = credential.encode("ascii")
-    except UnicodeEncodeError:
-        raise UpstreamCredentialUnavailableError from None
-    if credential != credential.strip() or any(byte < 0x20 or byte == 0x7F for byte in encoded):
-        raise UpstreamCredentialUnavailableError
-    return scheme.encode("ascii") + b" " + encoded
-
-
-async def prepare_upstream_request_headers(
-    headers: Iterable[RawHeader],
-    *,
-    upstream_url: httpx.URL,
-    settings: LangGraphGatewaySettings,
-    secret_provider: SecretProvider,
-    tenant_id: str | None = None,
-) -> list[RawHeader]:
-    """Sanitize client headers, rebuild ``Host``, and add upstream credentials."""
-    raw_headers = list(headers)
-    credential_name = _credential_header_name(settings.upstream_credential_header, raw_headers)
-    blocked = _CLIENT_CREDENTIAL_HEADERS | {b"host", credential_name.lower()}
-    forwarded = [
-        (name, value)
-        for name, value in strip_hop_by_hop_headers(raw_headers)
-        if name.lower() not in blocked
-    ]
-    forwarded.append((b"host", upstream_url.netloc))
-
-    credential_ref = settings.upstream_credential_ref
-    if credential_ref is None:
-        return forwarded
-
-    credential = await resolve_secret_async(
-        secret_provider,
-        credential_ref,
-        tenant_id=tenant_id,
-        deployment_ref=settings.deployment_ref,
-    )
-    value = _credential_header_value(settings.upstream_credential_scheme, credential)
-    forwarded.append((credential_name, value))
-    return forwarded
+def __dir__() -> list[str]:
+    return sorted(_EXPORTS)

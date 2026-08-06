@@ -20,7 +20,6 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-
 FIXTURES = Path(__file__).parents[1] / "contracts" / "fixtures"
 REPO_ROOT = Path(__file__).parents[2]
 CANONICAL_PACKAGES = (
@@ -38,6 +37,7 @@ CANONICAL_PACKAGES = (
     "zeroth.governance.policy",
     "zeroth.governance.guardrails",
     "zeroth.governance.retention",
+    "zeroth.governance.langgraph_gateway",
     "zeroth.platform",
     "zeroth.platform.artifacts",
     "zeroth.platform.config",
@@ -52,12 +52,14 @@ CANONICAL_PACKAGES = (
     "zeroth.contracts.conditions",
     "zeroth.contracts.governed",
     "zeroth.contracts.graph",
+    "zeroth.contracts.langgraph_gateway",
     "zeroth.contracts.registry",
     "zeroth.contracts.mappings",
     "zeroth.contracts.templates",
     "zeroth.service",
     "zeroth.service.api",
     "zeroth.service.bootstrap",
+    "zeroth.service.langgraph_gateway",
     "zeroth.service.deployments",
     "zeroth.service.webhooks",
     "zeroth.econ",

@@ -219,7 +219,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     gateway_proxy = getattr(bootstrap, "langgraph_gateway_proxy", None)
     gateway_websocket_handler = getattr(bootstrap, "langgraph_gateway_websocket_handler", None)
     if gateway_proxy is not None and gateway_websocket_handler is not None:
-        from zeroth.core.langgraph_gateway.routes import register_gateway_routes
+        from zeroth.service.langgraph_gateway.routes import register_gateway_routes
 
         register_gateway_routes(
             app,

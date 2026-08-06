@@ -12,10 +12,10 @@ import uvicorn
 from starlette.requests import Request
 
 from tests.langgraph_gateway.conformance.harness import create_gateway_app
+from zeroth.contracts.langgraph_gateway.models import GatewayEventStatus
 from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.langgraph_gateway.models import GatewayEventStatus
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
 from zeroth.core.secrets.provider import EnvSecretProvider
+from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 
 def _free_port() -> int:
@@ -231,7 +231,7 @@ async def test_cancellation_during_upstream_connect_leaves_no_inflight_or_open_r
 async def test_observer_exception_preserves_delivered_bytes_and_closes_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zeroth.core.langgraph_gateway.proxy as proxy_module
+    import zeroth.service.langgraph_gateway.proxy as proxy_module
     from tests.langgraph_gateway.test_http_proxy import (
         AllowBudget,
         AllowPolicy,
@@ -239,9 +239,9 @@ async def test_observer_exception_preserves_delivered_bytes_and_closes_once(
         authenticated_empty_request,
         supported_compatibility,
     )
-    from zeroth.core.langgraph_gateway.context import ReservedContextCodec
-    from zeroth.core.langgraph_gateway.proxy import GatewayProxy
     from zeroth.core.signing import EnvHmacSigner
+    from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+    from zeroth.service.langgraph_gateway.proxy import GatewayProxy
 
     finish_calls = 0
 

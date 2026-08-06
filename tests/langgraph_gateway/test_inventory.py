@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.core.langgraph_gateway.inventory import (
+from zeroth.contracts.langgraph_gateway.inventory import (
     ENDPOINT_RULES,
     classify_endpoint,
     classify_protocol_command,
 )
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     AdmissionDecision,
     AdmissionRequest,
     CompatibilityResult,
@@ -24,7 +24,6 @@ from zeroth.core.langgraph_gateway.models import (
     RouteDisposition,
     RunCapabilityEvidence,
 )
-
 
 GOVERNED = [
     ("POST", "/threads/t/runs"),

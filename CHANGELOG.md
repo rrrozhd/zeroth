@@ -18,6 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1] - 2026-08-06
+
+### Changed
+
+- Relocate the LangGraph gateway out of `zeroth.core` into the canonical backend
+  packages: data shapes to `zeroth.contracts.langgraph_gateway`, capability and
+  event surfaces to `zeroth.governance.langgraph_gateway`, request-time machinery
+  to `zeroth.service.langgraph_gateway`, and the adapter wire protocol to
+  `zeroth.integrations.langgraph.enforcement_protocol`. Every legacy
+  `zeroth.core.langgraph_gateway` import path keeps working through a lazy shim
+  that resolves to the same objects.
+- Invert the tool decision service's admission dependency onto a
+  governance-owned `AdmissionEvaluator`, injected by the service domain, so
+  governance no longer reaches into the service-classified gateway package.
+
+### Removed
+
+- Both temporary backend dependency exceptions for the LangGraph gateway. No
+  exception key or edge references `langgraph_gateway` any more.
+
 ## [0.16.0.14.1] - 2026-08-06
 
 ### Fixed

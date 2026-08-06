@@ -16,7 +16,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import from_url as redis_from_url
 
-from zeroth.core.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 
 if TYPE_CHECKING:
@@ -234,7 +234,9 @@ def langgraph_gateway_health(bootstrap: object) -> LangGraphGatewayHealth | None
         enforcement = getattr(bootstrap, "langgraph_enforcement_service", None)
         reported = reporter.report_deployment(
             getattr(enforcement, "deployment_evidence", None),
-            graph_version=getattr(getattr(bootstrap, "deployment", None), "graph_version_ref", None)
+            graph_version=getattr(
+                getattr(bootstrap, "deployment", None), "graph_version_ref", None
+            ),
         )
         if isinstance(reported, GovernanceLevel):
             level = reported

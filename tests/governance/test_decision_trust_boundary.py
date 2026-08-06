@@ -44,6 +44,7 @@ from zeroth.governance.decisions.resolvers import (
     RegisteredInventoryLookup,
 )
 from zeroth.governance.policy.models import PolicyDefinition
+from zeroth.service.bootstrap.admission import BoundAdmissionEvaluator
 
 
 def _unreachable_budget_backend(request: httpx.Request) -> httpx.Response:
@@ -106,8 +107,10 @@ def make_guarded_service(
     """Wire a service whose inventory and deployment policies are explicit."""
     return ToolDecisionService(
         repository=DecisionRepository(database),
-        policy_guard=policy_guard or RecordingPolicyGuard(),
-        budget_checker=budget_checker or StubBudgetChecker(),
+        admission_evaluator=BoundAdmissionEvaluator(
+            policy_guard=policy_guard or RecordingPolicyGuard(),
+            budget_checker=budget_checker or StubBudgetChecker(),
+        ),
         approval_gate=approval_gate,
         inventory=inventory if inventory is not None else StaticInventory(),
         deployment_policies=(

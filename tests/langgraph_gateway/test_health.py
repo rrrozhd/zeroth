@@ -8,14 +8,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityResult,
     CompatibilityStatus,
 )
-from zeroth.core.langgraph_gateway.routes import GatewayWebSocketEndpoint
 from zeroth.core.service.app import create_app
 from zeroth.core.service.health import DependencyStatus, register_health_routes
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.service.langgraph_gateway.routes import GatewayWebSocketEndpoint
 
 
 def compatibility(status: CompatibilityStatus = CompatibilityStatus.SUPPORTED):

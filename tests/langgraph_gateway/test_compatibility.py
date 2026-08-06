@@ -9,21 +9,20 @@ from pathlib import Path
 import httpx
 import pytest
 
-from zeroth.core.langgraph_gateway.capabilities import (
-    CapabilityReporter,
-    NoCapabilityEvidenceProvider,
-)
-from zeroth.core.langgraph_gateway.compatibility import (
-    CompatibilityDetector,
-    EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS,
-    fingerprint_openapi,
-)
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityStatus,
     GovernanceLevel,
     RunCapabilityEvidence,
 )
-
+from zeroth.governance.langgraph_gateway.capabilities import (
+    CapabilityReporter,
+    NoCapabilityEvidenceProvider,
+)
+from zeroth.service.langgraph_gateway.compatibility import (
+    EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS,
+    CompatibilityDetector,
+    fingerprint_openapi,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "openapi-0.11.1.operations.json"
 

@@ -62,7 +62,7 @@ from langgraph.prebuilt import InjectedState
 from tests.integrations.langgraph.genai._causal import HostileStr
 from tests.integrations.langgraph.tools._agents import scripted_model
 from tests.integrations.langgraph.tools._hostile import HostileDict, HostileKey
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware

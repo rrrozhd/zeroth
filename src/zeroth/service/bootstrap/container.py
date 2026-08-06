@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
+    from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
     from zeroth.contracts.registry import ContractRegistry
-    from zeroth.core.langgraph_gateway.models import CompatibilityResult
     from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService

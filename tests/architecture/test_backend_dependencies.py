@@ -320,13 +320,12 @@ def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
         or item.imported.startswith("zeroth.core.langgraph_gateway")
     }
 
-    assert gateway_edges == {
-        ("zeroth.governance.decisions.service", "zeroth.core.langgraph_gateway.admission"),
-        (
-            "zeroth.integrations.langgraph._gateway_client",
-            "zeroth.core.langgraph_gateway.enforcement",
-        ),
-    }
+    # ZER-24 removed both gateway exceptions by moving the dependencies rather
+    # than relocating them: S2 inverted admission onto a governance-owned
+    # evaluator, and S3a moved the enforcement wire protocol into
+    # ``integrations``, where the client reaches it without leaving its own
+    # domain. Neither produces a permitted edge -- there is no edge at all.
+    assert gateway_edges == set()
 
 
 def test_langgraph_gateway_exceptions_are_the_only_gateway_entries_and_documented() -> None:
@@ -337,13 +336,7 @@ def test_langgraph_gateway_exceptions_are_the_only_gateway_entries_and_documente
         if "langgraph_gateway" in edge[0] + edge[1]
     }
 
-    assert gateway_exceptions == {
-        ("zeroth.governance.decisions.service", "zeroth.core.langgraph_gateway.admission"),
-        (
-            "zeroth.integrations.langgraph._gateway_client",
-            "zeroth.core.langgraph_gateway.enforcement",
-        ),
-    }
+    assert gateway_exceptions == set()
     for edge in sorted(gateway_exceptions):
         exception = architecture.TEMPORARY_EXCEPTIONS[edge]
         assert exception.reason.strip()

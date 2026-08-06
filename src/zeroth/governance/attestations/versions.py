@@ -10,7 +10,7 @@ actual contract drift between what a running adapter emits and what the
 gateway that registered it expects.
 
 Graph-version mismatch already clamps a run to ``ADMISSION`` in
-``zeroth.core.langgraph_gateway.capabilities``. Adapter-version mismatch has
+``zeroth.governance.langgraph_gateway.capabilities``. Adapter-version mismatch has
 no independent handling before this module: ``classify_version_agreement``
 gives the two axes -- graph and adapter -- a shared vocabulary, and
 ``permits_full_enforcement`` gives callers a single, deliberately narrow gate
