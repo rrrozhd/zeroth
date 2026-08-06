@@ -15,25 +15,33 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_retention_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_retention_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import retention as legacy
-    from zeroth.governance import retention as canonical
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.governance.retention as canonical
 
-    assert canonical.EconEventEraser is legacy.EconEventEraser
-    assert canonical.ErasureResult is legacy.ErasureResult
-    assert canonical.LegalHold is legacy.LegalHold
-    assert canonical.LegalHoldError is legacy.LegalHoldError
-    assert canonical.LegalHoldRepository is legacy.LegalHoldRepository
-    assert canonical.RetentionAuditLogRepository is legacy.RetentionAuditLogRepository
-    assert canonical.RetentionErasureService is legacy.RetentionErasureService
-    assert canonical.RetentionPolicy is legacy.RetentionPolicy
-    assert canonical.RetentionPolicyRepository is legacy.RetentionPolicyRepository
-    assert canonical.RetentionPurgeWorker is legacy.RetentionPurgeWorker
-    assert canonical.SqlAlchemyEconEventEraser is legacy.SqlAlchemyEconEventEraser
-    assert canonical.TenantHolds is legacy.TenantHolds
+    expected = {
+        "EconEventEraser",
+        "ErasureResult",
+        "LegalHold",
+        "LegalHoldError",
+        "LegalHoldRepository",
+        "RetentionAuditLogRepository",
+        "RetentionErasureService",
+        "RetentionPolicy",
+        "RetentionPolicyRepository",
+        "RetentionPurgeWorker",
+        "SqlAlchemyEconEventEraser",
+        "TenantHolds",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.governance.retention no longer publishes: {missing}"
 
 
 def test_retention_submodules_are_the_same_surface_through_both_paths() -> None:
@@ -74,30 +82,24 @@ def test_retention_repositories_are_the_same_surface_through_both_paths() -> Non
         canonical_audit_log.RetentionAuditLogRepository
         is legacy_audit_log.RetentionAuditLogRepository
     )
-    assert (
-        canonical_state.CleanupStateRepository is legacy_state.CleanupStateRepository
-    )
+    assert canonical_state.CleanupStateRepository is legacy_state.CleanupStateRepository
     assert canonical_econ.EconEventEraser is legacy_econ.EconEventEraser
-    assert (
-        canonical_econ.SqlAlchemyEconEventEraser is legacy_econ.SqlAlchemyEconEventEraser
-    )
+    assert canonical_econ.SqlAlchemyEconEventEraser is legacy_econ.SqlAlchemyEconEventEraser
     assert canonical_hold.LegalHoldRepository is legacy_hold.LegalHoldRepository
     assert canonical_policy.RetentionPolicyRepository is legacy_policy.RetentionPolicyRepository
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.governance.retention.erasure_service", "zeroth.core.retention"),
-        ("zeroth.core.retention", "zeroth.governance.retention.erasure_service"),
-        ("zeroth.governance.retention.worker", "zeroth.core.retention.worker"),
-        ("zeroth.core.retention.worker", "zeroth.governance.retention.worker"),
-    ],
-)
-def test_retention_remainder_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_retention_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.governance.retention"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

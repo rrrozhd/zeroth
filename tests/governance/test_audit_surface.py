@@ -17,28 +17,36 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_audit_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_audit_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import audit as legacy
-    from zeroth.governance import audit as canonical
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.governance.audit as canonical
 
-    assert canonical.ApprovalActionRecord is legacy.ApprovalActionRecord
-    assert canonical.AuditContinuityReport is legacy.AuditContinuityReport
-    assert canonical.AuditContinuityVerifier is legacy.AuditContinuityVerifier
-    assert canonical.AuditQuery is legacy.AuditQuery
-    assert canonical.AuditRedactionConfig is legacy.AuditRedactionConfig
-    assert canonical.AuditRepository is legacy.AuditRepository
-    assert canonical.AuditTimeline is legacy.AuditTimeline
-    assert canonical.AuditTimelineAssembler is legacy.AuditTimelineAssembler
-    assert canonical.MemoryAccessRecord is legacy.MemoryAccessRecord
-    assert canonical.NodeAuditRecord is legacy.NodeAuditRecord
-    assert canonical.PayloadSanitizer is legacy.PayloadSanitizer
-    assert canonical.ToolCallRecord is legacy.ToolCallRecord
-    assert canonical.build_summary is legacy.build_summary
-    assert canonical.collect_policy_events is legacy.collect_policy_events
-    assert canonical.compute_chained_record is legacy.compute_chained_record
+    expected = {
+        "ApprovalActionRecord",
+        "AuditContinuityReport",
+        "AuditContinuityVerifier",
+        "AuditQuery",
+        "AuditRedactionConfig",
+        "AuditRepository",
+        "AuditTimeline",
+        "AuditTimelineAssembler",
+        "MemoryAccessRecord",
+        "NodeAuditRecord",
+        "PayloadSanitizer",
+        "ToolCallRecord",
+        "build_summary",
+        "collect_policy_events",
+        "compute_chained_record",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.governance.audit no longer publishes: {missing}"
 
 
 def test_audit_submodules_are_the_same_surface_through_both_paths() -> None:
@@ -64,9 +72,7 @@ def test_audit_submodules_are_the_same_surface_through_both_paths() -> None:
     )
     assert canonical_verifier.compute_chained_record is legacy_verifier.compute_chained_record
     assert canonical_verifier._compute_record_digest is legacy_verifier._compute_record_digest
-    assert (
-        canonical_verifier._compute_pii_commitments is legacy_verifier._compute_pii_commitments
-    )
+    assert canonical_verifier._compute_pii_commitments is legacy_verifier._compute_pii_commitments
 
 
 def test_governed_audit_emitters_are_consolidated_into_governance_audit() -> None:
@@ -84,19 +90,17 @@ def test_governed_audit_emitters_are_consolidated_into_governance_audit() -> Non
     assert canonical.RedisAuditEmitter is legacy_redis.RedisAuditEmitter
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.governance.audit", "zeroth.core.audit"),
-        ("zeroth.core.audit", "zeroth.governance.audit"),
-        ("zeroth.governance.audit", "zeroth.core.governed.audit.redis"),
-        ("zeroth.core.governed.audit.redis", "zeroth.governance.audit"),
-    ],
-)
-def test_audit_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_audit_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.governance.audit"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

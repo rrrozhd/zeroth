@@ -14,7 +14,6 @@ import sys
 
 import pytest
 
-
 EXPORTS = (
     "BranchContext",
     "BranchError",
@@ -84,17 +83,17 @@ def test_parallel_config_remains_the_contract_owned_model() -> None:
     assert RuntimeParallelConfig is ContractParallelConfig
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.runtime.parallel", "zeroth.core.parallel"),
-        ("zeroth.core.parallel", "zeroth.runtime.parallel"),
-    ],
-)
-def test_parallel_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_parallel_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.runtime.parallel"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

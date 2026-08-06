@@ -90,17 +90,17 @@ def test_subgraph_resolver_carries_no_canonical_deployment_import() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.service.deployments", "zeroth.core.deployments"),
-        ("zeroth.core.deployments", "zeroth.service.deployments"),
-    ],
-)
-def test_deployments_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_deployments_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.service.deployments"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr
