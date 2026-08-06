@@ -230,13 +230,21 @@ def test_no_legacy_only_test_modules_remain_and_their_assertions_were_kept() -> 
 
         path = REPO_ROOT / replacement
         assert path.exists(), f"{replacement} does not exist"
-        names = {
-            node.name
+        # The named replacement must exist *and* assert something. Checking only
+        # that a function of that name exists would be satisfied by an empty
+        # body, which is how deleted coverage disguises itself as moved coverage.
+        functions = {
+            node.name: node
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-            if isinstance(node, ast.FunctionDef)
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         }
-        if test_name not in names:
-            missing_replacements.append(f"{retired} -> {replacement}::{test_name}")
+        replacement_test = functions.get(test_name)
+        if replacement_test is None:
+            missing_replacements.append(f"{retired} -> {replacement}::{test_name} (absent)")
+        elif not any(isinstance(inner, ast.Assert) for inner in ast.walk(replacement_test)):
+            missing_replacements.append(
+                f"{retired} -> {replacement}::{test_name} (exists but asserts nothing)"
+            )
 
     assert not missing_replacements, (
         "these retired suites have no surviving replacement assertion:\n  "
@@ -348,21 +356,47 @@ def test_the_guidance_exemptions_are_real_files_that_still_need_the_old_names() 
 
 
 #: Assertions that are trivially true and therefore prove nothing. ZER-25's
-#: mechanical parity-test conversion produced all three shapes -- an emptied
-#: ``parametrize`` collects zero cases, a self-comparison compares a module with
-#: itself, and a duplicated assertion adds no information. Every one of them
-#: passed a green suite. This is the guard that would have caught them.
-VACUITY_EXEMPT_DUPLICATES = (
-    # Repeated calls whose point IS the repetition: consecutive acquisitions,
-    # idempotent reads, cached lookups.
-    "tests/http/test_circuit_breaker.py",
-    "tests/secrets/test_vault_provider.py",
-    "tests/runtime/orchestration/test_driver.py",
-)
+#: mechanical parity-test conversion produced every shape below, and each one
+#: passed a green suite. The first draft of this guard was itself unsound -- it
+#: missed keyword-form parametrization, ``x == x``, duplicates separated by a
+#: blank line, and assertion-free bodies -- so it is written against sibling
+#: statements rather than a line-distance heuristic, and carries no whole-file
+#: suppressions: a file-level exemption hides the next real defect in that file.
+
+# A fourth shape -- a test function containing no assertion at all -- is
+# deliberately NOT checked here. Measured: 46 existing tests would trip it, and
+# every one sampled asserts for real in a way no static rule sees (a bare call
+# that raises on failure, a ``try``/``except`` flow, or a ``_probe`` helper that
+# asserts inside a subprocess string). Shipping it would mean 46 suppressions,
+# which is the anti-pattern this guard exists to avoid. Recorded as a deferred
+# discovery instead of pretended.
+
+
+def _is_call_free(node: object) -> bool:
+    """Whether an expression invokes nothing.
+
+    ``f() == f()`` is not a self-comparison: each side is a separate invocation,
+    which is exactly how determinism and token-consumption tests are written.
+    Only a call-free expression -- ``config.settings is config.settings`` -- is
+    genuinely comparing one value with itself.
+    """
+    import ast
+
+    return not any(isinstance(inner, ast.Call) for inner in ast.walk(node))
+
+
+def _empty_parametrization(node: object) -> bool:
+    """Whether a ``parametrize`` decorator supplies zero cases, positionally or by keyword."""
+    import ast
+
+    if not isinstance(node, ast.Call) or "parametrize" not in ast.unparse(node.func):
+        return False
+    candidates = list(node.args) + [kw.value for kw in node.keywords if kw.arg == "argvalues"]
+    return any(isinstance(item, ast.List | ast.Tuple) and not item.elts for item in candidates)
 
 
 def test_no_test_is_vacuously_true() -> None:
-    """No empty parametrization, self-comparison, or duplicated assertion."""
+    """No empty parametrization, self-comparison, duplicate, or assertion-free test."""
     import ast
     import re
 
@@ -374,37 +408,34 @@ def test_no_test_is_vacuously_true() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"))
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and "parametrize" in ast.dump(node.func):
-                for argument in node.args:
-                    if isinstance(argument, ast.List | ast.Tuple) and not argument.elts:
-                        problems.append(f"{relative}:{node.lineno} parametrizes zero cases")
+            if _empty_parametrization(node):
+                problems.append(f"{relative}:{node.lineno} parametrizes zero cases")
 
-        # Sorted by line, not ``ast.walk`` order: walk is breadth-first, so
-        # "the previous assertion" in walk order can come from a different
-        # function entirely -- which reports duplicates that do not exist.
-        asserts = sorted(
-            (
-                (node.lineno, node.col_offset, ast.unparse(node.test))
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Assert)
-            ),
-        )
-        previous: tuple[int, int, str] | None = None
-        for lineno, column, rendered in asserts:
-            sides = re.match(r"^(.+?) is (.+)$", rendered)
-            if sides and sides.group(1).strip() == sides.group(2).strip():
-                problems.append(f"{relative}:{lineno} compares a value with itself")
-            # Same text, adjacent line, *and* same indentation. A repeat at a
-            # different indent is a different scope -- asserting a value both
-            # inside and after a context manager is meaningful, not redundant.
-            if (
-                previous
-                and previous[2] == rendered
-                and previous[1] == column
-                and lineno - previous[0] == 1
-                and relative not in VACUITY_EXEMPT_DUPLICATES
-            ):
-                problems.append(f"{relative}:{lineno} repeats the previous assertion")
-            previous = (lineno, column, rendered)
+            # Self-comparison, in either operator form.
+            if isinstance(node, ast.Assert):
+                rendered = ast.unparse(node.test)
+                sides = re.match(r"^(.+?) (?:is|==) (.+)$", rendered)
+                if (
+                    sides
+                    and sides.group(1).strip() == sides.group(2).strip()
+                    and _is_call_free(node.test)
+                ):
+                    problems.append(f"{relative}:{node.lineno} compares a value with itself")
+
+            # Consecutive identical assertions. Compared as *sibling statements*,
+            # so a blank line between them still counts, while an intervening
+            # statement -- the mutate-then-reassert pattern -- correctly does not.
+            body = getattr(node, "body", None)
+            if isinstance(body, list):
+                for first, second in zip(body, body[1:], strict=False):
+                    if (
+                        isinstance(first, ast.Assert)
+                        and isinstance(second, ast.Assert)
+                        and ast.unparse(first) == ast.unparse(second)
+                        and _is_call_free(second)
+                    ):
+                        problems.append(
+                            f"{relative}:{second.lineno} repeats the assertion above it"
+                        )
 
     assert not problems, "these tests pass without proving anything:\n  " + "\n  ".join(problems)
