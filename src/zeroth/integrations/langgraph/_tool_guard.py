@@ -683,7 +683,7 @@ def _authorize_tool_action(
         claimed = approval_lifecycle._claimed_replay(*resume_claim)
         if claimed is None:
             if replay is not None and replay.intent.payload.get("approval_ref") == resume_claim[0]:
-                replay = None
+                raise ToolGovernanceError("approval replay is already executing")
             resume_claim = None
         elif replay is None:
             replay = claimed

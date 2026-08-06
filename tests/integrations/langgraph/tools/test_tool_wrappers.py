@@ -272,6 +272,35 @@ class AsyncSchemalessTool(BaseTool):
         return f"async:{args[0]}"
 
 
+class DefaultingSchemalessTool(BaseTool):
+    """A schema-less sync tool whose body supplies a dangerous default."""
+
+    name: str = "defaulting"
+    description: str = "Defaults to a dangerous path."
+    args_schema: Any = None
+    effects: Any = None
+
+    def _run(self, path: str = "/danger") -> str:
+        self.effects.append(path)
+        return path
+
+
+class AsyncDefaultingSchemalessTool(BaseTool):
+    """Async twin of :class:`DefaultingSchemalessTool`."""
+
+    name: str = "adefaulting"
+    description: str = "Defaults to a dangerous path asynchronously."
+    args_schema: Any = None
+    effects: Any = None
+
+    def _run(self, path: str = "/danger") -> str:
+        raise NotImplementedError("async only")
+
+    async def _arun(self, path: str = "/danger") -> str:
+        self.effects.append(path)
+        return path
+
+
 def sync_callable_with_schema(body: Body) -> Any:
     """Build a plain sync callable that carries an ``args_schema`` attribute."""
 
@@ -1679,6 +1708,72 @@ def test_approved_callable_edit_materializes_defaults_before_fresh_policy(
 
     assert dict(client.seen[-1].arguments) == {"path": "/danger"}
     assert effects == []
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize("fresh_policy", ["deny-danger", "allow-exact"])
+def test_approved_schemaless_base_tool_edit_materializes_frozen_body_defaults(
+    tmp_path: Any, async_call: bool, fresh_policy: str
+) -> None:
+    effects: list[str] = []
+    original: BaseTool = (
+        AsyncDefaultingSchemalessTool(effects=effects)
+        if async_call
+        else DefaultingSchemalessTool(effects=effects)
+    )
+
+    @dataclasses.dataclass
+    class DefaultAwarePolicy:
+        seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            del context
+            self.seen.append(action)
+            if len(self.seen) == 1:
+                return APPROVE
+            visible = dict(action.arguments) == {"path": "/danger"}
+            if fresh_policy == "deny-danger":
+                return DENY if visible else ALLOW
+            return ALLOW if visible else DENY
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = DefaultAwarePolicy()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [original],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        call = {"path": "/safe"}
+        return asyncio.run(governed.ainvoke(call)) if async_call else governed.invoke(call)
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    if fresh_policy == "deny-danger":
+        with pytest.raises(PolicyViolation):
+            invoke()
+        assert effects == []
+    else:
+        assert invoke() == "/danger"
+        assert effects == ["/danger"]
+
+    assert [dict(action.arguments) for action in client.seen] == [
+        {"path": "/safe"},
+        {"path": "/danger"},
+    ]
     assert repository.get("approval-7").state is ApprovalState.RESOLVED
 
 

@@ -1889,6 +1889,105 @@ def test_real_nested_resume_ignores_stale_observation_coordinates(
 
 
 @pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
+def test_consumed_resume_claim_fences_identical_reentrant_execution(
+    tmp_path: Any, async_mode: bool
+) -> None:
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    saver_path = tmp_path / "checkpoints.bin"
+    saver = AsyncOnlyPersistentSaver(saver_path) if async_mode else PersistentSaver(saver_path)
+    policy = SequencedClient()
+    executed: list[str] = []
+    holder: list[Any] = []
+
+    if async_mode:
+
+        async def dangerous(record: str) -> None:
+            executed.append(record)
+            if len(executed) == 1:
+                await holder[0](record=record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        async def run(_state: ParallelState) -> ParallelState:
+            await governed(record="original")
+            return {"done": ["dangerous"]}
+
+    else:
+
+        def dangerous(record: str) -> None:
+            executed.append(record)
+            if len(executed) == 1:
+                holder[0](record=record)
+
+        [governed] = govern_tools(
+            [dangerous],
+            context=CONTEXT,
+            client=policy,
+            side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+            approval_lifecycle=repository,
+        )
+
+        def run(_state: ParallelState) -> ParallelState:
+            governed(record="original")
+            return {"done": ["dangerous"]}
+
+    holder.append(governed)
+    builder = StateGraph(ParallelState)
+    builder.add_node("dangerous", run)
+    builder.add_edge(START, "dangerous")
+    builder.add_edge("dangerous", END)
+    graph = govern_graph(builder.compile(checkpointer=saver))
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    if async_mode:
+        asyncio.run(graph.ainvoke({"done": []}, config))
+    else:
+        graph.invoke({"done": []}, config)
+    coordinator = ApprovalCoordinator(repository)
+    if async_mode:
+        asyncio.run(
+            coordinator.aconfirm_checkpoint(
+                "approval-7", graph, config=config, durable_checkpointer=saver
+            )
+        )
+    else:
+        coordinator.confirm_checkpoint(
+            "approval-7", graph, config=config, durable_checkpointer=saver
+        )
+    repository.decide(ApprovalResolution("approval-7", ApprovalDecision.APPROVE))
+
+    with pytest.raises(ToolGovernanceError, match="already executing"):
+        if async_mode:
+            asyncio.run(
+                coordinator.aresume(
+                    "approval-7",
+                    graph,
+                    owner="worker",
+                    config=config,
+                    durable_checkpointer=saver,
+                )
+            )
+        else:
+            coordinator.resume(
+                "approval-7",
+                graph,
+                owner="worker",
+                config=config,
+                durable_checkpointer=saver,
+            )
+
+    assert executed == ["original"]
+    assert policy.actions == [{"record": "original"}, {"record": "original"}]
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+@pytest.mark.parametrize("async_mode", [False, True], ids=("sync", "async"))
 @pytest.mark.parametrize(
     ("resolution", "drift"),
     [
