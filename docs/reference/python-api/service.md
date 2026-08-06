@@ -1,6 +1,6 @@
 # Service
 
-::: zeroth.core.service
+::: zeroth.service
     options:
       show_root_heading: true
       members_order: source

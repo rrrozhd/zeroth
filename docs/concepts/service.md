@@ -2,7 +2,7 @@
 
 ## What it is
 
-The `zeroth.core.service` subsystem is the **deployment-bound FastAPI
+The `zeroth.service` subsystem is the **deployment-bound FastAPI
 wrapper** that turns a Zeroth graph into a standalone HTTP API. It
 consists of three tightly cooperating modules: `entrypoint.py` (the
 process-level main), `bootstrap.py` (dependency wiring), and `app.py`

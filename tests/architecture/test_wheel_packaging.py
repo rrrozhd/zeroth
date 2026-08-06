@@ -79,7 +79,7 @@ def test_the_wheel_ships_no_retired_or_example_tree(prefix: str, wheel_names: li
     assert not shipped, f"wheel ships {prefix}:\n  " + "\n  ".join(shipped)
 
 
-def test_no_retired_package_resolves_against_the_installed_wheel(
+def test_find_spec_resolves_no_retired_package_against_the_installed_wheel(
     wheel: Path, tmp_path: Path
 ) -> None:
     """A consumer installing the wheel cannot import the retired trees.

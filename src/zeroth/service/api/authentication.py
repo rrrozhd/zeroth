@@ -83,11 +83,7 @@ class ServiceAuthConfig(BaseModel):
 
 _auth_parameters = inspect.signature(ServiceAuthConfig).parameters
 ServiceAuthConfig.__signature__ = inspect.signature(ServiceAuthConfig).replace(
-    parameters=[
-        parameter
-        for name, parameter in _auth_parameters.items()
-        if name != "custom_roles"
-    ]
+    parameters=[parameter for name, parameter in _auth_parameters.items() if name != "custom_roles"]
 )
 
 

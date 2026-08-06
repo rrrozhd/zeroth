@@ -9,7 +9,7 @@ the hooks the library expects.
 | Mode | When to use | Command | Prerequisites |
 |---|---|---|---|
 | [Local development](local-dev.md) | Hacking on graphs, running tutorials, exercising examples | `uv run zeroth-core serve` | Python 3.12, `uv` |
-| [Standalone service](standalone-service.md) | Production single-node deploy fronted by nginx/Caddy | `uvicorn zeroth.core.service.entrypoint:app_factory --factory` | Python 3.12, Postgres, TLS cert |
+| [Standalone service](standalone-service.md) | Production single-node deploy fronted by nginx/Caddy | `uvicorn zeroth.service.entrypoint:app_factory --factory` | Python 3.12, Postgres, TLS cert |
 | [Embedded library](embedded-library.md) | Importing `zeroth` in a host FastAPI/CLI/worker | `from zeroth.service.bootstrap.factory import bootstrap_service` | `zeroth-core` in the host venv |
 | [Sandbox container](sandbox-container.md) | Running untrusted executable units in an isolated container | Your own `docker run` | `DockerSandboxSettings` configured |
 | [With Regulus](with-regulus.md) | Budget enforcement and cost economics | Your own compose/manifest with a Regulus service | Running Regulus container |

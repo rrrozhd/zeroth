@@ -32,7 +32,7 @@ def _cold(code: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
-def test_no_file_imports_a_retired_module() -> None:
+def test_the_ast_scanner_finds_no_file_importing_a_retired_module() -> None:
     """The flat prohibition: nothing under any scanned tree may import them."""
     offenders = scan_repository()
 
@@ -43,7 +43,7 @@ def test_no_file_imports_a_retired_module() -> None:
     )
 
 
-def test_the_retired_packages_have_no_spec_in_a_fresh_interpreter() -> None:
+def test_find_spec_resolves_no_retired_package_in_a_fresh_interpreter() -> None:
     """A consumer cannot import them, however the process was started."""
     result = _cold(
         "import importlib.util\n"
@@ -64,7 +64,7 @@ def test_the_retired_trees_are_absent_from_the_source_checkout() -> None:
         assert not (REPO_ROOT / tree).exists(), f"{tree} still exists"
 
 
-def test_every_backend_domain_imports_without_loading_a_retired_module() -> None:
+def test_backend_domains_cold_import_without_loading_a_retired_module() -> None:
     """Each canonical package stands up cold, touching nothing retired.
 
     This is the check the task's own risk section calls for: the suite's
@@ -85,7 +85,7 @@ def test_every_backend_domain_imports_without_loading_a_retired_module() -> None
     assert result.returncode == 0, f"a backend domain reaches a retired module:\n{result.stderr}"
 
 
-def test_the_scanner_detects_every_import_form(tmp_path: Path) -> None:
+def test_the_ast_scanner_detects_every_import_form(tmp_path: Path) -> None:
     """A guard that cannot see an offender would pass vacuously forever.
 
     Covers the four shapes the repository used, plus the two kinds of false
@@ -195,3 +195,102 @@ def test_the_orchestrator_resolves_from_the_canonical_package() -> None:
     )
 
     assert result.returncode == 0, f"canonical orchestrator does not resolve:\n{result.stderr}"
+
+
+#: Every compatibility suite ZER-25 deleted, paired with the canonical test that
+#: now carries the assertion it uniquely owned. The task requires those
+#: assertions to be *retained or moved*, never dropped -- so deletion alone is
+#: not evidence, and this table is what makes the difference checkable.
+RETIRED_SUITES = {
+    "tests/langgraph_gateway/test_legacy_surface_parity.py": (
+        "tests/langgraph_gateway/test_import_isolation.py",
+        "test_canonical_packages_resolve_every_submodule",
+    ),
+    "tests/langgraph_gateway/test_relocation_boundaries.py": (
+        "tests/architecture/test_legacy_surface_removed.py",
+        "test_the_ast_scanner_finds_no_file_importing_a_retired_module",
+    ),
+}
+
+
+def test_no_legacy_only_test_modules_remain_and_their_assertions_were_kept() -> None:
+    """The deleted compatibility suites are gone *and* accounted for.
+
+    A guard that only checked absence would be satisfied by deleting coverage,
+    which is the failure this requirement exists to prevent. Each retired suite
+    therefore names the canonical test that inherited its assertion, and both
+    halves are verified: the old module is gone, and the named replacement
+    exists and is collected.
+    """
+    import ast
+
+    missing_replacements = []
+    for retired, (replacement, test_name) in RETIRED_SUITES.items():
+        assert not (REPO_ROOT / retired).exists(), f"{retired} still exists"
+
+        path = REPO_ROOT / replacement
+        assert path.exists(), f"{replacement} does not exist"
+        names = {
+            node.name
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, ast.FunctionDef)
+        }
+        if test_name not in names:
+            missing_replacements.append(f"{retired} -> {replacement}::{test_name}")
+
+    assert not missing_replacements, (
+        "these retired suites have no surviving replacement assertion:\n  "
+        + "\n  ".join(missing_replacements)
+    )
+
+
+#: Documentation trees that must teach canonical imports. ``CHANGELOG.md`` and
+#: ``docs/backend-import-migration.md`` are excluded by design: both are
+#: historical records whose subject *is* the retired paths, and rewriting them
+#: would destroy the evidence a reader migrating off 0.16 needs.
+MAINTAINED_DOCS = (
+    "README.md",
+    "docs/how-to",
+    "docs/tutorials",
+    "docs/concepts",
+    "docs/reference",
+)
+HISTORICAL_DOCS = ("CHANGELOG.md", "docs/backend-import-migration.md")
+
+
+def test_docs_use_canonical_imports() -> None:
+    """No maintained page may still tell a reader to import a retired module."""
+    offenders = []
+    for entry in MAINTAINED_DOCS:
+        root = REPO_ROOT / entry
+        pages = [root] if root.is_file() else sorted(root.rglob("*.md"))
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            for root_name in LEGACY_ROOTS:
+                if root_name in text:
+                    offenders.append(f"{page.relative_to(REPO_ROOT)} mentions {root_name}")
+
+    assert not offenders, (
+        "maintained documentation still names a retired module:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_migration_guide_records_the_removal_release() -> None:
+    """A reader on a legacy path must be told which release removed it.
+
+    The guide is deliberately exempt from the scan above -- it has to keep
+    naming the old paths to be useful -- so it gets its own assertion instead of
+    an exemption with nothing behind it.
+    """
+    guide = (REPO_ROOT / "docs/backend-import-migration.md").read_text(encoding="utf-8")
+
+    assert "removed in 0.17" in guide
+    assert "ModuleNotFoundError" in guide
+    for root_name in LEGACY_ROOTS:
+        assert root_name in guide, f"{root_name} must stay documented for migrating readers"
+
+
+def test_the_historical_records_are_still_present() -> None:
+    """The exemption is a real pair of files, not a hole in the guard."""
+    for entry in HISTORICAL_DOCS:
+        assert (REPO_ROOT / entry).exists(), entry
