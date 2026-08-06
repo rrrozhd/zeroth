@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.16.1.0.3"
+version = "0.16.1.1"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -205,7 +205,7 @@ ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"]
 "scripts/*.py" = ["D"]
-"src/zeroth/core/migrations/**/*.py" = ["D"]
+"src/zeroth/service/_migrations/**/*.py" = ["D"]
 # Examples use numeric-prefix filenames (``00_hello.py`` …) for reading
 # order. They are runnable scripts, not importable modules, so the
 # ``N999`` "invalid module name" rule does not apply. The minor
@@ -224,4 +224,4 @@ fail-under = 90
 ignore-init-method = true
 ignore-init-module = true
 ignore-nested-functions = true
-exclude = ["src/zeroth/core/migrations", "src/zeroth/core/langgraph_gateway", "tests", "scripts", "src/zeroth/econ/instrumentation", "src/zeroth/econ/plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/integrations/memory/governed"]
+exclude = ["src/zeroth/service/_migrations", "src/zeroth/core/langgraph_gateway", "tests", "scripts", "src/zeroth/econ/instrumentation", "src/zeroth/econ/plane", "src/zeroth/core/governed", "src/zeroth/contracts/governed", "src/zeroth/integrations/memory/governed"]

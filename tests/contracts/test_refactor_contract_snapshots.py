@@ -11,10 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
-from zeroth.governance.audit.capture_policy import AuditCapturePolicy
-from zeroth.governance.audit import AuditRepository, NodeAuditRecord
-from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.contracts.graph.validation_errors import (
     GraphValidationError,
     GraphValidationReport,
@@ -22,15 +18,7 @@ from zeroth.contracts.graph.validation_errors import (
     ValidationIssue,
     ValidationSeverity,
 )
-from zeroth.governance.policy import Capability, CapabilityDeniedError
-from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
-from zeroth.governance.retention.cleanup_manifest import (
-    CleanupManifest,
-    CleanupOperation,
-    DatabaseErasureOutcome,
-    operation_id,
-)
-from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
+from zeroth.contracts.registry import ContractNotFoundError, ContractRegistryError
 from zeroth.core.runs import (
     Run,
     RunHistoryEntry,
@@ -41,7 +29,18 @@ from zeroth.core.runs import (
 )
 from zeroth.core.service.app import create_app
 from zeroth.core.service.bootstrap import run_migrations
-
+from zeroth.governance.approvals import ApprovalRecord, ApprovalRepository
+from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.capture_policy import AuditCapturePolicy
+from zeroth.governance.policy import Capability, CapabilityDeniedError
+from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
+from zeroth.governance.retention.cleanup_manifest import (
+    CleanupManifest,
+    CleanupOperation,
+    DatabaseErasureOutcome,
+    operation_id,
+)
+from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REPO_ROOT = Path(__file__).parents[2]
@@ -94,7 +93,7 @@ def current_openapi_contract() -> dict[str, Any]:
 
 def _migration_revisions() -> list[dict[str, str | None]]:
     revisions: dict[str, str | None] = {}
-    versions = REPO_ROOT / "src" / "zeroth" / "core" / "migrations" / "versions"
+    versions = REPO_ROOT / "src" / "zeroth" / "service" / "_migrations" / "versions"
     for path in versions.glob("*.py"):
         tree = ast.parse(path.read_text())
         values: dict[str, str | None] = {}

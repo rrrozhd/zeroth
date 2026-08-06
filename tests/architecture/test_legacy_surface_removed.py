@@ -40,6 +40,44 @@ def _cold(code: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
+def test_alembic_resolves_migrations_only_from_the_service_domain() -> None:
+    """No configuration may still point Alembic at the retired package.
+
+    A stale ``script_location`` fails at deploy time, not at import time, so a
+    green suite is not evidence on its own -- the paths are asserted directly.
+    """
+    config = (REPO_ROOT / "alembic.ini").read_text(encoding="utf-8")
+    bootstrap = (REPO_ROOT / "src/zeroth/service/bootstrap/migrations.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "script_location = src/zeroth/service/_migrations" in config
+    assert 'importlib.resources.files("zeroth.service._migrations")' in bootstrap
+    for text, name in ((config, "alembic.ini"), (bootstrap, "bootstrap/migrations.py")):
+        assert "core/migrations" not in text, name
+        assert "core.migrations" not in text, name
+
+
+def test_alembic_upgrades_a_scratch_database_to_head(tmp_path: Path) -> None:
+    """The relocated revision tree still applies end to end."""
+    from zeroth.service.bootstrap.migrations import run_migrations
+
+    database = tmp_path / "scratch.db"
+    run_migrations(f"sqlite:///{database}")
+
+    import sqlite3
+
+    with sqlite3.connect(database) as connection:
+        applied = [row[0] for row in connection.execute("select * from alembic_version")]
+        tables = {
+            row[0]
+            for row in connection.execute("select name from sqlite_master where type='table'")
+        }
+
+    assert applied == ["019"]
+    assert "runs" in tables
+
+
 def test_the_orchestrator_is_defined_in_the_runtime_domain() -> None:
     """``RuntimeOrchestrator`` is owned by the runtime, not by a legacy module."""
     from zeroth.runtime.orchestration import RuntimeOrchestrator
