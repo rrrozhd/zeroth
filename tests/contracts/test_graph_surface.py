@@ -18,8 +18,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
-
 
 def test_graph_is_the_same_surface_through_both_paths() -> None:
     from zeroth.contracts import graph as canonical
@@ -89,23 +87,17 @@ def test_graph_validator_stays_runtime_owned_and_lazily_republished() -> None:
     assert legacy_validation.GraphValidator is GraphValidator
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.graph", "zeroth.core.graph"),
-        ("zeroth.core.graph", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.subgraph"),
-        ("zeroth.core.subgraph", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.parallel"),
-        ("zeroth.core.parallel", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.context_window"),
-        ("zeroth.core.context_window", "zeroth.contracts.graph"),
-    ],
-)
-def test_graph_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_models_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.contracts.graph.models"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

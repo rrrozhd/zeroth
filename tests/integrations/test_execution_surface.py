@@ -179,17 +179,17 @@ def test_execution_modules_are_the_same_surface_through_both_paths(
         assert getattr(canonical_module, name) is getattr(legacy_module, name), name
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.integrations.execution", "zeroth.core.execution_units"),
-        ("zeroth.core.execution_units", "zeroth.integrations.execution"),
-    ],
-)
-def test_execution_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_execution_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.integrations.execution"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

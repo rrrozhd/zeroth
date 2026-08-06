@@ -11,32 +11,40 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
+
+def test_observability_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
+
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.observability as canonical
+
+    expected = {
+        "MetricsCollector",
+        "configure_tracing",
+        "get_correlation_id",
+        "new_correlation_id",
+        "set_correlation_id",
+        "start_span",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.observability no longer publishes: {missing}"
 
 
-def test_observability_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import observability as legacy
-    from zeroth.platform import observability as canonical
+def test_observability_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
 
-    assert canonical.MetricsCollector is legacy.MetricsCollector
-    assert canonical.configure_tracing is legacy.configure_tracing
-    assert canonical.get_correlation_id is legacy.get_correlation_id
-    assert canonical.new_correlation_id is legacy.new_correlation_id
-    assert canonical.set_correlation_id is legacy.set_correlation_id
-    assert canonical.start_span is legacy.start_span
-
-
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.observability", "zeroth.core.observability"),
-        ("zeroth.core.observability", "zeroth.platform.observability"),
-    ],
-)
-def test_observability_cold_imports_from_both_directions(first: str, second: str) -> None:
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.observability"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr
