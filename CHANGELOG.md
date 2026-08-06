@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.13] - 2026-08-06
+
+### Fixed
+
+- Fence an already-consumed LangGraph approval resume against identical
+  reentrant execution so resumed tool calls execute at most once.
+- Materialize schema-less tool defaults from the frozen executable before fresh
+  approval policy evaluation and execute the exact validated call.
+
 ## [0.16.0.12] - 2026-08-05
 
 ### Fixed

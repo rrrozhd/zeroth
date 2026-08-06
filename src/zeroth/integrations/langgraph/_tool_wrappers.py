@@ -40,6 +40,7 @@ from zeroth.integrations.langgraph._tool_errors import (
 )
 from zeroth.integrations.langgraph._tool_execution import (
     ToolSnapshot,
+    _snapshot_body_with_state,
     aexecute_snapshot,
     execute_snapshot,
     refuse_delegate_dispatch,
@@ -1963,7 +1964,8 @@ def _validated_base_tool_edit(
     plan: _GovernedPlan,
     action: ToolAction,
     arguments: Mapping[str, Any],
-) -> Mapping[str, Any]:
+    body: Any,
+) -> _EffectiveCall:
     """Validate one edit through LangChain while preserving injected arguments."""
     target = _PinnedToolInput(plan.facts.args_schema)
     edited = dict(arguments)
@@ -1978,7 +1980,9 @@ def _validated_base_tool_edit(
         {**edited, **injected},
         action.tool_call_id,
     )
-    return _call_arguments(args, kwargs)
+    if plan.facts.args_schema is None:
+        return _effective_call(body, args, kwargs)
+    return _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
 
 
 class GovernedTool(BaseTool):
@@ -2171,14 +2175,25 @@ class GovernedTool(BaseTool):
             arguments,
             tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
         )
+        body, _ = _snapshot_body_with_state(facts.snapshot, "func", "_run")
+        edited_call: _EffectiveCall | None = None
+
+        def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal edited_call
+            edited_call = _validated_base_tool_edit(plan, action, edited, body)
+            return edited_call.arguments
+
+        def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+            if edited_call is None:
+                raise ToolGovernanceError("edited tool arguments were not prepared")
+            return execute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
+
         return guard_tool_call(
             action,
             context,
             lambda: execute_snapshot(facts.snapshot, args, kwargs),
-            invoke_with_arguments=lambda edited: execute_snapshot(
-                facts.snapshot, (), _edited_kwargs(edited)
-            ),
-            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(plan, action, edited),
+            invoke_with_arguments=execute_edited,
+            prepare_edited_arguments=prepare_edited,
             **_enforcement_seams(plan),
         )
 
@@ -2192,19 +2207,30 @@ class GovernedTool(BaseTool):
             arguments,
             tool_call_id=_injected_tool_call_id(plan, arguments, outer_tool_call_id),
         )
+        body, _ = _snapshot_body_with_state(facts.snapshot, "coroutine", "_arun")
+        if body is None:
+            body, _ = _snapshot_body_with_state(facts.snapshot, "func", "_run")
+        edited_call: _EffectiveCall | None = None
 
         async def execute() -> Any:
             return await aexecute_snapshot(facts.snapshot, args, kwargs)
 
-        async def execute_edited(arguments: Mapping[str, Any]) -> Any:
-            return await aexecute_snapshot(facts.snapshot, (), _edited_kwargs(arguments))
+        def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal edited_call
+            edited_call = _validated_base_tool_edit(plan, action, edited, body)
+            return edited_call.arguments
+
+        async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+            if edited_call is None:
+                raise ToolGovernanceError("edited tool arguments were not prepared")
+            return await aexecute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
 
         return await aguard_tool_call(
             action,
             context,
             execute,
             invoke_with_arguments=execute_edited,
-            prepare_edited_arguments=lambda edited: _validated_base_tool_edit(plan, action, edited),
+            prepare_edited_arguments=prepare_edited,
             **_enforcement_seams(plan),
         )
 
