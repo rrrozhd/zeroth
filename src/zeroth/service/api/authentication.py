@@ -6,9 +6,11 @@ import hmac
 import inspect
 import json
 import os
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 from uuid import uuid4
 
@@ -22,6 +24,10 @@ try:  # pragma: no cover - exercised once bearer verification lands
     import jwt
 except ImportError:  # pragma: no cover - graceful until dependency is added
     jwt = None
+
+
+_REMOTE_JWKS_MAX_BYTES = 64 * 1024
+_REMOTE_JWKS_CACHE_SECONDS = 300.0
 
 
 class AuthenticationError(RuntimeError):
@@ -96,6 +102,7 @@ class JWTBearerTokenVerifier:
 
     def __init__(self, config: BearerTokenConfig):
         self._config = config
+        self._cached_jwks: tuple[float, dict[str, Any]] | None = None
 
     def verify(self, token: str) -> AuthenticatedPrincipal:
         if jwt is None:
@@ -104,8 +111,27 @@ class JWTBearerTokenVerifier:
             header = jwt.get_unverified_header(token)
         except Exception as exc:  # pragma: no cover - dependency-specific details
             raise AuthenticationError("invalid bearer token") from exc
-        jwks = self._config.jwks or self._load_jwks()
-        key = self._resolve_signing_key(header.get("kid"), jwks)
+        try:
+            cached_jwks = self._cached_jwks
+            cached_remote_jwks = (
+                cached_jwks
+                if not self._config.jwks
+                and cached_jwks is not None
+                and cached_jwks[0] > time.monotonic()
+                else None
+            )
+            jwks = self._config.jwks or (
+                cached_remote_jwks[1]
+                if cached_remote_jwks is not None
+                else self._load_jwks()
+            )
+            key = self._resolve_signing_key(header.get("kid"), jwks)
+            if key is None and cached_remote_jwks is not None:
+                key = self._resolve_signing_key(header.get("kid"), self._load_jwks())
+            if key is None:
+                raise AuthenticationError("invalid bearer token")
+        except Exception as exc:  # pragma: no cover - dependency-specific details
+            raise AuthenticationError("invalid bearer token") from exc
         try:
             claims = jwt.decode(
                 token,
@@ -127,8 +153,19 @@ class JWTBearerTokenVerifier:
         )
 
     def _load_jwks(self) -> dict[str, Any]:
-        with urlopen(self._config.jwks_url) as response:  # pragma: no cover - network path
-            return json.loads(response.read().decode("utf-8"))
+        if urlsplit(self._config.jwks_url or "").scheme.lower() not in {"http", "https"}:
+            raise ValueError("remote JWKS URL must use HTTP(S)")
+        with urlopen(
+            self._config.jwks_url, timeout=3.0
+        ) as response:  # pragma: no cover - network path
+            payload = response.read(_REMOTE_JWKS_MAX_BYTES + 1)
+        if len(payload) > _REMOTE_JWKS_MAX_BYTES:
+            raise ValueError("remote JWKS response is too large")
+        jwks = json.loads(payload.decode("utf-8"))
+        if not isinstance(jwks, dict):
+            raise ValueError("remote JWKS response is not an object")
+        self._cached_jwks = (time.monotonic() + _REMOTE_JWKS_CACHE_SECONDS, jwks)
+        return jwks
 
     def _resolve_signing_key(self, kid: str | None, jwks: dict[str, Any]) -> Any:
         if jwt is None:  # pragma: no cover - defensive guard
@@ -137,7 +174,7 @@ class JWTBearerTokenVerifier:
         for jwk in jwk_set.keys:
             if kid is None or jwk.key_id == kid:
                 return jwk.key
-        raise AuthenticationError("invalid bearer token")
+        return None
 
 
 class ServiceAuthenticator:
