@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.0.1] - 2026-08-06
+
+### Added
+
+- Add an AST-based guard that rejects new imports of the legacy `zeroth.core`
+  and `zeroth.econ_plane` trees. A baseline lists the files that still import
+  them; the guard lets that list shrink but never grow and never go stale, so
+  the removal converges instead of regressing.
+
 ## [0.16.1] - 2026-08-06
 
 ### Changed
