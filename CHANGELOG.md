@@ -18,6 +18,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.0.14.1] - 2026-08-06
+
+### Fixed
+
+- Integrate durable LangGraph approvals with the gateway architecture
+  classification released concurrently on `main`.
+
+## [0.16.0.14] - 2026-08-06
+
+### Fixed
+
+- Materialize frozen schema-less tool defaults before initial policy evaluation
+  and execute the exact authorized call.
+
+## [0.16.0.13] - 2026-08-06
+
+### Fixed
+
+- Fence an already-consumed LangGraph approval resume against identical
+  reentrant execution so resumed tool calls execute at most once.
+- Materialize schema-less tool defaults from the frozen executable before fresh
+  approval policy evaluation and execute the exact validated call.
+
+## [0.16.0.12] - 2026-08-05
+
+### Fixed
+
+- Match persisted LangGraph approval interrupts by exact schema and canonical
+  JSON types before checkpoint confirmation.
+- Rearm exact unconsumed terminal attempts that reuse an approval reference
+  while retaining transition history and permanently fencing consumed work.
+- Translate unavailable lifecycle storage into the typed durability failure.
+
+## [0.16.0.11] - 2026-08-05
+
+### Fixed
+
+- Retain terminal LangGraph approval identity fences after rejection, resolved
+  delivery, or uncertain consumed delivery while allowing pre-consume retries.
+- Reject invalid persisted approval deadlines and leases during restart and
+  reconciliation.
+
+## [0.16.0.10] - 2026-08-05
+
+### Fixed
+
+- Preserve exact JSON scalar types across edited LangGraph approval execution
+  and conflicting decision fences.
+- Reject finite-number overflow before persisting approval or lease deadlines.
+
+## [0.16.0.9] - 2026-08-05
+
+### Fixed
+
+- Reject non-finite LangGraph approval clock samples before persisting deadlines
+  or reconciling durable work.
+
+## [0.16.0.8] - 2026-08-05
+
+### Fixed
+
+- Bind each claimed LangGraph approval resume to its exact persisted action
+  before policy evaluation or tool execution.
+- Reject non-finite approval TTL and lease settings so reconciliation remains
+  bounded.
+
+## [0.16.0.7] - 2026-08-05
+
+### Fixed
+
+- Reject mismatched effective LangGraph checkpointers and ignore untrusted
+  checkpoint coordinates while observing and resuming durable approvals.
+
+## [0.16.0.6] - 2026-08-05
+
+### Fixed
+
+- Trust native LangGraph tool-call identities only from validated full call
+  envelopes and refuse direct or unmatched injected identities.
+- Resume approval-gated graphs from the latest thread state without retaining
+  stale checkpoint IDs, namespaces, or checkpoint maps.
+- Expire consumed approval leases by their effective deadline even when a
+  bounded non-due request backlog precedes them.
+
+## [0.16.0.5] - 2026-08-05
+
+### Fixed
+
+- Preserve each native LangGraph tool-call ID through governed sync and async
+  execution so identical concurrent calls retain separate approval lifecycles.
+
+## [0.16.0.4] - 2026-08-05
+
+### Fixed
+
+- Execute approval-edited plain callables from the same argument binding shown
+  to fresh policy, including sync and async tools with variadic keyword inputs.
+- Restrict latest-checkpoint resume to an internal identity capability so public
+  graph configs preserve explicit checkpoint IDs and similarly named values.
+
+## [0.16.0.3] - 2026-08-05
+
+### Fixed
+
+- Materialize plain-callable defaults before post-approval policy revalidation
+  and execute the same canonical argument mapping on sync and async paths.
+- Resume governed graphs from the latest thread checkpoint even when a stale
+  checkpoint was bound earlier, and enforce one active SQLite approval identity
+  across concurrent delivery and legacy-schema migration.
+
+## [0.16.0.2] - 2026-08-05
+
+### Fixed
+
+- Consume persisted LangGraph approval decisions before replay policy checks,
+  preserve approved edits and injected tool-call identities, and terminalize
+  uncertain post-consume crashes without retrying their side effects.
+- Resume parallel approvals serially from the thread's current checkpoint and
+  add equivalent async checkpoint-confirmation and resume paths for async-only
+  governed graphs and durable savers.
+
+## [0.16.0.1] - 2026-08-05
+
+### Fixed
+
+- Harden LangGraph approval resume with durable-checkpointer attestation,
+  interrupt-ID targeting, deadline and execution fencing, fresh authenticated
+  governed-graph resume, native validation of edited tool arguments, and
+  idempotent typed audit records.
+
+## [0.16] - 2026-08-05
+
+### Added
+
+- Add a durable LangGraph approval lifecycle with checkpoint confirmation,
+  idempotent decisions and resume claims, expiry and orphan handling, and
+  restart-safe `Command(resume=...)` delivery to the original thread.
+
+### Changed
+
+- Require durable lifecycle storage for approval-gated tool calls, revalidate
+  policy and edited arguments after resume, and fail closed before execution
+  when thread or checkpoint semantics are unavailable.
+
 ## [0.15.1.0.1] - 2026-08-05
 
 ### Changed

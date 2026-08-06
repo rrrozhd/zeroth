@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import tempfile
 from typing import Annotated, Any
 
 import pytest
@@ -63,6 +64,7 @@ from tests.integrations.langgraph.tools._agents import scripted_model
 from tests.integrations.langgraph.tools._hostile import HostileDict, HostileKey
 from zeroth.core.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.audit import NodeAuditRecord
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
 from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
@@ -307,13 +309,19 @@ class Impostor:
 
 def middleware(**overrides: Any) -> ZerothMiddleware:
     """Build a middleware whose default seams allow a classified read-only call."""
+    directory = tempfile.TemporaryDirectory()
+    _LIFECYCLE_DIRS.append(directory)
     seams: dict[str, Any] = {
         "context": THREADED,
         "client": CountingClient(),
         "side_effect": read_only,
+        "approval_lifecycle": SQLiteApprovalRepository(f"{directory.name}/approvals.sqlite3"),
     }
     seams.update(overrides)
     return ZerothMiddleware(**seams)
+
+
+_LIFECYCLE_DIRS: list[tempfile.TemporaryDirectory[str]] = []
 
 
 # --------------------------------------------------------------------------- #

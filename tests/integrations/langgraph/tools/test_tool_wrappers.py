@@ -34,11 +34,19 @@ import inspect
 import json
 import subprocess
 import sys
-from typing import Any
+import tempfile
+from typing import Annotated, Any
 
 import pydantic
 import pytest
-from langchain_core.tools import BaseTool, StructuredTool, ToolException, tool
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.tools import (
+    BaseTool,
+    InjectedToolCallId,
+    StructuredTool,
+    ToolException,
+    tool,
+)
 from pydantic import BaseModel, ConfigDict
 
 from tests.integrations.langgraph.tools._hostile import (
@@ -49,6 +57,12 @@ from tests.integrations.langgraph.tools._hostile import (
 )
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.integrations.langgraph._approval_lifecycle import (
+    ApprovalDecision,
+    ApprovalResolution,
+    ApprovalState,
+    SQLiteApprovalRepository,
+)
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
     GovernanceContextError,
@@ -126,6 +140,47 @@ class RecordingSubmitter:
     def submit(self, record: NodeAuditRecord) -> None:
         """Keep *record*, as the delivery queue's non-blocking hand-off does."""
         self.records.append(record)
+
+
+@dataclasses.dataclass
+class ApprovalReplayClient:
+    """Require the initial and replayed interrupt, then revalidate as allowed."""
+
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del context
+        self.seen.append(action)
+        return ALLOW if len(self.seen) >= 3 else APPROVE
+
+
+@dataclasses.dataclass
+class DefaultDenyReplayClient:
+    """Require approval once, then deny the exact edited call revalidation."""
+
+    seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        del context
+        self.seen.append(action)
+        return APPROVE if len(self.seen) == 1 else DENY
+
+
+@dataclasses.dataclass
+class ApprovalReplayInterrupt:
+    """Suspend once, then deliver the repository's current fenced resolution."""
+
+    payloads: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    delivery: dict[str, Any] | None = None
+    before_delivery: Any = None
+
+    def __call__(self, payload: Any) -> Any:
+        self.payloads.append(dict(payload))
+        if self.delivery is None:
+            raise Suspended
+        if self.before_delivery is not None:
+            self.before_delivery()
+        return dict(self.delivery)
 
 
 def read_only(_target: object) -> SideEffectClass:
@@ -217,6 +272,35 @@ class AsyncSchemalessTool(BaseTool):
         return f"async:{args[0]}"
 
 
+class DefaultingSchemalessTool(BaseTool):
+    """A schema-less sync tool whose body supplies a dangerous default."""
+
+    name: str = "defaulting"
+    description: str = "Defaults to a dangerous path."
+    args_schema: Any = None
+    effects: Any = None
+
+    def _run(self, path: str = "/danger") -> str:
+        self.effects.append(path)
+        return path
+
+
+class AsyncDefaultingSchemalessTool(BaseTool):
+    """Async twin of :class:`DefaultingSchemalessTool`."""
+
+    name: str = "adefaulting"
+    description: str = "Defaults to a dangerous path asynchronously."
+    args_schema: Any = None
+    effects: Any = None
+
+    def _run(self, path: str = "/danger") -> str:
+        raise NotImplementedError("async only")
+
+    async def _arun(self, path: str = "/danger") -> str:
+        self.effects.append(path)
+        return path
+
+
 def sync_callable_with_schema(body: Body) -> Any:
     """Build a plain sync callable that carries an ``args_schema`` attribute."""
 
@@ -261,9 +345,54 @@ def async_callable_without_schema(body: Body) -> Any:
 
 def wrap(target: Any, *, client: CountingClient, context: object = THREADED, **kwargs: Any) -> Any:
     """Govern one tool with a read-only classification, so an allow can be reached."""
+    directory = tempfile.TemporaryDirectory()
+    _LIFECYCLE_DIRS.append(directory)
+    kwargs.setdefault(
+        "approval_lifecycle", SQLiteApprovalRepository(f"{directory.name}/approvals.sqlite3")
+    )
     return govern_tools([target], context=context, client=client, side_effect=read_only, **kwargs)[
         0
     ]
+
+
+_LIFECYCLE_DIRS: list[tempfile.TemporaryDirectory[str]] = []
+
+
+def prepare_base_tool_approval_replay(
+    tmp_path: Any,
+    original: BaseTool,
+    call_input: Any,
+    edited_arguments: dict[str, Any],
+) -> tuple[
+    GovernedTool,
+    SQLiteApprovalRepository,
+    ApprovalReplayClient,
+    ApprovalReplayInterrupt,
+]:
+    """Pause a real BaseTool call and prepare its fenced edited replay."""
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = ApprovalReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [original],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+    with pytest.raises(Suspended):
+        governed.invoke(call_input)
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, edited_arguments)
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {
+        **resolution.to_payload(),
+        "claim_token": claimed.claim_token,
+    }
+    return governed, repository, client, interrupt
 
 
 # --------------------------------------------------------------------------- #
@@ -952,6 +1081,350 @@ def test_the_obsolete_call_id_carrier_name_is_an_ordinary_argument() -> None:
     }
 
 
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize(
+    ("name", "call_id"),
+    [("other", "call-valid"), ("lookup", "")],
+    ids=("wrong-name", "blank-id"),
+)
+def test_only_a_valid_full_tool_call_can_seed_trusted_identity(
+    async_call: bool, name: str, call_id: str
+) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": name,
+        "args": {"query": "forged"},
+        "id": call_id,
+        "type": "tool_call",
+    }
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_direct_run_tool_call_id_cannot_seed_trusted_identity(async_call: bool) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.arun({"query": "forged"}, tool_call_id="call-forged"))
+        else:
+            governed.run({"query": "forged"}, tool_call_id="call-forged")
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_injected_tool_call_id_without_a_trusted_outer_call_is_refused(
+    monkeypatch: Any,
+    async_call: bool,
+) -> None:
+    observed: list[str] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    async def alookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    native_parse = BaseTool._parse_input
+
+    def injected_parse(self: Any, tool_input: Any, tool_call_id: Any) -> Any:
+        if tool_call_id is None:
+            return {**tool_input, "tool_call_id": "call-forged"}
+        return native_parse(self, tool_input, tool_call_id)
+
+    monkeypatch.setattr(GovernedTool, "_parse_input", injected_parse)
+
+    with pytest.raises(ToolGovernanceError, match="full tool call"):
+        if async_call:
+            asyncio.run(governed.ainvoke({"query": "forged"}))
+        else:
+            governed.invoke({"query": "forged"})
+
+    assert client.calls == 0
+    assert observed == []
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_full_tool_call_identity_does_not_leak_to_the_next_ordinary_call(
+    async_call: bool,
+) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": "lookup",
+        "args": {"query": "first"},
+        "id": "call-first",
+        "type": "tool_call",
+    }
+
+    if async_call:
+        asyncio.run(governed.ainvoke(call))
+        asyncio.run(governed.ainvoke({"query": "second"}))
+    else:
+        governed.invoke(call)
+        governed.invoke({"query": "second"})
+
+    assert [action.tool_call_id for action in client.seen] == ["call-first", None]
+    assert observed == ["first", "second"]
+
+
+def test_reentrant_callback_cannot_move_outer_identity_to_an_ordinary_call() -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    class ReentrantHandler(BaseCallbackHandler):
+        entered = False
+
+        def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+            del serialized, input_str, kwargs
+            if not self.entered:
+                self.entered = True
+                governed.invoke({"query": "nested"})
+
+    governed.invoke(
+        {
+            "name": "lookup",
+            "args": {"query": "outer"},
+            "id": "call-outer",
+            "type": "tool_call",
+        },
+        config={"callbacks": [ReentrantHandler()]},
+    )
+
+    assert [action.tool_call_id for action in client.seen] == [None, "call-outer"]
+    assert observed == ["nested", "outer"]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_full_tool_call_identity_resets_after_an_error(async_call: bool) -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        if query == "fail":
+            raise RuntimeError("failed")
+        observed.append(query)
+        return query
+
+    async def alookup(query: str) -> str:
+        if query == "fail":
+            raise RuntimeError("failed")
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    call = {
+        "name": "lookup",
+        "args": {"query": "fail"},
+        "id": "call-failed",
+        "type": "tool_call",
+    }
+
+    with pytest.raises(RuntimeError, match="failed"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+    if async_call:
+        asyncio.run(governed.ainvoke({"query": "next"}))
+    else:
+        governed.invoke({"query": "next"})
+
+    assert [action.tool_call_id for action in client.seen] == ["call-failed", None]
+    assert observed == ["next"]
+
+
+def test_full_tool_call_identity_resets_after_async_cancellation() -> None:
+    observed: list[str] = []
+
+    def lookup(query: str) -> str:
+        observed.append(query)
+        return query
+
+    started = asyncio.Event()
+
+    async def alookup(query: str) -> str:
+        if query == "cancel":
+            started.set()
+            await asyncio.Event().wait()
+        observed.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(
+            governed.ainvoke(
+                {
+                    "name": "lookup",
+                    "args": {"query": "cancel"},
+                    "id": "call-cancelled",
+                    "type": "tool_call",
+                }
+            )
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await governed.ainvoke({"query": "next"})
+
+    asyncio.run(scenario())
+
+    assert [action.tool_call_id for action in client.seen] == ["call-cancelled", None]
+    assert observed == ["next"]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_injected_tool_call_id_must_match_the_trusted_outer_id(
+    monkeypatch: Any, async_call: bool
+) -> None:
+    observed: list[str] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    async def alookup(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> str:
+        observed.append(f"{query}:{tool_call_id}")
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        coroutine=alookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    client = CountingClient()
+    governed = wrap(original, client=client)
+    native_parse = BaseTool._parse_input
+
+    def conflicting_parse(self: Any, tool_input: Any, tool_call_id: Any) -> Any:
+        parsed = native_parse(self, tool_input, tool_call_id)
+        return {**parsed, "tool_call_id": "call-forged"}
+
+    monkeypatch.setattr(GovernedTool, "_parse_input", conflicting_parse)
+    call = {
+        "name": "lookup",
+        "args": {"query": "first"},
+        "id": "call-outer",
+        "type": "tool_call",
+    }
+
+    with pytest.raises(ToolGovernanceError, match="tool-call identity"):
+        if async_call:
+            asyncio.run(governed.ainvoke(call))
+        else:
+            governed.invoke(call)
+
+    assert client.calls == 0
+    assert observed == []
+
+
 def test_tags_and_metadata_a_caller_reads_off_the_tool_survive_the_wrapping() -> None:
     body = Body()
 
@@ -1188,6 +1661,408 @@ def test_a_stateful_validator_cannot_slip_past_the_async_surface_either() -> Non
     assert dict(decided.arguments) == {"query": "safe"}
     assert ran == ["safe"]
     assert len(passes) == 1
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize("policy", ["deny-danger", "allow-exact"])
+def test_unedited_schemaless_base_tool_materializes_defaults_before_policy(
+    async_call: bool, policy: str
+) -> None:
+    effects: list[str] = []
+    original: BaseTool = (
+        AsyncDefaultingSchemalessTool(effects=effects)
+        if async_call
+        else DefaultingSchemalessTool(effects=effects)
+    )
+
+    @dataclasses.dataclass
+    class DefaultAwarePolicy:
+        seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            del context
+            self.seen.append(action)
+            visible = dict(action.arguments) == {"path": "/danger"}
+            if policy == "deny-danger":
+                return DENY if visible else ALLOW
+            return ALLOW if visible else DENY
+
+    client = DefaultAwarePolicy()
+    governed = wrap(original, client=client)  # type: ignore[arg-type]
+
+    def invoke() -> Any:
+        return asyncio.run(governed.ainvoke({})) if async_call else governed.invoke({})
+
+    if policy == "deny-danger":
+        with pytest.raises(PolicyViolation):
+            invoke()
+        assert effects == []
+    else:
+        assert invoke() == "/danger"
+        assert effects == ["/danger"]
+
+    assert [dict(action.arguments) for action in client.seen] == [{"path": "/danger"}]
+    if effects:
+        assert client.seen[0].arguments["path"] == effects[0]
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_approved_callable_edit_materializes_defaults_before_fresh_policy(
+    tmp_path: Any, async_call: bool
+) -> None:
+    effects: list[str] = []
+
+    if async_call:
+
+        async def remove(path: str = "/danger") -> None:
+            effects.append(path)
+
+    else:
+
+        def remove(path: str = "/danger") -> None:
+            effects.append(path)
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = DefaultDenyReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [remove],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        return asyncio.run(governed()) if async_call else governed()
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    with pytest.raises(PolicyViolation):
+        invoke()
+
+    assert dict(client.seen[-1].arguments) == {"path": "/danger"}
+    assert effects == []
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+@pytest.mark.parametrize("fresh_policy", ["deny-danger", "allow-exact"])
+def test_approved_schemaless_base_tool_edit_materializes_frozen_body_defaults(
+    tmp_path: Any, async_call: bool, fresh_policy: str
+) -> None:
+    effects: list[str] = []
+    original: BaseTool = (
+        AsyncDefaultingSchemalessTool(effects=effects)
+        if async_call
+        else DefaultingSchemalessTool(effects=effects)
+    )
+
+    @dataclasses.dataclass
+    class DefaultAwarePolicy:
+        seen: list[ToolAction] = dataclasses.field(default_factory=list)
+
+        def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+            del context
+            self.seen.append(action)
+            if len(self.seen) == 1:
+                return APPROVE
+            visible = dict(action.arguments) == {"path": "/danger"}
+            if fresh_policy == "deny-danger":
+                return DENY if visible else ALLOW
+            return ALLOW if visible else DENY
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = DefaultAwarePolicy()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [original],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        call = {"path": "/safe"}
+        return asyncio.run(governed.ainvoke(call)) if async_call else governed.invoke(call)
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, {})
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    if fresh_policy == "deny-danger":
+        with pytest.raises(PolicyViolation):
+            invoke()
+        assert effects == []
+    else:
+        assert invoke() == "/danger"
+        assert effects == ["/danger"]
+
+    assert [dict(action.arguments) for action in client.seen] == [
+        {"path": "/safe"},
+        {"path": "/danger"},
+    ]
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+@pytest.mark.parametrize("async_call", [False, True], ids=("sync", "async"))
+def test_approved_callable_kwargs_edit_is_bound_once_for_policy_and_execution(
+    tmp_path: Any, async_call: bool
+) -> None:
+    unsafe = "/danger"
+    persisted = {"path": "/safe"}
+    body_arguments: list[dict[str, Any]] = []
+    effects: list[str] = []
+
+    if async_call:
+
+        async def remove(**kwargs: Any) -> None:
+            body_arguments.append(dict(kwargs))
+            effects.append(kwargs.get("path", unsafe))
+
+    else:
+
+        def remove(**kwargs: Any) -> None:
+            body_arguments.append(dict(kwargs))
+            effects.append(kwargs.get("path", unsafe))
+
+    repository = SQLiteApprovalRepository(tmp_path / "approvals.sqlite3")
+    client = ApprovalReplayClient()
+    interrupt = ApprovalReplayInterrupt()
+    [governed] = govern_tools(
+        [remove],
+        context=THREADED,
+        client=client,
+        side_effect=read_only,
+        interrupt=interrupt,
+        approval_lifecycle=repository,
+    )
+
+    def invoke() -> Any:
+        return asyncio.run(governed()) if async_call else governed()
+
+    with pytest.raises(Suspended):
+        invoke()
+    repository.ready("approval-7", "checkpoint-1", "interrupt-1")
+    resolution = ApprovalResolution("approval-7", ApprovalDecision.APPROVE, persisted)
+    repository.decide(resolution)
+    claimed = repository.claim("approval-7", owner="worker")
+    assert claimed.claim_token is not None
+    interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
+
+    invoke()
+
+    stored = repository.get("approval-7")
+    assert stored.resolution is not None and stored.resolution.arguments == persisted
+    assert dict(client.seen[-1].arguments) == {"kwargs": persisted}
+    assert client.seen[-1].arguments["kwargs"] == body_arguments[0] == persisted
+    assert effects == ["/safe"]
+    assert unsafe not in effects
+    assert stored.state is ApprovalState.RESOLVED
+
+
+def test_approved_base_tool_edit_uses_native_schema_coercion(tmp_path: Any) -> None:
+    received: list[tuple[str, int]] = []
+
+    def update_row(table: str, row: int) -> int:
+        """Record the exact values that reached the tool body."""
+        received.append((table, row))
+        return row
+
+    original = StructuredTool.from_function(
+        func=update_row,
+        name="update_row",
+        description="Update one row.",
+        args_schema=Args,
+    )
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "42"},
+    )
+
+    assert governed.invoke({"table": "invoices", "row": 1}) == 42
+    assert received == [("invoices", 42)]
+    assert dict(client.seen[-1].arguments) == {"table": "invoices", "row": 42}
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_invalid_approved_base_tool_edit_fails_before_execution(tmp_path: Any) -> None:
+    body = Body()
+    governed, repository, _client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        sync_tool_with_schema(body),
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "not-an-integer"},
+    )
+
+    with pytest.raises(pydantic.ValidationError):
+        governed.invoke({"table": "invoices", "row": 1})
+
+    assert body.calls == 0
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+def test_approved_base_tool_edit_runs_field_validation_once_before_policy(
+    tmp_path: Any,
+) -> None:
+    passes: list[str] = []
+    received: list[str] = []
+
+    class NormalizedQuery(BaseModel):
+        query: str
+
+        @pydantic.field_validator("query")
+        @classmethod
+        def normalize(cls, value: str) -> str:
+            passes.append(value)
+            return value.strip().lower()
+
+    def search(query: str) -> str:
+        """Record the schema-normalized query."""
+        received.append(query)
+        return query
+
+    original = StructuredTool.from_function(
+        func=search,
+        name="search",
+        description="Search.",
+        args_schema=NormalizedQuery,
+    )
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"query": "original"},
+        {"query": "  SAFE  "},
+    )
+
+    assert governed.invoke({"query": "original"}) == "safe"
+    assert passes == ["original", "original", "  SAFE  "]
+    assert received == ["safe"]
+    assert dict(client.seen[-1].arguments) == {"query": "safe"}
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_approved_base_tool_edit_cannot_replace_an_injected_argument(tmp_path: Any) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(
+        query: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> str:
+        """Record the framework-injected call identity."""
+        calls.append((query, tool_call_id))
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    call = {
+        "name": "lookup",
+        "args": {"query": "original"},
+        "id": "call-original",
+        "type": "tool_call",
+    }
+    governed, repository, _client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        call,
+        {"query": "edited", "tool_call_id": "call-replacement"},
+    )
+
+    with pytest.raises(ToolGovernanceError, match="injected"):
+        governed.invoke(call)
+
+    assert calls == []
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
+
+
+def test_approved_base_tool_edit_preserves_the_injected_tool_call_id(tmp_path: Any) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class InjectedArgs(BaseModel):
+        query: str
+        tool_call_id: Annotated[str, InjectedToolCallId]
+
+    def lookup(
+        query: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> str:
+        """Record the framework-injected call identity."""
+        calls.append((query, tool_call_id))
+        return query
+
+    original = StructuredTool.from_function(
+        func=lookup,
+        name="lookup",
+        description="Lookup.",
+        args_schema=InjectedArgs,
+    )
+    call = {
+        "name": "lookup",
+        "args": {"query": "original"},
+        "id": "call-original",
+        "type": "tool_call",
+    }
+    governed, repository, client, _interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        call,
+        {"query": "edited"},
+    )
+
+    governed.invoke(call)
+
+    assert calls == [("edited", "call-original")]
+    assert client.seen[-1].tool_call_id == "call-original"
+    assert repository.get("approval-7").state is ApprovalState.RESOLVED
+
+
+def test_approved_edit_validation_uses_the_pre_interrupt_schema_snapshot(
+    tmp_path: Any,
+) -> None:
+    body = Body()
+    original = sync_tool_with_schema(body)
+    governed, repository, _client, interrupt = prepare_base_tool_approval_replay(
+        tmp_path,
+        original,
+        {"table": "invoices", "row": 1},
+        {"table": "invoices", "row": "not-an-integer"},
+    )
+
+    class PermissiveArgs(BaseModel):
+        table: str
+        row: str
+
+    interrupt.before_delivery = lambda: setattr(original, "args_schema", PermissiveArgs)
+    with pytest.raises(pydantic.ValidationError):
+        governed.invoke({"table": "invoices", "row": 1})
+
+    assert body.calls == 0
+    assert repository.get("approval-7").state is ApprovalState.ORPHANED
 
 
 def test_running_the_delegate_unvalidated_does_not_strip_the_delegates_own_validation() -> None:

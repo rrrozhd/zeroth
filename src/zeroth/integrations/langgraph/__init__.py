@@ -78,6 +78,16 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from zeroth.integrations.langgraph._approval_lifecycle import (
+    ApprovalCoordinator,
+    ApprovalDecision,
+    ApprovalIntent,
+    ApprovalRecord,
+    ApprovalResolution,
+    ApprovalState,
+    ApprovalTransition,
+    SQLiteApprovalRepository,
+)
 from zeroth.integrations.langgraph._genai import (
     GENAI_CONVENTION_VERSION,
     MappedGenAiSpan,
@@ -202,6 +212,14 @@ __all__ = [
     "DEFAULT_DECISION_TIMEOUT_SECONDS",
     "UnknownSideEffectPolicy",
     "ToolAuditSubmitter",
+    "ApprovalCoordinator",
+    "ApprovalDecision",
+    "ApprovalIntent",
+    "ApprovalRecord",
+    "ApprovalResolution",
+    "ApprovalState",
+    "ApprovalTransition",
+    "SQLiteApprovalRepository",
     # --- tool governance: the typed refusals a governed call can raise --------
     "ToolGovernanceError",
     "PolicyViolation",

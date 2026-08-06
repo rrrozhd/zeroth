@@ -123,6 +123,7 @@ from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
 from langchain_core.tools import BaseTool
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
@@ -348,6 +349,7 @@ class ZerothMiddleware(AgentMiddleware):
         audit: ToolAuditSubmitter | None = None,
         actor: ActorIdentity | None = None,
         interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
+        approval_lifecycle: SQLiteApprovalRepository | None = None,
         side_effect: Callable[[Any], Any] | None = None,
         contract_ref: Callable[[Any], Any] | None = None,
         capability_refs: Callable[[Any], Any] | None = None,
@@ -367,6 +369,7 @@ class ZerothMiddleware(AgentMiddleware):
             actor: The authenticated actor to attribute records to, when there
                 is one.
             interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
+            approval_lifecycle: Durable approval storage used before an interrupt.
             side_effect: An optional per-tool classifier. Only a real
                 :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
                 member classifies a tool; anything else leaves it unknown, and
@@ -394,6 +397,7 @@ class ZerothMiddleware(AgentMiddleware):
         self._audit = audit
         self._actor = actor
         self._interrupt = interrupt
+        self._approval_lifecycle = approval_lifecycle
         self._side_effect = side_effect
         self._contract_ref = contract_ref
         self._capability_refs = capability_refs
@@ -468,6 +472,7 @@ class ZerothMiddleware(AgentMiddleware):
             audit=self._audit,
             actor=self._actor,
             interrupt=self._interrupt,
+            approval_lifecycle=self._approval_lifecycle,
             side_effect=self._side_effect,
             contract_ref=self._contract_ref,
             capability_refs=self._capability_refs,
