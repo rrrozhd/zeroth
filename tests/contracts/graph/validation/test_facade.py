@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import pytest
 
-from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     ExecutionSettings,
     Graph,
+    ParallelConfig,
 )
+from zeroth.contracts.graph.validation import ContractValidator
 from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
-from zeroth.core.parallel.models import ParallelConfig
 
 
 def _agent(node_id: str, **overrides: object) -> AgentNode:
@@ -88,11 +88,20 @@ def test_contract_validation_skips_governance_owned_rules() -> None:
     assert issues == []
 
 
-def test_public_validator_resolves_to_one_class_from_both_paths() -> None:
-    from zeroth.core.graph import validation as legacy
-    from zeroth.runtime import graph_validation as canonical
+def test_the_public_validator_has_exactly_one_owner() -> None:
+    """``GraphValidator`` is defined by the runtime, not re-declared elsewhere.
 
-    assert legacy.GraphValidator is canonical.GraphValidator
+    This replaces a parity assertion that compared the legacy
+    ``zeroth.core.graph.validation`` facade against the canonical module. ZER-25
+    removed that facade, so comparing the two paths would compare a module with
+    itself. What the assertion was really protecting -- that one class answers to
+    this name -- is asserted directly instead.
+    """
+    from zeroth.contracts.graph.validation import ContractValidator
+    from zeroth.runtime.graph_validation import GraphValidator
+
+    assert GraphValidator.__module__ == "zeroth.runtime.graph_validation"
+    assert GraphValidator is not ContractValidator
 
 
 @pytest.mark.asyncio

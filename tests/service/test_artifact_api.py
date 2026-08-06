@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
-from types import SimpleNamespace
-
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import (
-    admin_headers,
     agent_graph,
     deploy_service,
     operator_headers,
 )
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 
 async def _build_app(sqlite_db, *, artifact_store=None):
@@ -29,7 +25,7 @@ async def _build_app(sqlite_db, *, artifact_store=None):
 
 async def test_get_artifact_returns_stored_bytes(sqlite_db, tmp_path) -> None:
     store = FilesystemArtifactStore(base_dir=str(tmp_path))
-    ref = await store.store("test-key", b"hello-artifact", "application/octet-stream")
+    ref = await store.store("test-key", b"hello-artifact", "application/octet-stream")  # noqa: F841
     app = await _build_app(sqlite_db, artifact_store=store)
 
     with TestClient(app) as client:

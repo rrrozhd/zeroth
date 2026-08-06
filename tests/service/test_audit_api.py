@@ -4,11 +4,10 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import content_capture
 from tests.service.helpers import admin_headers, agent_graph, deploy_service
 from zeroth.governance.audit import NodeAuditRecord
-from zeroth.core.service.bootstrap import bootstrap_app
-
-from tests.conftest import content_capture
+from zeroth.service.bootstrap import bootstrap_app
 
 
 def _record(
@@ -176,8 +175,10 @@ async def test_reviewer_can_list_audits(sqlite_db) -> None:
 
 
 async def test_audit_verification_endpoint_reports_intact_and_tampered_chains(sqlite_db) -> None:
-    """GET /deployments/{ref}/audit-verification exposes the continuity verifier:
-    an intact chain verifies; an in-place record edit flips it to failed."""
+    """GET /deployments/{ref}/audit-verification exposes the continuity verifier:.
+
+    an intact chain verifies; an in-place record edit flips it to failed.
+    """
     import json
 
     service, deployment = await deploy_service(sqlite_db, agent_graph(graph_id="graph-verify"))

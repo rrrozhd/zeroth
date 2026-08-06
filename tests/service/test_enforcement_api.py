@@ -23,7 +23,6 @@ from tests.service.helpers import (
     deploy_service,
     scoped_auth_config,
 )
-from zeroth.core.service.bootstrap import bootstrap_app
 from zeroth.governance.attestations.inventory import (
     RegisteredTool,
     recompute_inventory_fingerprint,
@@ -39,6 +38,7 @@ from zeroth.governance.attestations.store import (
 )
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.service.bootstrap import bootstrap_app
 
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
