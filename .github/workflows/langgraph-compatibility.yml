@@ -1,0 +1,44 @@
+name: LangGraph compatibility
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: "LangGraph ${{ matrix.langgraph }} / Agent Server ${{ matrix.langgraph_api }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - langgraph: "1.2.9"
+            langgraph_api: "0.11.1"
+            langgraph_sdk: "0.4.2"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify pinned compatibility versions
+        run: >-
+          uv run --frozen --group gateway-conformance python -c
+          "from importlib.metadata import version;
+          assert version('langgraph') == '${{ matrix.langgraph }}';
+          assert version('langgraph-api') == '${{ matrix.langgraph_api }}';
+          assert version('langgraph-sdk') == '${{ matrix.langgraph_sdk }}'"
+
+      - name: Run LangGraph gateway conformance
+        run: >-
+          uv run --frozen --group gateway-conformance pytest -o addopts= -q
+          -m langgraph_conformance tests/langgraph_gateway/conformance
