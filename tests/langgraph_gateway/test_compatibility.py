@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
+import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +17,8 @@ from zeroth.core.langgraph_gateway.capabilities import (
 )
 from zeroth.core.langgraph_gateway.compatibility import (
     CompatibilityDetector,
+    DEFAULT_TESTED_AGENT_SERVER_VERSIONS,
+    DEFAULT_TESTED_LANGGRAPH_VERSIONS,
     EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS,
     fingerprint_openapi,
 )
@@ -112,13 +116,26 @@ async def test_exact_version_and_expected_openapi_fingerprint_are_supported() ->
 
 
 @pytest.mark.asyncio
-async def test_exact_version_alone_is_supported_when_openapi_is_not_exposed() -> None:
-    transport, _ = _transport(openapi_status=404)
+@pytest.mark.parametrize(
+    ("openapi_status", "expected_status", "expected_reason"),
+    [
+        (404, CompatibilityStatus.UNSUPPORTED, "upstream OpenAPI fingerprint is unavailable"),
+        (500, CompatibilityStatus.UNAVAILABLE, "upstream OpenAPI probe failed"),
+    ],
+)
+async def test_exact_version_never_unlocks_without_allowlisted_openapi_fingerprint(
+    openapi_status: int,
+    expected_status: CompatibilityStatus,
+    expected_reason: str,
+) -> None:
+    transport, _ = _transport(openapi_status=openapi_status)
 
     result = await _detect(transport)
 
-    assert result.status is CompatibilityStatus.SUPPORTED
+    assert result.status is expected_status
+    assert result.status is not CompatibilityStatus.SUPPORTED
     assert result.openapi_fingerprint is None
+    assert result.reason == expected_reason
 
 
 @pytest.mark.asyncio
@@ -416,6 +433,36 @@ def test_openapi_fingerprint_ignores_descriptions_examples_and_input_order() -> 
     first_operation["examples"] = {"ignored": {"value": "secret"}}
 
     assert fingerprint_openapi(left) == fingerprint_openapi(right)
+
+
+def test_ci_matrix_and_conformance_pins_match_runtime_compatibility_allowlist() -> None:
+    repository_root = Path(__file__).parents[2]
+    workflow = (repository_root / ".github/workflows/langgraph-compatibility.yml").read_text(
+        encoding="utf-8"
+    )
+    matrix = dict(
+        re.findall(
+            r'^\s*-?\s*(langchain|langgraph|langgraph_api|langgraph_sdk): "([^"]+)"\s*$',
+            workflow,
+            re.MULTILINE,
+        )
+    )
+    expected = {
+        "langchain": "1.3.14",
+        "langgraph": DEFAULT_TESTED_LANGGRAPH_VERSIONS[0],
+        "langgraph_api": DEFAULT_TESTED_AGENT_SERVER_VERSIONS[0],
+        "langgraph_sdk": "0.4.2",
+    }
+
+    assert matrix == expected
+    assert set(EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS) == set(
+        DEFAULT_TESTED_AGENT_SERVER_VERSIONS
+    )
+    project = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert {f"{name.replace('_', '-')}=={version}" for name, version in expected.items()} <= set(
+        project["dependency-groups"]["gateway-conformance"]
+    )
+    assert "version('langchain') == '${{ matrix.langchain }}'" in workflow
 
 
 class StaticEvidenceProvider:
