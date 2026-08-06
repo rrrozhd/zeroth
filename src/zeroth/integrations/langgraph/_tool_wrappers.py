@@ -18,15 +18,17 @@ import types
 import typing
 import weakref
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, get_args, get_origin
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, InjectedToolCallId
 from pydantic import BaseModel, Field, PrivateAttr, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
@@ -38,6 +40,7 @@ from zeroth.integrations.langgraph._tool_errors import (
 )
 from zeroth.integrations.langgraph._tool_execution import (
     ToolSnapshot,
+    _snapshot_body_with_state,
     aexecute_snapshot,
     execute_snapshot,
     refuse_delegate_dispatch,
@@ -54,7 +57,7 @@ from zeroth.integrations.langgraph._tool_fingerprint import (
 )
 from zeroth.integrations.langgraph._tool_guard import (
     ToolAuditSubmitter,
-    authorize_tool_call,
+    aguard_tool_call,
     guard_tool_call,
 )
 from zeroth.integrations.langgraph._tool_normalize import (
@@ -175,6 +178,7 @@ class _Seams:
     audit: ToolAuditSubmitter | None = None
     actor: ActorIdentity | None = None
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None
+    approval_lifecycle: SQLiteApprovalRepository | None = None
     side_effect: Callable[[Any], Any] | None = None
     contract_ref: Callable[[Any], Any] | None = None
     capability_refs: Callable[[Any], Any] | None = None
@@ -220,6 +224,23 @@ class _CallablePlan:
 
 _CALLABLE_PLANS: dict[object, _CallablePlan] = {}
 """Callable plans keyed by fresh, non-callable tokens closed over by wrappers."""
+
+
+@dataclass(slots=True)
+class _BaseToolCall:
+    """One validated native ``BaseTool.invoke`` identity awaiting its body."""
+
+    owner: object
+    tool_call_id: str | None
+    entered: bool = False
+    parsed: bool = False
+    claimed: bool = False
+
+
+_BASE_TOOL_CALL: ContextVar[_BaseToolCall | None] = ContextVar(
+    "zeroth_base_tool_call", default=None
+)
+"""Trusted call-local identity carried from native ``BaseTool`` entry points."""
 
 _SAFE_ANNOTATION_ATOMS = (
     str,
@@ -1574,7 +1595,7 @@ def _call_arguments(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> dict[st
 
 @dataclass(frozen=True, slots=True)
 class _EffectiveCall:
-    """One call to a plain callable, in the two forms a governed invocation needs.
+    """One call in the two forms a governed invocation needs.
 
     ``arguments`` is what the policy is shown; ``args`` and ``kwargs`` are what
     the body is invoked with. They are carried together because they must be the
@@ -1713,9 +1734,13 @@ def _published_signature(
 
 
 def _effective_call(
-    target: Any, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    target: Any,
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+    *,
+    preserve_input_shape: bool = False,
 ) -> _EffectiveCall:
-    """Resolve one call to a plain callable *once*, for both the policy and the body.
+    """Resolve one callable body *once*, for both the policy and execution.
 
     Binding against the callable's own signature is what keeps this surface and
     the middleware surface describing the same call: the middleware is handed
@@ -1755,6 +1780,8 @@ def _effective_call(
         target: The callable whose signature defines the call.
         args: The positional arguments the caller passed.
         kwargs: The named arguments the caller passed.
+        preserve_input_shape: Whether to keep raw positional and variadic names
+            while adding defaults supplied by the callable's signature.
 
     Returns:
         The one call this invocation will be decided on and executed with.
@@ -1769,9 +1796,21 @@ def _effective_call(
         bound = signature.bind(*args, **kwargs)
     except TypeError as error:
         raise ToolGovernanceError("this call does not fit the callable's own signature") from error
+    provided = frozenset(bound.arguments)
     bound.apply_defaults()
     _drop_empty_variadics(bound)
-    return _EffectiveCall(_call_arguments((), bound.arguments), bound.args, bound.kwargs)
+    arguments = (
+        _call_arguments(
+            args,
+            {
+                **kwargs,
+                **{name: value for name, value in bound.arguments.items() if name not in provided},
+            },
+        )
+        if preserve_input_shape
+        else _call_arguments((), bound.arguments)
+    )
+    return _EffectiveCall(arguments, bound.args, bound.kwargs)
 
 
 def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
@@ -1799,7 +1838,10 @@ def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
 
 
 def _governed_action(
-    plan: _GovernedPlan | _CallablePlan, arguments: Mapping[str, Any]
+    plan: _GovernedPlan | _CallablePlan,
+    arguments: Mapping[str, Any],
+    *,
+    tool_call_id: str | None = None,
 ) -> tuple[ToolAction, object, _ToolFacts]:
     """Snapshot the tool, decide about the snapshot, and hand it back to be executed.
 
@@ -1816,6 +1858,7 @@ def _governed_action(
     Args:
         plan: The wrapper's pinned identity and live seams.
         arguments: The named call arguments.
+        tool_call_id: The stable framework-injected call identity, when present.
 
     Returns:
         The normalized action, the governance context it was attributed to, and
@@ -1844,7 +1887,7 @@ def _governed_action(
         side_effect=plan.binding.side_effect,
         capability_refs=plan.binding.capability_refs,
         requires_approval=plan.binding.requires_approval,
-        tool_call_id=plan.seams.tool_call_id,
+        tool_call_id=plan.seams.tool_call_id if tool_call_id is None else tool_call_id,
     )
     if action.identity != plan.binding.identity:
         raise UnstableToolIdentityError("the governed tool binding is inconsistent")
@@ -1860,7 +1903,104 @@ def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
         "audit": seams.audit,
         "actor": seams.actor,
         "interrupt": seams.interrupt,
+        "approval_lifecycle": seams.approval_lifecycle,
     }
+
+
+def _edited_kwargs(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an ordinary named edit, refusing positional replay ambiguity."""
+    edited = dict(arguments)
+    if any(key.startswith("__arg") for key in edited):
+        raise ToolGovernanceError("edited positional tool arguments cannot be reissued safely")
+    return edited
+
+
+@dataclass(frozen=True, slots=True)
+class _PinnedToolInput:
+    """The frozen schema surface native LangChain validation needs."""
+
+    args_schema: Any
+
+    @property
+    def _injected_args_keys(self) -> frozenset[str]:
+        return frozenset()
+
+    def _parse_input(self, tool_input: Any, tool_call_id: str | None) -> Any:
+        return BaseTool._parse_input(self, tool_input, tool_call_id)  # type: ignore[arg-type]
+
+
+def _injected_tool_call_id(
+    plan: _GovernedPlan,
+    arguments: Mapping[str, Any],
+    outer_tool_call_id: str | None,
+) -> str | None:
+    """Reconcile native outer and schema-injected call identities."""
+    planned_tool_call_id = plan.seams.tool_call_id
+    if (
+        outer_tool_call_id is not None
+        and planned_tool_call_id is not None
+        and outer_tool_call_id != planned_tool_call_id
+    ):
+        raise ToolGovernanceError("trusted tool-call identities are inconsistent")
+    trusted_tool_call_id = (
+        planned_tool_call_id if outer_tool_call_id is None else outer_tool_call_id
+    )
+    schema = plan.facts.args_schema
+    if not isinstance(schema, type):
+        return trusted_tool_call_id
+    namespace = type.__dict__["__dict__"].__get__(schema)
+    fields = namespace.get("__pydantic_fields__")
+    if type(fields) is not dict:
+        return trusted_tool_call_id
+    names = []
+    for name, field in fields.items():
+        metadata = object.__getattribute__(field, "metadata")
+        if (
+            type(name) is str
+            and type(metadata) is list
+            and any(item is InjectedToolCallId for item in metadata)
+        ):
+            names.append(name)
+    if not names:
+        return trusted_tool_call_id
+    values = [arguments.get(name) for name in names]
+    if any(type(value) is not str for value in values):
+        raise ToolGovernanceError("injected tool-call identity is unavailable")
+    if any(value != values[0] for value in values[1:]):
+        raise ToolGovernanceError("injected tool-call identity is inconsistent")
+    value = values[0]
+    if normalize_identifier(value) != value:
+        raise ToolGovernanceError("injected tool-call identity is unavailable")
+    if trusted_tool_call_id is None:
+        raise ToolGovernanceError("injected tool-call identity requires a trusted full tool call")
+    if value != trusted_tool_call_id:
+        raise ToolGovernanceError("injected tool-call identity does not match the outer identity")
+    return value
+
+
+def _validated_base_tool_edit(
+    plan: _GovernedPlan,
+    action: ToolAction,
+    arguments: Mapping[str, Any],
+    body: Any,
+) -> _EffectiveCall:
+    """Validate one edit through LangChain while preserving injected arguments."""
+    target = _PinnedToolInput(plan.facts.args_schema)
+    edited = dict(arguments)
+    public_edit = BaseTool._filter_injected_args(target, edited)  # type: ignore[arg-type]
+    if public_edit.keys() != edited.keys():
+        raise ToolGovernanceError("approval cannot edit injected tool arguments")
+    original = dict(action.arguments)
+    original_public = BaseTool._filter_injected_args(target, original)  # type: ignore[arg-type]
+    injected = {key: value for key, value in original.items() if key not in original_public}
+    args, kwargs = BaseTool._to_args_and_kwargs(  # type: ignore[arg-type]
+        target,
+        {**edited, **injected},
+        action.tool_call_id,
+    )
+    if plan.facts.args_schema is None:
+        return _effective_call(body, args, kwargs)
+    return _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
 
 
 class GovernedTool(BaseTool):
@@ -1947,23 +2087,178 @@ class GovernedTool(BaseTool):
         """Report the governed tool's own input schema, not this wrapper's signature."""
         return self._plan().target.get_input_schema(config)
 
+    def _full_tool_call_id(self, tool_input: Any) -> str | None:
+        """Validate the complete native call envelope before trusting its id."""
+        if not isinstance(tool_input, dict) or dict.get(tool_input, "type") != "tool_call":
+            return None
+        call_id = dict.get(tool_input, "id")
+        if (
+            type(tool_input) is not dict
+            or dict.get(tool_input, "name") != self.name
+            or type(dict.get(tool_input, "args")) is not dict
+            or type(call_id) is not str
+            or normalize_identifier(call_id) != call_id
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        return call_id
+
+    @functools.wraps(BaseTool.invoke)
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """Seed call identity only from a validated native ``ToolCall``."""
+        tool_call_id = self._full_tool_call_id(input)
+        if tool_call_id is None:
+            return super().invoke(input, config, **kwargs)
+        token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
+        try:
+            return super().invoke(input, config, **kwargs)
+        finally:
+            _BASE_TOOL_CALL.reset(token)
+
+    @functools.wraps(BaseTool.ainvoke)
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """Seed async call identity only from a validated native ``ToolCall``."""
+        tool_call_id = self._full_tool_call_id(input)
+        if tool_call_id is None:
+            return await super().ainvoke(input, config, **kwargs)
+        token = _BASE_TOOL_CALL.set(_BaseToolCall(self, tool_call_id))
+        try:
+            return await super().ainvoke(input, config, **kwargs)
+        finally:
+            _BASE_TOOL_CALL.reset(token)
+
+    @functools.wraps(BaseTool.run)
+    def run(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Accept an id only from this invocation's validated call envelope."""
+        call = _BASE_TOOL_CALL.get()
+        if tool_call_id is not None and (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or call.entered
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        if tool_call_id is not None:
+            call.entered = True
+        return super().run(*args, tool_call_id=tool_call_id, **kwargs)
+
+    @functools.wraps(BaseTool.arun)
+    async def arun(self, *args: Any, tool_call_id: str | None = None, **kwargs: Any) -> Any:
+        """Accept an async id only from this invocation's validated call envelope."""
+        call = _BASE_TOOL_CALL.get()
+        if tool_call_id is not None and (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or call.entered
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        if tool_call_id is not None:
+            call.entered = True
+        return await super().arun(*args, tool_call_id=tool_call_id, **kwargs)
+
+    def _to_args_and_kwargs(
+        self, tool_input: Any, tool_call_id: str | None
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Arm the validated identity only after native input parsing succeeds."""
+        parsed = super()._to_args_and_kwargs(tool_input, tool_call_id)
+        if tool_call_id is None:
+            return parsed
+        call = _BASE_TOOL_CALL.get()
+        if (
+            call is None
+            or call.owner is not self
+            or call.tool_call_id != tool_call_id
+            or not call.entered
+            or call.parsed
+        ):
+            raise ToolGovernanceError("trusted tool-call identity requires a valid full tool call")
+        call.parsed = True
+        return parsed
+
+    def _claim_outer_tool_call_id(self) -> str | None:
+        """Claim this invocation's native identity once, never across nested calls."""
+        call = _BASE_TOOL_CALL.get()
+        if call is None or call.owner is not self or not call.parsed or call.claimed:
+            return None
+        call.claimed = True
+        return call.tool_call_id
+
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen sync body directly."""
+        outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
-        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
+        body, _ = _snapshot_body_with_state(plan.facts.snapshot, "func", "_run")
+        call = (
+            _effective_call(body, args, kwargs, preserve_input_shape=True)
+            if plan.facts.args_schema is None
+            else _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+        )
+        action, context, facts = _governed_action(
+            plan,
+            call.arguments,
+            tool_call_id=_injected_tool_call_id(plan, call.arguments, outer_tool_call_id),
+        )
+        edited_call: _EffectiveCall | None = None
+
+        def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal edited_call
+            edited_call = _validated_base_tool_edit(plan, action, edited, body)
+            return edited_call.arguments
+
+        def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+            if edited_call is None:
+                raise ToolGovernanceError("edited tool arguments were not prepared")
+            return execute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
+
         return guard_tool_call(
             action,
             context,
-            lambda: execute_snapshot(facts.snapshot, args, kwargs),
+            lambda: execute_snapshot(facts.snapshot, call.args, call.kwargs),
+            invoke_with_arguments=execute_edited,
+            prepare_edited_arguments=prepare_edited,
             **_enforcement_seams(plan),
         )
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """Govern this call, then execute its frozen async body directly."""
+        outer_tool_call_id = self._claim_outer_tool_call_id()
         plan = self._plan()
-        action, context, facts = _governed_action(plan, _call_arguments(args, kwargs))
-        authorize_tool_call(action, context, **_enforcement_seams(plan))
-        return await aexecute_snapshot(facts.snapshot, args, kwargs)
+        body, _ = _snapshot_body_with_state(plan.facts.snapshot, "coroutine", "_arun")
+        if body is None:
+            body, _ = _snapshot_body_with_state(plan.facts.snapshot, "func", "_run")
+        call = (
+            _effective_call(body, args, kwargs, preserve_input_shape=True)
+            if plan.facts.args_schema is None
+            else _EffectiveCall(_call_arguments(args, kwargs), args, kwargs)
+        )
+        action, context, facts = _governed_action(
+            plan,
+            call.arguments,
+            tool_call_id=_injected_tool_call_id(plan, call.arguments, outer_tool_call_id),
+        )
+        edited_call: _EffectiveCall | None = None
+
+        async def execute() -> Any:
+            return await aexecute_snapshot(facts.snapshot, call.args, call.kwargs)
+
+        def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal edited_call
+            edited_call = _validated_base_tool_edit(plan, action, edited, body)
+            return edited_call.arguments
+
+        async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+            if edited_call is None:
+                raise ToolGovernanceError("edited tool arguments were not prepared")
+            return await aexecute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
+
+        return await aguard_tool_call(
+            action,
+            context,
+            execute,
+            invoke_with_arguments=execute_edited,
+            prepare_edited_arguments=prepare_edited,
+            **_enforcement_seams(plan),
+        )
 
 
 def _govern_base_tool(target: BaseTool, facts: _ToolFacts, plan: _GovernedPlan) -> GovernedTool:
@@ -2002,12 +2297,31 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
     body = facts.body
+    edited_call: _EffectiveCall | None = None
 
     def execute() -> Any:
         refuse_state_cell_escalation(facts.state_cells)
         return body(*call.args, **call.kwargs)
 
-    return guard_tool_call(action, context, execute, **_enforcement_seams(plan))
+    def prepare_edited(arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+        nonlocal edited_call
+        edited_call = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        return edited_call.arguments
+
+    def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+        if edited_call is None:
+            raise ToolGovernanceError("edited callable arguments were not prepared")
+        refuse_state_cell_escalation(facts.state_cells)
+        return body(*edited_call.args, **edited_call.kwargs)
+
+    return guard_tool_call(
+        action,
+        context,
+        execute,
+        invoke_with_arguments=execute_edited,
+        prepare_edited_arguments=prepare_edited,
+        **_enforcement_seams(plan),
+    )
 
 
 async def _async_callable_call(
@@ -2017,9 +2331,31 @@ async def _async_callable_call(
     plan = _callable_plan(token)
     call = _effective_call(plan.source, args, kwargs)
     action, context, facts = _governed_action(plan, call.arguments)
-    authorize_tool_call(action, context, **_enforcement_seams(plan))
-    refuse_state_cell_escalation(facts.state_cells)
-    return await facts.body(*call.args, **call.kwargs)
+    edited_call: _EffectiveCall | None = None
+
+    async def execute() -> Any:
+        refuse_state_cell_escalation(facts.state_cells)
+        return await facts.body(*call.args, **call.kwargs)
+
+    def prepare_edited(arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+        nonlocal edited_call
+        edited_call = _effective_call(plan.source, (), _edited_kwargs(arguments))
+        return edited_call.arguments
+
+    async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
+        if edited_call is None:
+            raise ToolGovernanceError("edited callable arguments were not prepared")
+        refuse_state_cell_escalation(facts.state_cells)
+        return await facts.body(*edited_call.args, **edited_call.kwargs)
+
+    return await aguard_tool_call(
+        action,
+        context,
+        execute,
+        invoke_with_arguments=execute_edited,
+        prepare_edited_arguments=prepare_edited,
+        **_enforcement_seams(plan),
+    )
 
 
 def _sync_callable_wrapper(token: object) -> Any:
@@ -2173,6 +2509,7 @@ def govern_tools(
     audit: ToolAuditSubmitter | None = None,
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
+    approval_lifecycle: SQLiteApprovalRepository | None = None,
     side_effect: Callable[[Any], Any] | None = None,
     contract_ref: Callable[[Any], Any] | None = None,
     capability_refs: Callable[[Any], Any] | None = None,
@@ -2206,6 +2543,7 @@ def govern_tools(
             without recording.
         actor: The authenticated actor to attribute records to, when there is one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
+        approval_lifecycle: Durable approval storage used before an interrupt.
         side_effect: An optional per-tool classifier, reviewed when each wrapper
             is built and rechecked before every action. Only a
             real :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
@@ -2235,6 +2573,7 @@ def govern_tools(
         audit=audit,
         actor=actor,
         interrupt=interrupt,
+        approval_lifecycle=approval_lifecycle,
         side_effect=side_effect,
         contract_ref=contract_ref,
         capability_refs=capability_refs,
