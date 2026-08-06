@@ -36,6 +36,7 @@ import pytest
 
 from tests.integrations.langgraph.tools._hostile import HostileStr
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.langgraph import _tool_guard
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
@@ -266,31 +267,38 @@ async def test_async_authorization_keeps_the_event_loop_live_and_invokes_once() 
     assert result == "tool-result"
 
 
-async def test_async_policy_timeout_fails_closed_and_records_the_outage() -> None:
-    audit = RecordingSubmitter()
+async def test_async_policy_timeout_delivers_the_outage_on_the_event_loop(sqlite_db) -> None:
+    repository = AuditRepository(sqlite_db)
+    audit = AuditDeliveryQueue(repository, base_delay_seconds=0, max_delay_seconds=0)
     downstream_calls = 0
 
     async def downstream() -> None:
         nonlocal downstream_calls
         downstream_calls += 1
 
-    with pytest.raises(PolicyViolation):
-        await aguard_tool_call(
-            ACTION,
-            THREADED,
-            downstream,
-            client=TimeoutClient(),
-            audit=audit,
-            actor=ACTOR,
-        )
+    try:
+        with pytest.raises(PolicyViolation):
+            await aguard_tool_call(
+                ACTION,
+                THREADED,
+                downstream,
+                client=TimeoutClient(),
+                audit=audit,
+                actor=ACTOR,
+            )
+    finally:
+        report = await audit.aclose(timeout=2)
 
+    stored = await repository.list_by_run("run-1")
     assert downstream_calls == 0
-    assert len(audit.records) == 1
-    assert audit.records[0].execution_metadata == {
-        "decision": "deny",
-        "reason_code": "policy_unavailable",
-    }
-    assert audit.records[0].tool_calls[0].error == "policy_unavailable"
+    assert report.drained
+    assert report.undelivered_audit_ids == ()
+    assert report.counts.queued == 1
+    assert report.counts.delivered == 1
+    assert audit.pending == 0
+    assert len(stored) == 1
+    assert stored[0].execution_metadata["decision"] == "deny"
+    assert stored[0].execution_metadata["reason_code"] == "policy_unavailable"
 
 
 # --- R5: a denial raises before the body, which runs zero times ----------------
