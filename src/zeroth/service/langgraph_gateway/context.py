@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr, field_validator
 
-from zeroth.core.signing import SigningKeyProvider
+from zeroth.platform.signing import SigningKeyProvider
 
 _CONTEXT_TYPE = "ZEROTH-RUN-CONTEXT"
 _SCHEMA_VERSION = 1

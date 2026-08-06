@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
-from zeroth.core.runs import Run, RunHistoryEntry, RunStatus
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
@@ -41,6 +41,7 @@ from zeroth.runtime.parallel.models import (
     FanInResult,
     GlobalStepTracker,
 )
+from zeroth.runtime.runs import Run, RunHistoryEntry
 from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 

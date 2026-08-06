@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.4] - 2026-08-06
+
+### Changed
+
+- Convert every canonical source module to canonical imports, so no module
+  under the eight backend domains reaches a legacy `zeroth.core` path.
+- Reconcile the architecture exception table with the edges the conversion
+  exposed. The legacy republishers were laundering several real dependencies;
+  each exception now names the exact current importer and imported module.
+
+### Fixed
+
+- Define `InterruptExpiredError` in `zeroth.runtime.orchestration.interrupts`.
+  It was imported from `zeroth.core.governed.workflows.exceptions`, a module
+  that does not exist, so resolving an expired interrupt raised
+  `ModuleNotFoundError` instead of the intended error.
+
 ## [0.16.1.3] - 2026-08-06
 
 ### Changed

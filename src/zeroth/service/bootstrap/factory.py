@@ -588,7 +588,7 @@ async def bootstrap_service(
                 "LangGraph gateway requires an available provenance signer"
             )
         if budget_enforcer is None:
-            from zeroth.core.econ.budget import BudgetEnforcer
+            from zeroth.econ.analytics import BudgetEnforcer
 
             budget_enforcer = BudgetEnforcer(
                 regulus_base_url=settings.regulus.base_url,

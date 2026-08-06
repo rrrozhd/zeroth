@@ -14,7 +14,6 @@ import sys
 
 import pytest
 
-
 EXPORTS = (
     "AgentAuditSerializer",
     "AgentConfig",
@@ -119,23 +118,29 @@ def test_legacy_factory_still_republishes_the_service_wiring() -> None:
     assert build_runners_for_deployment is canonical_wiring
 
 
-def test_thread_store_reaches_persistence_only_through_the_legacy_republisher() -> None:
-    """The canonical thread store must not import zeroth.integrations directly."""
+def test_importing_the_thread_store_does_not_load_a_persistence_adapter() -> None:
+    """The runtime must not put a persistence adapter on its import path.
+
+    This used to be asserted syntactically -- the module was forbidden from
+    naming ``zeroth.integrations`` at all -- which only held because the legacy
+    ``zeroth.core.runs`` republisher laundered the edge. ZER-25 removed that
+    republisher, so the edge is now explicit and carries a documented
+    architecture exception.
+
+    The property worth protecting was never the spelling of the import; it was
+    that importing the thread store must not *execute* the adapter's module.
+    The concrete repositories are named under ``TYPE_CHECKING`` and constructed
+    inside a function, so a cold import still touches no persistence code --
+    which is what this asserts, and what a syntactic check never proved.
+    """
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import ast, pathlib, sys\n"
-            "import zeroth.runtime.agents.thread_store as mod\n"
-            "tree = ast.parse(pathlib.Path(mod.__file__).read_text())\n"
-            "names = []\n"
-            "for node in ast.walk(tree):\n"
-            "    if isinstance(node, ast.ImportFrom) and node.module:\n"
-            "        names.append(node.module)\n"
-            "    elif isinstance(node, ast.Import):\n"
-            "        names.extend(alias.name for alias in node.names)\n"
-            "bad = [n for n in names if n.startswith('zeroth.integrations')]\n"
-            "assert not bad, f'direct integrations imports: {bad}'\n",
+            "import sys\n"
+            "import zeroth.runtime.agents.thread_store  # noqa: F401\n"
+            "eager = [n for n in sys.modules if n.startswith('zeroth.integrations')]\n"
+            "assert not eager, f'persistence loaded eagerly: {eager}'\n",
         ],
         capture_output=True,
         text=True,

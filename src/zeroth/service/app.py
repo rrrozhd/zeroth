@@ -9,7 +9,6 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from zeroth.core.service.auth import AuthenticationError, record_service_denial
 from zeroth.platform.observability.correlation import (
     get_correlation_id,
     new_correlation_id,
@@ -18,6 +17,7 @@ from zeroth.platform.observability.correlation import (
 from zeroth.service.api.approval_api import register_approval_routes
 from zeroth.service.api.artifact_api import register_artifact_routes
 from zeroth.service.api.audit_api import register_audit_routes
+from zeroth.service.api.authentication import AuthenticationError, record_service_denial
 from zeroth.service.api.console_ui import console_cors_origins, mount_console
 from zeroth.service.api.contracts_api import register_contract_routes
 from zeroth.service.api.cost_api import register_cost_routes

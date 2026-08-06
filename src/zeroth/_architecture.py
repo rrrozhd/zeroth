@@ -112,6 +112,30 @@ def _exception_group(
 
 TEMPORARY_EXCEPTIONS = {
     **_exception_group(
+        ("zeroth.runtime.agents.thread_store", "zeroth.integrations.persistence.runs"),
+        ("zeroth.runtime.orchestration.run_worker", "zeroth.integrations.persistence.runs"),
+        reason=(
+            "The runtime names the concrete run and thread repositories it is "
+            "handed. Until ZER-25 these edges were laundered through "
+            "zeroth.core.runs, which the scanner classified as runtime, so they "
+            "never appeared. Converting the consumers to canonical imports "
+            "exposed the real dependency rather than creating it. "
+            "RuntimeOrchestrator already names its store through the "
+            "runtime-owned RunRepository protocol; thread_store additionally "
+            "*constructs* both repositories when none is injected, which needs a "
+            "factory seam rather than an annotation change."
+        ),
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: give the agent thread "
+            "store and the run worker an injected "
+            "repository factory so the runtime never constructs a persistence "
+            "adapter, then delete these two edges. Exposed by ZER-25, which "
+            "removed the legacy republisher that hid them; see "
+            "zeroth.runtime.orchestration.protocols for the same-named-protocol "
+            "seam the orchestrator already uses."
+        ),
+    ),
+    **_exception_group(
         ("zeroth.core.runs", "zeroth.integrations.persistence.runs"),
         reason=(
             "zeroth.core.runs:RunRepository and :ThreadRepository are protected "
@@ -128,6 +152,7 @@ TEMPORARY_EXCEPTIONS = {
     ),
     **_exception_group(
         ("zeroth.core.graph.validation", "zeroth.runtime.graph_validation"),
+        ("zeroth.contracts.graph.repository", "zeroth.runtime.graph_validation"),
         reason=(
             "zeroth.core.graph.validation is a compatibility re-export of the "
             "public GraphValidator, which composes contract validators with "
@@ -248,7 +273,8 @@ TEMPORARY_EXCEPTIONS = {
         ),
     ),
     **_exception_group(
-        ("zeroth.governance.approvals.service", "zeroth.core.runs"),
+        ("zeroth.governance.approvals.service", "zeroth.integrations.persistence.runs"),
+        ("zeroth.governance.approvals.service", "zeroth.runtime.runs"),
         reason=(
             "ApprovalService's pinned __init__ names RunRepository in the "
             "run_repository annotation, and the immutable legacy fixture pins "
@@ -267,7 +293,8 @@ TEMPORARY_EXCEPTIONS = {
         ),
     ),
     **_exception_group(
-        ("zeroth.governance.guardrails.dead_letter", "zeroth.core.runs"),
+        ("zeroth.governance.guardrails.dead_letter", "zeroth.integrations.persistence.runs"),
+        ("zeroth.governance.guardrails.dead_letter", "zeroth.runtime.runs"),
         reason=(
             "DeadLetterManager's pinned dataclass signature names RunRepository "
             "in the run_repository annotation, and the immutable legacy fixture "
@@ -307,7 +334,7 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.econ.analytics.adapter", "zeroth.runtime.agents.provider"),
         ("zeroth.econ.analytics.opportunities", "zeroth.governance.audit.models"),
         ("zeroth.econ.analytics.quality", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.quality", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.quality", "zeroth.runtime.runs"),
         (
             "zeroth.econ.analytics.rightsizing_experiment",
             "zeroth.runtime.agents.provider",
@@ -320,10 +347,9 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.eval.runner"),
         ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.eval.scorers"),
         ("zeroth.econ.analytics.unit_economics", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.unit_economics", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.unit_economics", "zeroth.runtime.runs"),
         ("zeroth.econ.analytics.waste", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.waste", "zeroth.core.runs"),
-        ("zeroth.econ.analytics.waste", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.waste", "zeroth.runtime.runs"),
         reason=(
             "Economics analytics read runs, audit records, provider adapters, and "
             "evaluation helpers directly; the reads move behind contract-owned "

@@ -20,10 +20,10 @@ from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityStatus,
     RouteDisposition,
 )
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.identity import AuthenticatedPrincipal
-from zeroth.core.observability.correlation import set_correlation_id
-from zeroth.core.service.auth import AuthenticationError, ServiceAuthenticator
+from zeroth.governance.identity import AuthenticatedPrincipal
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.observability import set_correlation_id
+from zeroth.service.api.authentication import AuthenticationError, ServiceAuthenticator
 from zeroth.service.langgraph_gateway.admission import (
     BudgetChecker,
     InputClassifier,
