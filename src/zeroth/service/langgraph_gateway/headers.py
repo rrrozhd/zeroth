@@ -7,8 +7,8 @@ from collections.abc import Iterable
 
 import httpx
 
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.secrets.provider import SecretProvider, resolve_secret_async
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.secrets import SecretProvider, resolve_secret_async
 
 RawHeader = tuple[bytes, bytes]
 

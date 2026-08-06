@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from zeroth.contracts.governed import RunStatus
-from zeroth.core.runs import RunFailureState
+from zeroth.runtime.runs import RunFailureState
 
 if TYPE_CHECKING:
-    from zeroth.core.runs import RunRepository
+    from zeroth.integrations.persistence.runs import RunRepository
 
 # The runs table's dead-letter failure reason, pinned locally (the
 # LeaseManager precedent) so the governance domain speaks the status

@@ -19,10 +19,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from zeroth.core.runs import RunFailureState, RunRepository, RunStatus
+from zeroth.contracts.governed import RunStatus
+from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
+from zeroth.runtime.runs import RunFailureState
 
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph
