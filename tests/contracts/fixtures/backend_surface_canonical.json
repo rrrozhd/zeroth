@@ -7761,79 +7761,79 @@
     },
     {
       "evidence": [
-        "__all__:zeroth.core.orchestrator",
+        "__all__:zeroth.runtime.orchestration",
         "docs:docs/reference/python-api/orchestrator.md",
-        "package_export:zeroth.core.orchestrator"
+        "package_export:zeroth.runtime.orchestration"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator:NodeDispatcherError"
       ],
-      "module": "zeroth.core.orchestrator",
+      "module": "zeroth.runtime.orchestration",
       "name": "NodeDispatcherError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.orchestrator",
+        "__all__:zeroth.runtime.orchestration",
         "docs:docs/reference/python-api/orchestrator.md",
-        "package_export:zeroth.core.orchestrator"
+        "package_export:zeroth.runtime.orchestration"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator:OrchestratorError"
       ],
-      "module": "zeroth.core.orchestrator",
+      "module": "zeroth.runtime.orchestration",
       "name": "OrchestratorError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "__all__:zeroth.core.orchestrator",
+        "__all__:zeroth.runtime.orchestration",
         "docs:docs/reference/python-api/orchestrator.md",
-        "package_export:zeroth.core.orchestrator"
+        "package_export:zeroth.runtime.orchestration"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator:RuntimeOrchestrator"
       ],
-      "module": "zeroth.core.orchestrator",
+      "module": "zeroth.runtime.orchestration",
       "name": "RuntimeOrchestrator",
       "signature": "(run_repository: 'RunRepository', agent_runners: 'Mapping[str, AgentRunner]', executable_unit_runner: 'ExecutableUnitRunner', audit_repository: 'AuditRepository | None' = None, policy_guard: 'PolicyGuard | None' = None, approval_service: 'ApprovalService | None' = None, secret_resolver: 'SecretResolver | None' = None, thread_resolver: 'RepositoryThreadResolver | None' = None, webhook_service: 'object | None' = None, regulus_client: 'object | None' = None, cost_estimator: 'object | None' = None, deployment_ref: 'str | None' = None, memory_resolver: 'object | None' = None, budget_enforcer: 'object | None' = None, per_run_cap_usd: 'float | None' = None, artifact_store: 'Any | None' = None, http_client: 'Any | None' = None, template_registry: 'Any | None' = None, template_renderer: 'Any | None' = None, context_window_enabled: 'bool' = True, parallel_executor: 'ParallelExecutor' = <zeroth.runtime.parallel.executor.ParallelExecutor object at 0x<address>>, branch_planner: 'NextStepPlanner' = <zeroth.contracts.conditions.branch.NextStepPlanner object at 0x<address>>, mapping_executor: 'MappingExecutor' = <zeroth.contracts.mappings.executor.MappingExecutor object at 0x<address>>, subgraph_executor: 'Any | None' = None, _back_edge_cache: 'dict' = <factory>, _scopes_cache: 'dict' = <factory>) -> None"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.orchestrator.runtime"
+        "package_export:zeroth.runtime.orchestration.orchestrator"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator.runtime:MemoryBindingResolutionError"
       ],
-      "module": "zeroth.core.orchestrator.runtime",
+      "module": "zeroth.runtime.orchestration.orchestrator",
       "name": "MemoryBindingResolutionError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.orchestrator.runtime"
+        "package_export:zeroth.runtime.orchestration.orchestrator"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator.runtime:NodeDispatcherError"
       ],
-      "module": "zeroth.core.orchestrator.runtime",
+      "module": "zeroth.runtime.orchestration.orchestrator",
       "name": "NodeDispatcherError",
       "signature": "<not-inspectable>"
     },
     {
       "evidence": [
-        "package_export:zeroth.core.orchestrator.runtime"
+        "package_export:zeroth.runtime.orchestration.orchestrator"
       ],
       "kind": "class",
       "legacy_ids": [
         "zeroth.core.orchestrator.runtime:OrchestratorError"
       ],
-      "module": "zeroth.core.orchestrator.runtime",
+      "module": "zeroth.runtime.orchestration.orchestrator",
       "name": "OrchestratorError",
       "signature": "<not-inspectable>"
     },

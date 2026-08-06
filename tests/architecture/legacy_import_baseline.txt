@@ -15,8 +15,6 @@ src/zeroth/core/cli.py
 src/zeroth/core/conditions/__init__.py
 src/zeroth/core/econ/__init__.py
 src/zeroth/core/governed/__init__.py
-src/zeroth/core/orchestrator/__init__.py
-src/zeroth/core/orchestrator/runtime.py
 src/zeroth/core/storage/__init__.py
 src/zeroth/econ/analytics/quality.py
 src/zeroth/econ/analytics/unit_economics.py
@@ -43,7 +41,6 @@ src/zeroth/service/api/contracts_api.py
 src/zeroth/service/api/econ_analytics_api.py
 src/zeroth/service/api/run_api.py
 src/zeroth/service/app.py
-src/zeroth/service/bootstrap/container.py
 src/zeroth/service/bootstrap/factory.py
 src/zeroth/service/entrypoint.py
 src/zeroth/service/langgraph_gateway/admission.py

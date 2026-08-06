@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph, GraphRepository
     from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
     from zeroth.contracts.registry import ContractRegistry
-    from zeroth.core.orchestrator import RuntimeOrchestrator
     from zeroth.econ.analytics.client import RegulusClient
     from zeroth.governance.approvals import ApprovalService
     from zeroth.governance.audit import AuditRepository
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
     from zeroth.platform.secrets import SecretProvider
     from zeroth.platform.signing import SigningKeyProvider
     from zeroth.platform.storage import AsyncDatabase
+    from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
     from zeroth.runtime.orchestration.run_worker import RunWorker
     from zeroth.service.api.authentication import (
         ServiceAuthConfig,

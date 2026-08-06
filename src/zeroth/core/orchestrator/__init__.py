@@ -1,15 +1,16 @@
-"""Orchestrator package for running agent graphs.
+"""Legacy import path for the orchestrator package.
 
-This package contains the RuntimeOrchestrator, which drives a graph of
-agent nodes from start to finish, handling branching, approvals, policy
-checks, and run state persistence along the way.
+The ``RuntimeOrchestrator`` and its errors now live in
+:mod:`zeroth.runtime.orchestration`. This package republishes exactly the names
+it published before ZER-25 relocated them; import from the canonical location
+instead (see docs/backend-import-migration.md).
 """
 
-from zeroth.core.orchestrator.runtime import (
+from zeroth.runtime.orchestration.errors import (
     NodeDispatcherError,
     OrchestratorError,
-    RuntimeOrchestrator,
 )
+from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 
 __all__ = [
     "NodeDispatcherError",

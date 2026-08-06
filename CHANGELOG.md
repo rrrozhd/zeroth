@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.0.3] - 2026-08-06
+
+### Changed
+
+- Define `RuntimeOrchestrator` in `zeroth.runtime.orchestration.orchestrator`
+  and export it lazily from `zeroth.runtime.orchestration`, so importing the
+  narrow runtime contracts no longer risks loading the orchestrator, the
+  service, or the persistence adapters.
+- Name the orchestrator's run store through a runtime-owned `RunRepository`
+  protocol instead of importing the concrete persistence adapter, keeping the
+  runtime's dependency direction while preserving the pinned signature.
+
 ## [0.16.1.0.2] - 2026-08-06
 
 ### Changed
