@@ -15,11 +15,11 @@ from zeroth.service.api.authentication import AuthenticationError, JWTBearerToke
 from zeroth.core.service.bootstrap import bootstrap_app
 
 
-def _bearer_auth_fixture() -> tuple[ServiceAuthConfig, object]:
+def _bearer_auth_fixture(*, kid: str = "test-key") -> tuple[ServiceAuthConfig, object]:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_key = private_key.public_key()
     jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(public_key))
-    jwk["kid"] = "test-key"
+    jwk["kid"] = kid
     config = ServiceAuthConfig(
         bearer=BearerTokenConfig(
             issuer="https://issuer.example.test",
@@ -30,21 +30,28 @@ def _bearer_auth_fixture() -> tuple[ServiceAuthConfig, object]:
     return config, private_key
 
 
-def _encode_token(private_key, **claims: object) -> str:
+def _encode_token(
+    private_key,
+    *,
+    include_exp: bool = True,
+    kid: str = "test-key",
+    **claims: object,
+) -> str:
     payload = {
         "sub": "reviewer-bearer",
         "roles": [ServiceRole.REVIEWER.value],
         "tenant_id": "default",
         "iss": "https://issuer.example.test",
         "aud": "zeroth-service",
-        "exp": int((datetime.now(UTC) + timedelta(minutes=5)).timestamp()),
-        **claims,
     }
+    if include_exp:
+        payload["exp"] = int((datetime.now(UTC) + timedelta(minutes=5)).timestamp())
+    payload.update(claims)
     return jwt.encode(
         payload,
         private_key,
         algorithm="RS256",
-        headers={"kid": "test-key"},
+        headers={"kid": kid},
     )
 
 
@@ -66,6 +73,51 @@ async def test_health_accepts_valid_bearer_token(sqlite_db) -> None:
         response = client.get("/health", headers=_token_headers(token))
 
     assert response.status_code == 200
+
+
+async def test_runs_rejects_bearer_token_without_expiry(sqlite_db) -> None:
+    auth_config, private_key = _bearer_auth_fixture()
+    token = _encode_token(private_key, include_exp=False)
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-bearer-missing-expiry"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/runs", headers=_token_headers(token))
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
+
+
+async def test_runs_rejects_expired_bearer_token(sqlite_db) -> None:
+    auth_config, private_key = _bearer_auth_fixture()
+    bad_token = _encode_token(
+        private_key,
+        exp=int((datetime.now(UTC) - timedelta(minutes=5)).timestamp()),
+    )
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-bearer-expired"),
+        auth_config=auth_config,
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/runs", headers=_token_headers(bad_token))
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "invalid bearer token"}
 
 
 async def test_health_bypasses_auth_even_with_bad_bearer_token(sqlite_db) -> None:
@@ -173,3 +225,16 @@ def test_unverified_platform_admin_claim_is_rejected() -> None:
 
     with pytest.raises(AuthenticationError, match="invalid bearer token"):
         JWTBearerTokenVerifier(auth_config.bearer).verify(token)  # type: ignore[arg-type]
+
+
+def test_bearer_key_rotation_accepts_replacement_and_rejects_retired_kid() -> None:
+    auth_config, replacement_key = _bearer_auth_fixture(kid="replacement-key")
+    verifier = JWTBearerTokenVerifier(auth_config.bearer)  # type: ignore[arg-type]
+
+    replacement = _encode_token(replacement_key, kid="replacement-key")
+    assert verifier.verify(replacement).subject == "reviewer-bearer"
+
+    retired_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    retired = _encode_token(retired_key, kid="retired-key")
+    with pytest.raises(AuthenticationError, match="invalid bearer token"):
+        verifier.verify(retired)
