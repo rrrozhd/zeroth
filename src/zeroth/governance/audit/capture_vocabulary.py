@@ -339,10 +339,7 @@ _DECISION_REASON_CODES: frozenset[str] = frozenset(
 )
 
 REASON_CODES: frozenset[str] = (
-    _ZEROTH_FAILURE_CODES
-    | _DENIAL_REASON_CODES
-    | _DECISION_REASON_CODES
-    | _builtin_failure_codes()
+    _ZEROTH_FAILURE_CODES | _DENIAL_REASON_CODES | _DECISION_REASON_CODES | _builtin_failure_codes()
 )
 
 # Every key the projection retains as readable text, with the closed set of

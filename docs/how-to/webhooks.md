@@ -12,7 +12,7 @@ verify signatures on the receiver, and how to replay dead-letters.
 ## Minimal example
 
 Register a subscription via the REST API (routes are mounted by
-`create_app` from `zeroth.core.service.webhook_api`):
+`create_app` from `zeroth.service.api.webhook_api`):
 
 ```bash
 curl -X POST https://zeroth.example.com/webhooks/subscriptions \

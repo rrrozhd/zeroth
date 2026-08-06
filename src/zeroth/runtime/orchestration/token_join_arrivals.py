@@ -187,9 +187,7 @@ def _settle_arrival(
                 child_ordinal=ordinal,
                 outcome=inherited_outcomes.get(fork_outcomes[source_id].outcome),
                 settled_revision=(
-                    revision
-                    if fork_outcomes[source_id].outcome in inherited_outcomes
-                    else None
+                    revision if fork_outcomes[source_id].outcome in inherited_outcomes else None
                 ),
             )
             for source_id, edge_id, ordinal in routes

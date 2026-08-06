@@ -53,7 +53,7 @@ Run Alembic before the first start:
 
 The `zeroth-core serve` console script runs migrations, bootstraps the
 service (including agent runners built from the deployment's graph), and
-serves uvicorn with TLS from `zeroth.core.service.entrypoint` — bootstrap
+serves uvicorn with TLS from `zeroth.service.entrypoint` — bootstrap
 and server share one event loop, which the durable run worker requires.
 Use it directly under systemd (`Type=simple`):
 
@@ -61,7 +61,7 @@ Use it directly under systemd (`Type=simple`):
 /opt/zeroth/venv/bin/zeroth-core serve --port 8000
 ```
 
-Do **not** serve `zeroth.core.service.entrypoint:app_factory` through
+Do **not** serve `zeroth.service.entrypoint:app_factory` through
 `uvicorn --factory`: uvicorn calls the factory inside its running event
 loop, where the bootstrap's `asyncio.run()` raises `RuntimeError`. For
 horizontal scale, run one `zeroth-core serve` process per port behind

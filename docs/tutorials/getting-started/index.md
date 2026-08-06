@@ -17,7 +17,7 @@ with a real human-in-the-loop approval gate resolved over HTTP.
    complete. This is the <5 minute gate.
 2. [**First graph**](02-first-graph.md) — build a minimal graph with one
    agent, one tool, and one LLM call using the
-   `zeroth.core.examples.quickstart` helper. Drive it to completion
+   `examples/quickstart.py` helper. Drive it to completion
    in-process via the `RuntimeOrchestrator` — the library-embedded path.
 3. [**Service mode & approval**](03-service-and-approval.md) — boot the
    same graph as a FastAPI service with a `HumanApprovalNode`, POST a

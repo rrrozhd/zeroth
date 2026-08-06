@@ -41,6 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coverage that tree actually has. The old 92.3% was measured over a
   shim-dominated package; the denominator changed, not the bar.
 
+### Documentation
+
+- Rewrite the maintained documentation to canonical imports, and record in the
+  migration guide that the legacy paths were removed in `0.17`. `CHANGELOG.md`
+  and the migration guide keep naming the old paths on purpose -- they are the
+  record a reader migrating off `0.16` needs.
+
+### Fixed
+
+- Bring `src/` into `ruff format` conformance. Eleven files predated the check
+  and would have failed the release gate.
+
 ## [0.16.1.8] - 2026-08-06
 
 ### Changed
