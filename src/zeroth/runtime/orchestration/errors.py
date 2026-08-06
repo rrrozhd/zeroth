@@ -1,10 +1,10 @@
 """Public exceptions raised by the orchestration runtime.
 
-These are protected legacy capabilities: ``zeroth.runtime.orchestration`` and
-``zeroth.runtime.orchestration`` re-export the same class objects, so both
-legacy import locations keep resolving. The definitions live here because the
-collaborators that raise them may not import the legacy facade — doing so would
-close an import cycle, since the facade imports the collaborators.
+These are protected capabilities, re-exported by
+:mod:`zeroth.runtime.orchestration`. The definitions live here rather than in
+that package because the collaborators that raise them may not import the
+facade — doing so would close an import cycle, since the facade imports the
+collaborators.
 
 This module imports nothing from ``zeroth``, so it is importable from any layer
 and in any order.

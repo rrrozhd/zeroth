@@ -18,6 +18,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.2] - 2026-08-06
+
+### Fixed
+
+- Replace the assertions the first fix round left vacuous with properties that
+  are actually load-bearing, each mutation-tested: the control plane's `ECP_`
+  environment prefix instead of re-importing a cached module, and "every zeroth
+  module the extras gate names must exist" instead of the absence of one
+  hard-coded name.
+- Correct public docstrings that a blanket rewrite made legacy-free but false —
+  the governed package described itself as retired, the gateway package claimed
+  to republish its own objects, and analytics cited a module that does not
+  exist.
+- Walk the three canonical gateway packages in the domain-classification test.
+  It iterated the deleted `zeroth/core/langgraph_gateway` directory, so it
+  passed by checking nothing.
+
+### Changed
+
+- Rewrite the vacuity guard against sibling statements instead of line
+  distance, and drop its whole-file suppressions. It now catches keyword-form
+  empty parametrization, `x == x`, and duplicates separated by a blank line,
+  while correctly allowing `f() == f()` and assert-mutate-assert. The
+  assertion-free-body rule is deliberately absent: 46 existing tests would trip
+  it and every one sampled asserts for real in a way no static rule sees.
+
 ## [0.17.0.1] - 2026-08-06
 
 ### Fixed

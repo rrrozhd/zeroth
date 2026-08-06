@@ -19,13 +19,17 @@ _EXPORTS = {
     "service_lifespan": "zeroth.service.bootstrap.lifecycle",
 }
 
+# The ``# noqa: F822`` markers below are for the commit gate, which lints a copy
+# of the staged file outside the package tree. Without that context Ruff cannot
+# see that ``__getattr__`` resolves these names, so it reports them as undefined.
+# In-tree ``ruff check`` passes without them.
 __all__ = [
-    "DeploymentBootstrapError",  # noqa: F822 - resolved lazily by __getattr__
-    "ServiceBootstrap",  # noqa: F822 - resolved lazily by __getattr__
-    "bootstrap_app",  # noqa: F822 - resolved lazily by __getattr__
-    "bootstrap_service",  # noqa: F822 - resolved lazily by __getattr__
-    "run_migrations",  # noqa: F822 - resolved lazily by __getattr__
-    "service_lifespan",  # noqa: F822 - resolved lazily by __getattr__
+    "DeploymentBootstrapError",  # noqa: F822
+    "ServiceBootstrap",  # noqa: F822
+    "bootstrap_app",  # noqa: F822
+    "bootstrap_service",  # noqa: F822
+    "run_migrations",  # noqa: F822
+    "service_lifespan",  # noqa: F822
 ]
 
 
