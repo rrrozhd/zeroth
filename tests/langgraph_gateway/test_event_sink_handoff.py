@@ -7,7 +7,7 @@ logging one full traceback per event on the response-completion path.
 
 The guard used to be narrow enough to be decorative. It caught ``ValueError``
 from ``submit`` -- the one exception the *production* stage raises -- while the
-submitter is a :class:`~zeroth.core.langgraph_gateway.events.AuditRecordSubmitter`
+submitter is a :class:`~zeroth.governance.langgraph_gateway.events.AuditRecordSubmitter`
 that any implementation may satisfy. A supported injected submitter raising
 ``RuntimeError`` escaped straight through, carrying its own message into a
 traceback; so did a ``reject`` that failed while accounting for the first
@@ -21,8 +21,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     GatewayCorrelation,
     GatewayEvent,
     GatewayEventStatus,
@@ -31,6 +30,7 @@ from zeroth.core.langgraph_gateway.models import (
 )
 from zeroth.governance.audit.delivery import DeliveryRejection
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
 
 SUBMITTER_SECRET = "sk-proj-REFUSAL-MESSAGE-PROBE"
 
@@ -135,7 +135,7 @@ async def test_an_accounting_call_that_also_fails_still_never_reaches_the_produc
     delivery = _RaisingSubmitter(reject_raises=RuntimeError(f"reject holding {SUBMITTER_SECRET}"))
     sink = _sink(delivery)
 
-    with caplog.at_level(logging.ERROR, logger="zeroth.core.langgraph_gateway.events"):
+    with caplog.at_level(logging.ERROR, logger="zeroth.governance.langgraph_gateway.events"):
         await sink.emit(_event())
 
     emitted = _messages(caplog)
@@ -156,7 +156,7 @@ async def test_a_projection_failure_survives_an_accounting_call_that_raises(capl
         _RecordingRepository(), actor_for=_exploding_actor, delivery=delivery
     )
 
-    with caplog.at_level(logging.ERROR, logger="zeroth.core.langgraph_gateway.events"):
+    with caplog.at_level(logging.ERROR, logger="zeroth.governance.langgraph_gateway.events"):
         await sink.emit(_event())
 
     [(_audit_id, reason)] = delivery.rejections

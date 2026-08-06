@@ -22,8 +22,7 @@ from typing import Any
 
 import pytest
 
-from zeroth.core.langgraph_gateway.capabilities import CapabilityReporter
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.governance.attestations import (
     InventoryRegistration,
     InventoryRegistrationRepository,
@@ -38,6 +37,7 @@ from zeroth.governance.attestations.inventory import (
     recompute_inventory_fingerprint,
 )
 from zeroth.governance.attestations.versions import ADAPTER_VERSION
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.platform.signing import EnvHmacSigner
 
 TENANT = "tenant-alpha"

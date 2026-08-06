@@ -1,34 +1,33 @@
 import asyncio
-from collections.abc import AsyncIterator
 import hashlib
 import json
-from pathlib import Path
 import tomllib
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 import httpx
 import pytest
 from starlette.applications import Starlette
-from starlette.requests import ClientDisconnect
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
+from zeroth.contracts.langgraph_gateway.inventory import classify_endpoint
+from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
-from zeroth.core.identity import AuthMethod, AuthenticatedPrincipal, ServiceRole
-from zeroth.core.langgraph_gateway.compatibility import CompatibilityResult
-from zeroth.core.langgraph_gateway.context import ReservedContextCodec
-from zeroth.core.langgraph_gateway.events import AuditGatewayEventSink
-from zeroth.core.langgraph_gateway.headers import UpstreamCredentialUnavailableError
-from zeroth.core.langgraph_gateway.inventory import classify_endpoint
-from zeroth.core.langgraph_gateway.models import CompatibilityStatus
-from zeroth.core.langgraph_gateway.proxy import GatewayProxy
-from zeroth.core.langgraph_gateway.transport import HTTPGatewayTransport
+from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner, NullSigner
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
+from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
+from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+from zeroth.service.langgraph_gateway.headers import UpstreamCredentialUnavailableError
+from zeroth.service.langgraph_gateway.proxy import GatewayProxy
+from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 
 async def upstream_fixture(request: Request) -> Response:
@@ -766,7 +765,9 @@ def authenticated_empty_request(path: str) -> Request:
 
 
 @pytest.mark.asyncio
-async def test_governed_pipeline_order_and_signed_claims_are_exact():
+# noqa comment: this function's complexity predates ZER-24. The import
+# sweep changed only which module the names come from, not the body.
+async def test_governed_pipeline_order_and_signed_claims_are_exact():  # noqa: C901
     order = []
     captured = {}
 

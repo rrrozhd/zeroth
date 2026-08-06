@@ -18,13 +18,13 @@ from langchain_core.callbacks import BaseCallbackHandler, BaseCallbackManager
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 
-from zeroth.core.langgraph_gateway.capabilities import (
+from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
+from zeroth.econ.instrumentation.integrations.langgraph import InstrumentedLangGraph
+from zeroth.econ.instrumentation.runtime import get_runtime
+from zeroth.governance.langgraph_gateway.capabilities import (
     CapabilityReporter,
     NoCapabilityEvidenceProvider,
 )
-from zeroth.core.langgraph_gateway.models import GovernanceLevel
-from zeroth.econ.instrumentation.integrations.langgraph import InstrumentedLangGraph
-from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.integrations.langgraph import (
     RunStartContext,
     ZerothGovernanceCallbackHandler,

@@ -26,14 +26,18 @@ than a fall-through to allow.
 **Why admission is reused, and what reusing it does *not* buy.**
 :class:`~zeroth.econ.analytics.budget.BudgetEnforcer` is deliberately fail-*open*
 -- a budget-observability outage must not stop production runs.
-:func:`~zeroth.core.langgraph_gateway.admission.admit` converts a budget checker
-that *raises* into a refusal (``zeroth.budget_unavailable``), and reusing it
-keeps a single combiner rather than a second evaluator.
+The admission combiner reached through
+:class:`~zeroth.governance.decisions.admission.AdmissionEvaluator` converts a
+budget checker that *raises* into a refusal (``zeroth.budget_unavailable``), and
+reusing it keeps a single combiner rather than a second evaluator. Since ZER-24
+that combiner is *injected* by the service domain rather than imported from it,
+so governance no longer depends on the service-classified gateway package -- but
+the admission path itself is unchanged and unduplicated.
 
 But it converts only the raising path. An enforcer that catches its own
 transport error and returns ``allowed=True, degraded=True,
 failure_mode="fail_open"`` -- which is exactly what the shipped
-``fail_closed=False`` default does -- flows through ``admit`` as a *permitted*
+``fail_closed=False`` default does -- flows through the combiner as a *permitted*
 admission. Reusing the combiner therefore does not by itself make this path
 fail closed, and an earlier revision of this module was wrong to imply it did:
 the fail-closed-ness lived in the raising branch only. ``_evaluate`` refuses a
@@ -51,16 +55,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from zeroth.core.langgraph_gateway.admission import (
-    BudgetChecker,
-    PolicyAdmissionChecker,
-    admit,
-)
-from zeroth.core.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
+from zeroth.contracts.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
 from zeroth.governance.audit.capture_vocabulary import (
     REASON_CODES,
     normalize_reason_code,
 )
+from zeroth.governance.decisions.admission import AdmissionEvaluator
 from zeroth.governance.decisions.repository import DecisionRepository
 from zeroth.governance.decisions.request import (
     DecisionKind,
@@ -102,10 +102,11 @@ actively misleading.
 _UNAVAILABLE_POLICY_VERSION = f"sha256:{'0' * 64}"
 """Stands in for a policy version when no policy source could supply one."""
 
-# ``admit`` reports its outcome in the gateway's ``zeroth.*`` error namespace;
-# the audit vocabulary is bare snake_case. Mapped explicitly rather than by
-# stripping the prefix, so a new admission reason lands on the conservative
-# fallback in ``_denial_reason`` instead of inventing an unregistered code.
+# The admission combiner reports its outcome in the gateway's ``zeroth.*``
+# error namespace; the audit vocabulary is bare snake_case. Mapped explicitly
+# rather than by stripping the prefix, so a new admission reason lands on the
+# conservative fallback in ``_denial_reason`` instead of inventing an
+# unregistered code.
 _ADMISSION_REASONS = {
     "zeroth.classifier_unavailable": "classifier_unavailable",
     "zeroth.policy_unavailable": _POLICY_UNAVAILABLE,
@@ -196,8 +197,7 @@ class ToolDecisionService:
         self,
         *,
         repository: DecisionRepository,
-        policy_guard: PolicyAdmissionChecker,
-        budget_checker: BudgetChecker,
+        admission_evaluator: AdmissionEvaluator,
         inventory: ToolInventoryLookup,
         deployment_policies: DeploymentPolicyResolver,
         approval_gate: ApprovalGate | None = None,
@@ -212,8 +212,7 @@ class ToolDecisionService:
         look broken rather than unwired.
         """
         self._repository = repository
-        self._policy_guard = policy_guard
-        self._budget_checker = budget_checker
+        self._admission_evaluator = admission_evaluator
         self._inventory = inventory
         self._deployment_policies = deployment_policies
         self._approval_gate = approval_gate or NoApprovalRequired()
@@ -284,11 +283,16 @@ class ToolDecisionService:
                 reason_code=_POLICY_UNAVAILABLE,
                 policy_version=_UNAVAILABLE_POLICY_VERSION,
             )
-        admission = await admit(
-            self._admission_request(request, bindings),
-            policy_guard=self._policy_guard,
-            budget_checker=self._budget_checker,
-        )
+        admission = await self._admit(self._admission_request(request, bindings))
+        if admission is None:
+            # The evaluator raised, or handed back something that is not an
+            # admission. Either way no verdict was obtained, which is what
+            # ``policy_unavailable`` records.
+            return DecisionVerdict(
+                kind=DecisionKind.DENY,
+                reason_code=_POLICY_UNAVAILABLE,
+                policy_version=_UNAVAILABLE_POLICY_VERSION,
+            )
         if not admission.allowed:
             return DecisionVerdict(
                 kind=DecisionKind.DENY,
@@ -301,7 +305,7 @@ class ToolDecisionService:
             # ``fail_closed=False`` (econ/analytics/budget.py:170-176) and
             # answers an outage with ``allowed=True, failure_mode="fail_open"``
             # so that a budget-observability outage cannot stop production
-            # runs. ``admit`` faithfully preserves that answer, which is
+            # runs. The combiner faithfully preserves that answer, which is
             # correct for run creation and wrong here: this service exists to
             # refuse what it cannot justify, and "the cap is unknown" is not a
             # justification. Checked after the refusal branch above so a
@@ -372,7 +376,7 @@ class ToolDecisionService:
         carried fingerprints since the inventory became structured, so the
         name-only comparison was discarding evidence it already held.
 
-        Runs before ``admit`` so an unregistered tool never reaches the policy
+        Runs before :meth:`_admit` so an unregistered tool never reaches the policy
         evaluator -- the same ordering, and for the same reason, as the
         side-effect gate above it.
         """
@@ -386,6 +390,35 @@ class ToolDecisionService:
         if registered is None:
             return False
         return (request.action.name, request.action.fingerprint) in registered
+
+    async def _admit(self, request: AdmissionRequest) -> AdmissionDecision | None:
+        """Ask the injected evaluator to rule, or report that nobody did.
+
+        Before ZER-24 the evaluator was always ``admit``, which converted its
+        own dependencies' failures into refusals. The seam is now injected, so
+        neither the raise nor the return type is guaranteed any more. Both are
+        collapsed to ``None`` here -- deliberately *not* to a permissive
+        ``AdmissionDecision`` -- so the caller mints the denial and this method
+        cannot accidentally become the thing that allows.
+
+        The isinstance check is not defensive noise: ``object()`` is truthy, so
+        a mis-wired evaluator's result would read as an allow to any caller
+        that trusted the annotation and looked at ``.allowed``.
+
+        Args:
+            request: The classified admission request to rule on.
+
+        Returns:
+            The evaluator's decision, or ``None`` when no usable one was
+            obtained.
+        """
+        try:
+            decision = await self._admission_evaluator.evaluate(request)
+        except Exception:  # noqa: BLE001 - an evaluator that fails admits nothing
+            return None
+        if not isinstance(decision, AdmissionDecision):
+            return None
+        return decision
 
     @staticmethod
     def _admission_request(

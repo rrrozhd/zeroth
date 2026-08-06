@@ -45,7 +45,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from zeroth.core.langgraph_gateway.models import (
+from zeroth.contracts.langgraph_gateway.models import (
     GovernanceLevel,
     RunCapabilityEvidence,
 )

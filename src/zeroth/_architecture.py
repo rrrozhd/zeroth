@@ -304,52 +304,6 @@ TEMPORARY_EXCEPTIONS = {
         ),
     ),
     **_exception_group(
-        ("zeroth.governance.decisions.service", "zeroth.core.langgraph_gateway.admission"),
-        reason=(
-            "DecisionService reuses the admission orchestrator that ships inside "
-            "the service-classified langgraph_gateway package to evaluate "
-            "governance decisions against the same admission path the gateway "
-            "runs at request time, but governance may only depend on contracts "
-            "and platform."
-        ),
-        removal_task=(
-            "Task ZER-24 (gateway relocation, Phase B): relocation alone does "
-            "not clear this exception, because the adopted layout moves "
-            "admission.py to zeroth.service.langgraph_gateway, keeping it "
-            "service-owned. The exception is removable only once admission "
-            "grows a governance-importable seam in a domain governance may "
-            "depend on (contracts or platform), or governance gets its own "
-            "decision-admission surface, with "
-            "zeroth.governance.decisions.service redirected to that seam or "
-            "surface instead of importing the service-owned orchestrator."
-        ),
-    ),
-    **_exception_group(
-        (
-            "zeroth.integrations.langgraph._gateway_client",
-            "zeroth.core.langgraph_gateway.enforcement",
-        ),
-        reason=(
-            "The LangGraph integration client reuses the enforcement evidence "
-            "and decision surface that ships inside the service-classified "
-            "langgraph_gateway package so the client and the gateway speak one "
-            "wire contract, but integrations may depend on contracts, econ, "
-            "governance, platform, and runtime, never on service."
-        ),
-        removal_task=(
-            "Task ZER-24 (gateway relocation, Phase B): enforcement.py "
-            "postdates the ZER-23 mapping table, so its canonical home is "
-            "explicitly a ZER-24 decision. Relocation alone does not clear this "
-            "exception, because moving enforcement.py to "
-            "zeroth.service.langgraph_gateway keeps it service-owned and leaves "
-            "the edge forbidden. The exception is removable only once "
-            "relocation assigns enforcement a canonical home in a domain "
-            "integrations may import, or extracts a contracts-level enforcement "
-            "surface, with zeroth.integrations.langgraph._gateway_client "
-            "redirected to that home or surface."
-        ),
-    ),
-    **_exception_group(
         ("zeroth.econ.analytics.adapter", "zeroth.runtime.agents.provider"),
         ("zeroth.econ.analytics.opportunities", "zeroth.governance.audit.models"),
         ("zeroth.econ.analytics.quality", "zeroth.governance.audit.models"),
