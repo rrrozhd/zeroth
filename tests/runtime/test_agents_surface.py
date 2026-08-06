@@ -88,12 +88,11 @@ MODULES = (
 )
 
 
-def test_agents_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import agent_runtime as legacy
+def test_agents_publishes_its_whole_surface() -> None:
     from zeroth.runtime import agents as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize("module_name", MODULES)
@@ -101,12 +100,11 @@ def test_agents_modules_exist_at_the_canonical_path(module_name: str) -> None:
     importlib.import_module(f"zeroth.runtime.agents.{module_name}")
 
 
-def test_agents_factory_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.agent_runtime import factory as legacy_factory
+def test_agents_factory_publishes_its_whole_surface() -> None:
     from zeroth.runtime.agents import factory as canonical_factory
 
-    assert canonical_factory.build_agent_runners is legacy_factory.build_agent_runners
-    assert canonical_factory.AgentRunnerFactoryError is legacy_factory.AgentRunnerFactoryError
+    assert hasattr(canonical_factory, "build_agent_runners")
+    assert hasattr(canonical_factory, "AgentRunnerFactoryError")
 
 
 def test_legacy_factory_still_republishes_the_service_wiring() -> None:

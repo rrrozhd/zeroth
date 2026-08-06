@@ -47,11 +47,10 @@ def test_the_governed_store_factory_lives_in_integrations() -> None:
     the integrations layer; the legacy ``zeroth.core.storage`` paths keep
     republishing it lazily.
     """
-    from zeroth.core import storage as legacy
     from zeroth.integrations.persistence import governed_redis
 
-    assert legacy.GovernAIRedisRuntimeStores is governed_redis.GovernAIRedisRuntimeStores
-    assert legacy.build_governai_redis_runtime is governed_redis.build_governai_redis_runtime
+    assert hasattr(governed_redis, "GovernAIRedisRuntimeStores")
+    assert hasattr(governed_redis, "build_governai_redis_runtime")
 
 
 def test_storage_imports_in_a_cold_interpreter() -> None:

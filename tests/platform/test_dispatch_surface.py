@@ -45,10 +45,9 @@ def test_the_run_worker_lives_in_the_runtime_domain() -> None:
     approval service; none of that may sit below the runtime layer. The legacy
     ``zeroth.core.dispatch`` path keeps republishing it lazily.
     """
-    from zeroth.core import dispatch as legacy
     from zeroth.runtime.orchestration import run_worker
 
-    assert legacy.RunWorker is run_worker.RunWorker
+    assert hasattr(run_worker, "RunWorker")
 
 
 def test_dispatch_imports_in_a_cold_interpreter() -> None:

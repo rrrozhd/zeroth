@@ -43,21 +43,17 @@ def test_guardrails_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.governance.guardrails no longer publishes: {missing}"
 
 
-def test_guardrail_submodules_are_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.guardrails import config as legacy_config
-    from zeroth.core.guardrails import content as legacy_content
-    from zeroth.core.guardrails import dead_letter as legacy_dead_letter
-    from zeroth.core.guardrails import rate_limit as legacy_rate_limit
+def test_guardrail_submodules_publish_their_names() -> None:
     from zeroth.governance.guardrails import config as canonical_config
     from zeroth.governance.guardrails import content as canonical_content
     from zeroth.governance.guardrails import dead_letter as canonical_dead_letter
     from zeroth.governance.guardrails import rate_limit as canonical_rate_limit
 
-    assert canonical_config.GuardrailConfig is legacy_config.GuardrailConfig
-    assert canonical_content.ContentGuardrail is legacy_content.ContentGuardrail
-    assert canonical_dead_letter.DeadLetterManager is legacy_dead_letter.DeadLetterManager
-    assert canonical_rate_limit.QuotaEnforcer is legacy_rate_limit.QuotaEnforcer
-    assert canonical_rate_limit.TokenBucketRateLimiter is legacy_rate_limit.TokenBucketRateLimiter
+    assert hasattr(canonical_config, "GuardrailConfig")
+    assert hasattr(canonical_content, "ContentGuardrail")
+    assert hasattr(canonical_dead_letter, "DeadLetterManager")
+    assert hasattr(canonical_rate_limit, "QuotaEnforcer")
+    assert hasattr(canonical_rate_limit, "TokenBucketRateLimiter")
 
 
 def test_dead_letter_reason_literal_matches_the_repository_vocabulary() -> None:

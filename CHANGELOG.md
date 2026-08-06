@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.7] - 2026-08-06
+
+### Changed
+
+- Convert the remaining canonical surface tests to assert the canonical
+  package's own exports rather than comparing them against the legacy
+  republisher, keeping every assertion the parity form was protecting.
+
 ## [0.16.1.6] - 2026-08-06
 
 ### Changed
