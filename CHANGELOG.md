@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.1] - 2026-08-06
+
+### Fixed
+
+- Require an exact allowlisted Agent Server OpenAPI fingerprint before proxying
+  and reject unavailable compatibility evidence.
+- Compare recorded model, retry, disconnect, and graph outcomes through stable
+  escaped paths, and pin the tested LangChain compatibility version in CI.
+
 ## [0.16.1] - 2026-08-06
 
 ### Added

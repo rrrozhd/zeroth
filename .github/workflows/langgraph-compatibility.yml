@@ -9,12 +9,15 @@ permissions:
 
 jobs:
   conformance:
-    name: "LangGraph ${{ matrix.langgraph }} / Agent Server ${{ matrix.langgraph_api }}"
+    name: >-
+      LangChain ${{ matrix.langchain }} / LangGraph ${{ matrix.langgraph }} /
+      Agent Server ${{ matrix.langgraph_api }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - langgraph: "1.2.9"
+          - langchain: "1.3.14"
+            langgraph: "1.2.9"
             langgraph_api: "0.11.1"
             langgraph_sdk: "0.4.2"
 
@@ -34,6 +37,7 @@ jobs:
         run: >-
           uv run --frozen --group gateway-conformance python -c
           "from importlib.metadata import version;
+          assert version('langchain') == '${{ matrix.langchain }}';
           assert version('langgraph') == '${{ matrix.langgraph }}';
           assert version('langgraph-api') == '${{ matrix.langgraph_api }}';
           assert version('langgraph-sdk') == '${{ matrix.langgraph_sdk }}'"
