@@ -117,9 +117,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             thread_id=thread_id,
             current_node_ids=[],
             pending_node_ids=(
-                []
-                if token_engine_enabled(graph.execution_settings)
-                else [_entry_step(graph)]
+                [] if token_engine_enabled(graph.execution_settings) else [_entry_step(graph)]
             ),
             metadata=_initial_metadata(graph, validated_input),
         )

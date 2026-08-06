@@ -31,7 +31,6 @@ ALLOWED_DEPENDENCIES = {
 }
 
 
-
 @dataclass(frozen=True)
 class DependencyViolation:
     """A disallowed import between two classified backend domains."""

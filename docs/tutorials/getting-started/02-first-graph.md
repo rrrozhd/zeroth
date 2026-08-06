@@ -14,14 +14,14 @@ code.
 
 ## The quickstart helper
 
-The `zeroth.core.examples.quickstart` module ships a tiny helper
+The `examples/quickstart.py` module in the repository ships a tiny helper
 `build_demo_graph()` that returns a two-node linear graph — one agent,
 one tool — so you can skip the 80 lines of graph assembly and focus on
 the run surface.
 
 !!! warning "Tutorial helper, not a stable API"
 
-    `zeroth.core.examples.quickstart` is a **tutorial helper only**. It
+    `examples/quickstart.py` is a **tutorial helper only**. It
     is not a stable public API and may change without a deprecation
     cycle. For real graph authoring, build your graph with the public
     `zeroth.contracts.graph` models directly.

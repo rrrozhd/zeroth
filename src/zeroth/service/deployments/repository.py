@@ -281,9 +281,7 @@ class SQLiteDeploymentRepository:
             graph_version_ref=row["graph_version_ref"],
             serialized_graph=row["serialized_graph"],
             engine_mode=DeploymentEngineMode(_row_get(row, "engine_mode") or "legacy"),
-            attestation_payload_version=int(
-                _row_get(row, "attestation_payload_version") or 1
-            ),
+            attestation_payload_version=int(_row_get(row, "attestation_payload_version") or 1),
             entry_input_contract_ref=row["entry_input_contract_ref"],
             entry_input_contract_version=row["entry_input_contract_version"],
             entry_output_contract_ref=row["entry_output_contract_ref"],

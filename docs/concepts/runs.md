@@ -18,10 +18,10 @@ The [orchestrator](orchestrator.md) produces and advances runs — every node th
 
 ## Key types
 
-All of these live under `zeroth.core.runs`:
+All of these live under `zeroth.runtime.runs`:
 
 - **`Run`** — the full Pydantic model of a single execution, including its status, thread ID, and history.
-- **`RunStatus`** — the enum of lifecycle states (from the vendored `zeroth.core.governed` runtime).
+- **`RunStatus`** — the enum of lifecycle states (from the vendored `zeroth.contracts.governed` runtime).
 - **`RunHistoryEntry`** — one node execution: node ID, status, input/output snapshots, timing.
 - **`RunConditionResult`** — a recorded conditional-edge decision.
 - **`RunFailureState`** — structured failure detail when a run fails.

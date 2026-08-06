@@ -101,8 +101,7 @@ def _settle_boundary_delivery_cohort(
         child = next(
             item
             for item in settled.tokens
-            if item.parent_token_id == parent_token_id
-            and item.causal_inbound_edge_id == edge_id
+            if item.parent_token_id == parent_token_id and item.causal_inbound_edge_id == edge_id
         )
         settled = settle_loop_member(
             settled,

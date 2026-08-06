@@ -145,9 +145,9 @@ For deeper reading, see the subsystem concept pages under
 subsystem is:
 
 - **Approvals** — `zeroth.governance.approvals.service.ApprovalService`
-  and `zeroth.core.service.approval_api`.
+  and `zeroth.service.api.approval_api`.
 - **Audit** — `zeroth.governance.audit.models.NodeAuditRecord` and
-  `zeroth.core.service.audit_api`.
+  `zeroth.service.api.audit_api`.
 - **Policy** — `zeroth.governance.policy.models.PolicyDefinition`,
   `zeroth.governance.policy.guard.PolicyGuard`, and
   `zeroth.governance.policy.registry`.

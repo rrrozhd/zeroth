@@ -54,12 +54,8 @@ ROUTES: tuple[RegulusRoute, ...] = (
     _get("regulus_evaluations_history", "/evaluations/{capability_id}/history"),
     _get("regulus_enforcement_actions", "/enforcement/actions"),
     _get("regulus_enforcement_policy_actions", "/enforcement/policy-actions"),
-    RegulusRoute(
-        "regulus_enforcement_approve", "POST", "/enforcement/actions/{action_id}/approve"
-    ),
-    RegulusRoute(
-        "regulus_enforcement_reject", "POST", "/enforcement/actions/{action_id}/reject"
-    ),
+    RegulusRoute("regulus_enforcement_approve", "POST", "/enforcement/actions/{action_id}/approve"),
+    RegulusRoute("regulus_enforcement_reject", "POST", "/enforcement/actions/{action_id}/reject"),
     _get("regulus_costing_profile", "/costing/profiles/{profile_id}"),
     _get("regulus_costing_estimate", "/costing/estimates/{capability_id}/latest"),
     _get("regulus_performance_summary", "/performance/summary"),
