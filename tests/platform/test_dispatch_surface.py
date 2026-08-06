@@ -70,5 +70,16 @@ def test_dispatch_extra_smoke_uses_the_canonical_packaged_surface() -> None:
     """The wheel gate must follow dispatch moves and exercise its dependencies."""
     workflow = (REPO_ROOT / ".github/workflows/verify-extras.yml").read_text(encoding="utf-8")
 
-    assert "zeroth.platform.dispatch.worker" not in workflow
+    # Every zeroth module the extras gate imports must actually exist. The
+    # earlier form asserted the absence of one hard-coded name, which passed
+    # trivially once that name was retired -- and would keep passing if the
+    # workflow started naming some *other* module that no longer exists.
+    import importlib.util
+    import re
+
+    named = sorted(set(re.findall(r"\bzeroth(?:\.[a-z_]+)+", workflow)))
+    assert named, "the extras gate imports no zeroth modules -- the scan is wrong"
+    missing = [name for name in named if importlib.util.find_spec(name) is None]
+    assert not missing, f"the extras gate imports modules that do not exist: {missing}"
+
     assert workflow.count("import arq, redis, zeroth.platform.dispatch.arq_wakeup") == 2

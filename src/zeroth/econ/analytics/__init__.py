@@ -12,9 +12,8 @@ governance layers into anything that touches it -- historically including
 in :mod:`zeroth.platform.config.models` and republished from
 :mod:`zeroth.econ.analytics.models`). That made the platform layer transitively
 import the run domain. Resolving on first attribute access keeps
-``from zeroth.econ.analytics import X`` working the way the legacy
-``zeroth.runtime.econ`` path always has while letting a submodule be imported on
-its own.
+``from zeroth.econ.analytics import X`` working while still letting a submodule
+be imported on its own.
 """
 
 from __future__ import annotations

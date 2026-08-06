@@ -15,22 +15,22 @@ import sys
 import pytest
 
 
-def test_config_exposes_a_single_settings_object() -> None:
-    """The control plane's settings singleton is published once.
+def test_config_publishes_a_live_settings_instance_on_the_ecp_prefix() -> None:
+    """The control plane reads its configuration from ``ECP_``-prefixed variables.
 
-    This compared the canonical object against the ``zeroth.econ_plane``
-    republisher, which ZER-25 removed; the property it pinned -- that the
-    module exposes one settings instance -- is asserted directly.
+    An earlier revision asserted ``config.settings is config.settings``, and the
+    revision after that re-imported the module and compared the results -- both
+    tautologies, since a cached module necessarily hands back the same object.
+    The property that is actually load-bearing, and that ZER-25 must preserve, is
+    the environment prefix the control plane binds to: change it and every
+    deployment's configuration silently stops being read.
     """
-    import importlib
+    from pydantic_settings import BaseSettings
 
     from zeroth.econ.plane import config
 
-    # Re-importing must hand back the *same* instance: the control plane's
-    # settings are a module-level singleton, and a second instance would give
-    # two halves of the process different configuration.
-    assert importlib.import_module("zeroth.econ.plane.config").settings is config.settings
-    assert not isinstance(config.settings, type)
+    assert isinstance(config.settings, BaseSettings)
+    assert type(config.settings).model_config["env_prefix"] == "ECP_"
 
 
 def test_database_module_publishes_its_whole_surface() -> None:

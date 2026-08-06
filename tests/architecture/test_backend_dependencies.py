@@ -251,10 +251,24 @@ def test_real_repository_obeys_backend_dependency_direction() -> None:
 
 
 def test_every_langgraph_gateway_file_on_disk_classifies_to_a_domain() -> None:
-    architecture = importlib.import_module("zeroth._architecture")
-    gateway_root = SOURCE_ROOT / "zeroth" / "core" / "langgraph_gateway"
+    """Every relocated gateway module resolves to a backend domain.
 
-    for path in sorted(gateway_root.glob("*.py")):
+    This iterated ``src/zeroth/core/langgraph_gateway``, which ZER-25 deleted --
+    so the loop ran zero times and the test passed by iterating nothing. It now
+    walks the three canonical packages the gateway was split across, and asserts
+    it found files before checking them.
+    """
+    architecture = importlib.import_module("zeroth._architecture")
+    roots = [
+        SOURCE_ROOT / "zeroth" / "contracts" / "langgraph_gateway",
+        SOURCE_ROOT / "zeroth" / "governance" / "langgraph_gateway",
+        SOURCE_ROOT / "zeroth" / "service" / "langgraph_gateway",
+    ]
+
+    paths = sorted(path for root in roots for path in root.glob("*.py"))
+    assert len(paths) >= 12, f"expected the relocated gateway modules, found {len(paths)}"
+
+    for path in paths:
         module, _ = architecture._module_name(path, SOURCE_ROOT)
         assert architecture._canonical_domain(module) is not None, module
 
