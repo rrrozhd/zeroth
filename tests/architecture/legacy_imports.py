@@ -50,10 +50,12 @@ def _resolve(node: ast.ImportFrom, module_path: Path) -> str | None:
 
 def legacy_imports_in(path: Path) -> list[tuple[int, str]]:
     """Every ``(line, module)`` pair in ``path`` that imports a retired module."""
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (SyntaxError, UnicodeDecodeError):  # pragma: no cover - not our sources
-        return []
+    # Deliberately not caught: a file this cannot parse must fail loudly rather
+    # than be reported as clean. Swallowing the error turns "we could not look"
+    # into "we looked and found nothing", which is how an offender slips through
+    # the guard. (Running the scan under an older interpreter than the project's
+    # did exactly that during ZER-25 and silently dropped a real offender.)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

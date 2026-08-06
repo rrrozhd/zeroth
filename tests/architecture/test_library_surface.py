@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 import inspect
 import json
 import re
@@ -233,14 +234,52 @@ def test_immutable_legacy_capabilities_remain_available_with_original_signatures
     assert not mismatches, f"legacy signature changes: {mismatches}"
 
 
+# A capability may keep its identity without staying importable. ZER-25 demotes
+# the quickstart tutorial helper to repository content: it ships in ``examples/``
+# and no longer in the wheel, so it has a ``repository_path`` instead of a
+# ``module``. Its signature stays pinned -- it is loaded from its file below --
+# so the protected capability is still verified, just not as an import.
+_CANONICAL_SYMBOLS = _load("backend_surface_canonical.json")["symbols"]
+_IMPORTABLE_SYMBOLS = [entry for entry in _CANONICAL_SYMBOLS if "module" in entry]
+_REPOSITORY_SYMBOLS = [entry for entry in _CANONICAL_SYMBOLS if "repository_path" in entry]
+
+
 @pytest.mark.parametrize(
     "entry",
-    _load("backend_surface_canonical.json")["symbols"],
+    _IMPORTABLE_SYMBOLS,
     ids=lambda entry: f"{entry['module']}:{entry['name']}",
 )
 def test_every_canonical_symbol_imports_and_matches_its_signature(entry: dict[str, Any]) -> None:
     """The evolving canonical fixture is executable import documentation."""
     value = _import_symbol(entry)
+    assert _comparable(_signature(value)) == _comparable(entry["signature"])
+
+
+def test_every_canonical_entry_is_either_importable_or_a_repository_file() -> None:
+    """No entry may claim both homes, or neither -- that would skip it silently."""
+    for entry in _CANONICAL_SYMBOLS:
+        homes = {"module", "repository_path"} & set(entry)
+        assert len(homes) == 1, f"{entry['name']}: expected exactly one home, got {sorted(homes)}"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    _REPOSITORY_SYMBOLS,
+    ids=lambda entry: f"{entry['repository_path']}:{entry['name']}",
+)
+def test_every_repository_symbol_loads_from_its_file_and_matches_its_signature(
+    entry: dict[str, Any],
+) -> None:
+    """A demoted capability is still pinned; it is just loaded from disk."""
+    path = REPO_ROOT / entry["repository_path"]
+    assert path.exists(), f"{entry['repository_path']} does not exist"
+
+    spec = importlib.util.spec_from_file_location(f"_surface_{entry['name']}", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    value = getattr(module, entry["name"])
     assert _comparable(_signature(value)) == _comparable(entry["signature"])
 
 
@@ -307,8 +346,13 @@ def test_every_discovered_schema_model_is_in_legacy_and_canonical_surfaces() -> 
     legacy = _load("backend_surface_legacy.json")
     canonical = _load("backend_surface_canonical.json")
     legacy_ids = {entry["id"] for entry in legacy["capabilities"]}
+    # Only importable entries can be reverse-matched against discovered schema
+    # models: a repository-only capability has no module path to key on, and by
+    # construction is never a schema model discovered under ``src``.
     canonical_by_current_id = {
-        f"{entry['module']}:{entry['name']}": entry for entry in canonical["symbols"]
+        f"{entry['module']}:{entry['name']}": entry
+        for entry in canonical["symbols"]
+        if "module" in entry
     }
     discovered = _discover_schema_models()
 

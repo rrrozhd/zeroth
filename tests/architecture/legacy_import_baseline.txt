@@ -65,7 +65,6 @@ tests/dispatch/test_lease.py
 tests/econ/test_analytics_surface.py
 tests/econ/test_plane_surface.py
 tests/eval/test_eval_surface.py
-tests/examples/test_quickstart.py
 tests/execution_units/test_integrity.py
 tests/governance/retention/test_composition.py
 tests/governance/test_approvals_surface.py
