@@ -77,6 +77,73 @@ def test_comparison_never_reorders_chunks_or_discards_unknown_fields() -> None:
 
 
 @pytest.mark.parametrize(
+    ("direct_updates", "proxied_updates", "expected_path"),
+    [
+        pytest.param(
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                    {"name": "lookup_policy", "arguments": {"policy_id": "policy-7"}},
+                )
+            },
+            {
+                "tool_sequence": (
+                    {"name": "lookup_policy", "arguments": {"policy_id": "policy-7"}},
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                )
+            },
+            "tool_sequence[0].name",
+            id="tool-order",
+        ),
+        pytest.param(
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                )
+            },
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Durham"}},
+                )
+            },
+            "tool_sequence[0].arguments.city",
+            id="tool-arguments",
+        ),
+        pytest.param(
+            {"state": {"values": {"result": "direct"}}},
+            {"state": {"values": {"result": "proxied"}}},
+            "state.values.result",
+            id="final-state",
+        ),
+        pytest.param({}, {}, None, id="identical"),
+    ],
+)
+def test_report_identifies_the_exact_first_divergence_path(
+    direct_updates: dict[str, object],
+    proxied_updates: dict[str, object],
+    expected_path: str | None,
+) -> None:
+    report = compare_exchanges(_capture(**direct_updates), _capture(**proxied_updates))
+
+    assert report.first_divergence_path == expected_path
+
+
+def test_human_report_names_the_path_without_leaking_divergent_values(tmp_path: Path) -> None:
+    report = compare_exchanges(
+        _capture(state={"values": {"result": "direct-secret"}}),
+        _capture(state={"values": {"result": "proxied-secret"}}),
+    )
+    path = tmp_path / "differential-report.txt"
+
+    report.write_human_report(path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "first divergence: state.values.result" in text
+    assert "direct-secret" not in text
+    assert "proxied-secret" not in text
+
+
+@pytest.mark.parametrize(
     "proxied_frames",
     [
         (b"event: values\ndata: one\n\n",),

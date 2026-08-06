@@ -84,11 +84,13 @@ class CapturedExchange:
 class DifferentialReport:
     semantic_divergences: list[str]
     expected_governance_additions: list[str]
+    first_divergence_path: str | None = None
 
     def write_human_report(self, path: Path) -> None:
         path.write_text(
             "LangGraph gateway differential report\n"
             f"semantic divergences: {self.semantic_divergences or ['none']}\n"
+            f"first divergence: {self.first_divergence_path or 'none'}\n"
             f"expected governance additions: {self.expected_governance_additions or ['none']}\n",
             encoding="utf-8",
         )
@@ -224,6 +226,34 @@ def _normalize_sse_frame_id(frame: bytes, frame_id: str | None, index: int) -> b
     return b"".join(normalized)
 
 
+def _first_divergence_path(direct: Any, proxied: Any, path: str = "") -> str | None:
+    if isinstance(direct, Mapping) and isinstance(proxied, Mapping):
+        for key in direct:
+            child_path = f"{path}.{key}" if path else str(key)
+            if key not in proxied:
+                return child_path
+            divergence = _first_divergence_path(direct[key], proxied[key], child_path)
+            if divergence is not None:
+                return divergence
+        for key in proxied:
+            if key not in direct:
+                return f"{path}.{key}" if path else str(key)
+        return None
+    if type(direct) is type(proxied) and isinstance(direct, (list, tuple)):
+        for index, (direct_item, proxied_item) in enumerate(zip(direct, proxied, strict=False)):
+            divergence = _first_divergence_path(
+                direct_item,
+                proxied_item,
+                f"{path}[{index}]",
+            )
+            if divergence is not None:
+                return divergence
+        if len(direct) != len(proxied):
+            return f"{path}[{min(len(direct), len(proxied))}]"
+        return None
+    return None if direct == proxied else path
+
+
 def compare_exchanges(
     direct: CapturedExchange,
     proxied: CapturedExchange,
@@ -260,7 +290,11 @@ def compare_exchanges(
         additions.append("forwarded.config.configurable._zeroth")
     if proxied.audit_event_present:
         additions.append("audit.langgraph.gateway")
-    return DifferentialReport(divergences, additions)
+    return DifferentialReport(
+        divergences,
+        additions,
+        _first_divergence_path(direct_projection, proxied_projection),
+    )
 
 
 class _AllowPolicy:
