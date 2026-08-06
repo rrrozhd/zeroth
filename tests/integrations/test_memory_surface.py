@@ -106,19 +106,17 @@ def test_memory_scope_keeps_resolving_from_its_contract_owned_definition() -> No
     assert CanonicalMemoryScope is ContractMemoryScope
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.integrations.memory", "zeroth.core.memory"),
-        ("zeroth.core.memory", "zeroth.integrations.memory"),
-        ("zeroth.integrations.memory.governed", "zeroth.core.governed.memory"),
-        ("zeroth.core.governed.memory", "zeroth.integrations.memory.governed"),
-    ],
-)
-def test_memory_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_memory_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.integrations.memory"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

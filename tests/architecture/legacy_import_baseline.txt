@@ -7,7 +7,6 @@ src/zeroth/core/conditions/__init__.py
 src/zeroth/core/econ/__init__.py
 src/zeroth/core/governed/__init__.py
 src/zeroth/core/storage/__init__.py
-tests/contracts/governed/test_governed_surface.py
 tests/contracts/test_conditions_surface.py
 tests/contracts/test_graph_surface.py
 tests/contracts/test_mappings_surface.py
@@ -28,7 +27,6 @@ tests/integrations/test_execution_surface.py
 tests/integrations/test_http_surface.py
 tests/integrations/test_memory_surface.py
 tests/integrations/test_rag_surface.py
-tests/integrations/test_sandbox_surface.py
 tests/langgraph_gateway/conformance/harness.py
 tests/langgraph_gateway/test_health.py
 tests/langgraph_gateway/test_http_proxy.py
@@ -36,12 +34,8 @@ tests/langgraph_gateway/test_resilience.py
 tests/orchestrator/test_failed_node_replay.py
 tests/orchestrator/test_join_barrier.py
 tests/orchestrator/test_join_barrier_stress.py
-tests/platform/test_artifacts_surface.py
 tests/platform/test_config_surface.py
 tests/platform/test_dispatch_surface.py
-tests/platform/test_observability_surface.py
-tests/platform/test_secrets_surface.py
-tests/platform/test_signing_surface.py
 tests/platform/test_storage_surface.py
 tests/runs/test_models.py
 tests/runtime/governed/test_governed_runtime_stores.py
@@ -56,11 +50,8 @@ tests/service/bootstrap/test_bootstrap_factory.py
 tests/service/bootstrap/test_container.py
 tests/service/test_app.py
 tests/service/test_audit_delivery_wiring.py
-tests/service/test_authorization.py
-tests/service/test_console_ui_surface.py
 tests/service/test_deployments_surface.py
 tests/service/test_econ_dashboard_api.py
-tests/service/test_entrypoint.py
 tests/service/test_gateway_evidence_wiring.py
 tests/service/test_health.py
 tests/service/test_webhooks_surface.py

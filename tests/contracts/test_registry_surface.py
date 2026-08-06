@@ -17,21 +17,29 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_errors_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_registry_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.contracts import registry as canonical
-    from zeroth.core import contracts as legacy
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.contracts.registry as canonical
 
-    assert canonical.ContractNotFoundError is legacy.ContractNotFoundError
-    assert canonical.ContractReference is legacy.ContractReference
-    assert canonical.ContractRegistry is legacy.ContractRegistry
-    assert canonical.ContractRegistryError is legacy.ContractRegistryError
-    assert canonical.ContractVersion is legacy.ContractVersion
-    assert canonical.StepContractBinding is legacy.StepContractBinding
-    assert canonical.ToolContractBinding is legacy.ToolContractBinding
-    assert canonical.validate_artifact_reference is legacy.validate_artifact_reference
+    expected = {
+        "ContractNotFoundError",
+        "ContractReference",
+        "ContractRegistry",
+        "ContractRegistryError",
+        "ContractVersion",
+        "StepContractBinding",
+        "ToolContractBinding",
+        "validate_artifact_reference",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.contracts.registry no longer publishes: {missing}"
 
 
 def test_registry_errors_are_the_same_surface_through_both_paths() -> None:
@@ -51,19 +59,17 @@ def test_execution_placement_has_one_contract_owned_definition() -> None:
     assert base.ExecutionPlacement is tooling.ExecutionPlacement
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.registry", "zeroth.core.contracts"),
-        ("zeroth.core.contracts", "zeroth.contracts.registry"),
-        ("zeroth.contracts.registry", "zeroth.core.governed"),
-        ("zeroth.core.governed", "zeroth.contracts.registry"),
-    ],
-)
-def test_registry_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_errors_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.contracts.registry.errors"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

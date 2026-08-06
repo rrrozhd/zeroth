@@ -11,26 +11,34 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_templates_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_templates_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.contracts import templates as canonical
-    from zeroth.core import templates as legacy
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.contracts.templates as canonical
 
-    assert canonical.DEFAULT_SECRET_PATTERNS is legacy.DEFAULT_SECRET_PATTERNS
-    assert canonical.PromptTemplate is legacy.PromptTemplate
-    assert canonical.TemplateError is legacy.TemplateError
-    assert canonical.TemplateNotFoundError is legacy.TemplateNotFoundError
-    assert canonical.TemplateReference is legacy.TemplateReference
-    assert canonical.TemplateRegistry is legacy.TemplateRegistry
-    assert canonical.TemplateRenderError is legacy.TemplateRenderError
-    assert canonical.TemplateRenderer is legacy.TemplateRenderer
-    assert canonical.TemplateRenderResult is legacy.TemplateRenderResult
-    assert canonical.TemplateSyntaxValidationError is legacy.TemplateSyntaxValidationError
-    assert canonical.TemplateVersionExistsError is legacy.TemplateVersionExistsError
-    assert canonical.identify_secret_variables is legacy.identify_secret_variables
-    assert canonical.redact_rendered_prompt is legacy.redact_rendered_prompt
+    expected = {
+        "DEFAULT_SECRET_PATTERNS",
+        "PromptTemplate",
+        "TemplateError",
+        "TemplateNotFoundError",
+        "TemplateReference",
+        "TemplateRegistry",
+        "TemplateRenderError",
+        "TemplateRenderResult",
+        "TemplateRenderer",
+        "TemplateSyntaxValidationError",
+        "TemplateVersionExistsError",
+        "identify_secret_variables",
+        "redact_rendered_prompt",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.contracts.templates no longer publishes: {missing}"
 
 
 def test_template_submodules_are_the_same_surface_through_both_paths() -> None:
@@ -46,17 +54,17 @@ def test_template_submodules_are_the_same_surface_through_both_paths() -> None:
     assert canonical_models.TemplateRenderResult is legacy_models.TemplateRenderResult
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.templates", "zeroth.core.templates"),
-        ("zeroth.core.templates", "zeroth.contracts.templates"),
-    ],
-)
-def test_templates_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_templates_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.contracts.templates"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

@@ -14,7 +14,6 @@ import sys
 
 import pytest
 
-
 EXPORTS = (
     "SubgraphCycleError",
     "SubgraphDepthLimitError",
@@ -94,17 +93,17 @@ def test_subgraph_resolver_carries_no_deployment_service_import() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.runtime.subgraphs", "zeroth.core.subgraph"),
-        ("zeroth.core.subgraph", "zeroth.runtime.subgraphs"),
-    ],
-)
-def test_subgraph_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_subgraphs_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.runtime.subgraphs"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

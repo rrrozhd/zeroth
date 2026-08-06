@@ -11,18 +11,26 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_identity_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_identity_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import identity as legacy
-    from zeroth.governance import identity as canonical
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.governance.identity as canonical
 
-    assert canonical.ActorIdentity is legacy.ActorIdentity
-    assert canonical.AuthenticatedPrincipal is legacy.AuthenticatedPrincipal
-    assert canonical.AuthMethod is legacy.AuthMethod
-    assert canonical.PrincipalScope is legacy.PrincipalScope
-    assert canonical.ServiceRole is legacy.ServiceRole
+    expected = {
+        "ActorIdentity",
+        "AuthMethod",
+        "AuthenticatedPrincipal",
+        "PrincipalScope",
+        "ServiceRole",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.governance.identity no longer publishes: {missing}"
 
 
 def test_identity_models_are_the_same_surface_through_both_paths() -> None:
@@ -36,17 +44,17 @@ def test_identity_models_are_the_same_surface_through_both_paths() -> None:
     assert canonical_models.ServiceRole is legacy_models.ServiceRole
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.governance.identity", "zeroth.core.identity"),
-        ("zeroth.core.identity", "zeroth.governance.identity"),
-    ],
-)
-def test_identity_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_identity_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.governance.identity"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

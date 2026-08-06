@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 
-def test_authorization_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.service import authorization as legacy
-    from zeroth.service.api import authorization as canonical
+def test_authorization_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-    assert canonical.Permission is legacy.Permission
-    assert canonical.ROLE_PERMISSIONS is legacy.ROLE_PERMISSIONS
-    assert canonical.require_permission is legacy.require_permission
-    assert canonical.require_deployment_scope is legacy.require_deployment_scope
-    assert canonical.require_resource_scope is legacy.require_resource_scope
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.service.api.authorization as canonical
+
+    expected = {
+        "Permission",
+        "ROLE_PERMISSIONS",
+        "require_deployment_scope",
+        "require_permission",
+        "require_resource_scope",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.service.api.authorization no longer publishes: {missing}"
 
 
 def test_every_service_role_has_a_permission_set() -> None:

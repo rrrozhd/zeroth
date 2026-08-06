@@ -13,15 +13,23 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_config_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_config_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import config as legacy
-    from zeroth.platform import config as canonical
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.config as canonical
 
-    assert canonical.ZerothSettings is legacy.ZerothSettings
-    assert canonical.get_settings is legacy.get_settings
+    expected = {
+        "ZerothSettings",
+        "get_settings",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.config no longer publishes: {missing}"
 
 
 def test_the_composed_settings_sections_are_platform_owned() -> None:
@@ -40,17 +48,17 @@ def test_the_composed_settings_sections_are_platform_owned() -> None:
     assert HttpClientSettings is legacy_http_models.HttpClientSettings
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.config", "zeroth.core.config"),
-        ("zeroth.core.config", "zeroth.platform.config"),
-    ],
-)
-def test_config_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_config_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.config"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr
