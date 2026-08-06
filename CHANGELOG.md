@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.0.2] - 2026-08-06
+
+### Changed
+
+- Define the run and thread models in `zeroth.runtime.runs.models` instead of
+  re-exporting them from `zeroth.core.runs.models`. The runtime now owns the
+  shape of a run outright; the legacy module republishes the same names.
+
 ## [0.16.1.0.1] - 2026-08-06
 
 ### Added

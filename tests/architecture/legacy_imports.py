@@ -31,7 +31,14 @@ def is_legacy_module(name: str | None) -> bool:
 
 
 def _resolve(node: ast.ImportFrom, module_path: Path) -> str | None:
-    """Absolute module name for an ``ImportFrom``, resolving relative levels."""
+    """Absolute module name for an ``ImportFrom``, resolving relative levels.
+
+    Relative levels are resolved only for files under ``src``, because only there
+    does a relative import share a package root with ``zeroth``. Measured: the
+    other scanned trees hold 9 relative imports, every one a level-1 sibling of a
+    local test helper (``._graphs``, ``._causal``, ``.harness``, ``.cases``), and
+    no relative import rooted in ``tests`` can reach ``zeroth.core`` at all.
+    """
     if not node.level:
         return node.module
     # ``a/b/c.py`` and ``a/b/__init__.py`` both sit *in* package ``a.b``, so one
