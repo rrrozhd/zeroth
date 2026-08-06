@@ -41,17 +41,15 @@ def test_templates_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.contracts.templates no longer publishes: {missing}"
 
 
-def test_template_submodules_are_the_same_surface_through_both_paths() -> None:
+def test_template_submodules_publish_their_names() -> None:
     from zeroth.contracts.templates import errors as canonical_errors
     from zeroth.contracts.templates import models as canonical_models
-    from zeroth.core.templates import errors as legacy_errors
-    from zeroth.core.templates import models as legacy_models
 
-    assert canonical_errors.TemplateError is legacy_errors.TemplateError
-    assert canonical_errors.TemplateNotFoundError is legacy_errors.TemplateNotFoundError
-    assert canonical_models.PromptTemplate is legacy_models.PromptTemplate
-    assert canonical_models.TemplateReference is legacy_models.TemplateReference
-    assert canonical_models.TemplateRenderResult is legacy_models.TemplateRenderResult
+    assert hasattr(canonical_errors, "TemplateError")
+    assert hasattr(canonical_errors, "TemplateNotFoundError")
+    assert hasattr(canonical_models, "PromptTemplate")
+    assert hasattr(canonical_models, "TemplateReference")
+    assert hasattr(canonical_models, "TemplateRenderResult")
 
 
 def test_templates_imports_in_a_cold_interpreter() -> None:

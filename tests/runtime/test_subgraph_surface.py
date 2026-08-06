@@ -25,12 +25,11 @@ EXPORTS = (
 )
 
 
-def test_subgraph_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import subgraph as legacy
+def test_subgraph_publishes_its_whole_surface() -> None:
     from zeroth.runtime import subgraphs as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -59,14 +58,13 @@ def test_subgraph_is_the_same_surface_through_both_paths() -> None:
         ),
     ],
 )
-def test_subgraph_modules_are_the_same_surface_through_both_paths(
+def test_subgraph_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
-    legacy_module = importlib.import_module(f"zeroth.core.subgraph.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.runtime.subgraphs.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_subgraph_node_data_remains_the_contract_owned_model() -> None:

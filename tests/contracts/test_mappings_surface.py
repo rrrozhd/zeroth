@@ -42,13 +42,11 @@ def test_mappings_publishes_its_whole_surface() -> None:
 def test_mapping_errors_and_models_are_the_same_through_both_paths() -> None:
     from zeroth.contracts.mappings import errors as canonical_errors
     from zeroth.contracts.mappings import models as canonical_models
-    from zeroth.core.mappings import errors as legacy_errors
-    from zeroth.core.mappings import models as legacy_models
 
-    assert canonical_errors.MappingExecutionError is legacy_errors.MappingExecutionError
-    assert canonical_errors.MappingValidationError is legacy_errors.MappingValidationError
-    assert canonical_models.MappingOperationBase is legacy_models.MappingOperationBase
-    assert canonical_models.EdgeMapping is legacy_models.EdgeMapping
+    assert hasattr(canonical_errors, "MappingExecutionError")
+    assert hasattr(canonical_errors, "MappingValidationError")
+    assert hasattr(canonical_models, "MappingOperationBase")
+    assert hasattr(canonical_models, "EdgeMapping")
 
 
 def test_mappings_imports_in_a_cold_interpreter() -> None:

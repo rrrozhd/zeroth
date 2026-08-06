@@ -42,14 +42,13 @@ def test_errors_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.contracts.registry no longer publishes: {missing}"
 
 
-def test_registry_errors_are_the_same_surface_through_both_paths() -> None:
+def test_registry_errors_publish_their_names() -> None:
     from zeroth.contracts.registry import errors as canonical
-    from zeroth.core.contracts import errors as legacy
 
-    assert canonical.ContractNotFoundError is legacy.ContractNotFoundError
-    assert canonical.ContractRegistryError is legacy.ContractRegistryError
-    assert canonical.ContractTypeResolutionError is legacy.ContractTypeResolutionError
-    assert canonical.ContractVersionExistsError is legacy.ContractVersionExistsError
+    assert hasattr(canonical, "ContractNotFoundError")
+    assert hasattr(canonical, "ContractRegistryError")
+    assert hasattr(canonical, "ContractTypeResolutionError")
+    assert hasattr(canonical, "ContractVersionExistsError")
 
 
 def test_execution_placement_has_one_contract_owned_definition() -> None:

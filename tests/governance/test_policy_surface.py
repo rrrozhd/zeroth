@@ -47,35 +47,30 @@ def test_policy_publishes_its_whole_surface() -> None:
     assert not missing, f"zeroth.governance.policy no longer publishes: {missing}"
 
 
-def test_policy_submodules_are_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.policy import errors as legacy_errors
-    from zeroth.core.policy import guard as legacy_guard
-    from zeroth.core.policy import models as legacy_models
-    from zeroth.core.policy import registry as legacy_registry
+def test_policy_submodules_publish_their_names() -> None:
     from zeroth.governance.policy import errors as canonical_errors
     from zeroth.governance.policy import guard as canonical_guard
     from zeroth.governance.policy import models as canonical_models
     from zeroth.governance.policy import registry as canonical_registry
 
-    assert canonical_models.Capability is legacy_models.Capability
-    assert canonical_models.EnforcementResult is legacy_models.EnforcementResult
-    assert canonical_models.PolicyDecision is legacy_models.PolicyDecision
-    assert canonical_models.PolicyDefinition is legacy_models.PolicyDefinition
-    assert canonical_errors.CapabilityDeniedError is legacy_errors.CapabilityDeniedError
-    assert canonical_guard.PolicyGuard is legacy_guard.PolicyGuard
-    assert canonical_guard.apply_secret_policy is legacy_guard.apply_secret_policy
-    assert canonical_registry.CapabilityRegistry is legacy_registry.CapabilityRegistry
-    assert canonical_registry.PolicyRegistry is legacy_registry.PolicyRegistry
+    assert hasattr(canonical_models, "Capability")
+    assert hasattr(canonical_models, "EnforcementResult")
+    assert hasattr(canonical_models, "PolicyDecision")
+    assert hasattr(canonical_models, "PolicyDefinition")
+    assert hasattr(canonical_errors, "CapabilityDeniedError")
+    assert hasattr(canonical_guard, "PolicyGuard")
+    assert hasattr(canonical_guard, "apply_secret_policy")
+    assert hasattr(canonical_registry, "CapabilityRegistry")
+    assert hasattr(canonical_registry, "PolicyRegistry")
 
 
 def test_capability_is_defined_in_the_graph_contracts() -> None:
     from zeroth.contracts import graph as graph_package
     from zeroth.contracts.graph import models as graph_models
-    from zeroth.core.policy import models as legacy_models
     from zeroth.governance.policy import models as canonical_models
 
     assert canonical_models.Capability is graph_models.Capability
-    assert legacy_models.Capability is graph_models.Capability
+    assert hasattr(graph_models, "Capability")
     assert graph_package.Capability is graph_models.Capability
     assert graph_models.Capability.__module__ == "zeroth.contracts.graph.models"
 

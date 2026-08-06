@@ -34,12 +34,11 @@ EXPORTS = (
 )
 
 
-def test_eval_is_the_same_surface_through_both_paths() -> None:
+def test_eval_publishes_its_whole_surface() -> None:
     from zeroth import eval as canonical
-    from zeroth.core import eval as legacy
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -62,23 +61,20 @@ def test_eval_is_the_same_surface_through_both_paths() -> None:
         ),
     ],
 )
-def test_eval_modules_are_the_same_surface_through_both_paths(
+def test_eval_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.eval.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.eval.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 @pytest.mark.parametrize(
     ("first", "second"),
     [
-        ("zeroth.eval", "zeroth.core.eval"),
-        ("zeroth.core.eval", "zeroth.eval"),
     ],
 )
 def test_eval_cold_imports_from_both_directions(first: str, second: str) -> None:

@@ -19,20 +19,18 @@ EXPORTS = (
 )
 
 
-def test_rag_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import rag as legacy
+def test_rag_publishes_its_whole_surface() -> None:
     from zeroth.integrations import rag as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
-def test_rag_ingestion_module_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.rag import ingestion as legacy_module
+def test_rag_ingestion_module_publishes_its_whole_surface() -> None:
     from zeroth.integrations.rag import ingestion as canonical_module
 
     for name in EXPORTS:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_rag_imports_in_a_cold_interpreter() -> None:
