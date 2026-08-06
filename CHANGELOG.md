@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1] - 2026-08-06
+
+### Added
+
+- Run the pinned LangGraph and Agent Server compatibility pair in CI and report
+  the exact first unexplained differential path without exposing compared values.
+
+### Security
+
+- Reject bearer tokens that omit expiry and verify replacement versus retired
+  signing-key identifiers.
+
 ## [0.16.0.14.1] - 2026-08-06
 
 ### Fixed
