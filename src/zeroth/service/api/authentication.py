@@ -113,6 +113,7 @@ class JWTBearerTokenVerifier:
                 algorithms=list(self._config.algorithms),
                 issuer=self._config.issuer,
                 audience=self._config.audience,
+                options={"require": ["exp"]},
             )
         except Exception as exc:  # pragma: no cover - dependency-specific details
             raise AuthenticationError("invalid bearer token") from exc
