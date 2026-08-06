@@ -32,6 +32,7 @@ from zeroth.integrations.langgraph import (
     LangGraphGatewayClient,
     PolicyViolation,
     SideEffectClass,
+    SQLiteApprovalRepository,
     ToolAction,
     ToolDecision,
     ToolDecisionKind,
@@ -431,7 +432,7 @@ def test_signed_run_start_attestation() -> None:
     assert events[3][1].kind is ToolDecisionKind.ALLOW
 
 
-def test_public_tool_metadata_reaches_gateway() -> None:
+def test_public_tool_metadata_reaches_gateway(tmp_path: Any) -> None:
     events: list[Any] = []
     codec = ReservedContextCodec(_signer(), clock=lambda: 150)
     inventory = ToolInventory(
@@ -505,6 +506,7 @@ def test_public_tool_metadata_reaches_gateway() -> None:
         **common,
         requires_approval=lambda _tool: True,
         interrupt=lambda _payload: (_ for _ in ()).throw(PausedError()),
+        approval_lifecycle=SQLiteApprovalRepository(tmp_path / "approvals.sqlite3"),
     )
     with pytest.raises(PausedError):
         approval(q="cats")
@@ -517,7 +519,7 @@ def test_public_tool_metadata_reaches_gateway() -> None:
     assert events[2][1]["action"]["requires_approval"] is True
 
 
-async def test_recorded_public_tool_metadata_matches_live_action(sqlite_db) -> None:
+async def test_recorded_public_tool_metadata_matches_live_action(sqlite_db, tmp_path: Any) -> None:
     captured: list[ToolAction] = []
 
     class ApprovalClient:
@@ -547,6 +549,7 @@ async def test_recorded_public_tool_metadata_matches_live_action(sqlite_db) -> N
         capability_refs=lambda _tool: ("network_read",),
         requires_approval=lambda _tool: True,
         interrupt=lambda _payload: (_ for _ in ()).throw(PausedError()),
+        approval_lifecycle=SQLiteApprovalRepository(tmp_path / "approvals.sqlite3"),
     )
     recorded = record_tool_inventory([governed])
     inventory = attest_complete_inventory(recorded, [governed.zeroth_binding.identity])
