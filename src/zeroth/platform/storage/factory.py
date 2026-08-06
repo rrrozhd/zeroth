@@ -13,8 +13,8 @@ from zeroth.platform.storage.database import AsyncDatabase
 if TYPE_CHECKING:
     # Annotation-only, so importing storage does not execute the config
     # package. While the artifact-store settings section still lived under
-    # zeroth.core, an eager import here closed a partial-initialization cycle
-    # (settings -> artifacts -> zeroth.core -> storage -> factory); keeping it
+    # zeroth.runtime, an eager import here closed a partial-initialization cycle
+    # (settings -> artifacts -> zeroth.runtime -> storage -> factory); keeping it
     # lazy also keeps the storage closure minimal.
     # tests/platform/test_config_surface.py probes both cold-import directions.
     from zeroth.platform.config.settings import ZerothSettings

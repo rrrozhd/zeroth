@@ -1,7 +1,7 @@
 """Public exceptions raised by the orchestration runtime.
 
-These are protected legacy capabilities: ``zeroth.core.orchestrator`` and
-``zeroth.core.orchestrator.runtime`` re-export the same class objects, so both
+These are protected legacy capabilities: ``zeroth.runtime.orchestration`` and
+``zeroth.runtime.orchestration`` re-export the same class objects, so both
 legacy import locations keep resolving. The definitions live here because the
 collaborators that raise them may not import the legacy facade — doing so would
 close an import cycle, since the facade imports the collaborators.

@@ -6,7 +6,7 @@ graph, deploy it, and bootstrap the service. That dance is plumbing, not
 the point of any given example — so it lives here.
 
 Every public helper in this module is a thin wrapper around the real
-library API (:mod:`zeroth.core.service.bootstrap`,
+library API (:mod:`zeroth.service.bootstrap`,
 :mod:`zeroth.contracts.graph`, :mod:`zeroth.contracts.registry`). There are no
 stubs, no fake runners, no shortcuts. Read this file once and you'll
 know exactly what every ``00_…`` through ``33_…`` example is doing
@@ -149,8 +149,10 @@ async def bootstrap_examples_service(
     :class:`ServiceBootstrap` — examples drive it the same way production
     code would.
     """
-    db_path = Path(db_path) if db_path is not None else Path(
-        tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False).name
+    db_path = (
+        Path(db_path)
+        if db_path is not None
+        else Path(tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False).name)  # noqa: SIM115
     )
     run_migrations(f"sqlite:///{db_path}")
 
@@ -219,7 +221,7 @@ async def running_service(
         yield demo
     finally:
         # Best-effort cleanup — tests use a temp file we own.
-        try:
+        try:  # noqa: SIM105
             demo.db_path.unlink(missing_ok=True)
         except Exception:
             pass

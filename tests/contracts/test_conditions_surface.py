@@ -65,7 +65,10 @@ def test_condition_recorder_is_runtime_owned_and_lazily_republished() -> None:
     from zeroth.runtime import runs as runtime_runs
 
     assert hasattr(runtime_runs, "ConditionResultRecorder")
-    assert hasattr(runtime_runs, "ConditionResultRecorder")
+    assert (
+        runtime_runs.ConditionResultRecorder.__module__
+        == "zeroth.runtime.runs.condition_recorder"
+    )
 
 
 def test_models_imports_in_a_cold_interpreter() -> None:

@@ -29,7 +29,7 @@ class InterruptExpiredError(Exception):
     """Raised when a resolve arrives after its interrupt request expired.
 
     ZER-25 note: this used to be imported from
-    ``zeroth.core.governed.workflows.exceptions``, a module that does not exist
+    ``zeroth.contracts.governed.workflows.exceptions``, a module that does not exist
     in this repository -- the governai vendoring never included it. The import
     sat inside the resolve path, so an expired interrupt raised
     ``ModuleNotFoundError`` instead of this error. Defining it here makes the
