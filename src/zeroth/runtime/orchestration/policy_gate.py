@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 
+from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import (
     AgentNode,
     ExecutableUnitNode,
@@ -28,11 +29,11 @@ from zeroth.contracts.graph import (
     HumanApprovalNodeData,
     Node,
 )
-from zeroth.core.runs import Run, RunStatus
 from zeroth.governance.approvals import ApprovalDecision, ApprovalService
 from zeroth.governance.policy import Capability, PolicyDecision, PolicyGuard
 from zeroth.governance.policy.errors import parse_effective_capabilities
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
+from zeroth.runtime.runs import Run
 from zeroth.runtime.subgraphs.resolver import base_node_id
 
 

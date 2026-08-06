@@ -13,15 +13,15 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase
+from zeroth.runtime.runs import Run, Thread, ThreadMemoryBinding, ThreadStatus
 
 if TYPE_CHECKING:
     # The concrete repositories live in the persistence integrations package;
     # the runtime names them only through the legacy run-domain republisher so
     # no zeroth.integrations module sits on the agent runtime's import path.
-    from zeroth.core.runs import RunRepository, ThreadRepository
+    from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"
 THREAD_STATE_METADATA_KEY = "thread_state"
@@ -117,7 +117,7 @@ class RepositoryThreadStateStore:
         if run_repository is None or thread_repository is None:
             if database is None:
                 raise ValueError("database or repository instances are required")
-            from zeroth.core.runs import RunRepository, ThreadRepository
+            from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
             run_repository = run_repository or RunRepository(database)
             thread_repository = thread_repository or ThreadRepository(database)

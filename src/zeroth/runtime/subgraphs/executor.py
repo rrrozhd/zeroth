@@ -15,9 +15,10 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.models import Graph, SubgraphNode
-from zeroth.core.runs.models import Run, RunStatus
 from zeroth.runtime.parallel.models import BranchContext, GlobalStepTracker
+from zeroth.runtime.runs import Run
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,

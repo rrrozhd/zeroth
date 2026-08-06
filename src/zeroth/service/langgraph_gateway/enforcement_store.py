@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
-from zeroth.core.signing import SigningKeyProvider
+from zeroth.platform.signing import SigningKeyProvider
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.platform.storage.json import from_json_value, to_json_value
 from zeroth.service.langgraph_gateway.enforcement import (

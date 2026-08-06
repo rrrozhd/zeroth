@@ -7,8 +7,8 @@ from contextlib import suppress
 from typing import Protocol
 
 from zeroth.contracts.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
-from zeroth.core.econ.budget import BudgetCheckResult
-from zeroth.core.policy.models import RunAdmissionResult
+from zeroth.econ.analytics import BudgetCheckResult
+from zeroth.governance.policy import RunAdmissionResult
 
 _UNAVAILABLE_POLICY_VERSION = f"sha256:{'0' * 64}"
 

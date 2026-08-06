@@ -18,8 +18,8 @@ from starlette.types import Receive, Scope, Send
 from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import ConnectionClosed
 
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.secrets.provider import SecretProvider
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.secrets import SecretProvider
 from zeroth.service.langgraph_gateway.headers import (
     prepare_upstream_request_headers,
     strip_hop_by_hop_headers,

@@ -11,7 +11,6 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
-from zeroth.core.signing import SigningKeyProvider
 from zeroth.governance.policy import PolicyDecision, PolicyGuard
 from zeroth.integrations.langgraph._tool_types import (
     InventoryCoverage,
@@ -31,6 +30,7 @@ from zeroth.integrations.langgraph.enforcement_protocol import (
     inventory_fingerprint,
 )
 from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.signing import SigningKeyProvider
 from zeroth.platform.storage.json import from_json_value
 from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 
