@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.2.1] - 2026-08-07
+
+### Fixed
+
+- Route a reconciliation retry through the same completion/failure checkpoint
+  as a first execution, so a successful retry settles the operation instead of
+  remaining ambiguous.
+- Guard the IN_FLIGHT to AMBIGUOUS claim transition on its observed state, so a
+  concurrently completed operation is not demoted and its receipt lost.
+- Register the side-effect operation fields in the audit capture vocabulary as
+  flat, typed keys; as a nested block they were dropped before persistence.
+
 ## [0.18.2] - 2026-08-07
 
 ### Fixed

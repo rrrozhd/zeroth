@@ -398,7 +398,7 @@ class TestSideEffectSuppressionEndToEnd:
         assert runner.applications == 1
         assert first_output == {"charged": True, "applications": 1}
         assert second_output == first_output
-        assert second_audit["side_effect_operation"]["replay_suppressed"] is True
+        assert second_audit["operation_replay_suppressed"] is True
 
     async def test_a_different_logical_operation_is_not_suppressed(self, dual_database) -> None:
         """The positive control: suppression must not swallow genuine new work."""
@@ -563,7 +563,7 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         assert asked == [identity.operation_key], "the outcome lookup must be consulted"
         assert runner.applications == before, "the effect must not be re-applied"
         assert output == {"charged": True, "applications": 99}
-        assert audit["side_effect_operation"]["replay_suppressed"] is True
+        assert audit["operation_replay_suppressed"] is True
 
     async def test_an_exhausted_budget_refuses_rather_than_re_executing(
         self, dual_database
@@ -690,3 +690,54 @@ class TestOperationTransitionsAreCompareAndSet:
         claims = await asyncio.gather(*(_claim(store, attempt=1) for _ in range(3)))
 
         assert sum(1 for c in claims if c.first_execution) == 1
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-008: the operation audit fields must survive the capture boundary
+# ---------------------------------------------------------------------------
+
+
+def test_operation_audit_keys_survive_the_metadata_only_capture() -> None:
+    """Emitting audit fields is not the same as persisting them.
+
+    The capture boundary keeps an allowlisted, per-key-typed projection and
+    drops everything else, so the original nested `side_effect_operation` block
+    was discarded before it ever reached storage. These keys are flat and
+    registered; `operation_key` in particular must come back *verbatim*, since
+    correlating two records for one logical operation means comparing it.
+    """
+    from zeroth.governance.audit.capture_vocabulary import (
+        METADATA_KINDS,
+        METADATA_VOCABULARIES,
+        MetadataKind,
+    )
+
+    emitted = {
+        "operation_key": "op_db95664b9665d1175d256770",
+        "operation_target_ref": "unit://charge-card",
+        "operation_support": "at_least_once",
+        "operation_state": "ambiguous",
+        "operation_first_execution": False,
+        "operation_replay_suppressed": False,
+        "operation_reconciliation_required": True,
+        "operation_reconciliation_exhausted": False,
+        "operation_residual_duplicate_risk": True,
+    }
+
+    for key in emitted:
+        assert key in METADATA_KINDS, f"{key} would be dropped by the capture boundary"
+
+    # The two vocabularies must actually admit the values the runtime emits.
+    assert emitted["operation_support"] in METADATA_VOCABULARIES["operation_support"]
+    assert emitted["operation_state"] in METADATA_VOCABULARIES["operation_state"]
+    # Correlation depends on the key surviving intact, not as a digest.
+    assert METADATA_KINDS["operation_key"] is MetadataKind.IDENTIFIER
+
+
+def test_every_operation_state_and_support_value_is_in_its_vocabulary() -> None:
+    """A vocabulary that misses a real term silently summarizes it away."""
+    from zeroth.contracts.graph import SideEffectSupport
+    from zeroth.governance.audit.capture_vocabulary import METADATA_VOCABULARIES
+
+    assert {s.value.lower() for s in OperationState} <= METADATA_VOCABULARIES["operation_state"]
+    assert {s.value for s in SideEffectSupport} <= METADATA_VOCABULARIES["operation_support"]
