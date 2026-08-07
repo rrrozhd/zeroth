@@ -18,9 +18,13 @@ from tests.service.helpers import approval_resume_graph, deploy_service
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.observability.correlation import get_correlation_id
 from zeroth.service.api import authentication
-from zeroth.service.api.authentication import BearerTokenConfig, ServiceAuthConfig
-from zeroth.service.api.authentication import AuthenticationError, JWTBearerTokenVerifier
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.api.authentication import (
+    AuthenticationError,
+    BearerTokenConfig,
+    JWTBearerTokenVerifier,
+    ServiceAuthConfig,
+)
+from zeroth.service.bootstrap import bootstrap_app
 
 
 def _bearer_auth_fixture(*, kid: str = "test-key") -> tuple[ServiceAuthConfig, object]:

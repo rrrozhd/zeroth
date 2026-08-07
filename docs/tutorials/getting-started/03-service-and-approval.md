@@ -17,7 +17,7 @@ In production you run Zeroth as a long-lived FastAPI service with
 uvicorn. The canonical command (which is what `Dockerfile` runs) is:
 
 ```bash
-uv run python -m zeroth.core.service.entrypoint
+uv run python -m zeroth.service.entrypoint
 ```
 
 This reads config from environment variables (`ZEROTH_DEPLOYMENT_REF`,
@@ -77,7 +77,7 @@ curl -X POST http://localhost:8000/deployments/demo-approval/approvals/$APPROVAL
 The endpoint is
 `POST /deployments/{deployment_ref}/approvals/{approval_id}/resolve`.
 Its request/response schemas live in
-`zeroth.core.service.approval_api` and are rendered in the
+`zeroth.service.api.approval_api` and are rendered in the
 [HTTP API Reference](../../reference/http-api.md). Passing
 `{"decision": "reject"}` would fail the run instead.
 

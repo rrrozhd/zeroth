@@ -11,36 +11,44 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
+
+def test_signing_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
+
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.signing as canonical
+
+    expected = {
+        "Ed25519Signer",
+        "EnvHmacSigner",
+        "NullSigner",
+        "SigningConfigError",
+        "SigningKeyProvider",
+        "build_signing_provider",
+        "build_signing_provider_async",
+        "sign_digest",
+        "signable_bytes",
+        "verify_digest",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.signing no longer publishes: {missing}"
 
 
-def test_signing_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import signing as legacy
-    from zeroth.platform import signing as canonical
+def test_signing_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
 
-    assert canonical.Ed25519Signer is legacy.Ed25519Signer
-    assert canonical.EnvHmacSigner is legacy.EnvHmacSigner
-    assert canonical.NullSigner is legacy.NullSigner
-    assert canonical.SigningConfigError is legacy.SigningConfigError
-    assert canonical.SigningKeyProvider is legacy.SigningKeyProvider
-    assert canonical.build_signing_provider is legacy.build_signing_provider
-    assert canonical.build_signing_provider_async is legacy.build_signing_provider_async
-    assert canonical.sign_digest is legacy.sign_digest
-    assert canonical.signable_bytes is legacy.signable_bytes
-    assert canonical.verify_digest is legacy.verify_digest
-
-
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.signing", "zeroth.core.signing"),
-        ("zeroth.core.signing", "zeroth.platform.signing"),
-    ],
-)
-def test_signing_cold_imports_from_both_directions(first: str, second: str) -> None:
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.signing"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

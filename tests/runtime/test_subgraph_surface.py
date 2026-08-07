@@ -14,7 +14,6 @@ import sys
 
 import pytest
 
-
 EXPORTS = (
     "SubgraphCycleError",
     "SubgraphDepthLimitError",
@@ -26,12 +25,11 @@ EXPORTS = (
 )
 
 
-def test_subgraph_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import subgraph as legacy
+def test_subgraph_publishes_its_whole_surface() -> None:
     from zeroth.runtime import subgraphs as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -60,14 +58,13 @@ def test_subgraph_is_the_same_surface_through_both_paths() -> None:
         ),
     ],
 )
-def test_subgraph_modules_are_the_same_surface_through_both_paths(
+def test_subgraph_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
-    legacy_module = importlib.import_module(f"zeroth.core.subgraph.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.runtime.subgraphs.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_subgraph_node_data_remains_the_contract_owned_model() -> None:
@@ -85,8 +82,8 @@ def test_subgraph_resolver_carries_no_deployment_service_import() -> None:
             "-c",
             "import sys\n"
             "import zeroth.runtime.subgraphs.resolver\n"
-            "assert 'zeroth.core.deployments' not in sys.modules, 'deployments loaded'\n"
-            "assert 'zeroth.core.deployments.service' not in sys.modules\n",
+            "assert 'zeroth.service.deployments' not in sys.modules, 'deployments loaded'\n"
+            "assert 'zeroth.service.deployments.service' not in sys.modules\n",
         ],
         capture_output=True,
         text=True,
@@ -94,17 +91,17 @@ def test_subgraph_resolver_carries_no_deployment_service_import() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.runtime.subgraphs", "zeroth.core.subgraph"),
-        ("zeroth.core.subgraph", "zeroth.runtime.subgraphs"),
-    ],
-)
-def test_subgraph_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_subgraphs_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.runtime.subgraphs"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

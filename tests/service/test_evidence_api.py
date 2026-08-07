@@ -4,12 +4,11 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import content_capture
 from tests.service.helpers import admin_headers, approval_graph, deploy_service
 from zeroth.governance.audit import MemoryAccessRecord, NodeAuditRecord, ToolCallRecord
 from zeroth.runtime.runs import Run
-from zeroth.core.service.bootstrap import bootstrap_app
-
-from tests.conftest import content_capture
+from zeroth.service.bootstrap import bootstrap_app
 
 
 async def _seed_run_evidence(service) -> Run:

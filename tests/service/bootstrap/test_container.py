@@ -6,12 +6,8 @@ from types import SimpleNamespace
 
 
 def test_container_is_the_same_object_through_both_paths() -> None:
-    from zeroth.core.service.bootstrap import (
-        DeploymentBootstrapError as LegacyError,
-    )
-    from zeroth.core.service.bootstrap import (
-        ServiceBootstrap as LegacyContainer,
-    )
+    from zeroth.service.bootstrap import DeploymentBootstrapError as LegacyError
+    from zeroth.service.bootstrap import ServiceBootstrap as LegacyContainer
     from zeroth.service.bootstrap.container import (
         DeploymentBootstrapError,
         ServiceBootstrap,

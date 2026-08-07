@@ -11,7 +11,7 @@ require ``psycopg`` / ``psycopg-pool`` at import time.
 The governed-runtime store factory that used to live beside ``RedisConfig``
 is domain-aware wiring and moved to
 :mod:`zeroth.integrations.persistence.governed_redis`; the legacy
-``zeroth.core.storage`` paths keep republishing it.
+``zeroth.platform.storage`` paths keep republishing it.
 """
 
 from typing import TYPE_CHECKING, Any

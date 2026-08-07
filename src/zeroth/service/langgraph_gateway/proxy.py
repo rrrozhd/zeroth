@@ -34,11 +34,11 @@ from zeroth.contracts.langgraph_gateway.models import (
     GovernanceLevel,
     RouteDisposition,
 )
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.identity import AuthenticatedPrincipal
-from zeroth.core.service.auth import current_principal
+from zeroth.governance.identity import AuthenticatedPrincipal
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.langgraph_gateway.events import TeeObserver
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.service.api.authentication import current_principal
 from zeroth.service.langgraph_gateway.admission import (
     BudgetChecker,
     InputClassifier,

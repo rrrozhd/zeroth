@@ -44,8 +44,8 @@ class TestGraphRepositoryDualBackend:
 @requires_docker
 class TestRunRepositoryDualBackend:
     async def test_put_and_get_run(self, dual_database):
-        from zeroth.core.runs.models import Run
-        from zeroth.core.runs.repository import RunRepository
+        from zeroth.integrations.persistence.runs import RunRepository
+        from zeroth.runtime.runs import Run
 
         repo = RunRepository(dual_database)
         run = await repo.create(
@@ -62,8 +62,8 @@ class TestRunRepositoryDualBackend:
         assert loaded.deployment_ref == "deployment:v1"
 
     async def test_count_pending(self, dual_database):
-        from zeroth.core.runs.models import Run
-        from zeroth.core.runs.repository import RunRepository
+        from zeroth.integrations.persistence.runs import RunRepository
+        from zeroth.runtime.runs import Run
 
         repo = RunRepository(dual_database)
 
@@ -115,12 +115,12 @@ class TestDatabaseFactory:
 @requires_docker
 class TestAlembicMigrations:
     def test_migrations_run_on_postgres(self, postgres_container):
-        from zeroth.core.service.bootstrap import run_migrations
+        from zeroth.service.bootstrap import run_migrations
 
         url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
         run_migrations(url)  # Should not raise
 
     def test_migrations_run_on_sqlite(self, tmp_path):
-        from zeroth.core.service.bootstrap import run_migrations
+        from zeroth.service.bootstrap import run_migrations
 
         run_migrations(f"sqlite:///{tmp_path}/mig_test.db")  # Should not raise

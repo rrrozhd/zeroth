@@ -14,7 +14,7 @@ circular imports, because the extracted package is reached while the domain it
 depends on is still initializing.
 
 Every check runs in a subprocess. ``tests/conftest.py`` imports
-``zeroth.core.service.bootstrap`` at collection time, so in-process assertions
+``zeroth.service.bootstrap`` at collection time, so in-process assertions
 about ``sys.modules`` would only ever describe the warm cache.
 """
 
@@ -28,10 +28,7 @@ import pytest
 
 from zeroth._architecture import _canonical_domain
 
-
 PLATFORM_ROOTS = (
-    "zeroth.core.storage",
-    "zeroth.core.config",
     "zeroth.platform.config",
     "zeroth.platform.storage",
     "zeroth.platform.artifacts",
@@ -50,9 +47,7 @@ PLATFORM_ROOTS = (
 # ``zeroth.platform.config.models``: signature comparison became
 # location-independent in 54378e7, so composing them as ``ZerothSettings``
 # fields no longer forces their definitions to stay outside the platform
-# layer. The legacy ``zeroth.core.econ.models`` and ``zeroth.core.http.models``
-# paths republish the platform-owned classes, which points the import in the
-# allowed direction.
+# layer. ZER-25 removed the legacy republishers that used to appear here.
 PERMITTED_NON_PLATFORM: frozenset[str] = frozenset()
 
 # Imported packages are free to print banners, warnings, or progress to stdout,
@@ -89,7 +84,7 @@ def test_importing_a_platform_package_loads_only_platform_code(root: str) -> Non
     """A platform import must not execute runtime, governance, or econ modules.
 
     ``_canonical_domain`` returns ``None`` for package shells such as
-    ``zeroth`` and ``zeroth.core`` that carry no domain; those are ignored.
+    ``zeroth`` itself, which carries no domain; those are ignored.
     """
     loaded = _modules_loaded_by(root)
 
@@ -128,28 +123,27 @@ def test_the_permitted_non_platform_imports_are_all_still_real() -> None:
 def test_reading_a_run_model_does_not_load_the_concrete_repository() -> None:
     """The run models must be usable without the SQL adapter behind them.
 
-    ``zeroth.core.runs.__init__`` used to import the repository eagerly, so
-    importing a run *model* also executed the concrete adapter and everything
-    it depends on. Any module the adapter imports was therefore loaded while
-    ``zeroth.core.runs`` was still initializing, which is what prevents that
-    adapter from being extracted into its own package.
+    The legacy ``zeroth.core.runs`` package used to import the repository
+    eagerly, so importing a run *model* also executed the concrete adapter and
+    everything it depends on -- the inversion that blocked extracting the
+    adapter. ZER-25 removed that package; the canonical run domain must not
+    reintroduce the coupling.
     """
-    loaded = set(_modules_loaded_by("zeroth.core.runs.models"))
+    loaded = set(_modules_loaded_by("zeroth.runtime.runs.models"))
 
-    assert "zeroth.core.runs.models" in loaded
-    assert "zeroth.core.runs.repository" not in loaded
+    assert "zeroth.runtime.runs.models" in loaded
+    assert "zeroth.integrations.persistence.runs" not in loaded
 
 
 def test_importing_storage_does_not_load_the_run_domain() -> None:
     """The specific inversion that blocks extracting run persistence.
 
-    ``zeroth.core.storage`` reaching ``zeroth.core.runs.repository`` means any
-    module the repository imports is loaded while storage initializes — so a
-    concrete persistence package cannot import the run models without closing
-    a cycle.
+    Storage reaching the run repository would mean any module the repository
+    imports is loaded while storage initializes — so a concrete persistence
+    package could not import the run models without closing a cycle.
     """
-    loaded = set(_modules_loaded_by("zeroth.core.storage"))
+    loaded = set(_modules_loaded_by("zeroth.platform.storage"))
 
-    assert "zeroth.core.runs.models" not in loaded
-    assert "zeroth.core.runs.repository" not in loaded
-    assert "zeroth.core.agent_runtime" not in loaded
+    assert "zeroth.runtime.runs.models" not in loaded
+    assert "zeroth.integrations.persistence.runs" not in loaded
+    assert "zeroth.runtime.agents" not in loaded

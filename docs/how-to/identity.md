@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide shows how to configure the Zeroth service's authentication layer and how authenticated principals flow through the rest of the runtime. The data shapes come from `zeroth.governance.identity`; the verification and HTTP plumbing come from `zeroth.core.service.auth`.
+This guide shows how to configure the Zeroth service's authentication layer and how authenticated principals flow through the rest of the runtime. The data shapes come from `zeroth.governance.identity`; the verification and HTTP plumbing come from `zeroth.service.api.authentication`.
 
 See [Concept: identity](../concepts/identity.md) for the model and [Concept: service](../concepts/service.md) for how routes enforce roles.
 
@@ -67,6 +67,6 @@ Once the service is bootstrapped, every request must send either `X-API-Key: dem
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.governance.identity`](../reference/python-api/identity.md). The related `zeroth.core.service.auth` module is documented under the [Service reference page](../reference/python-api/service.md).
+See the [Python API reference for `zeroth.governance.identity`](../reference/python-api/identity.md). The related `zeroth.service.api.authentication` module is documented under the [Service reference page](../reference/python-api/service.md).
 
 Related: [Concept: identity](../concepts/identity.md), [Concept: service](../concepts/service.md), [Usage Guide: approvals](approvals.md), [Tutorial: governance walkthrough](../tutorials/governance-walkthrough.md).

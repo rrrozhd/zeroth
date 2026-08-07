@@ -1,9 +1,8 @@
 """Backend service composition.
 
-The exports resolve lazily, mirroring the legacy ``zeroth.core.service``
-shell: eager imports here would load the FastAPI app closure on any
-``zeroth.service.*`` submodule import, and the legacy shims import those
-submodules while this package initializes.
+The exports resolve lazily. Eager imports here would load the FastAPI app
+closure on any ``zeroth.service.*`` submodule import, so a caller that only
+wanted a bootstrap helper would pay for the whole service shell.
 """
 
 from __future__ import annotations
@@ -18,12 +17,16 @@ _EXPORTS = {
     "create_app": "zeroth.service.app",
 }
 
+# The ``# noqa: F822`` markers below are for the commit gate, which lints a copy
+# of the staged file outside the package tree. Without that context Ruff cannot
+# see that ``__getattr__`` resolves these names, so it reports them as undefined.
+# In-tree ``ruff check`` passes without them.
 __all__ = [
-    "DeploymentBootstrapError",
-    "ServiceBootstrap",
-    "bootstrap_app",
-    "bootstrap_service",
-    "create_app",
+    "DeploymentBootstrapError",  # noqa: F822
+    "ServiceBootstrap",  # noqa: F822
+    "bootstrap_app",  # noqa: F822
+    "bootstrap_service",  # noqa: F822
+    "create_app",  # noqa: F822
 ]
 
 

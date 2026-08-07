@@ -18,6 +18,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.3] - 2026-08-06
+
+### Fixed
+
+- Correct the orchestration-errors docstring, which claimed the package facade
+  imports its collaborators and that raising through it would close an import
+  cycle. Executed: the facade resolves lazily, and importing `OrchestratorError`
+  through it loads only the errors module. The true reason the module stands
+  alone — it imports nothing from `zeroth` — is now what it says.
+- Catch duplicated assertions in `else`, `except` and `finally` blocks. The
+  vacuity guard walked only each node's `body`, so a repeat in any other
+  statement list passed.
+- Keep the self-comparison detector conservative around calls. Builtins such as
+  `list(iterator)` can consume state and `len(value)` can invoke user code, so
+  repeated call expressions are not assumed to produce the same value.
+
+### Changed
+
+- Scope the vacuity guard's docstring to the three rules it actually implements.
+  It advertised a fourth it deliberately omits, which is the same defect class
+  the guard exists to catch.
+- Make the numbers behind that omission reproducible: 477 test functions carry
+  no bare `assert`, of which 43 stay unexplained after crediting
+  `pytest.raises`, mock `assert_*`, and helper delegates. Regenerate both with
+  `scripts/count_assertion_free_tests.py`.
+- Scan every Git-tracked Python file when pinning the C901 suppression set, so
+  suppressions in scripts, examples, or application code cannot bypass the
+  registry merely by living outside `src/` and `tests/`.
+
+## [0.17.0.2] - 2026-08-06
+
+### Fixed
+
+- Replace the assertions the first fix round left vacuous with properties that
+  are actually load-bearing, each mutation-tested: the control plane's `ECP_`
+  environment prefix instead of re-importing a cached module, and "every zeroth
+  module the extras gate names must exist" instead of the absence of one
+  hard-coded name.
+- Correct public docstrings that a blanket rewrite made legacy-free but false —
+  the governed package described itself as retired, the gateway package claimed
+  to republish its own objects, and analytics cited a module that does not
+  exist.
+- Walk the three canonical gateway packages in the domain-classification test.
+  It iterated the deleted `zeroth/core/langgraph_gateway` directory, so it
+  passed by checking nothing.
+
+### Changed
+
+- Rewrite the vacuity guard against sibling statements instead of line
+  distance, and drop its whole-file suppressions. It now catches keyword-form
+  empty parametrization, `x == x`, and duplicates separated by a blank line,
+  while correctly allowing `f() == f()` and assert-mutate-assert. The
+  assertion-free-body rule is deliberately absent: 46 existing tests would trip
+  it and every one sampled asserts for real in a way no static rule sees.
+
+## [0.17.0.1] - 2026-08-06
+
+### Fixed
+
+- Close four defects the initial audit found in ZER-25's own conversion: two
+  more `parametrize` lists that collected zero cases, a self-comparison and a
+  duplicated assertion, guards still naming deleted namespaces, and maintained
+  guidance that pointed at an unimportable `quickstart` module and a retired
+  entrypoint.
+
+### Added
+
+- Add a repo-wide guard rejecting tests that pass without proving anything —
+  empty parametrizations, self-comparisons, and same-scope duplicated
+  assertions. Every shape it rejects was produced by this task's own mechanical
+  test conversion and survived a green suite.
+- Add regression coverage for the interrupt expiry path, whose error was
+  unreachable before this release.
+- Extend the canonical-imports guard to source docstrings and example scripts,
+  which the AST scanner cannot see because they are prose, not imports.
+
+## [0.17] - 2026-08-06
+
+### Removed
+
+- **Breaking:** delete the `zeroth.core` and `zeroth.econ_plane` import
+  surfaces. Both trees, and every compatibility shim in them, are gone; the
+  canonical eight-domain packages are the only import locations. A consumer on
+  a legacy path must move to the canonical one — see
+  `docs/backend-import-migration.md`.
+- Remove `LEGACY_DOMAIN_PREFIXES` from the architecture policy. While it
+  existed a dependency routed through a shim was scored as if it went straight
+  to the canonical package, so several real cross-domain edges were invisible;
+  they are now recorded as documented exceptions.
+- Delete the compatibility suites whose only subject was the legacy paths. Each
+  canonical assertion they carried — surface, cold-import, laziness — was moved
+  into a canonical-only test rather than dropped.
+
+### Changed
+
+- Point CI's docstring gate at `src/zeroth` and set its threshold to the
+  coverage that tree actually has. The old 92.3% was measured over a
+  shim-dominated package; the denominator changed, not the bar.
+
+### Documentation
+
+- Rewrite the maintained documentation to canonical imports, and record in the
+  migration guide that the legacy paths were removed in `0.17`. `CHANGELOG.md`
+  and the migration guide keep naming the old paths on purpose -- they are the
+  record a reader migrating off `0.16` needs.
+
+### Fixed
+
+- Bring `src/` into `ruff format` conformance. Eleven files predated the check
+  and would have failed the release gate.
+
 ## [0.16.2.5.1] - 2026-08-07
 
 ### Added

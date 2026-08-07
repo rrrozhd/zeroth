@@ -13,7 +13,7 @@ from tests.service.helpers import default_service_auth_config, operator_headers
 from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 from zeroth.service.app import create_app
@@ -171,8 +171,8 @@ async def test_gateway_disabled_constructs_no_gateway_dependencies(sqlite_db) ->
 
 
 async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch) -> None:
-    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
-    from zeroth.core.signing import EnvHmacSigner
+    from zeroth.platform.config import LangGraphGatewaySettings, get_settings
+    from zeroth.platform.signing import EnvHmacSigner
 
     deployment = await _deploy_test_graph(sqlite_db, "graph-gateway-enabled")
     gateway_settings = LangGraphGatewaySettings(
@@ -275,8 +275,8 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
 async def test_later_bootstrap_failure_closes_gateway_transport_once(
     sqlite_db, monkeypatch
 ) -> None:
-    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
-    from zeroth.core.signing import EnvHmacSigner
+    from zeroth.platform.config import LangGraphGatewaySettings, get_settings
+    from zeroth.platform.signing import EnvHmacSigner
 
     deployment = await _deploy_test_graph(sqlite_db, "graph-gateway-late-failure")
     gateway_settings = LangGraphGatewaySettings(

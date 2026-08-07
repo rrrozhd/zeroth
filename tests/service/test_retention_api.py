@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import content_capture
 from tests.service.helpers import (
     admin_headers,
     agent_graph,
@@ -14,13 +15,10 @@ from tests.service.helpers import (
     operator_headers,
     scoped_auth_config,
 )
-
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.runs import Run
-from zeroth.core.service.bootstrap import bootstrap_app
-
-from tests.conftest import content_capture
+from zeroth.service.bootstrap import bootstrap_app
 
 
 def _audit(*, audit_id: str, run_id: str, deployment_ref: str, ssn: str) -> NodeAuditRecord:

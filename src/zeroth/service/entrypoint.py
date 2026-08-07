@@ -2,7 +2,7 @@
 
 Runs Alembic migrations (SQLite or Postgres), bootstraps the service,
 and starts uvicorn. Invoked by `zeroth-core serve` or directly via
-`python -m zeroth.core.service.entrypoint`.
+`python -m zeroth.service.entrypoint`.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Run migrations and start the Zeroth platform."""
-    from zeroth.core.cli import ensure_schema
     from zeroth.platform.config.settings import get_settings
+    from zeroth.service.cli import ensure_schema
 
     settings = get_settings()
 

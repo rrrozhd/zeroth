@@ -3,7 +3,7 @@
 ## Overview
 
 To deploy a Zeroth graph you run exactly one process: a `uvicorn` worker
-that imports `zeroth.core.service.entrypoint` and calls its `app_factory`.
+that imports `zeroth.service.entrypoint` and calls its `app_factory`.
 Everything else — Alembic migrations, identity, storage, dispatch, the
 orchestrator, webhooks, econ — is wired for you by `bootstrap_service`.
 This page shows the production entrypoint, how to mount under a prefix,
@@ -15,7 +15,7 @@ The shipped production entrypoint is `src/zeroth/core/service/entrypoint.py`.
 In a container you run:
 
 ```bash
-uvicorn zeroth.core.service.entrypoint:app_factory \
+uvicorn zeroth.service.entrypoint:app_factory \
     --factory \
     --host 0.0.0.0 \
     --port 8000 \
@@ -26,7 +26,7 @@ or equivalently just invoke the module's `main()`, which also runs
 Alembic migrations when the Postgres backend is configured:
 
 ```bash
-python -m zeroth.core.service.entrypoint
+python -m zeroth.service.entrypoint
 ```
 
 For tests and scripts you can skip uvicorn entirely and build an app
@@ -69,7 +69,7 @@ app = asyncio.run(make_app())
    constructing the worker before storage) deadlocks the lifespan hook.
 2. **Skipping migrations** — Running `app_factory` directly (bypassing
    `main()`) does *not* run Alembic. In production always go through
-   `python -m zeroth.core.service.entrypoint`.
+   `python -m zeroth.service.entrypoint`.
 3. **Mutating the app after lifespan starts** — The lifespan context
    starts background workers; adding routes after that is a race.
 4. **Missing `ZEROTH_DEPLOYMENT_REF`** — Defaults to `"default"`, which
@@ -79,6 +79,6 @@ app = asyncio.run(make_app())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.service`](../reference/python-api/service.md).
+See the [Python API reference for `zeroth.service`](../reference/python-api/service.md).
 
 Related: [concepts/service](../concepts/service.md) · [dispatch how-to](dispatch.md) · [secrets how-to](secrets.md).

@@ -31,12 +31,11 @@ EXPORTS = (
 )
 
 
-def test_http_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import http as legacy
+def test_http_publishes_its_whole_surface() -> None:
     from zeroth.integrations import http as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -73,29 +72,28 @@ def test_http_is_the_same_surface_through_both_paths() -> None:
         ),
     ],
 )
-def test_http_modules_are_the_same_surface_through_both_paths(
+def test_http_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.http.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.integrations.http.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.integrations.http", "zeroth.core.http"),
-        ("zeroth.core.http", "zeroth.integrations.http"),
-    ],
-)
-def test_http_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_http_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.integrations.http"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

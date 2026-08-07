@@ -84,7 +84,6 @@ _BODY_METHODS = ("_run", "_arun")
 """Where a hand-written ``BaseTool`` subclass keeps its body instead."""
 
 
-
 def static_class_attribute(kind: Any, name: str) -> Any:
     """Resolve *name* on *kind* by walking the real MRO, never by attribute access.
 

@@ -30,7 +30,7 @@ runtime → ship it as an API → governance → advanced.
 | `11_serve_via_entrypoint.md`         | The production path: `zeroth.yaml`, `ZEROTH_*` env vars, `python -m examples.service.entrypoint`. |
 | `service/zeroth.yaml`                | Base config file picked up by `zeroth.platform.config.settings.get_settings`.   |
 | `service/seed_deployment.py`         | One-shot: migrations → contracts → graph → publish → deploy.                |
-| `service/entrypoint.py`              | Drop-in extension of `zeroth.core.service.entrypoint` with your own agent runners. |
+| `service/entrypoint.py`              | Drop-in extension of `zeroth.service.entrypoint` with your own agent runners. |
 
 ### 2× · Governance tier — production-grade
 
@@ -130,7 +130,7 @@ runtime. Several claimed to teach things they didn't (the old
 `attach_memory.py` never attached memory to an agent). The service
 path — how you turn a graph into a running API — wasn't shown at all.
 
-This rewrite uses only `zeroth.core.*` types you'd use in production:
+This rewrite uses only canonical `zeroth.*` types you'd use in production:
 `AgentRunner`, `LiteLLMProviderAdapter`, `ExecutableUnitRunner`,
 `NativeUnitManifest`, `MemoryConnectorResolver`, `PolicyGuard`,
 `BudgetEnforcer`, `WebhookDeliveryWorker`, `bootstrap_service`,
