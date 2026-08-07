@@ -21,7 +21,7 @@ FROM python:3.12.13-slim-bookworm
 # Release image includes both supported LangGraph deployment surfaces.
 ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"
 
-LABEL org.opencontainers.image.version=0.16.2.6 \
+LABEL org.opencontainers.image.version=0.16.2.7 \
       io.zeroth.langgraph.adapter.version=1.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1

@@ -31,7 +31,7 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
-    assert "org.opencontainers.image.version=0.16.2.6" in dockerfile
+    assert "org.opencontainers.image.version=0.16.2.7" in dockerfile
     assert "memory-pg,langgraph,langgraph-gateway" in compose
     build_step = next(
         step

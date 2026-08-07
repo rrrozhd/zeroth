@@ -115,6 +115,33 @@ def _published_run_context(
         reset_correlation(correlation_marker)
 
 
+class _ContextualAsyncIterator:
+    """Keep private run context around a v3 driver's pulls and close."""
+
+    def __init__(
+        self,
+        iterator: Any,
+        correlation: str | None,
+        reserved_token: str | None,
+    ) -> None:
+        self._iterator = iterator
+        self._correlation = correlation
+        self._reserved_token = reserved_token
+
+    def __aiter__(self) -> _ContextualAsyncIterator:
+        return self
+
+    async def __anext__(self) -> Any:
+        with _published_run_context(self._correlation, self._reserved_token):
+            return await self._iterator.__anext__()
+
+    async def aclose(self) -> None:
+        aclose = getattr(self._iterator, "aclose", None)
+        if aclose is not None:
+            with _published_run_context(self._correlation, self._reserved_token):
+                await aclose()
+
+
 class GovernedGraph:
     """Transparent, observed-mode governance wrapper around a compiled LangGraph.
 
@@ -271,6 +298,8 @@ class GovernedGraph:
         """Stream events with governance and private per-event run context."""
         args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
         self._run_start("astream_events", correlation, reserved_token)
+        if kwargs.get("version") == "v3":
+            return self._correlated_astream_events_v3(args, kwargs, correlation, reserved_token)
         return self._correlated_astream("astream_events", args, kwargs, correlation, reserved_token)
 
     def batch(
@@ -367,6 +396,23 @@ class GovernedGraph:
             if aclose is not None:
                 with _published_run_context(correlation, reserved_token):
                     await aclose()
+
+    async def _correlated_astream_events_v3(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        correlation: str | None,
+        reserved_token: str | None,
+    ) -> Any:
+        """Await a v3 run and scope every pull of its caller-driven iterator."""
+        with _published_run_context(correlation, reserved_token):
+            run = await self._delegate.astream_events(*args, **kwargs)
+        run._graph_aiter = _ContextualAsyncIterator(
+            run._graph_aiter,
+            correlation,
+            reserved_token,
+        )
+        return run
 
     def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
         """Return a still-governed graph that binds ``config`` into every run.

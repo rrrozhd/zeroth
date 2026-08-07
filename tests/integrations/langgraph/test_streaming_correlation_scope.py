@@ -9,6 +9,7 @@ the wrapper's own scoping/cleanup behaviour.
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 
 import pytest
@@ -57,7 +58,7 @@ class _FakeGraph:
         finally:
             self.astream_closed = True
 
-    async def astream_events(self, *args, **kwargs):
+    async def _astream_events_v2(self):
         try:
             self.seen.append(current_correlation())
             yield {"event": "one"}
@@ -65,6 +66,54 @@ class _FakeGraph:
             yield {"event": "two"}
         finally:
             self.events_closed = True
+
+    def astream_events(self, *args, **kwargs):
+        if kwargs.get("version") == "v3":
+            driver = _FakeV3Driver()
+            self.v3_driver = driver
+
+            async def create_run():
+                return _FakeV3Run(driver)
+
+            return create_run()
+        return self._astream_events_v2()
+
+
+class _FakeV3Driver:
+    def __init__(self) -> None:
+        self.remaining = [{"n": 1}, {"n": 2}]
+        self.seen: list[str | None] = []
+        self.close_seen: list[str | None] = []
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        self.seen.append(current_correlation())
+        if self.remaining:
+            return self.remaining.pop(0)
+        raise StopAsyncIteration
+
+    async def aclose(self) -> None:
+        self.close_seen.append(current_correlation())
+
+
+class _FakeV3Run:
+    def __init__(self, driver: _FakeV3Driver) -> None:
+        self._graph_aiter = driver
+        self.values = self
+
+    def __aiter__(self):
+        return self._graph_aiter
+
+    async def abort(self) -> None:
+        await self._graph_aiter.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args) -> None:
+        await self.abort()
 
 
 @pytest.fixture(autouse=True)
@@ -168,6 +217,30 @@ def test_astream_events_context_is_private_lazy_and_close_propagates() -> None:
 
         await stream.aclose()
         assert fake.events_closed is True
+        assert current_correlation() is None
+
+    asyncio.run(scenario())
+
+
+def test_astream_events_v3_projection_and_abort_keep_context_private() -> None:
+    import asyncio
+
+    async def scenario() -> None:
+        fake = _FakeGraph()
+        governed = govern_graph(fake)
+        awaitable = governed.astream_events({}, config=_config(), version="v3")
+        assert inspect.isawaitable(awaitable)
+        assert not hasattr(fake, "v3_driver")
+
+        run = await awaitable
+        assert fake.v3_driver.seen == []
+        async with run:
+            values = run.values.__aiter__()
+            assert await values.__anext__() == {"n": 1}
+            assert current_correlation() is None
+
+        assert fake.v3_driver.seen == [CORRELATION]
+        assert fake.v3_driver.close_seen == [CORRELATION]
         assert current_correlation() is None
 
     asyncio.run(scenario())
