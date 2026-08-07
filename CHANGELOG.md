@@ -18,6 +18,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.3] - 2026-08-06
+
+### Fixed
+
+- Correct the orchestration-errors docstring, which claimed the package facade
+  imports its collaborators and that raising through it would close an import
+  cycle. Executed: the facade resolves lazily, and importing `OrchestratorError`
+  through it loads only the errors module. The true reason the module stands
+  alone — it imports nothing from `zeroth` — is now what it says.
+- Catch duplicated assertions in `else`, `except` and `finally` blocks. The
+  vacuity guard walked only each node's `body`, so a repeat in any other
+  statement list passed.
+- Keep the self-comparison detector conservative around calls. Builtins such as
+  `list(iterator)` can consume state and `len(value)` can invoke user code, so
+  repeated call expressions are not assumed to produce the same value.
+
+### Changed
+
+- Scope the vacuity guard's docstring to the three rules it actually implements.
+  It advertised a fourth it deliberately omits, which is the same defect class
+  the guard exists to catch.
+- Make the numbers behind that omission reproducible: 477 test functions carry
+  no bare `assert`, of which 43 stay unexplained after crediting
+  `pytest.raises`, mock `assert_*`, and helper delegates. Regenerate both with
+  `scripts/count_assertion_free_tests.py`.
+- Scan every Git-tracked Python file when pinning the C901 suppression set, so
+  suppressions in scripts, examples, or application code cannot bypass the
+  registry merely by living outside `src/` and `tests/`.
+
 ## [0.17.0.2] - 2026-08-06
 
 ### Fixed

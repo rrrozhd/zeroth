@@ -339,9 +339,7 @@ def test_docs_use_canonical_imports_in_source_prose_too() -> None:
                 if root_name in text:
                     offenders.append(f"{page.relative_to(REPO_ROOT)} mentions {root_name}")
 
-    assert not offenders, "source prose still names a retired module:\n  " + "\n  ".join(
-        offenders
-    )
+    assert not offenders, "source prose still names a retired module:\n  " + "\n  ".join(offenders)
 
 
 def test_the_guidance_exemptions_are_real_files_that_still_need_the_old_names() -> None:
@@ -364,25 +362,40 @@ def test_the_guidance_exemptions_are_real_files_that_still_need_the_old_names() 
 #: suppressions: a file-level exemption hides the next real defect in that file.
 
 # A fourth shape -- a test function containing no assertion at all -- is
-# deliberately NOT checked here. Measured: 46 existing tests would trip it, and
-# every one sampled asserts for real in a way no static rule sees (a bare call
-# that raises on failure, a ``try``/``except`` flow, or a ``_probe`` helper that
-# asserts inside a subprocess string). Shipping it would mean 46 suppressions,
-# which is the anti-pattern this guard exists to avoid. Recorded as a deferred
-# discovery instead of pretended.
+# deliberately NOT checked here, and the numbers behind that decision are
+# reproducible rather than asserted. Run
+# ``uv run python scripts/count_assertion_free_tests.py`` to regenerate them:
+#
+#   * 477 test functions contain no bare ``assert`` statement;
+#   * 43 of those remain unexplained after crediting ``pytest.raises``/``fail``/
+#     ``warns``, mock ``assert_*`` methods, and helper delegates.
+#
+# Every one of the 43 sampled asserts for real in a way no static rule sees: a
+# bare call that raises on failure, a ``try``/``except`` flow, or a ``_probe``
+# helper that asserts inside a subprocess string. Shipping the rule would mean
+# 43 suppressions, which is the anti-pattern this guard exists to avoid.
 
 
-def _is_call_free(node: object) -> bool:
-    """Whether an expression invokes nothing.
+def _is_side_effect_free(node: object) -> bool:
+    """Whether an expression invokes nothing that could observe or mutate state.
 
-    ``f() == f()`` is not a self-comparison: each side is a separate invocation,
-    which is exactly how determinism and token-consumption tests are written.
-    Only a call-free expression -- ``config.settings is config.settings`` -- is
-    genuinely comparing one value with itself.
+    Even a builtin call is stateful when its argument is: ``list(iterator)``
+    consumes the iterator, and ``len(value)`` may invoke a user-defined
+    ``__len__``. The detector therefore stays conservative and accepts false
+    negatives rather than rejecting a meaningful test.
     """
     import ast
 
     return not any(isinstance(inner, ast.Call) for inner in ast.walk(node))
+
+
+def test_builtin_calls_over_runtime_values_are_not_assumed_side_effect_free() -> None:
+    """Builtin calls may consume iterators or invoke user-defined protocols."""
+    import ast
+
+    expression = ast.parse("list(values) == list(values)", mode="eval").body
+
+    assert not _is_side_effect_free(expression)
 
 
 def _empty_parametrization(node: object) -> bool:
@@ -396,7 +409,17 @@ def _empty_parametrization(node: object) -> bool:
 
 
 def test_no_test_is_vacuously_true() -> None:
-    """No empty parametrization, self-comparison, duplicate, or assertion-free test."""
+    """Three shapes, named exactly: this is a ratchet, not a soundness proof.
+
+    It rejects an empty ``parametrize`` (positional or ``argvalues=``), a
+    comparison whose two sides must evaluate identically, and an assertion
+    repeated as the next sibling statement. It does NOT reject a test that
+    asserts nothing -- see the note above ``_is_side_effect_free`` for why that
+    rule is absent and how to reproduce the number behind that decision.
+
+    An earlier revision of this docstring advertised the assertion-free rule it
+    does not implement. Naming only the implemented rules is the point.
+    """
     import ast
     import re
 
@@ -418,21 +441,28 @@ def test_no_test_is_vacuously_true() -> None:
                 if (
                     sides
                     and sides.group(1).strip() == sides.group(2).strip()
-                    and _is_call_free(node.test)
+                    and _is_side_effect_free(node.test)
                 ):
                     problems.append(f"{relative}:{node.lineno} compares a value with itself")
 
             # Consecutive identical assertions. Compared as *sibling statements*,
             # so a blank line between them still counts, while an intervening
             # statement -- the mutate-then-reassert pattern -- correctly does not.
-            body = getattr(node, "body", None)
-            if isinstance(body, list):
-                for first, second in zip(body, body[1:], strict=False):
+            # Every statement list a node owns -- ``else`` and ``except`` blocks
+            # hold sibling statements too, and checking only ``.body`` missed
+            # duplicates inside them.
+            blocks = [
+                block
+                for attribute in ("body", "orelse", "finalbody", "handlers")
+                if isinstance(block := getattr(node, attribute, None), list)
+            ]
+            for block in blocks:
+                for first, second in zip(block, block[1:], strict=False):
                     if (
                         isinstance(first, ast.Assert)
                         and isinstance(second, ast.Assert)
                         and ast.unparse(first) == ast.unparse(second)
-                        and _is_call_free(second)
+                        and _is_side_effect_free(second)
                     ):
                         problems.append(
                             f"{relative}:{second.lineno} repeats the assertion above it"
