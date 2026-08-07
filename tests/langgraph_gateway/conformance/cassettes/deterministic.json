@@ -11,5 +11,19 @@
       "arguments": {"policy_id": "policy-7"},
       "result": {"decision": "allow", "version": "sha256:fixture"}
     }
+  ],
+  "model_interactions": [
+    {
+      "request": {
+        "messages": [{"content": "fixture question", "role": "user"}],
+        "model": "fixture-model-v1",
+        "temperature": 0
+      },
+      "response": {
+        "content": "fixture response",
+        "finish_reason": "stop",
+        "role": "assistant"
+      }
+    }
   ]
 }

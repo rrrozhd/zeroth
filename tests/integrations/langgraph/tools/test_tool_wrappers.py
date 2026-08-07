@@ -1863,12 +1863,13 @@ def test_approved_callable_kwargs_edit_is_bound_once_for_policy_and_execution(
     repository.decide(resolution)
     claimed = repository.claim("approval-7", owner="worker")
     assert claimed.claim_token is not None
+    assert claimed.resolution is not None and claimed.resolution.arguments == persisted
     interrupt.delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
 
     invoke()
 
     stored = repository.get("approval-7")
-    assert stored.resolution is not None and stored.resolution.arguments == persisted
+    assert stored.resolution is not None and stored.resolution.arguments is None
     assert dict(client.seen[-1].arguments) == {"kwargs": persisted}
     assert client.seen[-1].arguments["kwargs"] == body_arguments[0] == persisted
     assert effects == ["/safe"]

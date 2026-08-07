@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -264,7 +265,9 @@ class GatewayWebSocketEndpoint:
     async def __call__(self, websocket: WebSocket) -> None:
         correlation_id = websocket.headers.get(_CORRELATION_HEADER) or self._correlation_factory()
         try:
-            principal = self._authenticator.authenticate_headers(websocket.headers)
+            principal = await asyncio.to_thread(
+                self._authenticator.authenticate_headers, websocket.headers
+            )
         except (AuthenticationError, ValidationError):
             await websocket.close(
                 code=_AUTHENTICATION_CLOSE_CODE,
