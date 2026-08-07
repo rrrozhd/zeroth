@@ -35,10 +35,38 @@ except ImportError:
 _STATUS_PENDING = "PENDING"
 _STATUS_RUNNING = "RUNNING"
 
-# The columns that constitute the fence itself. A fenced write may never
-# touch them: doing so would let a displaced worker re-grant its own lease.
+# The columns that constitute the fence itself. A fenced write may never touch
+# them: doing so would let a displaced worker re-grant its own lease.
 _FENCE_COLUMNS = frozenset(
     {"lease_worker_id", "lease_generation", "lease_acquired_at", "lease_expires_at"}
+)
+
+# The run-state columns a fenced write may set. An allowlist, not a denylist:
+# a denylist has to anticipate every spelling of a forbidden name, and these
+# names are interpolated into SQL, so anything unanticipated is both a fence
+# bypass and an injection vector. Membership here is exact and case-sensitive,
+# which is also how the schema declares them.
+_FENCEABLE_COLUMNS = frozenset(
+    {
+        "status",
+        "current_step",
+        "current_node_ids",
+        "pending_node_ids",
+        "completed_steps",
+        "artifacts",
+        "channels",
+        "final_output",
+        "failure_state",
+        "error",
+        "metadata",
+        "execution_history",
+        "node_visit_counts",
+        "condition_results",
+        "audit_refs",
+        "updated_at",
+        "recovery_checkpoint_id",
+        "failure_count",
+    }
 )
 
 
@@ -312,14 +340,25 @@ class LeaseManager:
         """
         if not columns:
             raise ValueError("commit_fenced requires at least one column to write")
-        forbidden = _FENCE_COLUMNS.intersection(columns)
-        if forbidden:
-            # A caller that could write the fence columns could grant itself the
-            # lease it is being fenced against, which makes the fence decorative.
-            raise ValueError(
-                f"commit_fenced may not write lease columns: {sorted(forbidden)}"
+        rejected = sorted(set(columns) - _FENCEABLE_COLUMNS)
+        if rejected:
+            # Allowlisted, not denylisted. A denylist would have to anticipate
+            # every spelling -- "LEASE_WORKER_ID", a quoted alias, a whole SQL
+            # fragment -- and these names reach the statement text, so an
+            # unanticipated one is both a fence bypass and an injection vector.
+            fence_hit = sorted(
+                name for name in rejected if name.strip('"').lower() in _FENCE_COLUMNS
             )
-        assignments = ", ".join(f"{name} = ?" for name in columns)
+            detail = (
+                f"may not write lease columns: {fence_hit}"
+                if fence_hit
+                else f"unknown run columns: {rejected}"
+            )
+            raise ValueError(f"commit_fenced {detail}")
+        # Quoted even though every name is allowlisted: the allowlist is the
+        # security boundary, and quoting keeps a name that merely *looks*
+        # like SQL from ever being read as SQL if that list is widened.
+        assignments = ", ".join(f'"{name}" = ?' for name in columns)
         params = (
             *columns.values(),
             run_id,
