@@ -31,8 +31,10 @@ from zeroth.contracts.graph import (
     ExecutableUnitNode,
     Graph,
     Node,
+    OperationIdentity,
     RetrievalNode,
     SubgraphNode,
+    operation_identity,
 )
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents import AgentRunner
@@ -173,6 +175,37 @@ class NodeDispatcher:
         if self.policy_gate is None:
             return {}
         return self.policy_gate.enforcement_context_for(run, node_id)
+
+    def _operation_identity_for(
+        self,
+        run: Run,
+        target_ref: str,
+        *,
+        call_ordinal: int = 0,
+    ) -> OperationIdentity:
+        """Derive the logical-operation identity for one side-effecting call.
+
+        The dispatcher is the one place that legitimately reads run state, so it
+        resolves the identity here and hands it on explicitly. Everything below
+        this line receives it as a parameter and never reaches back into
+        ``run.metadata`` -- that indirection is what made the identity invisible
+        to integrations before.
+
+        Runs driven outside the token engine carry no dispatch record; they fall
+        back to the run id, which still yields one stable key per (run, target,
+        call) triple.
+        """
+        dispatch = run.metadata.get("token_dispatch")
+        if not isinstance(dispatch, Mapping):
+            dispatch = {}
+        return operation_identity(
+            run_id=run.run_id,
+            dispatch_id=str(dispatch.get("dispatch_id") or run.run_id),
+            idempotency_key=str(dispatch.get("idempotency_key") or run.run_id),
+            attempt=int(dispatch.get("attempt") or 0),
+            target_ref=target_ref,
+            call_ordinal=call_ordinal,
+        )
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:
@@ -413,7 +446,13 @@ class NodeDispatcher:
                 and original_tool_executor is None
                 and getattr(node.agent, "tool_bindings", None)
             ):
-                runner.tool_executor = self.tool_executor.build(graph, enforcement_context)
+                runner.tool_executor = self.tool_executor.build(
+                    graph,
+                    enforcement_context,
+                    operation_identity_factory=lambda target_ref, ordinal: (
+                        self._operation_identity_for(run, target_ref, call_ordinal=ordinal)
+                    ),
+                )
 
             # Budget and capability enforcement are dispatch- and tenant-local.
             runner_context = dict(enforcement_context)
@@ -506,12 +545,16 @@ class NodeDispatcher:
                 node,
                 input_payload,
                 enforcement_context=enforcement_context,
+                operation_identity=self._operation_identity_for(run, f"node://{node.node_id}"),
             )
         else:
             result = await self.tool_executor.run_unit(
                 node.executable_unit.manifest_ref,
                 input_payload,
                 enforcement_context=enforcement_context,
+                operation_identity=self._operation_identity_for(
+                    run, node.executable_unit.manifest_ref
+                ),
             )
         audit_record = dict(result.audit_record)
         if enforcement_context:

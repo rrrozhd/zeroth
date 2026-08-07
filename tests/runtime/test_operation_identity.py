@@ -184,3 +184,193 @@ def test_at_least_once_is_reported_as_unsupported_dedupe() -> None:
     assert _identity(support=SideEffectSupport.AT_LEAST_ONCE).dedupe_supported is False
     assert _identity(support=SideEffectSupport.IDEMPOTENT).dedupe_supported is True
     assert _identity(support=SideEffectSupport.OUTCOME_QUERYABLE).dedupe_supported is True
+
+
+# ---------------------------------------------------------------------------
+# R1 -- propagation to every side-effecting boundary
+# ---------------------------------------------------------------------------
+
+
+class _RecordingRunner:
+    """Captures the kwargs each unit-invocation path actually passes through."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def run(
+        self,
+        manifest_ref,
+        input_payload,
+        *,
+        enforcement_context=None,
+        operation_identity=None,
+    ):
+        self.calls.append(
+            {"path": "run", "ref": manifest_ref, "operation_identity": operation_identity}
+        )
+        return _Result()
+
+    async def run_inline_source(
+        self,
+        node_id,
+        source,
+        input_payload,
+        *,
+        timeout_seconds=None,
+        enforcement_context=None,
+        operation_identity=None,
+    ):
+        self.calls.append(
+            {
+                "path": "run_inline_source",
+                "ref": node_id,
+                "operation_identity": operation_identity,
+            }
+        )
+        return _Result()
+
+
+class _Result:
+    output_data = {"ok": True}
+    audit_record: dict[str, object] = {}
+
+
+class _GraphOf:
+    """Minimal stand-in: the executor only looks nodes up by id."""
+
+    def __init__(self, *nodes: object) -> None:
+        self.nodes = list(nodes)
+        self.edges: list[object] = []
+
+
+def _executor(runner: _RecordingRunner):
+    from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+
+    return RuntimeToolExecutor(executable_unit_runner=runner)
+
+
+def test_run_unit_propagates_the_operation_identity() -> None:
+    """The manifest-ref path is a side-effecting boundary and must carry identity."""
+    import asyncio
+
+    runner = _RecordingRunner()
+    identity = _identity(target_ref="unit://charge-card")
+
+    asyncio.run(
+        _executor(runner).run_unit(
+            "unit://charge-card",
+            {},
+            enforcement_context={},
+            operation_identity=identity,
+        )
+    )
+
+    assert runner.calls[0]["operation_identity"] is identity
+
+
+def test_run_inline_propagates_the_operation_identity() -> None:
+    """The Studio code-node path is the same boundary and gets the same treatment."""
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    runner = _RecordingRunner()
+    identity = _identity(target_ref="node://code-1")
+    node = ExecutableUnitNode(
+        node_id="code-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            inline_source="def handler(x):\n    return x\n",
+            execution_mode="inline",
+        ),
+    )
+
+    asyncio.run(
+        _executor(runner).run_inline(
+            node,
+            {},
+            enforcement_context={},
+            operation_identity=identity,
+        )
+    )
+
+    assert runner.calls[0]["operation_identity"] is identity
+
+
+def test_a_runner_without_the_parameter_still_works() -> None:
+    """R9: a third-party runner that never opted in keeps working unchanged.
+
+    The executor already capability-sniffs ``enforcement_context`` this way; the
+    identity follows the same rule so adding it cannot break existing runners.
+    """
+    import asyncio
+
+    class _OldRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run(self, manifest_ref, input_payload):
+            self.calls += 1
+            return _Result()
+
+    runner = _OldRunner()
+    asyncio.run(
+        _executor(runner).run_unit(
+            "unit://legacy",
+            {},
+            enforcement_context={},
+            operation_identity=_identity(),
+        )
+    )
+
+    assert runner.calls == 1
+
+
+def test_agent_tool_calls_get_distinct_identities_per_call() -> None:
+    """Two tool calls in one agent turn are two operations, not one repeat.
+
+    ``build`` takes a factory rather than a fixed identity precisely so the call
+    ordinal advances; a single shared identity would make the second call look
+    like a duplicate of the first and get suppressed.
+    """
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    runner = _RecordingRunner()
+    node = ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://send-email",
+            execution_mode="wrapped_command",
+        ),
+    )
+    graph = _GraphOf(node)
+
+    def _factory(target_ref: str, ordinal: int):
+        return operation_identity(
+            run_id="run_1",
+            dispatch_id="dsp_abc",
+            idempotency_key="idem_abc",
+            attempt=0,
+            target_ref=target_ref,
+            call_ordinal=ordinal,
+        )
+
+    execute = _executor(runner).build(graph, {}, operation_identity_factory=_factory)
+
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    asyncio.run(execute(_Binding(), {}))
+    asyncio.run(execute(_Binding(), {}))
+
+    keys = [call["operation_identity"].operation_key for call in runner.calls]
+    assert len(keys) == 2
+    assert keys[0] != keys[1]
