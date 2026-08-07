@@ -77,6 +77,135 @@ def test_comparison_never_reorders_chunks_or_discards_unknown_fields() -> None:
 
 
 @pytest.mark.parametrize(
+    ("direct_updates", "proxied_updates", "expected_field", "expected_path"),
+    [
+        (
+            {"retry_attempts": (1, 2)},
+            {"retry_attempts": (1,)},
+            "retry_attempts",
+            "#/retry_attempts/1",
+        ),
+        (
+            {"disconnect_outcome": "client_stream_closed"},
+            {"disconnect_outcome": None},
+            "disconnect_outcome",
+            "#/disconnect_outcome",
+        ),
+    ],
+)
+def test_comparator_rejects_retry_or_disconnect_mutations(
+    direct_updates: dict[str, object],
+    proxied_updates: dict[str, object],
+    expected_field: str,
+    expected_path: str,
+) -> None:
+    report = compare_exchanges(_capture(**direct_updates), _capture(**proxied_updates))
+
+    assert expected_field in report.semantic_divergences
+    assert report.first_divergence_path == expected_path
+
+
+@pytest.mark.parametrize(
+    ("direct_updates", "proxied_updates", "expected_path"),
+    [
+        pytest.param(
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                    {"name": "lookup_policy", "arguments": {"policy_id": "policy-7"}},
+                )
+            },
+            {
+                "tool_sequence": (
+                    {"name": "lookup_policy", "arguments": {"policy_id": "policy-7"}},
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                )
+            },
+            "#/tool_sequence/0/arguments/city",
+            id="tool-order",
+        ),
+        pytest.param(
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Raleigh"}},
+                )
+            },
+            {
+                "tool_sequence": (
+                    {"name": "lookup_weather", "arguments": {"city": "Durham"}},
+                )
+            },
+            "#/tool_sequence/0/arguments/city",
+            id="tool-arguments",
+        ),
+        pytest.param(
+            {"state": {"values": {"result": "direct"}}},
+            {"state": {"values": {"result": "proxied"}}},
+            "#/state/values/result",
+            id="final-state",
+        ),
+        pytest.param({}, {}, None, id="identical"),
+    ],
+)
+def test_report_identifies_the_exact_first_divergence_path(
+    direct_updates: dict[str, object],
+    proxied_updates: dict[str, object],
+    expected_path: str | None,
+) -> None:
+    report = compare_exchanges(_capture(**direct_updates), _capture(**proxied_updates))
+
+    assert report.first_divergence_path == expected_path
+
+
+def test_human_report_names_the_path_without_leaking_divergent_values(tmp_path: Path) -> None:
+    report = compare_exchanges(
+        _capture(state={"values": {"result": "direct-secret"}}),
+        _capture(state={"values": {"result": "proxied-secret"}}),
+    )
+    path = tmp_path / "differential-report.txt"
+
+    report.write_human_report(path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "first divergence: #/state/values/result" in text
+    assert "direct-secret" not in text
+    assert "proxied-secret" not in text
+
+
+@pytest.mark.parametrize(
+    ("key", "expected_path"),
+    [
+        ("a/b~c", "#/final_json/a~1b~0c"),
+        ("line\nbreak", "#/final_json/line%0Abreak"),
+    ],
+)
+def test_divergence_path_sorts_and_safely_escapes_mapping_keys(
+    key: str,
+    expected_path: str,
+    tmp_path: Path,
+) -> None:
+    direct = _capture(
+        raw_chunks=(b"same", b"body"),
+        final_json={"z": "direct-z", key: "direct"},
+    )
+    proxied = _capture(
+        raw_chunks=(b"same", b"body"),
+        final_json={key: "proxied", "z": "proxied-z"},
+    )
+
+    report = compare_exchanges(direct, proxied)
+    path = tmp_path / "differential-report.txt"
+    report.write_human_report(path)
+    text = path.read_text(encoding="utf-8")
+
+    assert report.first_divergence_path == expected_path
+    assert f"first divergence: {expected_path}\n" in text
+    assert key not in text
+    assert "direct-z" not in text
+    assert "proxied-z" not in text
+
+
+@pytest.mark.parametrize(
     "proxied_frames",
     [
         (b"event: values\ndata: one\n\n",),
@@ -133,8 +262,17 @@ def servers() -> Iterator[ConformanceServers]:
                 {"arguments": {"policy_id": "policy-7"}, "name": "lookup_policy"},
             ],
         },
+        {
+            "mode": "model",
+            "model_request": {
+                "messages": [{"content": "fixture question", "role": "user"}],
+                "model": "fixture-model-v1",
+                "temperature": 0,
+            },
+        },
+        {"mode": "retry", "retry_key": "paired-retry"},
     ],
-    ids=["echo", "recorded-tools"],
+    ids=["echo", "recorded-tools", "recorded-model", "retry-once"],
 )
 def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
     servers: ConformanceServers,
@@ -158,6 +296,17 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
             ),
             audit_event_present=any(row.get("kind") == "audit" for row in evidence),
         )
+    if input_payload["mode"] == "model":
+        expected = {
+            "content": "fixture response",
+            "finish_reason": "stop",
+            "role": "assistant",
+        }
+        assert direct.final_json["model_response"] == expected
+        assert proxied.final_json["model_response"] == expected
+    if input_payload["mode"] == "retry":
+        assert direct.retry_attempts == (1, 2)
+        assert proxied.retry_attempts == (1, 2)
     direct_headers = dict(direct.headers)
     proxied_headers = dict(proxied.headers)
     header_pairs = []
@@ -173,6 +322,69 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
         report.write_human_report(tmp_path / "differential-report.txt")
     assert report.semantic_divergences == []
     assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
+
+
+def test_live_governed_wait_uses_verified_attestation_evidence(
+    servers: ConformanceServers,
+    tmp_path: Path,
+) -> None:
+    direct_payload = {
+        "assistant_id": "conformance",
+        "input": {"mode": "echo", "text": "governed-attestation"},
+        "run_id": "conformance-governed-run",
+    }
+    proxied_payload = direct_payload | {"assistant_id": "conformance_governed"}
+    with httpx.Client(timeout=15) as client:
+        # Agent Server sends headers before graph execution. Seed this fresh signed
+        # identity once so reporting stays byte-streaming and never buffers the body.
+        primer = client.post(
+            f"{servers.gateway_url}/runs/wait",
+            json=proxied_payload,
+            headers={"x-api-key": "gateway-key"},
+        )
+        primer.raise_for_status()
+        direct = capture_response(
+            client.post(f"{servers.direct_url}/runs/wait", json=direct_payload)
+        )
+        evidence_start = len(servers.evidence())
+        proxied_response = client.post(
+            f"{servers.gateway_url}/runs/wait",
+            json=proxied_payload,
+            headers={"x-api-key": "gateway-key"},
+        )
+        evidence = servers.evidence(since=evidence_start)
+        proxied = capture_response(
+            proxied_response,
+            forwarded_context_present=any(
+                row.get("kind") == "forwarded" and row.get("zeroth_present")
+                for row in evidence
+            ),
+            audit_event_present=any(row.get("kind") == "audit" for row in evidence),
+        )
+
+    attestation = next(row["evidence"] for row in evidence if row.get("kind") == "attestation")
+    audit_event = next(row["event"] for row in evidence if row.get("kind") == "audit")
+    header_pairs = [
+        (dict(direct.headers)[header], dict(proxied.headers)[header])
+        for header in ("date", "location", "content-location")
+        if header in dict(direct.headers) and header in dict(proxied.headers)
+    ]
+    report = compare_exchanges(
+        direct,
+        proxied,
+        generated_values=GeneratedValueMap.from_pairs(header_pairs),
+    )
+    if report.semantic_divergences:
+        report.write_human_report(tmp_path / "governed-attestation-differential-report.txt")
+
+    assert report.semantic_divergences == []
+    assert dict(proxied.headers)["x-zeroth-governance-level"] == "observed", evidence
+    assert proxied.audit_event_present is True
+    assert attestation["signature_valid"] is True
+    assert attestation["governance_level"] == "observed"
+    assert attestation["run_id"] == proxied_payload["run_id"]
+    assert audit_event["governance_level"] == "observed"
+    assert audit_event["correlation"]["run_id"] == attestation["run_id"]
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: f"paired-{case.name}")
@@ -216,6 +428,8 @@ def test_paired_subscriptions_capture_bounded_exact_sse_frames(
     assert len(result.proxied.raw_chunks) <= 12
     assert all(frame.endswith((b"\n\n", b"\r\n\r\n")) for frame in result.direct.raw_chunks)
     assert all(frame.endswith((b"\n\n", b"\r\n\r\n")) for frame in result.proxied.raw_chunks)
+    assert result.direct.disconnect_outcome == "client_stream_closed"
+    assert result.proxied.disconnect_outcome == "client_stream_closed"
     report = compare_exchanges(
         result.direct,
         result.proxied,

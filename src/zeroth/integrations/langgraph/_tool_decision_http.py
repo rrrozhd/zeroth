@@ -14,13 +14,13 @@ a decision nobody made, and the seam above would pass it on as genuine. Transpor
 errors and error statuses therefore propagate untouched. Failing closed is the
 seam's job, and it can only do that job if this module tells it the truth.
 
-**It blocks.** The seam is synchronous by construction (see that module's
-docstring: ``on_tool_start`` cannot await), so a network-backed client bridges on
-its own side, and here that means a blocking request on the calling thread. In
-an async graph the call runs inside a coroutine and holds the event loop for the
-duration -- which is precisely why the wait is bounded by
-:data:`DEFAULT_DECISION_TIMEOUT_SECONDS` rather than left to the transport's
-default, and why that bound is a constructor argument an operator can lower.
+**It blocks its calling thread.** The seam is synchronous by construction (see
+that module's docstring: ``on_tool_start`` cannot await), so a network-backed
+client bridges on its own side, and here that means a blocking request. Sync
+graphs wait on their calling thread; the async guard runs authorization in a
+worker so this request does not hold the event loop. The wait is still bounded
+by :data:`DEFAULT_DECISION_TIMEOUT_SECONDS` rather than left to the transport's
+default, and that bound remains a constructor argument an operator can lower.
 
 The arguments themselves never leave the process: the wire carries
 ``arguments_digest``, computed by the same
@@ -49,11 +49,11 @@ from zeroth.integrations.langgraph._tool_types import (
 DEFAULT_DECISION_TIMEOUT_SECONDS = 5.0
 """How long a governed tool call may wait for its verdict.
 
-Bounded rather than generous on purpose: this wait is on the graph's own thread,
-so an unbounded one turns a slow decision service into a hung run. Exceeding it
-raises, which the seam records as ``policy_unavailable`` -- a denial. The number
-is therefore a statement about how long a run should stall before being refused,
-not a network tuning knob.
+Bounded rather than generous on purpose: sync calls wait on the graph's thread,
+while async calls occupy an authorization worker. An unbounded wait can hang the
+run either way. Exceeding it raises, which the seam records as
+``policy_unavailable`` -- a denial. The number is therefore a statement about
+how long a run should wait before being refused, not a network tuning knob.
 """
 
 DECISION_PATH = "/v1/enforcement/decisions"

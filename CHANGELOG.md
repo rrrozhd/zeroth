@@ -129,119 +129,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bring `src/` into `ruff format` conformance. Eleven files predated the check
   and would have failed the release gate.
 
-## [0.16.1.8] - 2026-08-06
+## [0.16.2.5.1] - 2026-08-07
 
-### Changed
+### Added
 
-- Convert the last legacy consumers outside the compatibility shims. The
-  import baseline now holds only the four shim packages themselves, which is
-  the precondition for deleting them.
-
-## [0.16.1.7] - 2026-08-06
-
-### Changed
-
-- Convert the remaining canonical surface tests to assert the canonical
-  package's own exports rather than comparing them against the legacy
-  republisher, keeping every assertion the parity form was protecting.
-
-## [0.16.1.6] - 2026-08-06
-
-### Changed
-
-- Rewrite the canonical surface tests so they assert the canonical package's
-  own exports and cold-importability instead of comparing it against the legacy
-  republisher. The parity half is dropped; every assertion it was protecting is
-  kept, including that the run domain publishes the governed contract objects
-  themselves rather than forking them.
-
-## [0.16.1.5] - 2026-08-06
-
-### Changed
-
-- Convert the repository's plain test consumers to canonical imports. Every
-  rewritten import was verified by object identity against the legacy path it
-  replaced, which caught two mis-mappings a green suite would not have.
-
-## [0.16.1.4] - 2026-08-06
-
-### Changed
-
-- Convert every canonical source module to canonical imports, so no module
-  under the eight backend domains reaches a legacy `zeroth.core` path.
-- Reconcile the architecture exception table with the edges the conversion
-  exposed. The legacy republishers were laundering several real dependencies;
-  each exception now names the exact current importer and imported module.
+- Report valid, fresh, signed `govern_graph` runs as `observed` through the
+  gateway response header and terminal audit event.
 
 ### Fixed
 
-- Define `InterruptExpiredError` in `zeroth.runtime.orchestration.interrupts`.
-  It was imported from `zeroth.core.governed.workflows.exceptions`, a module
-  that does not exist, so resolving an expired interrupt raised
-  `ModuleNotFoundError` instead of the intended error.
+- Keep exact signed run identity authoritative and close acquired upstream
+  responses when capability reporting is cancelled.
+
+## [0.16.2.3] - 2026-08-07
+
+### Fixed
+
+- Build the release image with the PostgreSQL, LangGraph adapter, and gateway
+  dependencies exercised by its Compose smoke validation.
+- Accept Syft's SPDX `DESCRIBES` relationship orientation while rejecting the
+  reversed relationship in final release evidence.
+
+## [0.16.2.2] - 2026-08-07
+
+### Security
+
+- Bind final release validation to the expected JUnit tests, installed image
+  packages and labels, image-specific SPDX contents, and a cryptographically
+  verified provenance receipt for the exported image before publication.
+- Make final evidence validation the default and keep source-only validation an
+  explicit pre-build phase.
+
+## [0.16.2.1] - 2026-08-07
+
+### Fixed
+
+- Exercise the LangGraph release path through real local and loopback adapters,
+  a durable public approval demo, and a runnable gateway fixture.
+- Reject stale, incomplete, synthetic, or failed compatibility, performance,
+  test, image, SBOM, and provenance evidence before publishing.
+- Reject unsupported database backend values at settings validation time.
+
+## [0.16.2] - 2026-08-07
+
+### Added
+
+- Ship reproducible LangGraph performance, compatibility, security, container,
+  demo, and test evidence behind a fail-closed release checklist.
+- Publish the canonical managed and self-hosted LangGraph deployment guide with
+  explicit gateway-only enforcement limits.
+
+## [0.16.1.7] - 2026-08-07
+
+### Fixed
+
+- Preserve exact compatibility fingerprinting and asynchronous WebSocket
+  authentication across the canonical LangGraph gateway relocation.
+
+## [0.16.1.6] - 2026-08-07
+
+### Security
+
+- Keep HTTP and WebSocket authentication responsive during remote JWKS reads,
+  throttle key-refresh misses, and reject redirects outside HTTP(S).
+
+## [0.16.1.5] - 2026-08-07
+
+### Fixed
+
+- Deliver async LangGraph policy audit records through the owning event loop
+  while authorization remains offloaded.
+
+## [0.16.1.4.1] - 2026-08-06
+
+### Tests
+
+- Assert edited approval arguments before execution and terminal compaction
+  afterward in synchronous and asynchronous callable-wrapper coverage.
+
+## [0.16.1.4] - 2026-08-06
+
+### Fixed
+
+- Keep async LangGraph tool graphs responsive while synchronous policy
+  authorization waits, preserving fail-closed decisions and approval revalidation.
 
 ## [0.16.1.3] - 2026-08-06
 
-### Changed
+### Security
 
-- Ship the quickstart tutorial helper and the demo scripts from the repository's
-  `examples/` tree instead of inside the wheel, and move typing metadata to
-  `zeroth/py.typed` and the vendored governed licence and provenance to
-  `zeroth/contracts/governed/`.
-- `build_demo_graph` is no longer an importable library symbol. It remains a
-  pinned capability, verified by loading `examples/quickstart.py` from disk.
-
-### Added
-
-- Add wheel-packaging tests that inspect the built distribution's ZIP listing
-  directly, so relocated resources cannot regress silently.
+- Remove original and edited tool arguments from terminal LangGraph approval
+  records while preserving durable replay fences and exact retry validation.
 
 ## [0.16.1.2] - 2026-08-06
 
-### Changed
+### Security
 
-- Move the `zeroth-core` command-line interface to `zeroth.service.cli` and the
-  shipped demo seeder to `zeroth.service.demo`. The distribution name and the
-  `zeroth-core` console command are unchanged; only the target module moves.
+- Bound and cache remote JWKS retrieval, refresh rotated keys once, and reject
+  unavailable or invalid key sets as bearer authentication failures.
 
 ## [0.16.1.1] - 2026-08-06
 
-### Changed
+### Fixed
 
-- Resolve Alembic migrations from `zeroth.service._migrations` instead of
-  `zeroth.core.migrations`. The revision tree, `alembic.ini`, the bootstrap
-  resource lookup, and the migration tests all move together.
+- Require an exact allowlisted Agent Server OpenAPI fingerprint before proxying
+  and reject unavailable compatibility evidence.
+- Compare recorded model, retry, disconnect, and graph outcomes through stable
+  escaped paths, and pin the tested LangChain compatibility version in CI.
 
-## [0.16.1.0.3] - 2026-08-06
-
-### Changed
-
-- Define `RuntimeOrchestrator` in `zeroth.runtime.orchestration.orchestrator`
-  and export it lazily from `zeroth.runtime.orchestration`, so importing the
-  narrow runtime contracts no longer risks loading the orchestrator, the
-  service, or the persistence adapters.
-- Name the orchestrator's run store through a runtime-owned `RunRepository`
-  protocol instead of importing the concrete persistence adapter, keeping the
-  runtime's dependency direction while preserving the pinned signature.
-
-## [0.16.1.0.2] - 2026-08-06
-
-### Changed
-
-- Define the run and thread models in `zeroth.runtime.runs.models` instead of
-  re-exporting them from `zeroth.core.runs.models`. The runtime now owns the
-  shape of a run outright; the legacy module republishes the same names.
-
-## [0.16.1.0.1] - 2026-08-06
+## [0.16.1] - 2026-08-06
 
 ### Added
 
-- Add an AST-based guard that rejects new imports of the legacy `zeroth.core`
-  and `zeroth.econ_plane` trees. A baseline lists the files that still import
-  them; the guard lets that list shrink but never grow and never go stale, so
-  the removal converges instead of regressing.
+- Run the pinned LangGraph and Agent Server compatibility pair in CI and report
+  the exact first unexplained differential path without exposing compared values.
 
-## [0.16.1] - 2026-08-06
+### Security
+
+- Reject bearer tokens that omit expiry and verify replacement versus retired
+  signing-key identifiers.
 
 ### Changed
 

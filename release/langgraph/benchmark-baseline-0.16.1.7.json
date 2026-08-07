@@ -1,0 +1,26 @@
+{
+  "hardware": {
+    "cpu_count": 14,
+    "machine": "arm64",
+    "processor": "arm",
+    "python": "3.12.13",
+    "release": "25.5.0",
+    "system": "Darwin"
+  },
+  "methodology": "langgraph-local-vs-loopback-sidecar",
+  "metrics": {
+    "decision_latency_p95_ms": 2.095792,
+    "peak_memory_bytes": 172497.0,
+    "sidecar_overhead_p95_ms": 3.192833,
+    "throughput_tokens_per_second": 8546.644849,
+    "ttft_p95_ms": 3.894875
+  },
+  "release": "0.16.1.7",
+  "sample_count": 20,
+  "schema_version": 1,
+  "source": {
+    "commit": "d4f235f70f43f669d7d14df14a69b0cda10eaea5",
+    "package_version": "0.16.1.7",
+    "path": "archived src/zeroth/integrations/langgraph"
+  }
+}
