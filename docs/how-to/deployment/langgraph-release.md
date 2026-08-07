@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.16.2`.
+This is the canonical clean install and operations path for Zeroth `0.16.2.1`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -16,7 +16,7 @@ Use Python 3.12 and install only the deployment surface you operate:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2"
+pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2.1"
 ```
 
 For managed Agent Server deployments, put the Zeroth gateway in front of the
@@ -27,10 +27,19 @@ calls are required. Managed availability does not change the gateway-only limit.
 For self-hosted deployment, build the release image and use Compose:
 
 ```bash
-docker build -t zeroth-core:0.16.2 .
+export ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"release-smoke","secret":"release-smoke-key","subject":"release-operator","roles":["operator"]}]'
+export SIGNING_DEPLOYMENT="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+docker compose run --rm zeroth zeroth-core seed-demo
 docker compose up --build --wait
-python release/langgraph/harness.py smoke
+python release/langgraph/harness.py smoke --require-gateway
+python release/langgraph/harness.py gateway-smoke --api-key release-smoke-key
 ```
+
+The Compose file includes a bounded, test-only Agent Server fixture so this
+release smoke is deterministic and needs no proprietary Agent Server image. For
+a real self-hosted or managed upstream, set `ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL`
+and `ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE`; keep the gateway deployment ref
+equal to the seeded or imported deployment.
 
 The image runs as UID `10001`; `/health/ready` checks configured dependencies.
 Invalid environment configuration fails startup. Compose gives shutdown 30
@@ -77,6 +86,8 @@ python release/langgraph/harness.py benchmark --samples 20 --output /tmp/benchma
 python release/langgraph/harness.py validate --manifest release/langgraph/release-manifest.json
 ```
 
-The benchmark is explicitly synthetic local-versus-serialized-sidecar work. Its
-report records the sample distribution, hardware, variance, ordering, baseline,
-and thresholds; it is not an Agent Server or model latency claim.
+The benchmark executes one deterministic public `govern_tools` `StateGraph`
+locally and through `HttpToolDecisionClient` over a real loopback HTTP sidecar.
+Its report records the sample distribution, hardware, variance, ordering, a
+measured `0.16.1.7` baseline, and derived thresholds. It excludes model latency,
+an external network, and the Agent Server runtime.

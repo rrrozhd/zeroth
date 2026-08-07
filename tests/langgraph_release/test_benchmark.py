@@ -21,7 +21,11 @@ def test_benchmark_records_release_metrics_and_rejects_regression(tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["methodology"]["kind"] == "synthetic-local-vs-sidecar"
+    assert report["methodology"]["kind"] == "langgraph-local-vs-loopback-sidecar"
+    assert report["methodology"]["model_latency_included"] is False
+    assert report["methodology"]["external_network_included"] is False
+    assert report["workload"]["local_path"] == "govern_tools+StateGraph"
+    assert report["workload"]["sidecar_path"] == "govern_tools+HttpToolDecisionClient"
     assert report["sample_count"] == 5
     assert {
         "local_overhead_ms",
@@ -35,7 +39,14 @@ def test_benchmark_records_release_metrics_and_rejects_regression(tmp_path: Path
     assert report["stream_ordering"]["valid"] is True
     assert report["hardware"]["python"]
     assert report["variance"]
-    assert report["baseline"] and report["thresholds"]
+    assert report["baseline"]["release"] == "0.16.1.7"
+    assert report["baseline"]["sample_count"] >= 20
+    assert report["baseline"]["source"] == {
+        "commit": "d4f235f70f43f669d7d14df14a69b0cda10eaea5",
+        "package_version": "0.16.1.7",
+        "path": "archived src/zeroth/integrations/langgraph",
+    }
+    assert report["thresholds"]["derived_from"] == "0.16.1.7"
 
     regressed = subprocess.run(
         [

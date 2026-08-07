@@ -6,6 +6,7 @@
 
 services:
   zeroth:
+    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.16.2.1}
     build:
       context: .
       args:
@@ -19,10 +20,17 @@ services:
       ZEROTH_DATABASE__BACKEND: postgres
       ZEROTH_DATABASE__POSTGRES_DSN: postgresql://zeroth:zeroth@db:5432/zeroth
       ZEROTH_SERVICE_API_KEYS_JSON: ${ZEROTH_SERVICE_API_KEYS_JSON:-}
+      SIGNING_DEPLOYMENT: ${SIGNING_DEPLOYMENT:-}
+      ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"
+      ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL: ${ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL:-http://langgraph-fixture:8123}
+      ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE: ${ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE:-langgraph-fixture}
+      ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF: ${ZEROTH_LANGGRAPH_GATEWAY_DEPLOYMENT_REF:-default}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       db:
+        condition: service_healthy
+      langgraph-fixture:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import json,urllib.request; p=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=4)); assert p['status'] in ('ok','degraded') and p['checks']"]
@@ -31,8 +39,21 @@ services:
       retries: 6
       start_period: 20s
 
+  langgraph-fixture:
+    image: python:3.12.13-slim-bookworm
+    working_dir: /workspace
+    command: python release/langgraph/harness.py mock-upstream
+    read_only: true
+    volumes:
+      - .:/workspace:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8123/ok',timeout=2))['ok']"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
   db:
-    image: postgres:16
+    image: postgres:16.9-bookworm
     environment:
       POSTGRES_USER: zeroth
       POSTGRES_PASSWORD: zeroth

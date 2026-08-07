@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_release_demo_proves_governance_and_causality() -> None:
+    source = (ROOT / "examples/27_langgraph_release.py").read_text(encoding="utf-8")
+    assert "_tool_guard" not in source and "_tool_normalize" not in source
+    assert "StateGraph" in source and "SqliteSaver" in source and "ApprovalCoordinator" in source
+
     result = subprocess.run(
         [sys.executable, "examples/27_langgraph_release.py", "--json"],
         cwd=ROOT,
@@ -27,3 +31,6 @@ def test_release_demo_proves_governance_and_causality() -> None:
     assert evidence["approval_state"] == "resolved"
     assert evidence["causal_ancestry_valid"] is True
     assert evidence["stream_ordering"] == [1, 2, 3]
+    assert evidence["thread_id"] == "demo-thread"
+    assert evidence["checkpointer"] == "SqliteSaver"
+    assert evidence["resume_api"] == "Command(resume=...)"
