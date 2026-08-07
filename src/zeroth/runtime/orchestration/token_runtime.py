@@ -27,7 +27,10 @@ from zeroth.contracts.graph.tokens import (
 from zeroth.contracts.mappings.executor import _set_path
 from zeroth.platform.observability.tracing import start_span
 from zeroth.runtime.orchestration import token_scope as _ts
-from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
+from zeroth.runtime.orchestration.dispatcher import (
+    SideEffectReconciliationExhaustedError,
+    dispatch_subgraph_node,
+)
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.parallel_executor import sum_run_cost
 from zeroth.runtime.orchestration.token_lifecycle import (
@@ -345,6 +348,19 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     raise OrchestratorError("token snapshot disappeared during recovery") from None
                 current = loaded
 
+    async def _settle_fork_failure(self, run: Run, node: Any, exc: BaseException) -> Run:
+        """End a failed fan-out the way the failure deserves.
+
+        The fork path intercepts before the root handler, so without this an
+        exhausted ambiguous side effect inside a fan-out still failed the run
+        terminally. Kept as a helper rather than an inline branch because
+        ``_dispatch_claim`` already sits at the complexity ceiling the commit
+        gate enforces.
+        """
+        if isinstance(exc, SideEffectReconciliationExhaustedError):
+            return await self.driver.pause_for_reconciliation(run, node.node_id, str(exc))
+        return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
+
     async def _dispatch_claim(self, graph: Graph, run: Run, claim: DispatchClaim) -> Run | None:
         dispatch = claim.dispatch
         envelope = dispatch.token
@@ -566,7 +582,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         await self.driver.run_repository.write_checkpoint(run)
                         return None
                     await TokenLifecycleAdapter(self.store).cancel(run.run_id)
-                    return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
+                    return await self._settle_fork_failure(run, node, exc)
                 # The same terminal-vs-resumable decision the legacy driver
                 # makes. This is the DEFAULT execution path, so routing it here
                 # is what actually stops an exhausted ambiguous side effect from

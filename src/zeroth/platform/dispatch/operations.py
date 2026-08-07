@@ -384,8 +384,17 @@ class SideEffectOperationStore:
         resolved: bool,
         receipt: str | None = None,
         error: str | None = None,
+        confirmed_failed: bool = False,
     ) -> OperationState:
         """Fold one reconciliation attempt into the record.
+
+        ``confirmed_failed`` is the settle path for the opposite discovery: the
+        integration was asked and answered that the effect did **not** land.
+        Without it an ambiguous operation could never reach FAILED -- ``fail()``
+        refuses to demote AMBIGUOUS, and reconciliation could only resolve to
+        COMPLETED -- so a genuinely failed operation wedged as ambiguous forever.
+        The distinction that matters is *who* is asserting: an unresolved attempt
+        still knows nothing, whereas this is the target's own answer.
 
         An unresolved attempt burns budget and leaves the operation AMBIGUOUS --
         exhausting the budget must not manufacture a verdict, because the runtime
@@ -417,6 +426,31 @@ class SideEffectOperationStore:
                     self._count("zeroth_side_effect_reconciliation_succeeded_total")
                     return OperationState.COMPLETED
                 # Either it was already completed, or the row is gone.
+                return await self.state_of(operation_key)
+
+            if confirmed_failed:
+                # The target answered "no effect". That is knowledge, not a
+                # timeout, so it may settle an ambiguous operation.
+                settled = await conn.fetch_one(
+                    """
+                    UPDATE side_effect_operations
+                    SET state = ?, error = ?,
+                        reconciliation_attempts = reconciliation_attempts + 1,
+                        updated_at = ?
+                    WHERE operation_key = ? AND state != ?
+                    RETURNING operation_key
+                    """,
+                    (
+                        OperationState.FAILED.value,
+                        error,
+                        now,
+                        operation_key,
+                        OperationState.COMPLETED.value,
+                    ),
+                )
+                if settled is not None:
+                    self._count("zeroth_side_effect_reconciliation_succeeded_total")
+                    return OperationState.FAILED
                 return await self.state_of(operation_key)
 
             # An unresolved attempt burns budget and leaves the operation
