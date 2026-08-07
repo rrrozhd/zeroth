@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.integrations.persistence.runs import RunRepository
-from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError, LeaseManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 from zeroth.runtime.runs import RunFailureState
@@ -161,7 +161,9 @@ class RunWorker:
         # Captured right after the claim: the renewal loop presents it back so a
         # lease that was released and re-acquired is detected even when the same
         # worker id ends up holding it again.
-        self._lease_generations[run_id] = await self.lease_manager.current_generation(run_id)
+        generation = await self.lease_manager.current_generation(run_id)
+        self._lease_generations[run_id] = generation
+        fence_installed = await self._install_write_fence(run_id, generation)
         drive_task = asyncio.create_task(
             self._drive_run(run_id, is_recovery=is_recovery),
             name=f"drive-{run_id}",
@@ -181,9 +183,14 @@ class RunWorker:
             if run_id not in self._lost_leases:
                 raise
             self._record_lease_loss(run_id)
+            await self._record_worker_audit(run_id, reason_code="lease_lost")
+        except FencedRunWriteRejectedError:
+            await self._handle_fencing_rejection(run_id)
         except Exception:
             await self._handle_run_exception(run_id)
         finally:
+            if fence_installed:
+                self.run_repository.clear_fence(run_id)
             renewal_task.cancel()
             # Suppress ANY outcome of the renewal task (audit B4). The normal path
             # raises CancelledError (a BaseException, so it is listed explicitly —
@@ -205,6 +212,34 @@ class RunWorker:
             if slot_reserved or acquired_here:
                 self._semaphore.release()
 
+    async def _install_write_fence(self, run_id: str, generation: int | None) -> bool:
+        """ZER-26/AUD-004: fence this drive's run-state saves on the lease.
+
+        Every save during the drive — the worker's own transitions and the
+        orchestrator's, which share this repository — then carries the lease
+        predicate, so a displaced worker's write is refused in the statement
+        itself rather than by the (asynchronous) cancellation. Only installed
+        when this worker actually holds the lease: a drive of an unclaimed run
+        (tests, legacy paths) keeps its unfenced behaviour.
+        """
+        if generation is None or not hasattr(self.run_repository, "install_fence"):
+            return False
+        if await self.lease_manager.current_holder(run_id) != self.worker_id:
+            return False
+        self.run_repository.install_fence(run_id, self.worker_id, generation)
+        return True
+
+    async def _handle_fencing_rejection(self, run_id: str) -> None:
+        """The fence fired before the renewal loop noticed: ownership moved.
+
+        The refused write is the proof. The run is the new owner's, so no run
+        state is written — only the durable evidence and the metric.
+        """
+        self._record_lease_loss(run_id)
+        await self._record_worker_audit(run_id, reason_code="lease_fencing_rejected")
+        if self.metrics_collector is not None:
+            self.metrics_collector.increment("zeroth_lease_fencing_rejected_total")
+
     def _record_lease_loss(self, run_id: str) -> None:
         """Note that ownership moved away, and deliberately write nothing else.
 
@@ -214,6 +249,50 @@ class RunWorker:
         logger.warning("worker %s stopped run %s after losing its lease", self.worker_id, run_id)
         if self.metrics_collector is not None:
             self.metrics_collector.increment("zeroth_lease_lost_total")
+
+    async def _record_worker_audit(self, run_id: str, *, reason_code: str) -> None:
+        """ZER-26/AUD-008: leave a durable record of a worker-level lease event.
+
+        Fencing rejections and lease losses previously left only a log line and
+        a counter — nothing durable said *why* a worker stopped mid-run. The
+        audit trail is append-only evidence, not run state, so writing it from
+        a displaced worker does not violate the fence.
+        """
+        audit_repository = getattr(self.orchestrator, "audit_repository", None)
+        if audit_repository is None:
+            return
+        try:
+            run = await self.run_repository.get(run_id)
+            if run is None:
+                return
+            from zeroth.governance.audit import NodeAuditRecord
+
+            await audit_repository.write(
+                NodeAuditRecord(
+                    audit_id=f"{run_id}:worker:{uuid4().hex[:12]}",
+                    run_id=run_id,
+                    thread_id=run.thread_id,
+                    tenant_id=run.tenant_id,
+                    workspace_id=run.workspace_id,
+                    node_id="__worker__",
+                    graph_version_ref=run.graph_version_ref,
+                    deployment_ref=run.deployment_ref,
+                    status="rejected",
+                    execution_metadata={
+                        "reason_code": reason_code,
+                        "worker_id": self.worker_id,
+                        "lease_generation": self._lease_generations.get(run_id),
+                    },
+                )
+            )
+        except Exception:
+            # Evidence writing must never mask the event it records.
+            logger.exception(
+                "worker %s: failed to write %s audit for run %s",
+                self.worker_id,
+                reason_code,
+                run_id,
+            )
 
     async def _handle_run_exception(self, run_id: str) -> None:
         """Dead-letter or fail a run whose execution raised."""
@@ -425,6 +504,11 @@ class RunWorker:
     async def _release_to_pending(self, run_id: str) -> None:
         """Release lease and revert run to PENDING for another worker."""
         try:
+            # A voluntary release is the one write that legitimately happens
+            # after giving up the lease: the fence must come down first, or the
+            # PENDING hand-back below fences *ourselves* out.
+            if hasattr(self.run_repository, "clear_fence"):
+                self.run_repository.clear_fence(run_id)
             await self.lease_manager.release_lease(run_id, self.worker_id)
             run = await self.run_repository.get(run_id)
             if run is not None and run.status == RunStatus.RUNNING:

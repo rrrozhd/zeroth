@@ -38,6 +38,7 @@ from zeroth.integrations.persistence.runs.serialization import (
     row_to_thread,
 )
 from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
@@ -123,16 +124,51 @@ class _RunThreadStore:
 
     database: AsyncDatabase
     checkpoints: CheckpointRowStore = field(init=False)
+    # ZER-26/AUD-004: per-run write fences. While a fence is installed for a
+    # run id, every save of that run's row carries the lease predicate, so a
+    # displaced worker's write is refused *inside* the statement rather than by
+    # a check that races it.
+    _fences: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         """Bind the ``run_checkpoints`` adapter to the same database."""
         self.checkpoints = CheckpointRowStore(self.database)
 
+    def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
+        """Fence every subsequent save of this run on (worker_id, generation)."""
+        self._fences[run_id] = (worker_id, generation)
+
+    def clear_fence(self, run_id: str) -> None:
+        """Remove the write fence for a run, restoring unfenced saves."""
+        self._fences.pop(run_id, None)
+
     async def save_run(self, run: Run) -> None:
-        """Insert or update a run record in the database."""
+        """Insert or update a run record in the database.
+
+        When a fence is installed for this run, the upsert's UPDATE arm carries
+        ``WHERE lease_worker_id = ? AND lease_generation = ?`` and the statement
+        returns the written row — no row back means ownership moved and the
+        write was refused, which raises :class:`FencedRunWriteRejectedError`. A
+        fresh insert cannot conflict with a displaced owner, so the fence only
+        gates the update arm.
+        """
+        fence = self._fences.get(run.run_id)
         async with self.database.transaction() as connection:
-            await connection.execute(
-                """
+            await self._save_run_in_connection(connection, run, fence)
+
+    async def _save_run_in_connection(
+        self,
+        connection: AsyncConnection,
+        run: Run,
+        fence: tuple[str, int] | None,
+    ) -> None:
+        fence_predicate = ""
+        fence_params: tuple[object, ...] = ()
+        if fence is not None:
+            fence_predicate = "WHERE runs.lease_worker_id = ? AND runs.lease_generation = ?"
+            fence_params = fence
+        row = await connection.fetch_one(
+            f"""
                 INSERT INTO runs (
                     run_id, checkpoint_id, parent_checkpoint_id, epoch, workflow_name,
                     status, current_step, completed_steps, artifacts, channels,
@@ -176,6 +212,8 @@ class _RunThreadStore:
                     audit_refs = excluded.audit_refs,
                     final_output = excluded.final_output,
                     failure_state = excluded.failure_state
+                {fence_predicate}
+                RETURNING run_id
                 """,
                 (
                     run.run_id,
@@ -208,8 +246,12 @@ class _RunThreadStore:
                     to_json_value(run.audit_refs),
                     _dump_model(run.final_output),
                     _dump_model(run.failure_state),
-                ),
+                )
+                + fence_params,
             )
+        if fence is not None and row is None:
+            worker_id, generation = fence
+            raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
 
     async def save_thread(self, thread: Thread) -> None:
         """Insert or update a thread record in the database."""
@@ -566,6 +608,20 @@ class RunRepository:
         """Save (insert or update) a run, including its checkpoint and thread."""
         await self._store.put_run(run)
         return await self.get(run.run_id)
+
+    def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
+        """ZER-26/AUD-004: fence this run's saves on (worker_id, generation).
+
+        While installed, every save of the run's row — the worker's own status
+        transitions and the orchestrator's drive-time writes alike, since both
+        share this repository — is refused in-statement once lease ownership
+        moves, raising :class:`FencedRunWriteRejectedError`.
+        """
+        self._store.install_fence(run_id, worker_id, generation)
+
+    def clear_fence(self, run_id: str) -> None:
+        """Remove the write fence installed for a run."""
+        self._store.clear_fence(run_id)
 
     async def get(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
         """Load a run by its ID, or return None if not found.

@@ -78,6 +78,24 @@ def _new_worker_id() -> str:
     return uuid4().hex
 
 
+class FencedRunWriteRejectedError(RuntimeError):
+    """A fenced run-state write was refused because lease ownership moved.
+
+    Raised by the run store when a save carries a fence (worker id plus lease
+    generation) that no longer matches the row. The write did not land; the
+    caller has been displaced and must stop, not retry.
+    """
+
+    def __init__(self, run_id: str, worker_id: str, generation: int) -> None:
+        super().__init__(
+            f"run {run_id}: state write fenced out — worker {worker_id} no longer "
+            f"holds lease generation {generation}"
+        )
+        self.run_id = run_id
+        self.worker_id = worker_id
+        self.generation = generation
+
+
 @dataclass(slots=True)
 class LeaseManager:
     """Manages worker leases on runs stored in an async database.
@@ -329,6 +347,18 @@ class LeaseManager:
                 "SELECT lease_generation FROM runs WHERE run_id = ?", (run_id,)
             )
         return None if row is None else int(row["lease_generation"])
+
+    async def current_holder(self, run_id: str) -> str | None:
+        """The worker id currently holding the run's lease, or None.
+
+        A write fence is only meaningful for the worker that actually holds the
+        lease; installing one without ownership would reject every save.
+        """
+        async with self.database.transaction() as conn:
+            row = await conn.fetch_one(
+                "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
+            )
+        return None if row is None else row["lease_worker_id"]
 
     async def commit_fenced(
         self,

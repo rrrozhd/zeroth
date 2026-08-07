@@ -134,6 +134,11 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "input_sha256": MetadataKind.DIGEST,
     "input_size_bytes": MetadataKind.NUMBER,
     "join_key": MetadataKind.IDENTIFIER,
+    # ZER-26/AUD-008 worker-level lease events: which worker was displaced and
+    # at which generation. The worker id is IDENTIFIER for the same reason
+    # operation_key is: consumers must correlate the displaced worker across
+    # records, and it is machine-minted uuid4 hex, so retaining it leaks nothing.
+    "lease_generation": MetadataKind.NUMBER,
     "model_name": MetadataKind.OPAQUE,
     "network_mode": MetadataKind.VOCABULARY,
     "node_kind": MetadataKind.VOCABULARY,
@@ -148,6 +153,7 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "sandbox_strictness_mode": MetadataKind.VOCABULARY,
     "status": MetadataKind.OPAQUE,
     "upstream_status_code": MetadataKind.NUMBER,
+    "worker_id": MetadataKind.IDENTIFIER,
 }
 
 # Derived, never maintained alongside: the two cannot drift apart.
@@ -262,6 +268,8 @@ _ZEROTH_FAILURE_CODES: frozenset[str] = frozenset(
         "join_reduction_claim_changed_error",
         "join_reduction_recovery_error",
         "join_reduction_release_error",
+        "lease_fencing_rejected",
+        "lease_lost",
         "legal_hold_error",
         "loop_reduction_claim_changed_error",
         "loop_reduction_recovery_error",

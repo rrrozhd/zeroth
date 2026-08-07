@@ -413,3 +413,156 @@ async def test_commit_fenced_refuses_to_write_the_fence_columns(dual_database) -
         await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok")
         is True
     )
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-004 / AUD-008 -- production writes are fenced, and the events are
+# durable evidence rather than log lines
+# ---------------------------------------------------------------------------
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_a_displaced_workers_run_state_write_is_fenced_out(dual_database) -> None:
+    """The fence lives inside the save statement, not in a check that races it.
+
+    With a fence installed, the runs-row upsert carries the lease predicate.
+    After a takeover the displaced worker's save returns no row and raises;
+    the new owner's row is untouched by the refused write.
+    """
+    from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+    repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    await manager.claim_pending(DEPLOYMENT, WORKER_A)
+    generation = await manager.current_generation(run_id)
+
+    repo.install_fence(run_id, WORKER_A, generation)
+    try:
+        run = await repo.get(run_id)
+
+        # Still the owner: the fenced save lands.
+        run.metadata["written_by"] = WORKER_A
+        await repo.put(run)
+        assert (await repo.get(run_id)).metadata["written_by"] == WORKER_A
+
+        # Takeover: the run is still PENDING, so expiry plus a fresh
+        # claim_pending is the realistic transfer; it advances the generation.
+        await _expire_lease(dual_database, run_id)
+        assert await manager.claim_pending(DEPLOYMENT, WORKER_B) == run_id
+
+        run.metadata["written_by"] = "stale-worker-a"
+        with pytest.raises(FencedRunWriteRejectedError):
+            await repo.put(run)
+    finally:
+        repo.clear_fence(run_id)
+
+    persisted = await repo.get(run_id)
+    assert persisted.metadata.get("written_by") == WORKER_A, (
+        "the refused write must not reach the new owner's row"
+    )
+
+
+class _FencedWriteOrchestrator:
+    """Waits for the test to signal a takeover, then writes run state."""
+
+    def __init__(self, repo: RunRepository) -> None:
+        self.repo = repo
+        self.started = asyncio.Event()
+        self.takeover_done = asyncio.Event()
+
+    async def _drive(self, graph, run):
+        self.started.set()
+        await asyncio.wait_for(self.takeover_done.wait(), timeout=10)
+        run.metadata["written_by"] = "displaced"
+        await self.repo.put(run)
+        return run
+
+    async def resume_graph(self, graph, run_id: str):
+        return None
+
+    @property
+    def approval_service(self):
+        return None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_a_fencing_rejection_leaves_a_durable_audit_record(dual_database) -> None:
+    """AUD-008: a refused write must leave evidence, not just a counter.
+
+    The worker wires the fence around the drive; when the fence fires, a
+    durable audit record says why this worker stopped. Nothing durable said so
+    before -- a displaced worker was indistinguishable from a crashed one.
+    """
+    from zeroth.governance.audit import AuditRepository
+
+    repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=60)
+    orchestrator = _FencedWriteOrchestrator(repo)
+    orchestrator.audit_repository = AuditRepository(dual_database)
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    await manager.claim_pending(DEPLOYMENT, worker.worker_id)
+
+    task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
+    await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
+
+    await _expire_lease(dual_database, run_id)
+    assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
+    orchestrator.takeover_done.set()
+
+    await asyncio.wait_for(task, timeout=10)
+
+    records = await orchestrator.audit_repository.list_by_run(run_id)
+    worker_records = [r for r in records if r.node_id == "__worker__"]
+    assert worker_records, "the fencing rejection must be durably recorded"
+    assert worker_records[0].execution_metadata["reason_code"] == "lease_fencing_rejected"
+    assert worker_records[0].execution_metadata["worker_id"] == worker.worker_id
+    persisted = await repo.get(run_id)
+    assert persisted.metadata.get("written_by") != "displaced"
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_a_lease_loss_leaves_a_durable_audit_record(dual_database) -> None:
+    """AUD-008: losing the lease is durably recorded by the losing worker."""
+    from zeroth.governance.audit import AuditRepository
+
+    repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=2)
+    orchestrator = _StallingOrchestrator()
+    orchestrator.audit_repository = AuditRepository(dual_database)
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    await manager.claim_pending(DEPLOYMENT, worker.worker_id)
+
+    task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
+    await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
+
+    await _expire_lease(dual_database, run_id)
+    assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
+
+    await asyncio.wait_for(task, timeout=10)
+
+    records = await orchestrator.audit_repository.list_by_run(run_id)
+    worker_records = [r for r in records if r.node_id == "__worker__"]
+    assert worker_records, "the lease loss must be durably recorded"
+    assert worker_records[0].execution_metadata["reason_code"] == "lease_lost"
