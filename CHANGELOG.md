@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.1.1] - 2026-08-07
+
+### Fixed
+
+- Declare and consume `operation_identity` on the `ExecutableUnitRunner`
+  protocol and the shipped runner, so the identity reaches the production
+  execution seam instead of being silently dropped by capability sniffing.
+  It is recorded as flat audit fields on both the native and sandboxed paths.
+
 ## [0.18.1] - 2026-08-07
 
 ### Fixed
