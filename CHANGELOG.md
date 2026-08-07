@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.3.2] - 2026-08-07
+
+### Fixed
+
+- Allowlist and quote the columns `commit_fenced` may write. The previous
+  denylist matched exact lowercase names and interpolated raw input into SQL,
+  so a differently-cased or quoted name bypassed the fence entirely.
+- Route the token-engine execution path through the same resumable pause as the
+  legacy driver; the default path still failed runs terminally.
+- Stop a later failure report from overwriting an ambiguous outcome, which
+  asserted the effect had not happened and discarded its reconciliation work.
+
 ## [0.18.3.1] - 2026-08-07
 
 ### Fixed
