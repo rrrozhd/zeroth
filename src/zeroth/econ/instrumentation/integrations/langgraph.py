@@ -171,6 +171,44 @@ class InstrumentedLangGraph:
             finally:
                 await self._safe_aemit(run_id, started, started_ms, "astream", error=error, streaming=True)
 
+    async def astream_events(self, *args: Any, **kwargs: Any):
+        iterator = self._graph.astream_events(*args, **kwargs).__aiter__()
+        if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
+            try:
+                while True:
+                    yield await iterator.__anext__()
+            except StopAsyncIteration:
+                return
+            finally:
+                aclose = getattr(iterator, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        started = perf_counter()
+        started_ms = start_time_ms()
+        error: BaseException | None = None
+        with get_runtime().capture_context("langgraph", run_id=run_id):
+            try:
+                while True:
+                    yield await iterator.__anext__()
+            except StopAsyncIteration:
+                return
+            except Exception as exc:
+                error = exc
+                raise
+            finally:
+                aclose = getattr(iterator, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+                await self._safe_aemit(
+                    run_id,
+                    started,
+                    started_ms,
+                    "astream_events",
+                    error=error,
+                    streaming=True,
+                )
+
     def __getattr__(self, item: str) -> Any:
         return getattr(self._graph, item)
 
