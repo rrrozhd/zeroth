@@ -188,6 +188,33 @@ async def test_failed_execution_preserves_a_carried_audit_record_as_rejected() -
     assert record.cost_usd == 0.25
 
 
+async def test_failed_execution_merges_carried_operation_facts() -> None:
+    """ZER26-AUD-008: a timeout's operation facts must reach the durable record.
+
+    The dispatcher attaches them as ``operation_audit`` on the exception; the
+    recorder previously read only ``audit_record``, so the durable audit of a
+    timed-out side effect — the outcome whose record matters most — carried no
+    operation state at all.
+    """
+    repository = _CollectingAuditRepository()
+    recorder = RuntimeAuditRecorder(audit_repository=repository)
+    run = _run()
+    error = TimeoutError("no receipt within deadline")
+    error.operation_audit = {  # type: ignore[attr-defined]
+        "operation_key": "op-1",
+        "operation_state": "ambiguous",
+        "operation_residual_duplicate_risk": True,
+    }
+
+    await recorder.record_failed_execution(run, _node(), "n1", {}, error)
+
+    (record,) = repository.records
+    assert record.status == "failed", "operation facts alone are not a governance rejection"
+    assert record.execution_metadata["operation_key"] == "op-1"
+    assert record.execution_metadata["operation_state"] == "ambiguous"
+    assert record.execution_metadata["operation_residual_duplicate_risk"] is True
+
+
 async def test_failed_branch_execution_uses_the_branch_audit_namespace() -> None:
     repository = _CollectingAuditRepository()
     recorder = RuntimeAuditRecorder(audit_repository=repository)

@@ -420,7 +420,13 @@ class NodeDispatcher:
         # record already says whether a duplicate is genuinely possible. It goes
         # through the same checkpoint as a first execution, so a successful
         # retry settles the operation instead of staying AMBIGUOUS forever.
-        return await self._invoke_checkpointed(identity, invoke), audit
+        result = await self._invoke_checkpointed(identity, invoke)
+        # The audit was stamped with the reconciliation verdict — AMBIGUOUS when
+        # nothing could be asked. The checkpoint just settled the operation, so
+        # leaving that stamp would durably record "still unknown" about a known
+        # success.
+        audit["operation_state"] = OperationState.COMPLETED.value.lower()
+        return result, audit
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:
