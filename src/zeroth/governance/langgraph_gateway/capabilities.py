@@ -151,6 +151,7 @@ class CapabilityReporter:
         self,
         governance_run_id: str,
         *,
+        correlation_id: str | None = None,
         graph_version: str | None = None,
     ) -> GovernanceLevel:
         """Report capability for an exact signed governance run ID."""
@@ -163,6 +164,7 @@ class CapabilityReporter:
         return self._validated_level(
             evidence,
             governance_run_id=governance_run_id,
+            correlation_id=correlation_id,
             graph_version=graph_version,
         )
 
@@ -188,10 +190,15 @@ class CapabilityReporter:
         self,
         governance_run_id: str,
         *,
+        correlation_id: str | None = None,
         graph_version: str | None = None,
     ) -> GovernanceLevel:
         """Reporting alias for an exact signed governance run ID."""
-        return await self.level_for_governance_run(governance_run_id, graph_version=graph_version)
+        return await self.level_for_governance_run(
+            governance_run_id,
+            correlation_id=correlation_id,
+            graph_version=graph_version,
+        )
 
     def report_deployment(
         self,

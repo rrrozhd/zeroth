@@ -37,6 +37,7 @@ from zeroth.contracts.langgraph_gateway.models import (
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.identity import AuthenticatedPrincipal
 from zeroth.core.service.auth import current_principal
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.langgraph_gateway.events import TeeObserver
 from zeroth.service.langgraph_gateway.admission import (
     BudgetChecker,
@@ -93,6 +94,7 @@ class GatewayProxy:
         policy_guard: PolicyAdmissionChecker,
         budget_checker: BudgetChecker,
         compatibility: CompatibilityResult,
+        capability_reporter: CapabilityReporter | None = None,
         classifier: InputClassifier | None = None,
         event_sink: GatewayEventSink | None = None,
         principal_resolver: PrincipalResolver = current_principal,
@@ -117,6 +119,7 @@ class GatewayProxy:
         self._budget_checker = budget_checker
         self._classifier = classifier or UnclassifiedInputClassifier()
         self._compatibility = compatibility
+        self._capability_reporter = capability_reporter
         self._event_sink = event_sink
         self._principal_resolver = principal_resolver
         self._route_classifier = route_classifier
@@ -318,6 +321,7 @@ class GatewayProxy:
                         expires_at=issued_at + self._settings.context_ttl_seconds,
                         content_classification=classification,
                     )
+                    request_identifiers["run_id"] = claims.run_id
                     token = self._context_codec.encode(claims)
                     mutated = inject_reserved_context(
                         raw_body,
@@ -514,6 +518,19 @@ class GatewayProxy:
     ) -> StreamingResponse:
         response = await self._transport.forward(request, tenant_id=principal.tenant_id)
         response.headers[_CORRELATION_HEADER] = correlation_id
+        governance_level = GovernanceLevel.ADMISSION
+        governance_run_id = (request_identifiers or {}).get("run_id")
+        if (
+            governance_header is not None
+            and governance_header[0] == _GOVERNANCE_HEADER
+            and self._capability_reporter is not None
+            and governance_run_id is not None
+        ):
+            governance_level = await self._capability_reporter.level_for_governance_run(
+                governance_run_id,
+                correlation_id=correlation_id,
+            )
+            governance_header = (_GOVERNANCE_HEADER, governance_level.value)
         if governance_header is not None:
             response.headers[governance_header[0]] = governance_header[1]
         observer = TeeObserver(
@@ -533,6 +550,7 @@ class GatewayProxy:
             input_sha256=input_sha256,
             input_size_bytes=input_size_bytes,
             request_identifiers=request_identifiers,
+            governance_level=governance_level,
             terminal_state=terminal_state,
             upstream_status_code=response.status_code,
         )
@@ -552,6 +570,7 @@ class GatewayProxy:
         input_sha256: str | None,
         input_size_bytes: int | None,
         request_identifiers: dict[str, str] | None,
+        governance_level: GovernanceLevel,
         terminal_state: _TerminalEmissionState,
         upstream_status_code: int,
     ) -> AsyncIterator[bytes]:
@@ -600,6 +619,7 @@ class GatewayProxy:
                 output_sha256=observer.output_sha256,
                 output_size_bytes=observer.output_size_bytes,
                 upstream_status_code=upstream_status_code,
+                governance_level=governance_level,
                 terminal_state=terminal_state,
             )
 
@@ -666,6 +686,7 @@ class GatewayProxy:
         output_sha256: str | None = None,
         output_size_bytes: int | None = None,
         upstream_status_code: int | None = None,
+        governance_level: GovernanceLevel = GovernanceLevel.ADMISSION,
         terminal_state: _TerminalEmissionState,
     ) -> None:
         if self._event_sink is None or terminal_state.attempted:
@@ -684,7 +705,7 @@ class GatewayProxy:
             ),
             operation=operation,
             disposition=disposition,
-            governance_level=GovernanceLevel.ADMISSION,
+            governance_level=governance_level,
             status=status,
             started_at=started_at,
             completed_at=self._event_clock(),

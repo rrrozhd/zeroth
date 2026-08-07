@@ -681,6 +681,7 @@ async def bootstrap_service(
                 policy_guard=policy_guard,
                 budget_checker=budget_enforcer,
                 compatibility=gateway_compatibility,
+                capability_reporter=gateway_capability_reporter,
                 event_sink=event_sink,
             )
             gateway_websocket_handler = WebSocketGatewayHandler(
