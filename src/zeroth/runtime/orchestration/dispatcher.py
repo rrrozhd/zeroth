@@ -403,7 +403,15 @@ class NodeDispatcher:
             error=error,
         )
         audit["operation_state"] = state.value.lower()
-        if state is OperationState.COMPLETED and receipt is not None:
+        if state is OperationState.COMPLETED:
+            # COMPLETED is COMPLETED no matter who discovered it. When a
+            # competing reconciler settled the record while the local lookup
+            # came back empty, the local receipt is None -- but re-executing a
+            # confirmed effect is exactly the double-apply this path exists to
+            # prevent, so the stored receipt is fetched rather than guessed.
+            if receipt is None:
+                stored = await store.get(identity.operation_key)
+                receipt = None if stored is None else stored.get("receipt")
             audit["operation_replay_suppressed"] = True
             audit["replayed_output"] = json.loads(receipt or "{}")
             return None, audit

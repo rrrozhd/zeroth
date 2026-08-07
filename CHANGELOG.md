@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.8] - 2026-08-07
+
+Suppress re-execution when a competing reconciler settled the operation COMPLETED while the local outcome lookup returned nothing; the stored receipt is replayed instead (ZER26-AUD-002).
+
 ## [0.18.7.1] - 2026-08-07
 
 Formatter pass over two files the final gate flagged (capture_vocabulary, operations); no behaviour change.
