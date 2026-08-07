@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,7 @@ def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+    workflow_config = yaml.safe_load(workflow)
     runtime = (ROOT / "release/langgraph/runtime_smoke.py").read_text(encoding="utf-8")
     manifest = json.loads(
         (ROOT / "release/langgraph/release-manifest.json").read_text(encoding="utf-8")
@@ -29,8 +31,18 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
-    assert "org.opencontainers.image.version=0.16.2.2" in dockerfile
+    assert "org.opencontainers.image.version=0.16.2.3" in dockerfile
     assert "memory-pg,langgraph,langgraph-gateway" in compose
+    build_step = next(
+        step
+        for step in workflow_config["jobs"]["container-evidence"]["steps"]
+        if step.get("name") == "Build release image"
+    )
+    assert build_step["run"] == (
+        "docker build --build-arg "
+        "ZEROTH_EXTRAS=memory-pg,langgraph,langgraph-gateway "
+        "-t zeroth-core:${{ github.ref_name }} ."
+    )
     assert "langgraph-fixture:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__ENABLED: \"true\"" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL:" in compose

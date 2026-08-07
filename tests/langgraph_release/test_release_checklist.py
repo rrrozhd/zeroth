@@ -108,7 +108,8 @@ def _junit_xml() -> str:
     )
 
 
-def _spdx() -> dict[str, object]:
+# Source: https://github.com/anchore/syft/blob/main/syft/format/spdxjson/testdata/snapshot/TestSPDXJSONImageEncoder.golden
+def _syft_spdx_golden_fragment() -> dict[str, object]:
     digest = IMAGE_DIGEST.removeprefix("sha256:")
     root_id = "SPDXRef-DocumentRoot-Image-zeroth-core"
     return {
@@ -116,8 +117,10 @@ def _spdx() -> dict[str, object]:
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": IMAGE_REFERENCE,
-        "documentNamespace": "https://anchore.example/spdx/zeroth-core",
-        "creationInfo": {"creators": ["Organization: Anchore, Inc", "Tool: syft-v1"]},
+        "documentNamespace": "https://anchore.com/syft/image/zeroth-core-test-golden",
+        "creationInfo": {
+            "creators": ["Organization: Anchore, Inc", "Tool: syft-v0.42.0-bogus"]
+        },
         "packages": [
             {
                 "name": IMAGE_REFERENCE,
@@ -215,7 +218,7 @@ def _image_packages() -> dict[str, object]:
 def _write_generated_evidence(evidence_root: Path) -> None:
     release = evidence_root / "release/langgraph"
     payloads = {
-        "image.spdx.json": _spdx(),
+        "image.spdx.json": _syft_spdx_golden_fragment(),
         "provenance.bundle.json": _attestation_bundle(),
         "attestation-verification.json": _verification_receipt(),
         "image-compatibility.json": {
@@ -358,7 +361,11 @@ def test_final_release_evidence_rejects_unbound_spdx(tmp_path: Path) -> None:
     evidence_root, manifest = _final_tree(tmp_path)
     path = evidence_root / "release/langgraph/image.spdx.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["packages"][1]["versionInfo"] = "0.0.0"
+    relationship = payload["relationships"][0]
+    relationship["spdxElementId"], relationship["relatedSpdxElement"] = (
+        relationship["relatedSpdxElement"],
+        relationship["spdxElementId"],
+    )
     path.write_text(json.dumps(payload), encoding="utf-8")
     result = _validate(manifest, evidence_root, "final")
     assert result.returncode != 0
