@@ -374,3 +374,55 @@ def test_agent_tool_calls_get_distinct_identities_per_call() -> None:
     keys = [call["operation_identity"].operation_key for call in runner.calls]
     assert len(keys) == 2
     assert keys[0] != keys[1]
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-006: the production runner must declare and consume the identity
+# ---------------------------------------------------------------------------
+
+
+def test_the_runner_protocol_declares_the_identity_by_exact_name() -> None:
+    """Capability sniffing matches on the exact parameter name.
+
+    A runner that does not declare `operation_identity` silently never receives
+    it -- which is exactly how the identity went missing on the live path while
+    the executor seam's own tests passed.
+    """
+    import inspect
+
+    from zeroth.runtime.orchestration.protocols import ExecutableUnitRunner
+
+    for method in ("run", "run_binding", "run_inline_source"):
+        params = inspect.signature(getattr(ExecutableUnitRunner, method)).parameters
+        assert "operation_identity" in params, f"{method} must declare operation_identity"
+
+
+def test_the_concrete_runner_declares_the_identity_by_exact_name() -> None:
+    """The protocol is worthless here if the shipped runner does not match it."""
+    import inspect
+
+    from zeroth.integrations.execution.runner import ExecutableUnitRunner as ConcreteRunner
+
+    for method in ("run", "run_manifest_ref", "run_binding", "run_inline_source"):
+        params = inspect.signature(getattr(ConcreteRunner, method)).parameters
+        assert "operation_identity" in params, f"{method} must declare operation_identity"
+
+
+def test_the_executor_actually_passes_it_to_the_concrete_runner_signature() -> None:
+    """Close the loop: sniffing against the real runner selects the identity.
+
+    Asserting the two facts separately would still allow a mismatch; this checks
+    the executor's own filter against the shipped runner rather than a fake.
+    """
+    import inspect
+
+    from zeroth.integrations.execution.runner import ExecutableUnitRunner as ConcreteRunner
+    from zeroth.runtime.orchestration.tool_executor import _supported_kwargs
+
+    selected = _supported_kwargs(
+        inspect.signature(ConcreteRunner.run).parameters,
+        enforcement_context={},
+        operation_identity=_identity(),
+    )
+
+    assert set(selected) == {"enforcement_context", "operation_identity"}
