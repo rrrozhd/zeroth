@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.3] - 2026-08-07
+
+### Fixed
+
+- Pause a run resumably when an ambiguous side effect exhausts its
+  reconciliation budget, instead of failing it terminally. FAILED asserts the
+  effect did not happen, which is precisely what nobody knows; the run now
+  enters WAITING_INTERRUPT so the durable reconciliation work can settle out of
+  band and the run continue.
+
 ## [0.18.2.2] - 2026-08-07
 
 ### Fixed
