@@ -488,6 +488,7 @@ class ExecutableUnitRunner:
                     "sandboxed": True,
                     "backend": sandbox_result.backend,
                     "enforcement": dict(enforcement),
+                    **_operation_audit(operation_identity),
                 },
             )
 

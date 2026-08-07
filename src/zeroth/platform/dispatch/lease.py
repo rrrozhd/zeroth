@@ -35,6 +35,12 @@ except ImportError:
 _STATUS_PENDING = "PENDING"
 _STATUS_RUNNING = "RUNNING"
 
+# The columns that constitute the fence itself. A fenced write may never
+# touch them: doing so would let a displaced worker re-grant its own lease.
+_FENCE_COLUMNS = frozenset(
+    {"lease_worker_id", "lease_generation", "lease_acquired_at", "lease_expires_at"}
+)
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -306,6 +312,13 @@ class LeaseManager:
         """
         if not columns:
             raise ValueError("commit_fenced requires at least one column to write")
+        forbidden = _FENCE_COLUMNS.intersection(columns)
+        if forbidden:
+            # A caller that could write the fence columns could grant itself the
+            # lease it is being fenced against, which makes the fence decorative.
+            raise ValueError(
+                f"commit_fenced may not write lease columns: {sorted(forbidden)}"
+            )
         assignments = ", ".join(f"{name} = ?" for name in columns)
         params = (
             *columns.values(),

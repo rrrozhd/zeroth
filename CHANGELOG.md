@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.3.1] - 2026-08-07
+
+### Fixed
+
+- Refuse to write lease columns through `commit_fenced`; a fenced write that
+  could re-grant its own lease makes the fence decorative.
+- Emit the operation audit fields on the sandboxed executable-unit path, which
+  previously carried them only on the native path.
+
 ## [0.18.3] - 2026-08-07
 
 ### Fixed

@@ -367,3 +367,29 @@ async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
     assert rejected is False
     assert accepted is True
     assert collector.counts.get("zeroth_lease_fencing_rejected_total") == 1
+
+
+@pytest.mark.asyncio
+async def test_commit_fenced_refuses_to_write_the_fence_columns(sqlite_db) -> None:
+    """A fenced write must not be able to re-grant the lease it is fenced by.
+
+    Without this, `**columns` accepted `lease_worker_id`/`lease_generation`, so a
+    displaced worker could hand itself ownership in the very statement the fence
+    was meant to reject — making the fence decorative.
+    """
+    manager = LeaseManager(sqlite_db)
+    run_id = await _pending_run(sqlite_db)
+    await manager.claim_pending(DEPLOYMENT, WORKER_A)
+
+    for column, value in (
+        ("lease_worker_id", WORKER_A),
+        ("lease_generation", 99),
+        ("lease_expires_at", "2099-01-01T00:00:00+00:00"),
+    ):
+        with pytest.raises(ValueError, match="lease columns"):
+            await manager.commit_fenced(run_id, WORKER_A, generation=1, **{column: value})
+
+    # The legitimate write still works.
+    assert await manager.commit_fenced(
+        run_id, WORKER_A, generation=1, current_step="ok"
+    ) is True
