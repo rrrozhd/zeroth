@@ -4044,7 +4044,7 @@ source = { directory = "packaging/console" }
 
 [[package]]
 name = "zeroth-core"
-version = "0.16.1"
+version = "0.16.1.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -4215,7 +4215,7 @@ dev = [
     { name = "websockets", specifier = ">=15,<16" },
 ]
 gateway-conformance = [
-    { name = "langchain", specifier = ">=1.0,<2" },
+    { name = "langchain", specifier = "==1.3.14" },
     { name = "langgraph", specifier = "==1.2.9" },
     { name = "langgraph-api", specifier = "==0.11.1" },
     { name = "langgraph-sdk", specifier = "==0.4.2" },
