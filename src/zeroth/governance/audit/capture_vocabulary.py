@@ -372,9 +372,7 @@ METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
     # OperationState and SideEffectSupport. Enumerable by construction, so a
     # vocabulary is the right kind: an unknown term is a producer bug and gets
     # summarized rather than retained.
-    "operation_state": frozenset(
-        {"not_started", "in_flight", "completed", "failed", "ambiguous"}
-    ),
+    "operation_state": frozenset({"not_started", "in_flight", "completed", "failed", "ambiguous"}),
     "operation_support": frozenset({"idempotent", "outcome_queryable", "at_least_once"}),
     # PolicyDecision plus the approval verdicts ApprovalDecisionType mints, plus
     # ``require_approval``: the tool-enforcement verdict for "this call is
