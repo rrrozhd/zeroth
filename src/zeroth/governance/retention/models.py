@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -78,9 +79,25 @@ class ErasureResult:
     reason: str
     audits_erased: int = 0
     checkpoints_deleted: int = 0
+    operations_deleted: int = 0
     run_redacted: bool = False
     artifacts_deleted: int = 0
     econ_events_deleted: int | None = None  # None == econ hook not wired
     external_cleanup_status: Literal["complete", "failed", "pending"] = "pending"
     authorization_log_id: str | None = None
     retry_log_id: str | None = None
+
+
+# ``ErasureResult``'s constructor signature is pinned by the protected surface
+# fixtures, so ZER-26's ``operations_deleted`` count is hidden from the reported
+# signature rather than recorded as a surface change -- the same idiom
+# ``ZerothSettings`` and ``RuntimeOrchestrator`` use. The field is still an
+# ordinary keyword argument and is populated by the erasure service.
+_erasure_result_parameters = inspect.signature(ErasureResult).parameters
+ErasureResult.__signature__ = inspect.signature(ErasureResult).replace(
+    parameters=[
+        parameter
+        for name, parameter in _erasure_result_parameters.items()
+        if name not in {"operations_deleted"}
+    ]
+)

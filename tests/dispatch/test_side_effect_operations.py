@@ -1099,3 +1099,63 @@ class TestSideEffectFreeUnitsAreNotGuarded:
         await _dispatch_once(dispatcher, _run_with_dispatch())
 
         assert runner.applications == 1
+
+
+@requires_docker
+class TestReceiptPrivacy:
+    """AUD-010: receipts are PII-adjacent and must not outlive an erased run."""
+
+    async def test_a_receipt_is_encrypted_at_rest_when_configured(self, dual_database) -> None:
+        """A sentinel in the receipt must not be readable in raw storage.
+
+        Receipts hold the target's own response to a side effect — a charge
+        confirmation, a message id — which is the same class of content as a run
+        checkpoint. Reading through the store must still return it verbatim.
+        """
+
+        class _Field:
+            def encrypt(self, value: str) -> str:
+                return "enc:" + value[::-1]
+
+            def decrypt(self, value: str) -> str:
+                return value[4:][::-1] if value.startswith("enc:") else value
+
+        sentinel = '{"card":"4111-1111-1111-1111"}'
+        dual_database.encrypted_field = _Field()  # type: ignore[attr-defined]
+        try:
+            store = SideEffectOperationStore(dual_database)
+            await _claim(store)
+            await store.complete(KEY, receipt=sentinel)
+
+            async with dual_database.transaction() as conn:
+                raw = await conn.fetch_one(
+                    "SELECT receipt FROM side_effect_operations WHERE operation_key = ?",
+                    (KEY,),
+                )
+            assert sentinel not in raw["receipt"], "the receipt must not be stored in the clear"
+            assert (await store.get(KEY))["receipt"] == sentinel, "reads must round-trip"
+        finally:
+            delattr(dual_database, "encrypted_field")
+
+    async def test_erasing_a_run_removes_its_receipts(self, dual_database) -> None:
+        """Deleting checkpoints and redacting the run row does not reach receipts.
+
+        Without this the change introduced a durable copy of side-effect output
+        that run erasure could not delete — a privacy regression, not a gap.
+        """
+        from zeroth.platform.dispatch.operations import erase_operations_for_run
+
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.complete(KEY, receipt='{"charge":"ok"}')
+        assert await store.get(KEY) is not None
+
+        async with dual_database.transaction() as conn:
+            deleted = await erase_operations_for_run(conn, RUN)
+
+        assert deleted == 1
+        assert await store.get(KEY) is None, "an erased run must leave no receipt behind"
+
+        # Idempotent: erasing again deletes nothing and does not raise.
+        async with dual_database.transaction() as conn:
+            assert await erase_operations_for_run(conn, RUN) == 0
