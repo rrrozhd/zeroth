@@ -1036,3 +1036,66 @@ class TestExhaustionPausesRatherThanFails:
         assert paused.failure_state is None
         assert failed.status is RunStatus.FAILED, "ordinary errors must still fail the run"
         assert failed.failure_state is not None
+
+
+@requires_docker
+class TestSideEffectFreeUnitsAreNotGuarded:
+    """R9/AUD-011: a unit declaring no side effect keeps its prior behaviour."""
+
+    async def test_a_declared_side_effect_free_unit_is_re_executed(
+        self, dual_database
+    ) -> None:
+        """No record, no suppression — the unguarded path, as before.
+
+        Before this, enabling the store guarded *every* executable unit, so a
+        read-only unit was suppressed on its second dispatch and returned a
+        stale receipt instead of running.
+        """
+        store = SideEffectOperationStore(dual_database)
+        runner = _CountingRunner()
+        runner.declares_side_effect = lambda ref: False  # type: ignore[attr-defined]
+        dispatcher = _dispatcher(store, runner)
+
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+
+        assert runner.applications == 2, "a read-only unit must not be suppressed"
+        identity = dispatcher._operation_identity_for(
+            _run_with_dispatch(), "unit://charge-card"
+        )
+        assert await store.get(identity.operation_key) is None, (
+            "no operation record should be written for a side-effect-free unit"
+        )
+
+    async def test_an_unknown_declaration_is_still_guarded(self, dual_database) -> None:
+        """Fail-safe: unknown means guard.
+
+        Skipping the guard on a real side effect is the hole this subsystem
+        exists to close, so an inline unit, an unregistered ref, or a runner
+        without the probe must all keep the guard. Guarding a read-only unit
+        merely writes a receipt nobody needs.
+        """
+        store = SideEffectOperationStore(dual_database)
+        runner = _CountingRunner()  # exposes no declares_side_effect probe
+        dispatcher = _dispatcher(store, runner)
+
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+
+        assert runner.applications == 1, "an undeclared unit must stay guarded"
+
+    async def test_a_probe_that_raises_is_treated_as_unknown(self, dual_database) -> None:
+        """A broken probe must not silently disable the guard."""
+
+        def _explode(ref):
+            raise RuntimeError("registry unavailable")
+
+        store = SideEffectOperationStore(dual_database)
+        runner = _CountingRunner()
+        runner.declares_side_effect = _explode  # type: ignore[attr-defined]
+        dispatcher = _dispatcher(store, runner)
+
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+        await _dispatch_once(dispatcher, _run_with_dispatch())
+
+        assert runner.applications == 1

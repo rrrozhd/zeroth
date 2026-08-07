@@ -224,6 +224,19 @@ class ExecutableUnitRunner:
             enforcement_context=enforcement_context,
         )
 
+    def declares_side_effect(self, manifest_ref: str) -> bool | None:
+        """Whether the registered manifest declares that it has side effects.
+
+        ``None`` means "unknown" -- an unregistered ref, or an inline unit whose
+        source travels in the graph and has no manifest at all. Callers treat
+        unknown as side-effecting: guarding a read-only unit merely writes a
+        receipt nobody needs, whereas skipping the guard on a real side effect
+        is the correctness hole this whole subsystem exists to close.
+        """
+        if not self.registry.has(manifest_ref):
+            return None
+        return bool(self.registry.get(manifest_ref).manifest.side_effect)
+
     async def run(
         self,
         manifest_ref: str,

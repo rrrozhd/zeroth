@@ -253,6 +253,25 @@ class NodeDispatcher:
             call_ordinal=call_ordinal,
         )
 
+    def _is_side_effect_free(self, node: ExecutableUnitNode) -> bool:
+        """Whether this unit declared that it has no side effects.
+
+        Fail-safe by design: an inline unit has no manifest, an unregistered ref
+        cannot be inspected, and a runner that does not expose the probe tells us
+        nothing -- all of those are treated as side-effecting. Only an explicit
+        ``side_effect = False`` on a registered manifest skips the guard.
+        """
+        if node.executable_unit.inline_source is not None:
+            return False
+        probe = getattr(self.executable_unit_runner, "declares_side_effect", None)
+        if probe is None:
+            return False
+        try:
+            declared = probe(node.executable_unit.manifest_ref)
+        except Exception:  # noqa: BLE001 - an unreadable manifest is "unknown"
+            return False
+        return declared is False
+
     async def _guarded_side_effect(
         self,
         identity: OperationIdentity,
@@ -729,6 +748,12 @@ class NodeDispatcher:
                 enforcement_context=enforcement_context,
                 operation_identity=identity,
             )
+
+        if self._is_side_effect_free(node):
+            # R9: a unit that declares no side effect keeps its previous
+            # behaviour exactly -- no operation record, no suppression.
+            result = await _invoke()
+            return result.output_data, dict(result.audit_record)
 
         result, operation_audit = await self._guarded_side_effect(identity, _invoke)
         if result is None:
