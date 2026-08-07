@@ -37,6 +37,7 @@ class _FakeGraph:
         self.seen: list[str | None] = []
         self.stream_closed = False
         self.astream_closed = False
+        self.events_closed = False
 
     def stream(self, *args, **kwargs):
         try:
@@ -55,6 +56,15 @@ class _FakeGraph:
             yield {"n": 2}
         finally:
             self.astream_closed = True
+
+    async def astream_events(self, *args, **kwargs):
+        try:
+            self.seen.append(current_correlation())
+            yield {"event": "one"}
+            self.seen.append(current_correlation())
+            yield {"event": "two"}
+        finally:
+            self.events_closed = True
 
 
 @pytest.fixture(autouse=True)
@@ -142,3 +152,22 @@ def test_f11_closing_stream_closes_the_delegate() -> None:
     stream.close()
 
     assert fake.stream_closed is True
+
+
+def test_astream_events_context_is_private_lazy_and_close_propagates() -> None:
+    import asyncio
+
+    async def scenario() -> None:
+        fake = _FakeGraph()
+        stream = govern_graph(fake).astream_events({}, config=_config())
+        assert fake.seen == []
+
+        assert await stream.__anext__() == {"event": "one"}
+        assert current_correlation() is None
+        assert fake.seen == [CORRELATION]
+
+        await stream.aclose()
+        assert fake.events_closed is True
+        assert current_correlation() is None
+
+    asyncio.run(scenario())
