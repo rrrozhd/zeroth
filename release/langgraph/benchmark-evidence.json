@@ -1,0 +1,259 @@
+{
+  "baseline": {
+    "metrics": {
+      "decision_latency_p95_ms": 2.0,
+      "peak_memory_bytes": 100000,
+      "sidecar_overhead_p95_ms": 5.0,
+      "throughput_tokens_per_second": 5000.0,
+      "ttft_p95_ms": 2.0
+    },
+    "release": "0.16.2"
+  },
+  "evaluation": {
+    "decision_latency_p95_ms": true,
+    "peak_memory_bytes": true,
+    "sidecar_overhead_p95_ms": true,
+    "throughput_tokens_per_second": true,
+    "ttft_p95_ms": true
+  },
+  "hardware": {
+    "cpu_count": 14,
+    "machine": "arm64",
+    "processor": "arm",
+    "python": "3.12.13",
+    "release": "25.5.0",
+    "system": "Darwin"
+  },
+  "injected_regression": false,
+  "methodology": {
+    "clock": "time.perf_counter",
+    "description": "Repeated local tuple traversal versus the same request serialized through an in-process JSON sidecar boundary; no network or model latency is claimed.",
+    "kind": "synthetic-local-vs-sidecar"
+  },
+  "observed": {
+    "decision_latency_p95_ms": 0.00375,
+    "peak_memory_bytes": 3820.0,
+    "sidecar_overhead_p95_ms": 0.041583,
+    "throughput_tokens_per_second": 13956363.001956,
+    "ttft_p95_ms": 0.000209
+  },
+  "passed": true,
+  "sample_count": 20,
+  "sample_distribution": {
+    "decision_latency_ms": [
+      0.007292,
+      0.00375,
+      0.0025,
+      0.002375,
+      0.002042,
+      0.002167,
+      0.001792,
+      0.001916,
+      0.001708,
+      0.00175,
+      0.001625,
+      0.001667,
+      0.001667,
+      0.001666,
+      0.001666,
+      0.001708,
+      0.001625,
+      0.001625,
+      0.001666,
+      0.001625
+    ],
+    "local_overhead_ms": [
+      0.000166,
+      0.000167,
+      0.000125,
+      8.3e-05,
+      4.2e-05,
+      4.2e-05,
+      4.1e-05,
+      0.0,
+      4.1e-05,
+      8.3e-05,
+      4.2e-05,
+      8.3e-05,
+      4.2e-05,
+      0.0,
+      4.2e-05,
+      4.1e-05,
+      4.2e-05,
+      4.2e-05,
+      8.3e-05,
+      4.2e-05
+    ],
+    "peak_memory_bytes": [
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0,
+      3820.0
+    ],
+    "sidecar_overhead_ms": [
+      0.061667,
+      0.041583,
+      0.0385,
+      0.037167,
+      0.036917,
+      0.036333,
+      0.036293,
+      0.03775,
+      0.036209,
+      0.035751,
+      0.035458,
+      0.035667,
+      0.038374,
+      0.036333,
+      0.036458,
+      0.035959,
+      0.03625,
+      0.035833,
+      0.036501,
+      0.036249
+    ],
+    "throughput_tokens_per_second": [
+      7602553.018697,
+      10814301.162326,
+      11998162.677608,
+      12388584.232198,
+      13716462.422355,
+      14487082.689154,
+      14485555.804384,
+      14491665.275411,
+      14767266.946599,
+      15669701.684187,
+      15060152.692527,
+      13960279.682275,
+      15060152.692527,
+      14223217.786609,
+      14773616.41105,
+      15060152.692527,
+      14485555.804384,
+      15354592.053625,
+      15058502.626493,
+      15669701.684187
+    ],
+    "token_cadence_ms": [
+      0.000124,
+      8.3e-05,
+      7.9e-05,
+      7.7e-05,
+      6.9e-05,
+      6.6e-05,
+      6.7e-05,
+      6.6e-05,
+      6.5e-05,
+      6.3e-05,
+      6.5e-05,
+      6.7e-05,
+      6.6e-05,
+      7e-05,
+      6.6e-05,
+      6.5e-05,
+      6.6e-05,
+      6.6e-05,
+      6.6e-05,
+      6.5e-05
+    ],
+    "ttft_ms": [
+      0.000209,
+      0.00025,
+      0.000125,
+      0.000125,
+      0.000125,
+      4.2e-05,
+      4.2e-05,
+      4.2e-05,
+      4.2e-05,
+      4.2e-05,
+      8.3e-05,
+      8.4e-05,
+      4.2e-05,
+      4.2e-05,
+      4.1e-05,
+      4.1e-05,
+      4.2e-05,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "schema_version": 1,
+  "stream_ordering": {
+    "samples_checked": 20,
+    "valid": true
+  },
+  "summary": {
+    "decision_latency_ms": {
+      "mean": 0.002192,
+      "p95": 0.00375
+    },
+    "local_overhead_ms": {
+      "mean": 6.2e-05,
+      "p95": 0.000166
+    },
+    "peak_memory_bytes": {
+      "mean": 3820.0,
+      "p95": 3820.0
+    },
+    "sidecar_overhead_ms": {
+      "mean": 0.038063,
+      "p95": 0.041583
+    },
+    "throughput_tokens_per_second": {
+      "mean": 13956363.001956,
+      "p95": 15669701.684187
+    },
+    "token_cadence_ms": {
+      "mean": 7.1e-05,
+      "p95": 8.3e-05
+    },
+    "ttft_ms": {
+      "mean": 7.1e-05,
+      "p95": 0.000209
+    }
+  },
+  "thresholds": {
+    "decision_latency_p95_ms": {
+      "maximum": 20.0
+    },
+    "peak_memory_bytes": {
+      "maximum": 2000000
+    },
+    "sidecar_overhead_p95_ms": {
+      "maximum": 50.0
+    },
+    "throughput_tokens_per_second": {
+      "minimum": 500.0
+    },
+    "ttft_p95_ms": {
+      "maximum": 20.0
+    }
+  },
+  "variance": {
+    "decision_latency_ms": 2e-06,
+    "local_overhead_ms": 0.0,
+    "peak_memory_bytes": 0.0,
+    "sidecar_overhead_ms": 3.1e-05,
+    "throughput_tokens_per_second": 3590717612295.4824,
+    "token_cadence_ms": 0.0,
+    "ttft_ms": 0.0
+  }
+}
