@@ -563,3 +563,40 @@ def test_an_mcp_tool_call_is_marked_as_outside_the_guarantee() -> None:
     assert marked["operation_residual_duplicate_risk"] is True
     assert "operation_support" not in unmarked
     assert "operation_residual_duplicate_risk" not in unmarked
+
+
+def test_the_marker_survives_promotion_to_the_typed_tool_call_record() -> None:
+    """ZER26-AUD-006: emitting the marker is not the same as persisting it.
+
+    The typed ``tool_calls`` column is the queryable durable record, and its
+    promotion previously rebuilt each entry without the operation fields — so
+    every MCP call read, durably, as though the guarantee applied. The negative
+    control matters equally: an unmarked call must stay unmarked.
+    """
+    from zeroth.runtime.agents.tools import ToolAttachmentBinding, ToolAttachmentBridge
+    from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
+
+    bridge = ToolAttachmentBridge()
+    mcp = ToolAttachmentBinding(alias="search", executable_unit_ref="mcp://server/search")
+    unit = ToolAttachmentBinding(alias="charge", executable_unit_ref="node://charge")
+    record = {
+        "extra": {
+            "tool_calls": [
+                bridge.build_call_audit(binding=mcp, arguments={}, at_least_once=True),
+                bridge.build_call_audit(binding=unit, arguments={}),
+            ]
+        }
+    }
+
+    tool_calls, _memory = RuntimeAuditRecorder.typed_fields(record)
+
+    marked, unmarked = tool_calls
+    assert marked.operation_support == "at_least_once"
+    assert marked.operation_residual_duplicate_risk is True
+    assert unmarked.operation_support is None
+    assert unmarked.operation_residual_duplicate_risk is None
+
+
+# The failure-path marker proof lives in tests/test_runner_mcp_wiring.py, where
+# the AgentRunner._resolve_tool_calls harness exists — it drives the real loop
+# with a raising MCP manager rather than calling build_call_audit directly.

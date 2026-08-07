@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.8.4] - 2026-08-07
+
+The at-least-once marker survives promotion to the typed ToolCallRecord and rides the MCP failure path; OpenAPI snapshot gains the two additive optional fields (ZER26-AUD-006).
+
 ## [0.18.8.3] - 2026-08-07
 
 With a provider tool-call id present, the id alone keys the operation; the process-local ordinal is key material only when no id exists, so a non-first replay after recovery is recognised (ZER26-AUD-007).

@@ -6,6 +6,7 @@ and the timeline container. All models use Pydantic for validation.
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from typing import Any
 
@@ -34,6 +35,12 @@ class ToolCallRecord(BaseModel):
 
     Captures which tool was called, what arguments were passed in,
     what the tool returned, and whether it produced an error.
+
+    ``operation_support`` / ``operation_residual_duplicate_risk`` carry the
+    ZER-26 side-effect boundary marker for calls that bypass it entirely
+    (today, MCP tools). ``None`` means the call went through the guarded
+    executor — the negative control matters: an unmarked record must stay
+    unmarked, or the marker means nothing.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -43,6 +50,22 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     outcome: dict[str, Any] | None = None
     error: str | None = None
+    operation_support: str | None = None
+    operation_residual_duplicate_risk: bool | None = None
+
+
+# ``ToolCallRecord``'s constructor signature is pinned by the protected surface
+# fixtures, so the ZER-26 marker fields are hidden from the reported signature
+# rather than recorded as a surface change — the same idiom ``ErasureResult``
+# and ``ZerothSettings`` use. Both remain ordinary keyword arguments.
+_tool_call_record_parameters = inspect.signature(ToolCallRecord).parameters
+ToolCallRecord.__signature__ = inspect.signature(ToolCallRecord).replace(
+    parameters=[
+        parameter
+        for name, parameter in _tool_call_record_parameters.items()
+        if name not in {"operation_support", "operation_residual_duplicate_risk"}
+    ]
+)
 
 
 class MemoryAccessRecord(BaseModel):
