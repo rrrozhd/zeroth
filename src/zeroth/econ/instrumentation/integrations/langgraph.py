@@ -15,26 +15,38 @@ def _new_run_id() -> str:
     return f"lg_{uuid4().hex}"
 
 
-class _CapturedAsyncIterator:
-    """Capture one econ event across a caller-driven v3 graph iterator."""
+class _CapturedV3Driver:
+    """Capture one econ event across the complete caller-driven v3 lifecycle."""
 
     def __init__(
         self,
         owner: InstrumentedLangGraph,
-        iterator: Any,
+        run: Any,
         run_id: str,
         started: float,
         started_ms: int,
     ) -> None:
         self._owner = owner
-        self._iterator = iterator
+        self._run = run
+        self._pump = run._apump_next
+        self._abort = run.abort
+        self._mux_apush = run._mux.apush
+        self._mux_aclose = run._mux.aclose
         self._run_id = run_id
         self._started = started
         self._started_ms = started_ms
         self._emitted = False
+        self._terminal_error: BaseException | None = None
 
-    def __aiter__(self) -> _CapturedAsyncIterator:
-        return self
+    def _remember_error(self, error: BaseException) -> None:
+        if self._terminal_error is None:
+            self._terminal_error = error
+
+    def _error(self) -> BaseException | None:
+        if self._terminal_error is not None:
+            return self._terminal_error
+        events = getattr(self._run._mux, "_events", None)
+        return getattr(events, "_error", None)
 
     async def _finish(self, error: BaseException | None = None) -> None:
         if self._emitted:
@@ -49,29 +61,41 @@ class _CapturedAsyncIterator:
             streaming=True,
         )
 
-    async def __anext__(self) -> Any:
+    async def apush(self, event: Any) -> None:
         try:
-            with get_runtime().capture_context("langgraph", run_id=self._run_id):
-                return await self._iterator.__anext__()
-        except StopAsyncIteration:
-            await self._finish()
-            raise
+            await self._mux_apush(event)
         except BaseException as exc:
-            await self._finish(exc)
+            self._remember_error(exc)
             raise
 
-    async def aclose(self) -> None:
-        error: BaseException | None = None
+    async def aclose_mux(self) -> None:
         try:
-            aclose = getattr(self._iterator, "aclose", None)
-            if aclose is not None:
-                with get_runtime().capture_context("langgraph", run_id=self._run_id):
-                    await aclose()
+            await self._mux_aclose()
         except BaseException as exc:
-            error = exc
+            self._remember_error(exc)
             raise
-        finally:
-            await self._finish(error)
+
+    async def pump(self) -> bool:
+        with get_runtime().capture_context("langgraph", run_id=self._run_id):
+            try:
+                progressed = await self._pump()
+            except BaseException as exc:
+                self._remember_error(exc)
+                await self._finish(exc)
+                raise
+            if not progressed:
+                await self._finish(self._error())
+            return progressed
+
+    async def abort(self) -> None:
+        with get_runtime().capture_context("langgraph", run_id=self._run_id):
+            try:
+                await self._abort()
+            except BaseException as exc:
+                self._remember_error(exc)
+                await self._finish(exc)
+                raise
+            await self._finish(self._error())
 
 
 class InstrumentedLangGraph:
@@ -285,26 +309,31 @@ class InstrumentedLangGraph:
         run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
-        try:
-            with get_runtime().capture_context("langgraph", run_id=run_id):
+        with get_runtime().capture_context("langgraph", run_id=run_id):
+            try:
                 run = await self._graph.astream_events(*args, **kwargs)
-        except BaseException as exc:
-            await self._safe_aemit(
-                run_id,
-                started,
-                started_ms,
-                "astream_events",
-                error=exc,
-                streaming=True,
-            )
-            raise
-        run._graph_aiter = _CapturedAsyncIterator(
+            except BaseException as exc:
+                await self._safe_aemit(
+                    run_id,
+                    started,
+                    started_ms,
+                    "astream_events",
+                    error=exc,
+                    streaming=True,
+                )
+                raise
+        capture = _CapturedV3Driver(
             self,
-            run._graph_aiter,
+            run,
             run_id,
             started,
             started_ms,
         )
+        run._mux.apush = capture.apush
+        run._mux.aclose = capture.aclose_mux
+        run._apump_next = capture.pump
+        run.abort = capture.abort
+        run._mux.bind_apump(capture.pump)
         return run
 
     def __getattr__(self, item: str) -> Any:

@@ -20,6 +20,7 @@ pytest.importorskip("langgraph", reason="requires the gateway-conformance depend
 from langchain_core.callbacks import BaseCallbackHandler, BaseCallbackManager
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
+from langgraph.stream import StreamTransformer
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.econ.instrumentation.integrations.langgraph import InstrumentedLangGraph
@@ -86,6 +87,25 @@ def build_graph() -> Any:
     for node in ("echo", "emit", "error", "cancel"):
         builder.add_edge(node, END)
     return builder.compile()
+
+
+class _FailingAprocessTransformer(StreamTransformer):
+    def init(self) -> dict[str, Any]:
+        return {}
+
+    async def aprocess(self, _event: Any) -> bool:
+        raise RuntimeError("v3-aprocess-error")
+
+
+class _FailingAfinalizeTransformer(StreamTransformer):
+    def init(self) -> dict[str, Any]:
+        return {}
+
+    async def aprocess(self, _event: Any) -> bool:
+        return True
+
+    async def afinalize(self) -> None:
+        raise RuntimeError("v3-afinalize-error")
 
 
 class _CountingHandler(BaseCallbackHandler):
@@ -470,7 +490,8 @@ def test_r1_reuses_econ_delegation_for_cost_capture(monkeypatch: pytest.MonkeyPa
     assert captured, "expected the reused econ delegation to capture an execution event"
 
 
-def test_astream_events_is_equivalent_and_governed_once() -> None:
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_astream_events_is_equivalent_and_governed_once(version: str) -> None:
     graph = build_graph()
     payload = {"mode": "echo", "text": "events"}
     direct_callback = _CountingHandler()
@@ -479,11 +500,17 @@ def test_astream_events_is_equivalent_and_governed_once() -> None:
     governed = govern_graph(graph, on_run_start=starts.append)
 
     direct = asyncio.run(
-        _drain_async(graph.astream_events(dict(payload), config={"callbacks": [direct_callback]}))
+        _drain_async(
+            graph.astream_events(
+                dict(payload), config={"callbacks": [direct_callback]}, version=version
+            )
+        )
     )
     wrapped = asyncio.run(
         _drain_async(
-            governed.astream_events(dict(payload), config={"callbacks": [wrapped_callback]})
+            governed.astream_events(
+                dict(payload), config={"callbacks": [wrapped_callback]}, version=version
+            )
         )
     )
 
@@ -537,6 +564,16 @@ def test_abatch_is_equivalent_governed_and_cancellable() -> None:
     wrapped = asyncio.run(governed.abatch(inputs, config=[{"tags": ["a"]}, {"tags": ["b"]}]))
     assert wrapped == direct
     assert [event.entrypoint for event in starts] == ["ainvoke", "ainvoke"]
+
+    mixed = asyncio.run(
+        governed.abatch(
+            [{"mode": "echo", "text": "ok"}, {"mode": "error"}],
+            return_exceptions=True,
+        )
+    )
+    assert mixed[0]["result"] == "echo:ok"
+    assert isinstance(mixed[1], RuntimeError)
+    assert str(mixed[1]) == "govern-graph-fixture-error"
 
     async def cancel(target: Any) -> None:
         with pytest.raises(asyncio.TimeoutError):
@@ -801,6 +838,87 @@ def test_astream_events_v3_preserves_cancellation_and_abort() -> None:
     graph = build_graph()
     asyncio.run(cancel(graph))
     asyncio.run(cancel(govern_graph(graph)))
+
+
+@pytest.mark.parametrize(
+    ("transformer", "message"),
+    [
+        (_FailingAprocessTransformer, "v3-aprocess-error"),
+        (_FailingAfinalizeTransformer, "v3-afinalize-error"),
+    ],
+)
+def test_astream_events_v3_transformer_failures_emit_error_econ(
+    monkeypatch: pytest.MonkeyPatch,
+    transformer: type[StreamTransformer],
+    message: str,
+) -> None:
+    async def drive(target: Any) -> RuntimeError:
+        run = await target.astream_events(
+            {"mode": "echo", "text": "v3-transformer"},
+            version="v3",
+            transformers=[transformer],
+        )
+        with pytest.raises(RuntimeError) as failure:
+            async with run:
+                await run.output()
+        return failure.value
+
+    graph = build_graph()
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+    direct_error = asyncio.run(drive(graph))
+    governed_error = asyncio.run(drive(govern_graph(graph)))
+
+    assert type(governed_error) is type(direct_error)
+    assert str(governed_error) == str(direct_error) == message
+    assert len(captured) == 1
+    assert captured[0].metadata["operation"] == "astream_events"
+    assert captured[0].metadata["error"] is True
+    assert captured[0].metadata["error_type"] == "RuntimeError"
+
+
+def test_astream_events_v3_capture_preserves_parent_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        inner = govern_graph(build_graph())
+
+        async def call_inner(_state: _State) -> _State:
+            inner_run = await inner.astream_events({"mode": "echo", "text": "nested"}, version="v3")
+            async with inner_run:
+                output = await inner_run.output()
+            return {"result": output["result"]}
+
+        builder = StateGraph(_State)
+        builder.add_node("call_inner", call_inner)
+        builder.add_edge(START, "call_inner")
+        builder.add_edge("call_inner", END)
+        outer = govern_graph(builder.compile())
+
+        outer_run = await outer.astream_events({}, version="v3")
+        async with outer_run:
+            await outer_run.output()
+
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+    asyncio.run(scenario())
+
+    roots = [event for event in captured if event.metadata["parent_run_id"] is None]
+    children = [event for event in captured if event.metadata["parent_run_id"] is not None]
+    assert len(roots) == len(children) == 1
+    assert children[0].metadata["parent_run_id"] == roots[0].execution_id
 
 
 class _FrozenDateTime:
