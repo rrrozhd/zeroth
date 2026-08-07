@@ -1,0 +1,36 @@
+{
+  "baseline_release": "0.16.1.7",
+  "evidence": {
+    "compatibility": {
+      "artifacts": [
+        "release/langgraph/compatibility.json"
+      ],
+      "kind": "compatibility-matrix"
+    },
+    "performance": {
+      "artifacts": [
+        "release/langgraph/benchmark-baseline-0.16.1.7.json",
+        "release/langgraph/benchmark-evidence.json"
+      ],
+      "kind": "benchmark"
+    },
+    "security": {
+      "artifacts": [
+        "release/langgraph/image.spdx.json",
+        "release/langgraph/provenance.bundle.json",
+        "release/langgraph/attestation-verification.json",
+        "release/langgraph/image-compatibility.json",
+        "release/langgraph/image-packages.json"
+      ],
+      "kind": "container-security"
+    },
+    "tests": {
+      "artifacts": [
+        "release/langgraph/junit.xml"
+      ],
+      "kind": "junit"
+    }
+  },
+  "release": "0.16.2.5.1",
+  "schema_version": 4
+}

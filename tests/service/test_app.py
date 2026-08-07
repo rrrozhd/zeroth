@@ -261,6 +261,10 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
     assert proxy_kwargs["policy_guard"] is service.policy_guard
     assert proxy_kwargs["budget_checker"] is service.budget_enforcer
     assert proxy_kwargs["compatibility"] is service.langgraph_gateway_compatibility
+    assert (
+        proxy_kwargs["capability_reporter"]
+        is service.langgraph_gateway_capability_reporter
+    )
     assert websocket_kwargs["transport"] is service.langgraph_gateway_transport
     assert websocket_kwargs["policy_guard"] is service.policy_guard
     assert websocket_kwargs["budget_checker"] is service.budget_enforcer

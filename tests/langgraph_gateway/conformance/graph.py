@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import RetryPolicy, interrupt
+from zeroth.integrations.langgraph import (
+    InventoryCoverage,
+    LangGraphGatewayClient,
+    ToolInventory,
+    govern_graph,
+)
 
 
 class FixtureState(TypedDict, total=False):
@@ -15,6 +23,10 @@ class FixtureState(TypedDict, total=False):
     text: str
     result: str
     resumed: Any
+    model_request: dict[str, Any]
+    model_response: dict[str, Any]
+    retry_attempts: list[int]
+    retry_key: str
     tool_calls: list[dict[str, Any]]
     tool_sequence: list[dict[str, Any]]
 
@@ -80,6 +92,35 @@ def replay_tools(state: FixtureState) -> FixtureState:
     return {"tool_sequence": sequence, "result": "tools:replayed"}
 
 
+def replay_model(state: FixtureState) -> FixtureState:
+    requested = state.get("model_request")
+    match = next(
+        (
+            row
+            for row in _cassette()["model_interactions"]
+            if row["request"] == requested
+        ),
+        None,
+    )
+    if match is None:
+        raise AssertionError("model cassette miss")
+    return {"model_response": match["response"], "result": "model:replayed"}
+
+
+# ponytail: process-local fixture state; use run-scoped storage if retry cases become concurrent.
+_retry_attempts: dict[str, int] = {}
+
+
+def retry_once(state: FixtureState) -> FixtureState:
+    key = state.get("retry_key", "default")
+    attempt = _retry_attempts.get(key, 0) + 1
+    _retry_attempts[key] = attempt
+    if attempt == 1:
+        raise RuntimeError("deterministic-retry")
+    _retry_attempts.pop(key, None)
+    return {"retry_attempts": [1, 2], "result": "retry:succeeded"}
+
+
 def route(state: FixtureState) -> str:
     return state.get("mode", "echo")
 
@@ -89,6 +130,17 @@ builder.add_node("echo", echo)
 builder.add_node("interrupt", pause)
 builder.add_node("cancel", cancellation_point)
 builder.add_node("error", predictable_error)
+builder.add_node("model", replay_model)
+builder.add_node(
+    "retry",
+    retry_once,
+    retry_policy=RetryPolicy(
+        initial_interval=0.0,
+        max_attempts=2,
+        jitter=False,
+        retry_on=RuntimeError,
+    ),
+)
 builder.add_node("tools", replay_tools)
 builder.add_conditional_edges(
     START,
@@ -98,10 +150,42 @@ builder.add_conditional_edges(
         "interrupt": "interrupt",
         "cancel": "cancel",
         "error": "error",
+        "model": "model",
+        "retry": "retry",
         "tools": "tools",
     },
 )
-for node in ("echo", "interrupt", "cancel", "error", "tools"):
+for node in ("echo", "interrupt", "cancel", "error", "model", "retry", "tools"):
     builder.add_edge(node, END)
 
 graph = builder.compile()
+
+
+def _governed_graph():
+    gateway_url = os.environ.get("ZEROTH_CONFORMANCE_GATEWAY_URL")
+    if gateway_url is None:
+        return graph
+    client = LangGraphGatewayClient(
+        gateway_url,
+        api_key="gateway-key",
+        tenant_id="conformance-tenant",
+        principal_id="conformance-user",
+        deployment_ref="conformance-deployment",
+        policy_version="sha256:conformance",
+        graph_version="graph:conformance",
+        inventory=ToolInventory(entries=(), coverage=InventoryCoverage.PARTIAL),
+        heartbeat_interval_seconds=None,
+    )
+    governed = govern_graph(graph, gateway_client=client)
+
+    def invoke_governed(state: FixtureState, config: RunnableConfig) -> FixtureState:
+        return governed.invoke(state, config=config)
+
+    governed_builder = StateGraph(FixtureState)
+    governed_builder.add_node("governed", invoke_governed)
+    governed_builder.add_edge(START, "governed")
+    governed_builder.add_edge("governed", END)
+    return governed_builder.compile()
+
+
+governed_graph = _governed_graph()

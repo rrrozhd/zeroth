@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from itertools import islice
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import uvicorn
@@ -29,12 +30,23 @@ import zeroth.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
 from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
 from zeroth.econ.analytics import BudgetCheckResult
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.policy import RunAdmissionResult
 from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.secrets import EnvSecretProvider
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+from zeroth.service.langgraph_gateway.enforcement import (
+    InventoryRegistrationV1,
+    LangGraphEnforcementRepository,
+    LangGraphEnforcementService,
+    RunAttestationV1,
+    StoredCapabilityEvidenceProvider,
+)
 from zeroth.service.langgraph_gateway.proxy import GatewayProxy
 from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
@@ -74,6 +86,8 @@ class CapturedExchange:
     errors: tuple[Any, ...]
     cancellation_outcome: Any
     terminal_state: Any
+    retry_attempts: tuple[int, ...] = ()
+    disconnect_outcome: str | None = None
     forwarded_context_present: bool = False
     audit_event_present: bool = False
 
@@ -82,11 +96,13 @@ class CapturedExchange:
 class DifferentialReport:
     semantic_divergences: list[str]
     expected_governance_additions: list[str]
+    first_divergence_path: str | None = None
 
     def write_human_report(self, path: Path) -> None:
         path.write_text(
             "LangGraph gateway differential report\n"
             f"semantic divergences: {self.semantic_divergences or ['none']}\n"
+            f"first divergence: {self.first_divergence_path or 'none'}\n"
             f"expected governance additions: {self.expected_governance_additions or ['none']}\n",
             encoding="utf-8",
         )
@@ -206,6 +222,8 @@ def _semantic_projection(
         "tool_sequence": normalize(capture.tool_sequence),
         "errors": normalize(capture.errors),
         "cancellation_outcome": capture.cancellation_outcome,
+        "disconnect_outcome": capture.disconnect_outcome,
+        "retry_attempts": capture.retry_attempts,
         "terminal_state": capture.terminal_state,
     }
 
@@ -222,6 +240,41 @@ def _normalize_sse_frame_id(frame: bytes, frame_id: str | None, index: int) -> b
             content = f"id: <generated-sse-id:{index}>".encode()
         normalized.append(content + ending)
     return b"".join(normalized)
+
+
+def _json_pointer(path: tuple[str, ...]) -> str:
+    pointer = "/" + "/".join(segment.replace("~", "~0").replace("/", "~1") for segment in path)
+    return f"#{quote(pointer, safe='/~')}"
+
+
+def _first_divergence_path(
+    direct: Any,
+    proxied: Any,
+    path: tuple[str, ...] = (),
+) -> str | None:
+    if isinstance(direct, Mapping) and isinstance(proxied, Mapping):
+        keys = sorted(set(direct) | set(proxied), key=lambda key: str(key))
+        for key in keys:
+            child_path = (*path, str(key))
+            if key not in direct or key not in proxied:
+                return _json_pointer(child_path)
+            divergence = _first_divergence_path(direct[key], proxied[key], child_path)
+            if divergence is not None:
+                return divergence
+        return None
+    if type(direct) is type(proxied) and isinstance(direct, (list, tuple)):
+        for index, (direct_item, proxied_item) in enumerate(zip(direct, proxied, strict=False)):
+            divergence = _first_divergence_path(
+                direct_item,
+                proxied_item,
+                (*path, str(index)),
+            )
+            if divergence is not None:
+                return divergence
+        if len(direct) != len(proxied):
+            return _json_pointer((*path, str(min(len(direct), len(proxied)))))
+        return None
+    return None if direct == proxied else _json_pointer(path)
 
 
 def compare_exchanges(
@@ -260,7 +313,11 @@ def compare_exchanges(
         additions.append("forwarded.config.configurable._zeroth")
     if proxied.audit_event_present:
         additions.append("audit.langgraph.gateway")
-    return DifferentialReport(divergences, additions)
+    return DifferentialReport(
+        divergences,
+        additions,
+        _first_divergence_path(direct_projection, proxied_projection),
+    )
 
 
 class _AllowPolicy:
@@ -345,6 +402,36 @@ def create_gateway_app(
         upstream_audience="agent-server:conformance",
         deployment_ref="conformance-deployment",
     )
+    signer = EnvHmacSigner(key_id="conformance", keys={"conformance": b"fixture-key"})
+    context_codec = ReservedContextCodec(signer)
+    database: AsyncSQLiteDatabase | None = None
+    enforcement_service: LangGraphEnforcementService | None = None
+    capability_reporter: CapabilityReporter | None = None
+    if evidence_path is not None:
+        database_path = str(Path(evidence_path).with_name("enforcement.sqlite3"))
+        run_migrations(f"sqlite:///{database_path}")
+        database = AsyncSQLiteDatabase(path=database_path)
+        repository = LangGraphEnforcementRepository(database)
+        enforcement_service = LangGraphEnforcementService(
+            repository,
+            codec=context_codec,
+            signer=signer,
+            policy_guard=_AllowPolicy(),
+            budget_checker=_AllowBudget(),
+            metrics=MetricsCollector(),
+            deployment_ref="conformance-deployment",
+            audience="agent-server:conformance",
+            expected_graph_version="graph:conformance",
+        )
+        capability_reporter = CapabilityReporter(
+            governance_evidence_provider=StoredCapabilityEvidenceProvider(
+                repository,
+                signer,
+                tenant_id="conformance-tenant",
+                deployment_ref="conformance-deployment",
+            ),
+            expected_graph_version="graph:conformance",
+        )
     transport = _CapturingTransport(
         settings,
         EnvSecretProvider(),
@@ -353,9 +440,7 @@ def create_gateway_app(
     proxy = GatewayProxy(
         settings=settings,
         transport=transport,
-        context_codec=ReservedContextCodec(
-            EnvHmacSigner(key_id="conformance", keys={"conformance": b"fixture-key"})
-        ),
+        context_codec=context_codec,
         policy_guard=_AllowPolicy(),
         budget_checker=_AllowBudget(),
         compatibility=CompatibilityResult(
@@ -365,9 +450,11 @@ def create_gateway_app(
             openapi_fingerprint="sha256:conformance",
             status=CompatibilityStatus.SUPPORTED,
         ),
+        capability_reporter=capability_reporter,
         event_sink=event_sink
         or (_FileRecordingSink(evidence_path) if evidence_path else _RecordingSink()),
         principal_resolver=_principal,
+        correlation_factory=lambda: "conformance-correlation",
     )
 
     async def route(request: Request) -> Response:
@@ -386,23 +473,58 @@ def create_gateway_app(
                 )
         return await proxy.handle_http(request)
 
+    async def enforcement_route(request: Request) -> Response:
+        if (
+            enforcement_service is None
+            or request.path_params["deployment_ref"] != enforcement_service.deployment_ref
+        ):
+            return Response(status_code=404)
+        if request.headers.get("x-api-key") != "gateway-key":
+            return Response(status_code=401)
+        payload = await request.json()
+        operation = request.path_params["operation"]
+        if operation == "inventories":
+            await enforcement_service.register_inventory(
+                InventoryRegistrationV1.model_validate(payload)
+            )
+            return Response(status_code=204)
+        if operation == "attestations":
+            evidence = await enforcement_service.attest_run(
+                RunAttestationV1.model_validate(payload)
+            )
+            _append_evidence(
+                evidence_path,
+                {"kind": "attestation", "evidence": evidence.model_dump(mode="json")},
+            )
+            return JSONResponse(evidence.model_dump(mode="json"))
+        return Response(status_code=404)
+
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         try:
             yield
         finally:
             await transport.aclose()
+            if database is not None:
+                await database.close()
 
-    app = Starlette(
-        routes=[
+    routes = []
+    if enforcement_service is not None:
+        routes.append(
             Route(
-                "/{path:path}",
-                route,
-                methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+                "/v1/langgraph/deployments/{deployment_ref}/{operation}",
+                enforcement_route,
+                methods=["POST"],
             )
-        ],
-        lifespan=lifespan,
+        )
+    routes.append(
+        Route(
+            "/{path:path}",
+            route,
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        )
     )
+    app = Starlette(routes=routes, lifespan=lifespan)
     return app, transport
 
 
@@ -465,6 +587,7 @@ class ConformanceServers:
                 ),
             }
         )
+        environment.pop("ZEROTH_CONFORMANCE_GATEWAY_URL", None)
         direct_port = _free_port()
         direct_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-direct-agent-")
@@ -472,7 +595,9 @@ class ConformanceServers:
         direct_script = (
             "from langgraph_api.cli import run_server; "
             f"run_server(host='127.0.0.1', port={direct_port}, reload=False, "
-            "graphs={'conformance':'tests.langgraph_gateway.conformance.graph:graph'}, "
+            "graphs={"
+            "'conformance':'tests.langgraph_gateway.conformance.graph:graph',"
+            "'conformance_governed':'tests.langgraph_gateway.conformance.graph:graph'}, "
             "disable_persistence=True, open_browser=False, server_level='ERROR')"
         )
         direct = subprocess.Popen(
@@ -487,19 +612,26 @@ class ConformanceServers:
         _wait_ready(self.direct_url, direct)
 
         proxy_upstream_port = _free_port()
+        gateway_port = _free_port()
         proxy_upstream_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-proxy-agent-")
         )
         proxy_upstream_script = (
             "from langgraph_api.cli import run_server; "
             f"run_server(host='127.0.0.1', port={proxy_upstream_port}, reload=False, "
-            "graphs={'conformance':'tests.langgraph_gateway.conformance.graph:graph'}, "
+            "graphs={"
+            "'conformance':'tests.langgraph_gateway.conformance.graph:graph',"
+            "'conformance_governed':"
+            "'tests.langgraph_gateway.conformance.graph:governed_graph'}, "
             "disable_persistence=True, open_browser=False, server_level='ERROR')"
         )
+        proxy_environment = environment | {
+            "ZEROTH_CONFORMANCE_GATEWAY_URL": f"http://127.0.0.1:{gateway_port}"
+        }
         proxy_upstream = subprocess.Popen(
             [sys.executable, "-c", proxy_upstream_script],
             cwd=proxy_upstream_dir,
-            env=environment,
+            env=proxy_environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -507,7 +639,6 @@ class ConformanceServers:
         self.proxy_upstream_url = f"http://127.0.0.1:{proxy_upstream_port}"
         _wait_ready(self.proxy_upstream_url, proxy_upstream)
 
-        gateway_port = _free_port()
         gateway_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-conformance-gateway-")
         )
@@ -651,11 +782,12 @@ def _capture_case_request(
     evidence: tuple[dict[str, Any], ...] = (),
 ) -> CapturedExchange:
     payload = _render_case_value(case.request(context), context)
+    disconnect_outcome: str | None = None
     if case.expected_content_type == "text/event-stream" and case.group in {
         "threads",
         "event-stream",
     }:
-        captured_response, raw_chunks = _capture_subscription_frames(
+        captured_response, raw_chunks, disconnect_outcome = _capture_subscription_frames(
             client,
             base_url,
             case,
@@ -729,12 +861,14 @@ def _capture_case_request(
     interrupts = ()
     resume_values = ()
     tool_sequence = ()
+    retry_attempts = ()
     if isinstance(final_json, dict):
         interrupts = tuple(final_json.get("__interrupt__", ()))
         result = final_json.get("result")
         if isinstance(result, str) and result.startswith("resumed:"):
             resume_values = (result.removeprefix("resumed:"),)
         tool_sequence = tuple(final_json.get("tool_sequence", ()))
+        retry_attempts = tuple(final_json.get("retry_attempts", ()))
     errors = (
         ()
         if captured_response.is_success
@@ -752,6 +886,8 @@ def _capture_case_request(
         errors=errors,
         cancellation_outcome=cancellation_outcome,
         terminal_state=terminal_state,
+        retry_attempts=retry_attempts,
+        disconnect_outcome=disconnect_outcome,
         forwarded_context_present=any(
             row.get("kind") == "forwarded" and row.get("zeroth_present") for row in evidence
         ),
@@ -784,7 +920,7 @@ def _capture_subscription_frames(
     context: Mapping[str, str],
     headers: Mapping[str, str],
     payload: Any,
-) -> tuple[httpx.Response, tuple[bytes, ...]]:
+) -> tuple[httpx.Response, tuple[bytes, ...], str]:
     frame_limit = 6 if case.group == "threads" else 4
     ready = threading.Event()
     finished = threading.Event()
@@ -842,7 +978,7 @@ def _capture_subscription_frames(
         raise AssertionError(
             f"subscription yielded {len(frames)} of {frame_limit} frames: {case.name}"
         )
-    return result["response"], frames
+    return result["response"], frames, "client_stream_closed"
 
 
 def _matching_generated_pairs(
@@ -1035,6 +1171,9 @@ def capture_response(
 ) -> CapturedExchange:
     content_type = response.headers.get("content-type", "")
     final_json = response.json() if content_type.startswith("application/json") else None
+    retry_attempts = (
+        tuple(final_json.get("retry_attempts", ())) if isinstance(final_json, dict) else ()
+    )
     return CapturedExchange(
         status_code=response.status_code,
         headers=tuple(response.headers.multi_items()),
@@ -1049,6 +1188,7 @@ def capture_response(
         errors=() if response.is_success else (final_json or response.text,),
         cancellation_outcome=None,
         terminal_state="success" if response.is_success else "error",
+        retry_attempts=retry_attempts,
         forwarded_context_present=forwarded_context_present,
         audit_event_present=audit_event_present,
     )

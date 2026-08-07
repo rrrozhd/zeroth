@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,6 +15,7 @@ from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityStatus,
 )
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.service.api.authentication import AuthenticationError
 from zeroth.service.api.health import DependencyStatus, register_health_routes
 from zeroth.service.app import create_app
 from zeroth.service.langgraph_gateway.routes import GatewayWebSocketEndpoint
@@ -92,6 +95,48 @@ async def test_supported_websocket_compatibility_preserves_handler_path() -> Non
 
     assert websocket.closed is None
     assert handler.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_authentication_does_not_block_event_loop_on_denial() -> None:
+    auth_started = threading.Event()
+    release_auth = threading.Event()
+    heartbeat = threading.Event()
+    heartbeat_before_release: list[bool] = []
+
+    class BlockingAuthenticator:
+        def authenticate_headers(self, _headers):
+            auth_started.set()
+            assert release_auth.wait(timeout=1)
+            raise AuthenticationError("authentication required")
+
+    def observe_then_release() -> None:
+        assert auth_started.wait(timeout=1)
+        heartbeat_before_release.append(heartbeat.wait(timeout=0.2))
+        release_auth.set()
+
+    async def beat_after_auth_starts() -> None:
+        assert await asyncio.to_thread(auth_started.wait, 1)
+        heartbeat.set()
+
+    handler = _RecordingWebSocketHandler()
+    endpoint = GatewayWebSocketEndpoint(
+        authenticator=BlockingAuthenticator(),  # type: ignore[arg-type]
+        handler=handler,
+    )
+    websocket = _WebSocket()
+    observer = threading.Thread(target=observe_then_release, daemon=True)
+    observer.start()
+    heartbeat_task = asyncio.create_task(beat_after_auth_starts())
+    await asyncio.sleep(0)
+
+    await endpoint(websocket)
+    await heartbeat_task
+    observer.join(timeout=1)
+
+    assert heartbeat_before_release == [True]
+    assert websocket.closed == (4401, "zeroth.authentication_required")
+    assert handler.calls == 0
 
 
 def test_deployment_health_reports_exact_gateway_capability_and_compatibility() -> None:

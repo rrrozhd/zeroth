@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
+import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -19,8 +21,10 @@ from zeroth.governance.langgraph_gateway.capabilities import (
     NoCapabilityEvidenceProvider,
 )
 from zeroth.service.langgraph_gateway.compatibility import (
-    EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS,
     CompatibilityDetector,
+    DEFAULT_TESTED_AGENT_SERVER_VERSIONS,
+    DEFAULT_TESTED_LANGGRAPH_VERSIONS,
+    EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS,
     fingerprint_openapi,
 )
 
@@ -111,13 +115,26 @@ async def test_exact_version_and_expected_openapi_fingerprint_are_supported() ->
 
 
 @pytest.mark.asyncio
-async def test_exact_version_alone_is_supported_when_openapi_is_not_exposed() -> None:
-    transport, _ = _transport(openapi_status=404)
+@pytest.mark.parametrize(
+    ("openapi_status", "expected_status", "expected_reason"),
+    [
+        (404, CompatibilityStatus.UNSUPPORTED, "upstream OpenAPI fingerprint is unavailable"),
+        (500, CompatibilityStatus.UNAVAILABLE, "upstream OpenAPI probe failed"),
+    ],
+)
+async def test_exact_version_never_unlocks_without_allowlisted_openapi_fingerprint(
+    openapi_status: int,
+    expected_status: CompatibilityStatus,
+    expected_reason: str,
+) -> None:
+    transport, _ = _transport(openapi_status=openapi_status)
 
     result = await _detect(transport)
 
-    assert result.status is CompatibilityStatus.SUPPORTED
+    assert result.status is expected_status
+    assert result.status is not CompatibilityStatus.SUPPORTED
     assert result.openapi_fingerprint is None
+    assert result.reason == expected_reason
 
 
 @pytest.mark.asyncio
@@ -417,6 +434,36 @@ def test_openapi_fingerprint_ignores_descriptions_examples_and_input_order() -> 
     assert fingerprint_openapi(left) == fingerprint_openapi(right)
 
 
+def test_ci_matrix_and_conformance_pins_match_runtime_compatibility_allowlist() -> None:
+    repository_root = Path(__file__).parents[2]
+    workflow = (repository_root / ".github/workflows/langgraph-compatibility.yml").read_text(
+        encoding="utf-8"
+    )
+    matrix = dict(
+        re.findall(
+            r'^\s*-?\s*(langchain|langgraph|langgraph_api|langgraph_sdk): "([^"]+)"\s*$',
+            workflow,
+            re.MULTILINE,
+        )
+    )
+    expected = {
+        "langchain": "1.3.14",
+        "langgraph": DEFAULT_TESTED_LANGGRAPH_VERSIONS[0],
+        "langgraph_api": DEFAULT_TESTED_AGENT_SERVER_VERSIONS[0],
+        "langgraph_sdk": "0.4.2",
+    }
+
+    assert matrix == expected
+    assert set(EXPECTED_AGENT_SERVER_OPENAPI_FINGERPRINTS) == set(
+        DEFAULT_TESTED_AGENT_SERVER_VERSIONS
+    )
+    project = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert {f"{name.replace('_', '-')}=={version}" for name, version in expected.items()} <= set(
+        project["dependency-groups"]["gateway-conformance"]
+    )
+    assert "version('langchain') == '${{ matrix.langchain }}'" in workflow
+
+
 class StaticEvidenceProvider:
     def __init__(self, evidence: RunCapabilityEvidence | None) -> None:
         self.evidence = evidence
@@ -437,6 +484,11 @@ class FalsyEvidenceProvider(StaticEvidenceProvider):
 
 class RaisingEvidenceProvider:
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
+        raise ValueError("malformed backend evidence containing secret")
+
+    async def evidence_for_governance_run(
+        self, governance_run_id: str
+    ) -> RunCapabilityEvidence | None:
         raise ValueError("malformed backend evidence containing secret")
 
 
@@ -541,6 +593,12 @@ async def test_heartbeat_without_run_attestation_does_not_upgrade_run() -> None:
         )
         is GovernanceLevel.ADMISSION
     )
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
+        is GovernanceLevel.ADMISSION
+    )
 
 
 @pytest.mark.asyncio
@@ -575,6 +633,32 @@ async def test_run_lookup_validates_signed_governance_run_identity() -> None:
     )
     assert (
         await reporter.level_for_governance_run("run-2", graph_version="graph-v1")
+        is GovernanceLevel.ADMISSION
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        None,
+        _evidence(run_id="run-1", observed_at=NOW - timedelta(seconds=91)),
+        _evidence(run_id="run-1", observed_at=NOW + timedelta(seconds=1)),
+        _evidence(run_id="other-run"),
+        _evidence(run_id="run-1", correlation_id="other-correlation"),
+        _evidence(run_id="run-1", graph_version="graph-v2"),
+        _evidence(run_id="run-1", signature_valid=False),
+    ],
+)
+async def test_exact_run_lookup_falls_back_for_incomplete_or_invalid_evidence(
+    evidence: RunCapabilityEvidence | None,
+) -> None:
+    reporter = CapabilityReporter(StaticEvidenceProvider(evidence), now=lambda: NOW)
+
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
         is GovernanceLevel.ADMISSION
     )
 
@@ -659,6 +743,12 @@ async def test_provider_failure_falls_back_to_admission() -> None:
 
     assert (
         await reporter.level_for_run("corr-1", graph_version="graph-v1")
+        is GovernanceLevel.ADMISSION
+    )
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
         is GovernanceLevel.ADMISSION
     )
 

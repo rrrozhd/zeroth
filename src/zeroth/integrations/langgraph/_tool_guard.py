@@ -64,8 +64,10 @@ digest.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import Future
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
@@ -163,6 +165,27 @@ class ToolAuditSubmitter(Protocol):
     def submit(self, record: NodeAuditRecord) -> Any:
         """Queue one record for durable audit and return without awaiting it."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class _EventLoopAuditSubmitter:
+    """Run a worker-thread audit hand-off synchronously on its event loop."""
+
+    loop: asyncio.AbstractEventLoop
+    target: ToolAuditSubmitter
+
+    def submit(self, record: NodeAuditRecord) -> Any:
+        """Return the target result or exception after its loop executes it."""
+        result: Future[Any] = Future()
+
+        def submit() -> None:
+            try:
+                result.set_result(self.target.submit(record))
+            except BaseException as error:
+                result.set_exception(error)
+
+        self.loop.call_soon_threadsafe(submit)
+        return result.result()
 
 
 def _langgraph_interrupt(payload: Mapping[str, Any]) -> Any:
@@ -947,17 +970,27 @@ async def aguard_tool_call(
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
     """Async twin of :func:`guard_tool_call` with the same completion fence."""
-    authorization = _authorize_tool_action(
-        action,
-        context,
-        client=client,
-        unknown_side_effect=unknown_side_effect,
-        audit=audit,
-        actor=actor,
-        interrupt=interrupt,
-        approval_lifecycle=approval_lifecycle,
-        prepare_edited_arguments=prepare_edited_arguments,
+    loop = asyncio.get_running_loop()
+    authorization_task = asyncio.create_task(
+        asyncio.to_thread(
+            _authorize_tool_action,
+            action,
+            context,
+            client=client,
+            unknown_side_effect=unknown_side_effect,
+            audit=None if audit is None else _EventLoopAuditSubmitter(loop, audit),
+            actor=actor,
+            interrupt=interrupt,
+            approval_lifecycle=approval_lifecycle,
+            prepare_edited_arguments=prepare_edited_arguments,
+        )
     )
+    try:
+        authorization = await asyncio.shield(authorization_task)
+    except asyncio.CancelledError:
+        with suppress(BaseException):
+            await authorization_task
+        raise
     try:
         if authorization.edited:
             if invoke_with_arguments is None:

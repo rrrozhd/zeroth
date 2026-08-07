@@ -14,7 +14,7 @@ Database backend configuration.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_DATABASE__BACKEND` | `str` | `"sqlite"` |  |  |
+| `ZEROTH_DATABASE__BACKEND` | `Literal[sqlite, postgres]` | `"sqlite"` |  |  |
 | `ZEROTH_DATABASE__SQLITE_PATH` | `str` | `"zeroth.db"` |  |  |
 | `ZEROTH_DATABASE__POSTGRES_DSN` | `SecretStr \| None` | `None` | ✓ |  |
 | `ZEROTH_DATABASE__POSTGRES_POOL_MIN` | `int` | `2` |  |  |
