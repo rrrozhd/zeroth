@@ -243,6 +243,19 @@ class SideEffectOperationStore:
         """
         now = _utc_now()
         async with self.database.transaction() as conn:
+            # Read the prior state, not the resulting receipt. Comparing the
+            # stored receipt to the supplied one reported True whenever a caller
+            # re-reported the *same* result -- the idempotent case, where this
+            # call stored nothing. The answer has to come from whether the row
+            # was already COMPLETED before this statement.
+            before = await conn.fetch_one(
+                "SELECT state FROM side_effect_operations WHERE operation_key = ?",
+                (operation_key,),
+            )
+            if before is None:
+                return False
+            if OperationState(before["state"]) is OperationState.COMPLETED:
+                return False
             await conn.execute(
                 """
                 UPDATE side_effect_operations
@@ -257,11 +270,7 @@ class SideEffectOperationStore:
                     OperationState.COMPLETED.value,
                 ),
             )
-            row = await conn.fetch_one(
-                "SELECT receipt FROM side_effect_operations WHERE operation_key = ?",
-                (operation_key,),
-            )
-        return row is not None and row["receipt"] == receipt
+        return True
 
     async def fail(self, operation_key: str, *, error: str) -> None:
         """Record a *confirmed* failure.  A completed operation is never undone."""
