@@ -624,6 +624,48 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         )
         assert record["receipt"] is not None
 
+    async def test_a_competing_reconciler_settling_completed_suppresses_re_execution(
+        self, dual_database
+    ) -> None:
+        """A record settled COMPLETED must suppress even when *our* lookup knows nothing.
+
+        Two reconcilers can race the same ambiguous operation. If the competitor
+        settles it COMPLETED while the local outcome lookup returns nothing, the
+        local reconciler's own record_reconciliation() reports COMPLETED -- and
+        re-executing at that point applies a confirmed effect twice. Before the
+        fix the suppression branch additionally required the *local* receipt to
+        be non-null, so exactly this interleaving re-executed.
+        """
+        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        runner = _CountingRunner()
+        dispatcher = _dispatcher(store, runner)
+        run = _run_with_dispatch()
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        await _seed_ambiguous(store, identity)
+
+        async def _lookup_racing_a_competitor(identity_arg):
+            # The competitor settles while our lookup is still in flight ...
+            await store.record_reconciliation(
+                identity_arg.operation_key,
+                resolved=True,
+                receipt='{"charged": true, "by": "competitor"}',
+            )
+            # ... and our own lookup comes back empty-handed.
+            return None
+
+        object.__setattr__(dispatcher, "operation_outcome_lookup", _lookup_racing_a_competitor)
+        before = runner.applications
+
+        output, audit = await _dispatch_once(dispatcher, run)
+
+        assert runner.applications == before, (
+            "a competitor-settled COMPLETED operation must not be re-executed"
+        )
+        assert audit["operation_replay_suppressed"] is True
+        assert output == {"charged": True, "by": "competitor"}, (
+            "suppression must replay the stored receipt, not invent an empty one"
+        )
+
 
 # ---------------------------------------------------------------------------
 # ZER26-AUD-003: the transitions are compare-and-set under real concurrency
