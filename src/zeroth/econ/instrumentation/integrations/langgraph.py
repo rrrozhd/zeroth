@@ -3,11 +3,75 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from zeroth.econ.instrumentation.client import resolve_join_key
 from zeroth.econ.instrumentation.integrations._capture import finalize_capture_metadata, should_capture_layer, should_emit_by_rate, start_time_ms
 from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
+
+
+def _new_run_id() -> str:
+    return f"lg_{uuid4().hex}"
+
+
+class _CapturedAsyncIterator:
+    """Capture one econ event across a caller-driven v3 graph iterator."""
+
+    def __init__(
+        self,
+        owner: InstrumentedLangGraph,
+        iterator: Any,
+        run_id: str,
+        started: float,
+        started_ms: int,
+    ) -> None:
+        self._owner = owner
+        self._iterator = iterator
+        self._run_id = run_id
+        self._started = started
+        self._started_ms = started_ms
+        self._emitted = False
+
+    def __aiter__(self) -> _CapturedAsyncIterator:
+        return self
+
+    async def _finish(self, error: BaseException | None = None) -> None:
+        if self._emitted:
+            return
+        self._emitted = True
+        await self._owner._safe_aemit(
+            self._run_id,
+            self._started,
+            self._started_ms,
+            "astream_events",
+            error=error,
+            streaming=True,
+        )
+
+    async def __anext__(self) -> Any:
+        try:
+            with get_runtime().capture_context("langgraph", run_id=self._run_id):
+                return await self._iterator.__anext__()
+        except StopAsyncIteration:
+            await self._finish()
+            raise
+        except BaseException as exc:
+            await self._finish(exc)
+            raise
+
+    async def aclose(self) -> None:
+        error: BaseException | None = None
+        try:
+            aclose = getattr(self._iterator, "aclose", None)
+            if aclose is not None:
+                with get_runtime().capture_context("langgraph", run_id=self._run_id):
+                    await aclose()
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            await self._finish(error)
 
 
 class InstrumentedLangGraph:
@@ -105,7 +169,7 @@ class InstrumentedLangGraph:
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             return self._graph.invoke(*args, **kwargs)
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -121,7 +185,7 @@ class InstrumentedLangGraph:
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             return await self._graph.ainvoke(*args, **kwargs)
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -138,7 +202,7 @@ class InstrumentedLangGraph:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             yield from self._graph.stream(*args, **kwargs)
             return
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -157,7 +221,7 @@ class InstrumentedLangGraph:
             async for chunk in self._graph.astream(*args, **kwargs):
                 yield chunk
             return
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -171,7 +235,12 @@ class InstrumentedLangGraph:
             finally:
                 await self._safe_aemit(run_id, started, started_ms, "astream", error=error, streaming=True)
 
-    async def astream_events(self, *args: Any, **kwargs: Any):
+    def astream_events(self, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("version") == "v3":
+            return self._astream_events_v3(*args, **kwargs)
+        return self._astream_events_v1_v2(*args, **kwargs)
+
+    async def _astream_events_v1_v2(self, *args: Any, **kwargs: Any):
         iterator = self._graph.astream_events(*args, **kwargs).__aiter__()
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             try:
@@ -183,7 +252,7 @@ class InstrumentedLangGraph:
                 aclose = getattr(iterator, "aclose", None)
                 if aclose is not None:
                     await aclose()
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -208,6 +277,35 @@ class InstrumentedLangGraph:
                     error=error,
                     streaming=True,
                 )
+
+    async def _astream_events_v3(self, *args: Any, **kwargs: Any) -> Any:
+        if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
+            return await self._graph.astream_events(*args, **kwargs)
+
+        run_id = _new_run_id()
+        started = perf_counter()
+        started_ms = start_time_ms()
+        try:
+            with get_runtime().capture_context("langgraph", run_id=run_id):
+                run = await self._graph.astream_events(*args, **kwargs)
+        except BaseException as exc:
+            await self._safe_aemit(
+                run_id,
+                started,
+                started_ms,
+                "astream_events",
+                error=exc,
+                streaming=True,
+            )
+            raise
+        run._graph_aiter = _CapturedAsyncIterator(
+            self,
+            run._graph_aiter,
+            run_id,
+            started,
+            started_ms,
+        )
+        return run
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._graph, item)
