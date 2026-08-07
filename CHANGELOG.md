@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.2.1] - 2026-08-07
+
+### Fixed
+
+- Exercise the LangGraph release path through real local and loopback adapters,
+  a durable public approval demo, and a runnable gateway fixture.
+- Reject stale, incomplete, synthetic, or failed compatibility, performance,
+  test, image, SBOM, and provenance evidence before publishing.
+- Reject unsupported database backend values at settings validation time.
+
 ## [0.16.2] - 2026-08-07
 
 ### Added

@@ -2,7 +2,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from zeroth.core.config.settings import LangGraphGatewaySettings, ZerothSettings
+from zeroth.core.config.settings import DatabaseSettings, LangGraphGatewaySettings, ZerothSettings
 
 
 VALID_ENABLED = {
@@ -11,6 +11,11 @@ VALID_ENABLED = {
     "upstream_audience": "agent-server:fixture",
     "deployment_ref": "external-agent",
 }
+
+
+def test_database_backend_rejects_unknown_values():
+    with pytest.raises(ValidationError, match="Input should be 'sqlite' or 'postgres'"):
+        DatabaseSettings(backend="invalid")
 
 
 def test_gateway_is_disabled_by_default():
