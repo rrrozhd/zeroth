@@ -42,7 +42,7 @@ _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 class DatabaseSettings(BaseModel):
     """Database backend configuration."""
 
-    backend: str = "sqlite"
+    backend: Literal["sqlite", "postgres"] = "sqlite"
     sqlite_path: str = "zeroth.db"
     postgres_dsn: SecretStr | None = None
     postgres_pool_min: int = 2

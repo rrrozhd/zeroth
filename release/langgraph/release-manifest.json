@@ -1,36 +1,34 @@
 {
+  "baseline_release": "0.16.1.7",
   "evidence": {
     "compatibility": {
       "artifacts": [
         "release/langgraph/compatibility.json"
       ],
-      "status": "passed"
+      "kind": "compatibility-matrix"
     },
     "performance": {
       "artifacts": [
+        "release/langgraph/benchmark-baseline-0.16.1.7.json",
         "release/langgraph/benchmark-evidence.json"
       ],
-      "status": "passed"
+      "kind": "benchmark"
     },
     "security": {
       "artifacts": [
-        "Dockerfile",
-        "docker-compose.yml",
-        ".github/workflows/release-zeroth-core.yml"
+        "release/langgraph/image.spdx.json",
+        "release/langgraph/provenance.bundle.json",
+        "release/langgraph/image-compatibility.json"
       ],
-      "status": "passed"
+      "kind": "container-security"
     },
     "tests": {
       "artifacts": [
-        "tests/langgraph_release/test_benchmark.py",
-        "tests/langgraph_release/test_container_contract.py",
-        "tests/langgraph_release/test_demo.py",
-        "tests/langgraph_release/test_release_checklist.py",
-        "tests/docs/test_langgraph_release_docs.py"
+        "release/langgraph/junit.xml"
       ],
-      "status": "passed"
+      "kind": "junit"
     }
   },
-  "release": "0.16.2",
-  "schema_version": 1
+  "release": "0.16.2.1",
+  "schema_version": 2
 }

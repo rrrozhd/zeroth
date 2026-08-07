@@ -7,12 +7,16 @@ import argparse
 import json
 import tempfile
 from dataclasses import dataclass, field
+from operator import add
 from pathlib import Path
-from typing import Any
-from uuid import uuid4
+from typing import Annotated, Any, TypedDict
+
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import END, START, StateGraph
 
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.integrations.langgraph import (
+    ApprovalCoordinator,
     ApprovalDecision,
     ApprovalResolution,
     SideEffectClass,
@@ -23,32 +27,29 @@ from zeroth.integrations.langgraph import (
     ToolGovernanceError,
     ZerothGovernanceCallbackHandler,
     govern_graph,
+    govern_tools,
 )
-from zeroth.integrations.langgraph._tool_guard import guard_tool_call
-from zeroth.integrations.langgraph._tool_normalize import normalize_tool_action
 
+THREAD_ID = "demo-thread"
 CONTEXT = ToolGovernanceContext(
     tenant_id="demo-tenant",
     principal_id="demo-operator",
     run_id="demo-run",
-    thread_id="demo-thread",
+    thread_id=THREAD_ID,
     correlation_id="demo-correlation",
 )
-ACTION = normalize_tool_action(
-    name="release_write",
-    arguments={"record": 27},
-    context=CONTEXT,
-    side_effect=SideEffectClass.SIDE_EFFECTING,
-    tool_call_id="demo-call",
-)
+
+
+class DemoState(TypedDict):
+    sequence: Annotated[list[int], add]
 
 
 @dataclass
 class DecisionClient:
-    decision: ToolDecision
+    decisions: list[ToolDecision]
 
     def decide(self, _action: Any, _context: Any) -> ToolDecision:
-        return self.decision
+        return self.decisions.pop(0)
 
 
 @dataclass
@@ -60,104 +61,156 @@ class AuditSink:
         return True
 
 
-@dataclass
-class Body:
-    calls: int = 0
-
-    def __call__(self) -> str:
-        self.calls += 1
-        return "executed"
-
-
-class SuspendedError(RuntimeError):
-    pass
-
-
-@dataclass
-class Pause:
-    payload: dict[str, Any] | None = None
-
-    def __call__(self, payload: dict[str, Any]) -> None:
-        self.payload = dict(payload)
-        raise SuspendedError
+def _govern(tool: Any, client: DecisionClient, audit: AuditSink, repository: Any = None) -> Any:
+    [governed] = govern_tools(
+        [tool],
+        context=CONTEXT,
+        client=client,
+        audit=audit,
+        approval_lifecycle=repository,
+        side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+    )
+    return governed
 
 
-class OrderedStream:
-    def stream(self, *_args: Any, **_kwargs: Any):
-        yield from ({"sequence": 1}, {"sequence": 2}, {"sequence": 3})
+def _single_node_graph(node: Any, checkpointer: Any = None) -> Any:
+    builder = StateGraph(DemoState)
+    builder.add_node("governed_tool", node)
+    builder.add_edge(START, "governed_tool")
+    builder.add_edge("governed_tool", END)
+    return govern_graph(builder.compile(checkpointer=checkpointer))
 
 
 def run_demo() -> dict[str, Any]:
-    """Exercise the existing decision, durable approval, audit, span, and stream seams."""
+    """Exercise public governance on real, streamed, durably resumed StateGraphs."""
     audit = AuditSink()
-    allow_body, denied_body, approved_body = Body(), Body(), Body()
-    allow = ToolDecision(ToolDecisionKind.ALLOW, "unknown_error")
-    deny = ToolDecision(ToolDecisionKind.DENY, "policy_violation")
-    approval = ToolDecision(
-        ToolDecisionKind.REQUIRE_APPROVAL,
-        "policy_violation",
-        approval_ref="approval-demo",
+    executions = {"allow": 0, "deny": 0, "approval": 0}
+
+    def allowed_write() -> None:
+        executions["allow"] += 1
+
+    allowed = _govern(
+        allowed_write,
+        DecisionClient([ToolDecision(ToolDecisionKind.ALLOW, "unknown_error")]),
+        audit,
     )
 
-    guard_tool_call(ACTION, CONTEXT, allow_body, client=DecisionClient(allow), audit=audit)
+    def allow_node(_state: DemoState) -> DemoState:
+        allowed()
+        return {"sequence": [1]}
+
+    def second_node(_state: DemoState) -> DemoState:
+        return {"sequence": [2]}
+
+    def third_node(_state: DemoState) -> DemoState:
+        return {"sequence": [3]}
+
+    stream_builder = StateGraph(DemoState)
+    stream_builder.add_node("allow", allow_node)
+    stream_builder.add_node("second", second_node)
+    stream_builder.add_node("third", third_node)
+    stream_builder.add_edge(START, "allow")
+    stream_builder.add_edge("allow", "second")
+    stream_builder.add_edge("second", "third")
+    stream_builder.add_edge("third", END)
+    handler = ZerothGovernanceCallbackHandler()
+    stream_config = {
+        "callbacks": [handler],
+        "configurable": {"thread_id": "demo-stream-thread"},
+    }
+    chunks = list(
+        govern_graph(stream_builder.compile()).stream(
+            {"sequence": []}, stream_config, stream_mode="updates"
+        )
+    )
+    stream_order = [next(iter(chunk.values()))["sequence"][0] for chunk in chunks]
+    span_ids = {span.run_id for span in handler.completed_spans}
+    causal_valid = any(
+        span.parent_run_id in span_ids
+        for span in handler.completed_spans
+        if span.parent_run_id is not None
+    )
+
+    def denied_write() -> None:
+        executions["deny"] += 1
+
+    denied = _govern(
+        denied_write,
+        DecisionClient([ToolDecision(ToolDecisionKind.DENY, "policy_violation")]),
+        audit,
+    )
+
+    def deny_node(_state: DemoState) -> DemoState:
+        denied()
+        return {"sequence": []}
+
     try:
-        guard_tool_call(ACTION, CONTEXT, denied_body, client=DecisionClient(deny), audit=audit)
+        _single_node_graph(deny_node).invoke(
+            {"sequence": []}, {"configurable": {"thread_id": "demo-deny-thread"}}
+        )
     except ToolGovernanceError:
         pass
 
     with tempfile.TemporaryDirectory() as directory:
-        lifecycle = SQLiteApprovalRepository(Path(directory) / "approvals.sqlite3")
-        pause = Pause()
-        try:
-            guard_tool_call(
-                ACTION,
-                CONTEXT,
-                approved_body,
-                client=DecisionClient(approval),
-                interrupt=pause,
-                approval_lifecycle=lifecycle,
-                audit=audit,
-            )
-        except SuspendedError:
-            pass
-        before_resume = approved_body.calls
-        assert pause.payload is not None
-        lifecycle.ready("approval-demo", "checkpoint-demo", "interrupt-demo")
-        resolution = ApprovalResolution("approval-demo", ApprovalDecision.APPROVE)
-        lifecycle.decide(resolution)
-        claimed = lifecycle.claim("approval-demo", owner="demo-worker")
-        assert claimed.claim_token is not None
-        delivery = {**resolution.to_payload(), "claim_token": claimed.claim_token}
-        guard_tool_call(
-            ACTION,
-            CONTEXT,
-            approved_body,
-            client=DecisionClient(allow),
-            interrupt=lambda _payload: delivery,
-            approval_lifecycle=lifecycle,
-            audit=audit,
-        )
-        approval_state = lifecycle.get("approval-demo").state.value
+        repository = SQLiteApprovalRepository(Path(directory) / "approvals.sqlite3")
 
-    handler = ZerothGovernanceCallbackHandler()
-    root, child = uuid4(), uuid4()
-    handler.on_chain_start({"name": "root"}, {}, run_id=root)
-    handler.on_chain_start({"name": "child"}, {}, run_id=child, parent_run_id=root)
-    handler.on_chain_end({}, run_id=child, parent_run_id=root)
-    handler.on_chain_end({}, run_id=root)
-    spans = handler.completed_spans
-    causal_valid = len(spans) == 2 and next(span for span in spans if span.run_id == str(child)).parent_run_id == str(root)
-    stream_order = [chunk["sequence"] for chunk in govern_graph(OrderedStream()).stream({})]
+        def approved_write() -> None:
+            executions["approval"] += 1
+
+        approved = _govern(
+            approved_write,
+            DecisionClient(
+                [
+                    ToolDecision(
+                        ToolDecisionKind.REQUIRE_APPROVAL,
+                        "policy_violation",
+                        approval_ref="approval-demo",
+                    ),
+                    ToolDecision(ToolDecisionKind.ALLOW, "unknown_error"),
+                ]
+            ),
+            audit,
+            repository,
+        )
+
+        def approval_node(_state: DemoState) -> DemoState:
+            approved()
+            return {"sequence": []}
+
+        checkpoint_path = Path(directory) / "checkpoints.sqlite3"
+        with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
+            graph = _single_node_graph(approval_node, saver)
+            config = {"configurable": {"thread_id": THREAD_ID}}
+            list(graph.stream({"sequence": []}, config, stream_mode="updates"))
+            before_resume = executions["approval"]
+            coordinator = ApprovalCoordinator(repository)
+            coordinator.confirm_checkpoint(
+                "approval-demo", graph, config=config, durable_checkpointer=saver
+            )
+            repository.decide(
+                ApprovalResolution("approval-demo", ApprovalDecision.APPROVE)
+            )
+            coordinator.resume(
+                "approval-demo",
+                graph,
+                owner="demo-worker",
+                config=config,
+                durable_checkpointer=saver,
+            )
+            approval_state = repository.get("approval-demo").state.value
 
     return {
         "audit_decisions": [record.execution_metadata["decision"] for record in audit.records],
-        "allow_body_executions": allow_body.calls,
-        "denied_body_executions": denied_body.calls,
+        "allow_body_executions": executions["allow"],
+        "denied_body_executions": executions["deny"],
         "approved_body_executions_before_resume": before_resume,
-        "approved_body_executions_after_resume": approved_body.calls,
+        "approved_body_executions_after_resume": executions["approval"],
         "approval_state": approval_state,
         "causal_ancestry_valid": causal_valid,
         "stream_ordering": stream_order,
+        "thread_id": THREAD_ID,
+        "checkpointer": "SqliteSaver",
+        "resume_api": "Command(resume=...)",
     }
 
 
@@ -166,10 +219,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     evidence = run_demo()
-    if args.json:
-        print(json.dumps(evidence, sort_keys=True))
-    else:
-        print(json.dumps(evidence, indent=2, sort_keys=True))
+    print(json.dumps(evidence, sort_keys=True) if args.json else json.dumps(evidence, indent=2, sort_keys=True))
     return 0
 
 

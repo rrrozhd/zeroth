@@ -9,19 +9,19 @@
 # Seed a runnable demo deployment first (same volume):
 #   docker run -v zeroth-data:/data zeroth-core zeroth-core seed-demo
 
-FROM python:3.12-slim AS build
+FROM python:3.12.13-slim-bookworm AS build
 
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
 
-FROM python:3.12-slim
+FROM python:3.12.13-slim-bookworm
 
 # Release image includes both supported LangGraph deployment surfaces.
 ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"
 
-LABEL org.opencontainers.image.version=0.16.2 \
+LABEL org.opencontainers.image.version=0.16.2.1 \
       io.zeroth.langgraph.adapter.version=1.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1

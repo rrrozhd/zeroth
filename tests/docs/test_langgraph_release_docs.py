@@ -31,6 +31,8 @@ def test_canonical_guide_covers_release_operations_and_commands_execute(tmp_path
         "arbitrary interrupts",
         "resources",
         "environment variables",
+        "docker compose run --rm zeroth zeroth-core seed-demo",
+        "gateway-smoke",
     ):
         assert marker.lower() in guide.lower(), marker
 
