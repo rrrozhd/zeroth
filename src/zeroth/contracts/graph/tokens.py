@@ -7,6 +7,7 @@ code, so repositories and model checkers can load token state in isolation.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
@@ -30,6 +31,8 @@ LoopInstanceId = StableId
 IterationFrameId = StableId
 DispatchId = StableId
 IdempotencyKey = StableId
+OperationKey = StableId
+TargetRef = StableId
 NodeId = StableId
 EdgeId = StableId
 ObligationId = StableId
@@ -1256,6 +1259,114 @@ class InFlightDispatch(_FrozenContract):
         return self
 
 
+class SideEffectSupport(StrEnum):
+    """What a side-effecting integration can guarantee about a repeated call.
+
+    The runtime cannot make a remote system idempotent.  What it can do is
+    record which guarantee actually applies, so a duplicate that survives is a
+    known residual rather than a silent one.
+    """
+
+    IDEMPOTENT = "idempotent"
+    """The target accepts the operation key and collapses repeats itself."""
+
+    OUTCOME_QUERYABLE = "outcome_queryable"
+    """The target cannot dedupe, but can be asked what a prior call did."""
+
+    AT_LEAST_ONCE = "at_least_once"
+    """Neither.  A retry may apply the effect twice; this is the default."""
+
+
+def derive_operation_key(
+    *,
+    run_id: str,
+    idempotency_key: str,
+    target_ref: str,
+    call_ordinal: int = 0,
+) -> str:
+    """Derive the stable key identifying one logical side-effecting operation.
+
+    The material is exactly the four things that make an operation *logically*
+    distinct.  Two exclusions are load-bearing and deliberate:
+
+    ``attempt`` is excluded so a transport retry, a token retry and a recovered
+    worker all reproduce the same key -- that reproduction is what lets the
+    receipt store recognise the repeat at all.
+
+    ``dispatch_id`` is excluded because ``recover_dispatch`` re-issues a dispatch
+    for an unchanged logical operation; including it would fork the identity at
+    precisely the moment the guarantee is needed most.
+    """
+    material = (
+        f"zeroth-operation-v1\0{run_id}\0{idempotency_key}\0{target_ref}\0{call_ordinal}".encode()
+    )
+    return f"op_{hashlib.sha256(material).hexdigest()[:24]}"
+
+
+class OperationIdentity(_FrozenContract):
+    """One logical side-effecting operation, addressable across replays.
+
+    This is the value threaded to executable units and agent tools instead of
+    leaving them to reconstruct identity from ``run.metadata``.
+    """
+
+    run_id: StableId
+    dispatch_id: DispatchId
+    idempotency_key: IdempotencyKey
+    attempt: RetryAttempt
+    target_ref: TargetRef
+    call_ordinal: CreationOrdinal = 0
+    support: SideEffectSupport = SideEffectSupport.AT_LEAST_ONCE
+    operation_key: OperationKey
+
+    @property
+    def dedupe_supported(self) -> bool:
+        """Whether a repeat can be collapsed rather than merely re-attempted."""
+        return self.support is not SideEffectSupport.AT_LEAST_ONCE
+
+    @model_validator(mode="after")
+    def _validate_operation_key(self) -> OperationIdentity:
+        expected = derive_operation_key(
+            run_id=self.run_id,
+            idempotency_key=self.idempotency_key,
+            target_ref=self.target_ref,
+            call_ordinal=self.call_ordinal,
+        )
+        if self.operation_key != expected:
+            # The store is keyed by operation_key. An inconsistent one would let
+            # a caller alias two unrelated operations onto one stored outcome.
+            raise ValueError("operation_key does not match its derivation material")
+        return self
+
+
+def operation_identity(
+    *,
+    run_id: str,
+    dispatch_id: str,
+    idempotency_key: str,
+    attempt: int,
+    target_ref: str,
+    call_ordinal: int = 0,
+    support: SideEffectSupport = SideEffectSupport.AT_LEAST_ONCE,
+) -> OperationIdentity:
+    """Build an :class:`OperationIdentity` with its derived key."""
+    return OperationIdentity(
+        run_id=run_id,
+        dispatch_id=dispatch_id,
+        idempotency_key=idempotency_key,
+        attempt=attempt,
+        target_ref=target_ref,
+        call_ordinal=call_ordinal,
+        support=support,
+        operation_key=derive_operation_key(
+            run_id=run_id,
+            idempotency_key=idempotency_key,
+            target_ref=target_ref,
+            call_ordinal=call_ordinal,
+        ),
+    )
+
+
 __all__ = [
     "CancellationFence",
     "CancellationGeneration",
@@ -1296,7 +1407,13 @@ __all__ = [
     "LoopLifecycleState",
     "NodeId",
     "ObligationId",
+    "OperationIdentity",
+    "OperationKey",
     "PayloadDelivery",
+    "SideEffectSupport",
+    "TargetRef",
+    "derive_operation_key",
+    "operation_identity",
     "ProvenanceFrame",
     "RetryAttempt",
     "SchedulingState",
