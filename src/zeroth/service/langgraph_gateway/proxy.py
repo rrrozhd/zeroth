@@ -517,44 +517,50 @@ class GatewayProxy:
         governance_header: tuple[str, str] | None = None,
     ) -> StreamingResponse:
         response = await self._transport.forward(request, tenant_id=principal.tenant_id)
-        response.headers[_CORRELATION_HEADER] = correlation_id
-        governance_level = GovernanceLevel.ADMISSION
-        governance_run_id = (request_identifiers or {}).get("run_id")
-        if (
-            governance_header is not None
-            and governance_header[0] == _GOVERNANCE_HEADER
-            and self._capability_reporter is not None
-            and governance_run_id is not None
-        ):
-            governance_level = await self._capability_reporter.level_for_governance_run(
-                governance_run_id,
-                correlation_id=correlation_id,
+        try:
+            response.headers[_CORRELATION_HEADER] = correlation_id
+            governance_level = GovernanceLevel.ADMISSION
+            governance_run_id = (request_identifiers or {}).get("run_id")
+            if (
+                governance_header is not None
+                and governance_header[0] == _GOVERNANCE_HEADER
+                and self._capability_reporter is not None
+                and governance_run_id is not None
+            ):
+                governance_level = await self._capability_reporter.level_for_governance_run(
+                    governance_run_id,
+                    correlation_id=correlation_id,
+                )
+                governance_header = (_GOVERNANCE_HEADER, governance_level.value)
+            if governance_header is not None:
+                response.headers[governance_header[0]] = governance_header[1]
+            observer = TeeObserver(
+                response.headers.get("content-type"),
+                max_observation_bytes=self._max_observation_bytes,
             )
-            governance_header = (_GOVERNANCE_HEADER, governance_level.value)
-        if governance_header is not None:
-            response.headers[governance_header[0]] = governance_header[1]
-        observer = TeeObserver(
-            response.headers.get("content-type"),
-            max_observation_bytes=self._max_observation_bytes,
-        )
-        original_iterator = response.body_iterator
-        response.body_iterator = self._observe_body(
-            original_iterator,
-            observer=observer,
-            principal=principal,
-            correlation_id=correlation_id,
-            operation=operation,
-            disposition=disposition,
-            started_at=started_at,
-            decision=decision,
-            input_sha256=input_sha256,
-            input_size_bytes=input_size_bytes,
-            request_identifiers=request_identifiers,
-            governance_level=governance_level,
-            terminal_state=terminal_state,
-            upstream_status_code=response.status_code,
-        )
-        return response
+            original_iterator = response.body_iterator
+            response.body_iterator = self._observe_body(
+                original_iterator,
+                observer=observer,
+                principal=principal,
+                correlation_id=correlation_id,
+                operation=operation,
+                disposition=disposition,
+                started_at=started_at,
+                decision=decision,
+                input_sha256=input_sha256,
+                input_size_bytes=input_size_bytes,
+                request_identifiers=request_identifiers,
+                governance_level=governance_level,
+                terminal_state=terminal_state,
+                upstream_status_code=response.status_code,
+            )
+            return response
+        except BaseException:
+            close_response = getattr(response, "aclose", None)
+            if close_response is not None:
+                await close_response()
+            raise
 
     async def _observe_body(
         self,
@@ -603,8 +609,8 @@ class GatewayProxy:
                 close_body = getattr(body, "aclose", None)
                 if close_body is not None:
                     await close_body()
-            identifiers = dict(request_identifiers or {})
-            identifiers.update(observer.identifiers)
+            identifiers = dict(observer.identifiers)
+            identifiers.update(request_identifiers or {})
             await self._emit_terminal(
                 principal=principal,
                 correlation_id=correlation_id,

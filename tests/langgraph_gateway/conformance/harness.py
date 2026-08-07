@@ -11,7 +11,6 @@ import time
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 from typing import Any
@@ -28,11 +27,7 @@ from starlette.routing import Route
 # the package initializer itself imports bootstrap and otherwise creates a standalone
 # subprocess-only circular import through ``proxy -> service.auth``.
 import zeroth.core.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
-from zeroth.contracts.langgraph_gateway.models import (
-    CompatibilityStatus,
-    GovernanceLevel,
-    RunCapabilityEvidence,
-)
+from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
@@ -40,8 +35,18 @@ from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
+from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
+from zeroth.service.langgraph_gateway.enforcement import (
+    InventoryRegistrationV1,
+    LangGraphEnforcementRepository,
+    LangGraphEnforcementService,
+    RunAttestationV1,
+    StoredCapabilityEvidenceProvider,
+)
 from zeroth.service.langgraph_gateway.proxy import GatewayProxy
 from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
@@ -332,20 +337,6 @@ class _RecordingSink:
         return None
 
 
-class _ObservedEvidenceProvider:
-    async def evidence_for_governance_run(
-        self, governance_run_id: str
-    ) -> RunCapabilityEvidence:
-        return RunCapabilityEvidence(
-            correlation_id="conformance-correlation",
-            run_id=governance_run_id,
-            governance_level=GovernanceLevel.OBSERVED,
-            observed_at=datetime.now(tz=UTC),
-            graph_version="graph:conformance",
-            signature_valid=True,
-        )
-
-
 def _append_evidence(path: str | None, row: dict[str, Any]) -> None:
     if path is None:
         return
@@ -413,6 +404,36 @@ def create_gateway_app(
         upstream_audience="agent-server:conformance",
         deployment_ref="conformance-deployment",
     )
+    signer = EnvHmacSigner(key_id="conformance", keys={"conformance": b"fixture-key"})
+    context_codec = ReservedContextCodec(signer)
+    database: AsyncSQLiteDatabase | None = None
+    enforcement_service: LangGraphEnforcementService | None = None
+    capability_reporter: CapabilityReporter | None = None
+    if evidence_path is not None:
+        database_path = str(Path(evidence_path).with_name("enforcement.sqlite3"))
+        run_migrations(f"sqlite:///{database_path}")
+        database = AsyncSQLiteDatabase(path=database_path)
+        repository = LangGraphEnforcementRepository(database)
+        enforcement_service = LangGraphEnforcementService(
+            repository,
+            codec=context_codec,
+            signer=signer,
+            policy_guard=_AllowPolicy(),
+            budget_checker=_AllowBudget(),
+            metrics=MetricsCollector(),
+            deployment_ref="conformance-deployment",
+            audience="agent-server:conformance",
+            expected_graph_version="graph:conformance",
+        )
+        capability_reporter = CapabilityReporter(
+            governance_evidence_provider=StoredCapabilityEvidenceProvider(
+                repository,
+                signer,
+                tenant_id="conformance-tenant",
+                deployment_ref="conformance-deployment",
+            ),
+            expected_graph_version="graph:conformance",
+        )
     transport = _CapturingTransport(
         settings,
         EnvSecretProvider(),
@@ -421,9 +442,7 @@ def create_gateway_app(
     proxy = GatewayProxy(
         settings=settings,
         transport=transport,
-        context_codec=ReservedContextCodec(
-            EnvHmacSigner(key_id="conformance", keys={"conformance": b"fixture-key"})
-        ),
+        context_codec=context_codec,
         policy_guard=_AllowPolicy(),
         budget_checker=_AllowBudget(),
         compatibility=CompatibilityResult(
@@ -433,10 +452,7 @@ def create_gateway_app(
             openapi_fingerprint="sha256:conformance",
             status=CompatibilityStatus.SUPPORTED,
         ),
-        capability_reporter=CapabilityReporter(
-            governance_evidence_provider=_ObservedEvidenceProvider(),
-            expected_graph_version="graph:conformance",
-        ),
+        capability_reporter=capability_reporter,
         event_sink=event_sink
         or (_FileRecordingSink(evidence_path) if evidence_path else _RecordingSink()),
         principal_resolver=_principal,
@@ -459,23 +475,58 @@ def create_gateway_app(
                 )
         return await proxy.handle_http(request)
 
+    async def enforcement_route(request: Request) -> Response:
+        if (
+            enforcement_service is None
+            or request.path_params["deployment_ref"] != enforcement_service.deployment_ref
+        ):
+            return Response(status_code=404)
+        if request.headers.get("x-api-key") != "gateway-key":
+            return Response(status_code=401)
+        payload = await request.json()
+        operation = request.path_params["operation"]
+        if operation == "inventories":
+            await enforcement_service.register_inventory(
+                InventoryRegistrationV1.model_validate(payload)
+            )
+            return Response(status_code=204)
+        if operation == "attestations":
+            evidence = await enforcement_service.attest_run(
+                RunAttestationV1.model_validate(payload)
+            )
+            _append_evidence(
+                evidence_path,
+                {"kind": "attestation", "evidence": evidence.model_dump(mode="json")},
+            )
+            return JSONResponse(evidence.model_dump(mode="json"))
+        return Response(status_code=404)
+
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         try:
             yield
         finally:
             await transport.aclose()
+            if database is not None:
+                await database.close()
 
-    app = Starlette(
-        routes=[
+    routes = []
+    if enforcement_service is not None:
+        routes.append(
             Route(
-                "/{path:path}",
-                route,
-                methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+                "/v1/langgraph/deployments/{deployment_ref}/{operation}",
+                enforcement_route,
+                methods=["POST"],
             )
-        ],
-        lifespan=lifespan,
+        )
+    routes.append(
+        Route(
+            "/{path:path}",
+            route,
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        )
     )
+    app = Starlette(routes=routes, lifespan=lifespan)
     return app, transport
 
 
@@ -538,6 +589,7 @@ class ConformanceServers:
                 ),
             }
         )
+        environment.pop("ZEROTH_CONFORMANCE_GATEWAY_URL", None)
         direct_port = _free_port()
         direct_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-direct-agent-")
@@ -545,7 +597,9 @@ class ConformanceServers:
         direct_script = (
             "from langgraph_api.cli import run_server; "
             f"run_server(host='127.0.0.1', port={direct_port}, reload=False, "
-            "graphs={'conformance':'tests.langgraph_gateway.conformance.graph:graph'}, "
+            "graphs={"
+            "'conformance':'tests.langgraph_gateway.conformance.graph:graph',"
+            "'conformance_governed':'tests.langgraph_gateway.conformance.graph:graph'}, "
             "disable_persistence=True, open_browser=False, server_level='ERROR')"
         )
         direct = subprocess.Popen(
@@ -560,19 +614,26 @@ class ConformanceServers:
         _wait_ready(self.direct_url, direct)
 
         proxy_upstream_port = _free_port()
+        gateway_port = _free_port()
         proxy_upstream_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-proxy-agent-")
         )
         proxy_upstream_script = (
             "from langgraph_api.cli import run_server; "
             f"run_server(host='127.0.0.1', port={proxy_upstream_port}, reload=False, "
-            "graphs={'conformance':'tests.langgraph_gateway.conformance.graph:graph'}, "
+            "graphs={"
+            "'conformance':'tests.langgraph_gateway.conformance.graph:graph',"
+            "'conformance_governed':"
+            "'tests.langgraph_gateway.conformance.graph:governed_graph'}, "
             "disable_persistence=True, open_browser=False, server_level='ERROR')"
         )
+        proxy_environment = environment | {
+            "ZEROTH_CONFORMANCE_GATEWAY_URL": f"http://127.0.0.1:{gateway_port}"
+        }
         proxy_upstream = subprocess.Popen(
             [sys.executable, "-c", proxy_upstream_script],
             cwd=proxy_upstream_dir,
-            env=environment,
+            env=proxy_environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -580,7 +641,6 @@ class ConformanceServers:
         self.proxy_upstream_url = f"http://127.0.0.1:{proxy_upstream_port}"
         _wait_ready(self.proxy_upstream_url, proxy_upstream)
 
-        gateway_port = _free_port()
         gateway_dir = self._stack.enter_context(
             tempfile.TemporaryDirectory(prefix="zeroth-conformance-gateway-")
         )

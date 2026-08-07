@@ -296,8 +296,6 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
             ),
             audit_event_present=any(row.get("kind") == "audit" for row in evidence),
         )
-    assert dict(proxied.headers)["x-zeroth-governance-level"] == "observed"
-    assert proxied.audit_event_present is True
     if input_payload["mode"] == "model":
         expected = {
             "content": "fixture response",
@@ -324,6 +322,69 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
         report.write_human_report(tmp_path / "differential-report.txt")
     assert report.semantic_divergences == []
     assert report.expected_governance_additions == list(EXPECTED_GOVERNANCE_ADDITIONS)
+
+
+def test_live_governed_wait_uses_verified_attestation_evidence(
+    servers: ConformanceServers,
+    tmp_path: Path,
+) -> None:
+    direct_payload = {
+        "assistant_id": "conformance",
+        "input": {"mode": "echo", "text": "governed-attestation"},
+        "run_id": "conformance-governed-run",
+    }
+    proxied_payload = direct_payload | {"assistant_id": "conformance_governed"}
+    with httpx.Client(timeout=15) as client:
+        # Agent Server sends headers before graph execution. Seed this fresh signed
+        # identity once so reporting stays byte-streaming and never buffers the body.
+        primer = client.post(
+            f"{servers.gateway_url}/runs/wait",
+            json=proxied_payload,
+            headers={"x-api-key": "gateway-key"},
+        )
+        primer.raise_for_status()
+        direct = capture_response(
+            client.post(f"{servers.direct_url}/runs/wait", json=direct_payload)
+        )
+        evidence_start = len(servers.evidence())
+        proxied_response = client.post(
+            f"{servers.gateway_url}/runs/wait",
+            json=proxied_payload,
+            headers={"x-api-key": "gateway-key"},
+        )
+        evidence = servers.evidence(since=evidence_start)
+        proxied = capture_response(
+            proxied_response,
+            forwarded_context_present=any(
+                row.get("kind") == "forwarded" and row.get("zeroth_present")
+                for row in evidence
+            ),
+            audit_event_present=any(row.get("kind") == "audit" for row in evidence),
+        )
+
+    attestation = next(row["evidence"] for row in evidence if row.get("kind") == "attestation")
+    audit_event = next(row["event"] for row in evidence if row.get("kind") == "audit")
+    header_pairs = [
+        (dict(direct.headers)[header], dict(proxied.headers)[header])
+        for header in ("date", "location", "content-location")
+        if header in dict(direct.headers) and header in dict(proxied.headers)
+    ]
+    report = compare_exchanges(
+        direct,
+        proxied,
+        generated_values=GeneratedValueMap.from_pairs(header_pairs),
+    )
+    if report.semantic_divergences:
+        report.write_human_report(tmp_path / "governed-attestation-differential-report.txt")
+
+    assert report.semantic_divergences == []
+    assert dict(proxied.headers)["x-zeroth-governance-level"] == "observed", evidence
+    assert proxied.audit_event_present is True
+    assert attestation["signature_valid"] is True
+    assert attestation["governance_level"] == "observed"
+    assert attestation["run_id"] == proxied_payload["run_id"]
+    assert audit_event["governance_level"] == "observed"
+    assert audit_event["correlation"]["run_id"] == attestation["run_id"]
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: f"paired-{case.name}")
