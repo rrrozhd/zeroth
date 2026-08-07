@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.1] - 2026-08-07
+
+### Fixed
+
+- Wire the side-effect receipt store into `bootstrap_service`, so live
+  executions actually get replay suppression, reconciliation state, and
+  operation metrics instead of the store existing only in tests.
+- `complete()` now reports whether *this* call stored the result. It compared
+  the stored receipt to the supplied one, so re-reporting an identical result
+  wrongly answered that it had stored it.
+
 ## [0.18.0.1] - 2026-08-07
 
 ### Fixed

@@ -100,6 +100,29 @@ class TestSideEffectOperationsDualBackend:
         assert record is not None
         assert record["receipt"] == '{"charge":"first"}'
 
+    async def test_a_repeat_completion_with_the_same_receipt_reports_it_stored_nothing(
+        self, dual_database
+    ) -> None:
+        """The idempotent re-report must still answer "I did not store this".
+
+        The earlier proof used two *different* receipts, so a bug that compared
+        the stored receipt to the supplied one passed it. Re-reporting the same
+        result is exactly the case that comparison got wrong.
+        """
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+
+        first = await store.complete(KEY, receipt='{"charge":"ok"}')
+        again = await store.complete(KEY, receipt='{"charge":"ok"}')
+
+        assert first is True
+        assert again is False
+
+    async def test_completing_an_unknown_operation_reports_false(self, dual_database) -> None:
+        store = SideEffectOperationStore(dual_database)
+
+        assert await store.complete("op_never_claimed", receipt="{}") is False
+
     async def test_failure_cannot_overwrite_a_completed_operation(self, dual_database) -> None:
         """A late failure report must not erase a known success."""
         store = SideEffectOperationStore(dual_database)
@@ -272,19 +295,20 @@ class TestSideEffectOperationsDualBackend:
         assert resumed.residual_duplicate_risk is False
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        OperationState.NOT_STARTED,
-        OperationState.IN_FLIGHT,
-        OperationState.COMPLETED,
-        OperationState.FAILED,
-        OperationState.AMBIGUOUS,
-    ],
-)
-def test_every_required_state_exists(state: OperationState) -> None:
-    """R3 names exactly these five; pin them so none is quietly dropped."""
-    assert isinstance(state.value, str)
+def test_the_state_vocabulary_is_exactly_the_five_required() -> None:
+    """R3 names exactly these five -- no more, no fewer.
+
+    The previous version of this test asserted ``isinstance(state.value, str)``
+    for each member, which the initial audit correctly called vacuous: it passes
+    for any enum whatsoever and would not notice a dropped or renamed state.
+    """
+    assert {state.value for state in OperationState} == {
+        "NOT_STARTED",
+        "IN_FLIGHT",
+        "COMPLETED",
+        "FAILED",
+        "AMBIGUOUS",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -457,3 +481,31 @@ class TestSideEffectSuppressionEndToEnd:
 
         assert collector.counts.get("zeroth_side_effect_first_execution_total") == 1
         assert collector.counts.get("zeroth_side_effect_replay_suppressed_total") == 1
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-001: the wiring itself, through the real service bootstrap
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_service_bootstrap_wires_a_real_operation_store(sqlite_db) -> None:
+    """The store must reach live executions, not just hand-built dispatchers.
+
+    The initial audit caught that every end-to-end proof here constructed its own
+    NodeDispatcher, which exercises the mechanism while leaving the wiring
+    unverified -- `operation_store` defaulted to None everywhere in production.
+    This asserts the bootstrap-built orchestrator actually carries a store and
+    that the dispatcher the driver uses is the same one.
+    """
+    from tests.service.helpers import agent_graph, deploy_service
+    from zeroth.platform.dispatch.operations import SideEffectOperationStore as _Store
+
+    graph = agent_graph(graph_id="boot-side-effects")
+    svc, _dep = await deploy_service(sqlite_db, graph, deployment_ref="boot-side-effects")
+
+    orchestrator = svc.orchestrator
+    assert isinstance(orchestrator.operation_store, _Store), (
+        "bootstrap_service must construct a SideEffectOperationStore"
+    )
+    assert orchestrator._node_dispatcher.operation_store is orchestrator.operation_store
