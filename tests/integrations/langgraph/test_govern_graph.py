@@ -7,7 +7,10 @@ marker (deselected by default): run with ``-m langgraph_conformance``.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+from datetime import datetime
+from inspect import isawaitable
 from typing import Any, TypedDict
 
 import pytest
@@ -17,6 +20,7 @@ pytest.importorskip("langgraph", reason="requires the gateway-conformance depend
 from langchain_core.callbacks import BaseCallbackHandler, BaseCallbackManager
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
+from langgraph.stream import StreamTransformer
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
 from zeroth.econ.instrumentation.integrations.langgraph import InstrumentedLangGraph
@@ -26,11 +30,13 @@ from zeroth.governance.langgraph_gateway.capabilities import (
     NoCapabilityEvidenceProvider,
 )
 from zeroth.integrations.langgraph import (
+    LangGraphGatewayError,
     RunStartContext,
     ZerothGovernanceCallbackHandler,
     govern_graph,
 )
 from zeroth.integrations.langgraph._callbacks import merge_governance_callbacks
+from zeroth.integrations.langgraph._correlation import current_correlation
 
 pytestmark = pytest.mark.langgraph_conformance
 
@@ -83,6 +89,25 @@ def build_graph() -> Any:
     return builder.compile()
 
 
+class _FailingAprocessTransformer(StreamTransformer):
+    def init(self) -> dict[str, Any]:
+        return {}
+
+    async def aprocess(self, _event: Any) -> bool:
+        raise RuntimeError("v3-aprocess-error")
+
+
+class _FailingAfinalizeTransformer(StreamTransformer):
+    def init(self) -> dict[str, Any]:
+        return {}
+
+    async def aprocess(self, _event: Any) -> bool:
+        return True
+
+    async def afinalize(self) -> None:
+        raise RuntimeError("v3-afinalize-error")
+
+
 class _CountingHandler(BaseCallbackHandler):
     """User callback handler that tallies how often it is invoked per event."""
 
@@ -117,6 +142,32 @@ async def _drain_async(astream: Any) -> list[Any]:
     return [chunk async for chunk in astream]
 
 
+def _event_projection(events: list[dict[str, Any]]) -> list[tuple[Any, Any, Any]]:
+    return [(event["event"], event["name"], event["data"]) for event in events]
+
+
+def _v3_event_projection(events: list[dict[str, Any]]) -> list[tuple[Any, Any, Any, Any]]:
+    return [
+        (
+            event["method"],
+            event["params"]["namespace"],
+            event["params"].get("data"),
+            event["seq"],
+        )
+        for event in events
+    ]
+
+
+def _zeroth_config(correlation: str, **config: Any) -> dict[str, Any]:
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"correlation_id": correlation}).encode()
+    ).decode()
+    return {
+        **config,
+        "configurable": {"_zeroth": f"header.{payload}.signature"},
+    }
+
+
 class _ConfigSpy:
     """Record the RunnableConfig each invoke receives, then delegate to the graph."""
 
@@ -139,6 +190,23 @@ class _ConfigSpy:
     def astream(self, *args: Any, **kwargs: Any) -> Any:
         self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
         return self._inner.astream(*args, **kwargs)
+
+    def astream_events(self, *args: Any, **kwargs: Any) -> Any:
+        self.configs.append(kwargs.get("config", args[1] if len(args) >= 2 else None))
+        return self._inner.astream_events(*args, **kwargs)
+
+
+class _GatewaySpy:
+    def __init__(self, *, fail_token: str | None = None, order: list[Any] | None = None):
+        self.fail_token = fail_token
+        self.order = order if order is not None else []
+        self.starts: list[tuple[str, str]] = []
+
+    def start_run(self, token: str, correlation: str) -> None:
+        self.starts.append((token, correlation))
+        self.order.append(("gateway", correlation))
+        if token == self.fail_token:
+            raise LangGraphGatewayError()
 
 
 def test_r2_invoke_result_is_byte_for_byte_equivalent() -> None:
@@ -420,3 +488,496 @@ def test_r1_reuses_econ_delegation_for_cost_capture(monkeypatch: pytest.MonkeyPa
     )
     governed.invoke({"mode": "echo", "text": "cost"})
     assert captured, "expected the reused econ delegation to capture an execution event"
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_astream_events_is_equivalent_and_governed_once(version: str) -> None:
+    graph = build_graph()
+    payload = {"mode": "echo", "text": "events"}
+    direct_callback = _CountingHandler()
+    wrapped_callback = _CountingHandler()
+    starts: list[RunStartContext] = []
+    governed = govern_graph(graph, on_run_start=starts.append)
+
+    direct = asyncio.run(
+        _drain_async(
+            graph.astream_events(
+                dict(payload), config={"callbacks": [direct_callback]}, version=version
+            )
+        )
+    )
+    wrapped = asyncio.run(
+        _drain_async(
+            governed.astream_events(
+                dict(payload), config={"callbacks": [wrapped_callback]}, version=version
+            )
+        )
+    )
+
+    assert _event_projection(wrapped) == _event_projection(direct)
+    assert wrapped_callback.chain_starts == direct_callback.chain_starts
+    assert wrapped_callback.chain_ends == direct_callback.chain_ends
+    assert [event.entrypoint for event in starts] == ["astream_events"]
+    assert governed._handler.completed_spans
+
+
+def test_batch_preserves_configs_results_exceptions_and_governs_each_input() -> None:
+    graph = build_graph()
+    inputs = [
+        {"mode": "echo", "text": "first"},
+        {"mode": "echo", "text": "second"},
+    ]
+    direct_callback = _CountingHandler()
+    wrapped_callback = _CountingHandler()
+    starts: list[RunStartContext] = []
+    governed = govern_graph(graph, on_run_start=starts.append)
+
+    direct = graph.batch(inputs, config={"callbacks": [direct_callback]})
+    wrapped = governed.batch(inputs, config={"callbacks": [wrapped_callback]})
+    assert wrapped == direct
+    assert wrapped_callback.chain_starts == direct_callback.chain_starts
+    assert wrapped_callback.chain_ends == direct_callback.chain_ends
+    assert [event.entrypoint for event in starts] == ["invoke", "invoke"]
+
+    configs = [{"tags": ["first"]}, {"tags": ["second"]}]
+    assert governed.batch(inputs, config=configs) == graph.batch(inputs, config=configs)
+
+    mixed = governed.batch(
+        [{"mode": "echo", "text": "ok"}, {"mode": "error"}],
+        return_exceptions=True,
+    )
+    assert mixed[0]["result"] == "echo:ok"
+    assert isinstance(mixed[1], RuntimeError)
+    assert str(mixed[1]) == "govern-graph-fixture-error"
+
+
+def test_abatch_is_equivalent_governed_and_cancellable() -> None:
+    graph = build_graph()
+    inputs = [
+        {"mode": "echo", "text": "first"},
+        {"mode": "echo", "text": "second"},
+    ]
+    starts: list[RunStartContext] = []
+    governed = govern_graph(graph, on_run_start=starts.append)
+
+    direct = asyncio.run(graph.abatch(inputs, config=[{"tags": ["a"]}, {"tags": ["b"]}]))
+    wrapped = asyncio.run(governed.abatch(inputs, config=[{"tags": ["a"]}, {"tags": ["b"]}]))
+    assert wrapped == direct
+    assert [event.entrypoint for event in starts] == ["ainvoke", "ainvoke"]
+
+    mixed = asyncio.run(
+        governed.abatch(
+            [{"mode": "echo", "text": "ok"}, {"mode": "error"}],
+            return_exceptions=True,
+        )
+    )
+    assert mixed[0]["result"] == "echo:ok"
+    assert isinstance(mixed[1], RuntimeError)
+    assert str(mixed[1]) == "govern-graph-fixture-error"
+
+    async def cancel(target: Any) -> None:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                target.abatch([{"mode": "cancel"}, {"mode": "echo", "text": "x"}]),
+                timeout=0.2,
+            )
+
+    asyncio.run(cancel(graph))
+    asyncio.run(cancel(governed))
+
+
+def test_batch_and_abatch_deliver_bound_and_aligned_configs_once() -> None:
+    inputs = [
+        {"mode": "echo", "text": "first"},
+        {"mode": "echo", "text": "second"},
+    ]
+
+    def assert_configs(spy: _ConfigSpy, governed: Any) -> None:
+        assert len(spy.configs) == 2
+        delivered = sorted(spy.configs, key=lambda config: config["metadata"]["item"])
+        for item, config in enumerate(delivered):
+            callbacks = list(config["callbacks"])
+            assert callbacks.count(governed._handler) == 1
+            assert config["tags"] == ["bound"]
+            assert config["metadata"] == {"item": item}
+
+    sync_spy = _ConfigSpy(build_graph())
+    sync_governed = govern_graph(sync_spy).with_config({"tags": ["bound"]})
+    sync_governed.batch(
+        inputs,
+        config=[{"metadata": {"item": 0}}, {"metadata": {"item": 1}}],
+    )
+    assert_configs(sync_spy, sync_governed)
+
+    async_spy = _ConfigSpy(build_graph())
+    async_governed = govern_graph(async_spy).with_config({"tags": ["bound"]})
+    asyncio.run(
+        async_governed.abatch(
+            inputs,
+            config=[{"metadata": {"item": 0}}, {"metadata": {"item": 1}}],
+        )
+    )
+    assert_configs(async_spy, async_governed)
+
+
+def test_batch_gateway_runs_before_hook_and_fails_closed_per_item() -> None:
+    order: list[Any] = []
+    good = _zeroth_config("good", max_concurrency=1)
+    bad = _zeroth_config("bad", max_concurrency=1)
+    gateway = _GatewaySpy(
+        fail_token=bad["configurable"]["_zeroth"],
+        order=order,
+    )
+    governed = govern_graph(
+        build_graph(),
+        gateway_client=gateway,
+        on_run_start=lambda event: order.append(("hook", event.entrypoint)),
+    )
+
+    results = governed.batch(
+        [
+            {"mode": "echo", "text": "good"},
+            {"mode": "echo", "text": "blocked"},
+        ],
+        config=[good, bad],
+        return_exceptions=True,
+    )
+
+    assert results[0]["result"] == "echo:good"
+    assert isinstance(results[1], LangGraphGatewayError)
+    assert gateway.starts == [
+        (good["configurable"]["_zeroth"], "good"),
+        (bad["configurable"]["_zeroth"], "bad"),
+    ]
+    assert order == [
+        ("gateway", "good"),
+        ("hook", "invoke"),
+        ("gateway", "bad"),
+    ]
+
+
+def test_abatch_shared_gateway_config_attests_each_input() -> None:
+    config = _zeroth_config("shared", max_concurrency=1)
+    gateway = _GatewaySpy()
+    starts: list[RunStartContext] = []
+    governed = govern_graph(build_graph(), gateway_client=gateway, on_run_start=starts.append)
+
+    results = asyncio.run(
+        governed.abatch(
+            [
+                {"mode": "echo", "text": "first"},
+                {"mode": "echo", "text": "second"},
+            ],
+            config=config,
+        )
+    )
+
+    assert [result["result"] for result in results] == ["echo:first", "echo:second"]
+    assert gateway.starts == [
+        (config["configurable"]["_zeroth"], "shared"),
+        (config["configurable"]["_zeroth"], "shared"),
+    ]
+    assert [event.entrypoint for event in starts] == ["ainvoke", "ainvoke"]
+
+
+def test_astream_events_preserves_errors_and_cancellation() -> None:
+    graph = build_graph()
+    governed = govern_graph(graph)
+
+    with pytest.raises(RuntimeError) as direct_error:
+        asyncio.run(_drain_async(graph.astream_events({"mode": "error"})))
+    with pytest.raises(RuntimeError) as governed_error:
+        asyncio.run(_drain_async(governed.astream_events({"mode": "error"})))
+    assert type(governed_error.value) is type(direct_error.value)
+    assert str(governed_error.value).splitlines()[0] == str(direct_error.value).splitlines()[0]
+
+    for target in (graph, governed):
+
+        async def cancel(current: Any) -> None:
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    _drain_async(current.astream_events({"mode": "cancel"})),
+                    timeout=0.2,
+                )
+
+        asyncio.run(cancel(target))
+
+
+def test_astream_events_reuses_econ_capture(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+    asyncio.run(
+        _drain_async(govern_graph(build_graph()).astream_events({"mode": "echo", "text": "cost"}))
+    )
+
+    assert len(captured) == 1
+    assert captured[0].metadata["operation"] == "astream_events"
+
+
+def test_astream_events_applies_bound_config_and_fails_gateway_closed() -> None:
+    spy = _ConfigSpy(build_graph())
+    governed = govern_graph(spy).with_config({"tags": ["bound"]})
+    asyncio.run(_drain_async(governed.astream_events({"mode": "echo", "text": "bound"})))
+    delivered = spy.configs[-1]
+    assert delivered["tags"] == ["bound"]
+    assert list(delivered["callbacks"]).count(governed._handler) == 1
+
+    config = _zeroth_config("blocked")
+    order: list[Any] = []
+    gateway = _GatewaySpy(
+        fail_token=config["configurable"]["_zeroth"],
+        order=order,
+    )
+    blocked = govern_graph(
+        build_graph(),
+        gateway_client=gateway,
+        on_run_start=lambda event: order.append(("hook", event.entrypoint)),
+    )
+    with pytest.raises(LangGraphGatewayError):
+        blocked.astream_events({"mode": "echo", "text": "blocked"}, config=config)
+    assert order == [("gateway", "blocked")]
+
+
+def test_astream_events_v3_preserves_awaited_driver_governance_and_econ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        graph = build_graph()
+        payload = {"mode": "echo", "text": "v3"}
+        direct_callback = _CountingHandler()
+        wrapped_callback = _CountingHandler()
+        starts: list[RunStartContext] = []
+        governed = govern_graph(graph, on_run_start=starts.append)
+        runtime = get_runtime()
+        runtime.config.enabled = True
+        captured: list[Any] = []
+
+        async def capture(event: Any) -> None:
+            captured.append(event)
+
+        monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+        direct_run = await graph.astream_events(
+            dict(payload), config={"callbacks": [direct_callback]}, version="v3"
+        )
+        governed_awaitable = governed.astream_events(
+            dict(payload), config={"callbacks": [wrapped_callback]}, version="v3"
+        )
+        assert isawaitable(governed_awaitable)
+        wrapped_run = await governed_awaitable
+        assert type(wrapped_run) is type(direct_run)
+
+        async with direct_run:
+            direct = [event async for event in direct_run]
+        async with wrapped_run:
+            wrapped = [event async for event in wrapped_run]
+
+        assert _v3_event_projection(wrapped) == _v3_event_projection(direct)
+        assert wrapped_callback.chain_starts == direct_callback.chain_starts
+        assert wrapped_callback.chain_ends == direct_callback.chain_ends
+        assert [event.entrypoint for event in starts] == ["astream_events"]
+        assert governed._handler.completed_spans
+        assert len(captured) == 1
+        assert captured[0].metadata["operation"] == "astream_events"
+
+    asyncio.run(scenario())
+
+
+def test_astream_events_v3_applies_bound_gateway_and_private_context() -> None:
+    async def scenario() -> None:
+        seen: list[str | None] = []
+
+        def observe(state: _State) -> _State:
+            seen.append(current_correlation())
+            return {"result": f"echo:{state.get('text', '')}"}
+
+        builder = StateGraph(_State)
+        builder.add_node("observe", observe)
+        builder.add_edge(START, "observe")
+        builder.add_edge("observe", END)
+        spy = _ConfigSpy(builder.compile())
+        config = _zeroth_config("v3-private", tags=["bound"])
+        gateway = _GatewaySpy()
+        governed = govern_graph(spy, gateway_client=gateway).with_config(config)
+
+        run = await governed.astream_events({"text": "bound"}, version="v3")
+        values = []
+        async with run:
+            async for value in run.values:
+                assert current_correlation() is None
+                values.append(value)
+
+        assert values[-1]["result"] == "echo:bound"
+        assert seen == ["v3-private"]
+        assert current_correlation() is None
+        assert gateway.starts == [(config["configurable"]["_zeroth"], "v3-private")]
+        delivered = spy.configs[-1]
+        assert delivered["tags"] == ["bound"]
+        assert list(delivered["callbacks"]).count(governed._handler) == 1
+
+        blocked_gateway = _GatewaySpy(fail_token=config["configurable"]["_zeroth"])
+        blocked = govern_graph(build_graph(), gateway_client=blocked_gateway).with_config(config)
+        with pytest.raises(LangGraphGatewayError):
+            blocked.astream_events({"mode": "echo"}, version="v3")
+
+    asyncio.run(scenario())
+
+
+def test_astream_events_v3_preserves_cancellation_and_abort() -> None:
+    async def cancel(target: Any) -> None:
+        run = await target.astream_events({"mode": "cancel"}, version="v3")
+        async with run:
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(run.output(), timeout=0.2)
+
+    graph = build_graph()
+    asyncio.run(cancel(graph))
+    asyncio.run(cancel(govern_graph(graph)))
+
+
+@pytest.mark.parametrize(
+    ("transformer", "message"),
+    [
+        (_FailingAprocessTransformer, "v3-aprocess-error"),
+        (_FailingAfinalizeTransformer, "v3-afinalize-error"),
+    ],
+)
+def test_astream_events_v3_transformer_failures_emit_error_econ(
+    monkeypatch: pytest.MonkeyPatch,
+    transformer: type[StreamTransformer],
+    message: str,
+) -> None:
+    async def drive(target: Any) -> RuntimeError:
+        run = await target.astream_events(
+            {"mode": "echo", "text": "v3-transformer"},
+            version="v3",
+            transformers=[transformer],
+        )
+        with pytest.raises(RuntimeError) as failure:
+            async with run:
+                await run.output()
+        return failure.value
+
+    graph = build_graph()
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+    direct_error = asyncio.run(drive(graph))
+    governed_error = asyncio.run(drive(govern_graph(graph)))
+
+    assert type(governed_error) is type(direct_error)
+    assert str(governed_error) == str(direct_error) == message
+    assert len(captured) == 1
+    assert captured[0].metadata["operation"] == "astream_events"
+    assert captured[0].metadata["error"] is True
+    assert captured[0].metadata["error_type"] == "RuntimeError"
+
+
+def test_astream_events_v3_capture_preserves_parent_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        inner = govern_graph(build_graph())
+
+        async def call_inner(_state: _State) -> _State:
+            inner_run = await inner.astream_events({"mode": "echo", "text": "nested"}, version="v3")
+            async with inner_run:
+                output = await inner_run.output()
+            return {"result": output["result"]}
+
+        builder = StateGraph(_State)
+        builder.add_node("call_inner", call_inner)
+        builder.add_edge(START, "call_inner")
+        builder.add_edge("call_inner", END)
+        outer = govern_graph(builder.compile())
+
+        outer_run = await outer.astream_events({}, version="v3")
+        async with outer_run:
+            await outer_run.output()
+
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+    asyncio.run(scenario())
+
+    roots = [event for event in captured if event.metadata["parent_run_id"] is None]
+    children = [event for event in captured if event.metadata["parent_run_id"] is not None]
+    assert len(roots) == len(children) == 1
+    assert children[0].metadata["parent_run_id"] == roots[0].execution_id
+
+
+class _FrozenDateTime:
+    @classmethod
+    def now(cls, tz: Any = None) -> datetime:
+        return datetime(2026, 1, 1, tzinfo=tz)
+
+
+def test_batch_emits_distinct_econ_execution_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+    monkeypatch.setattr(
+        "zeroth.econ.instrumentation.integrations.langgraph.datetime",
+        _FrozenDateTime,
+    )
+    monkeypatch.setattr(
+        runtime.transport, "enqueue_execution", lambda event: captured.append(event)
+    )
+
+    govern_graph(build_graph()).batch(
+        [
+            {"mode": "echo", "text": "first"},
+            {"mode": "echo", "text": "second"},
+        ],
+        config={"max_concurrency": 2},
+    )
+
+    assert len(captured) == 2
+    assert len({event.execution_id for event in captured}) == 2
+
+
+def test_abatch_emits_distinct_econ_execution_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = get_runtime()
+    runtime.config.enabled = True
+    captured: list[Any] = []
+
+    async def capture(event: Any) -> None:
+        captured.append(event)
+
+    monkeypatch.setattr(
+        "zeroth.econ.instrumentation.integrations.langgraph.datetime",
+        _FrozenDateTime,
+    )
+    monkeypatch.setattr(runtime.transport, "aenqueue_execution", capture)
+
+    asyncio.run(
+        govern_graph(build_graph()).abatch(
+            [
+                {"mode": "echo", "text": "first"},
+                {"mode": "echo", "text": "second"},
+            ],
+            config={"max_concurrency": 2},
+        )
+    )
+
+    assert len(captured) == 2
+    assert len({event.execution_id for event in captured}) == 2

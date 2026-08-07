@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
-CURRENT_RELEASE = "0.16.2.5.1"
+CURRENT_RELEASE = "0.17.0.4"
 PREVIOUS_RELEASE = "0.16.1.7"
 BASELINE_PATH = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
 BASELINE = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
@@ -31,9 +31,7 @@ THRESHOLD_RULES = {
     "throughput_tokens_per_second": {
         "minimum": BASELINE_METRICS["throughput_tokens_per_second"] * 0.25
     },
-    "peak_memory_bytes": {
-        "maximum": max(2_000_000, BASELINE_METRICS["peak_memory_bytes"] * 3)
-    },
+    "peak_memory_bytes": {"maximum": max(2_000_000, BASELINE_METRICS["peak_memory_bytes"] * 3)},
 }
 THRESHOLDS = {"derived_from": BASELINE["release"], "rules": THRESHOLD_RULES}
 TOKENS = tuple(f"token-{index}" for index in range(32))
@@ -230,10 +228,7 @@ def _measure(samples: int, injected_delay: float) -> tuple[tuple[Any, ...], tupl
     try:
         return tuple(
             zip(
-                *(
-                    _sample(local_graph, sidecar_graph, timer, index)
-                    for index in range(samples)
-                ),
+                *(_sample(local_graph, sidecar_graph, timer, index) for index in range(samples)),
                 strict=True,
             )
         )
@@ -256,8 +251,7 @@ def distribution_statistics(
         for name, values in distributions.items()
     }
     variance = {
-        name: round(statistics.pvariance(values), 6)
-        for name, values in distributions.items()
+        name: round(statistics.pvariance(values), 6) for name, values in distributions.items()
     }
     observed = {
         "sidecar_overhead_p95_ms": summary["sidecar_overhead_ms"]["p95"],
@@ -295,10 +289,7 @@ def benchmark(samples: int, *, inject_regression: bool = False) -> dict[str, Any
     if samples < 3:
         raise ValueError("benchmark needs at least three samples")
     rows, orders = _measure(samples, 0.1 if inject_regression else 0.0)
-    distributions = {
-        name: [round(row[name], 6) for row in rows]
-        for name in rows[0]
-    }
+    distributions = {name: [round(row[name], 6) for row in rows] for name in rows[0]}
     summary, variance, observed = distribution_statistics(distributions)
     evaluation = evaluate(observed)
     return {
