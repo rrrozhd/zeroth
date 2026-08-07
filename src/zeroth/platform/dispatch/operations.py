@@ -284,9 +284,7 @@ class SideEffectOperationStore:
                     "SELECT state, receipt FROM side_effect_operations WHERE operation_key = ?",
                     (operation_key,),
                 )
-                settled_state = (
-                    None if settled is None else OperationState(settled["state"])
-                )
+                settled_state = None if settled is None else OperationState(settled["state"])
                 if settled_state is OperationState.COMPLETED:
                     self._count("zeroth_side_effect_replay_suppressed_total")
                     return OperationClaim(
