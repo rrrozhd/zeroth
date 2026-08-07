@@ -8,24 +8,11 @@ unchanged when parallel_config is None.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
-from zeroth.runtime.agents import AgentConfig, AgentRunner
-from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.governance.audit import AuditRepository
-from zeroth.integrations.execution import (
-    ExecutableUnitRegistry,
-    ExecutableUnitRunner,
-    ExecutionMode,
-    InputMode,
-    NativeUnitManifest,
-    OutputMode,
-    PythonModuleArtifactSource,
-)
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
@@ -33,15 +20,22 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.orchestrator import RuntimeOrchestrator
-from zeroth.runtime.parallel.models import ParallelConfig
+from zeroth.governance.audit import AuditRepository
+from zeroth.integrations.execution import (
+    ExecutableUnitRegistry,
+    ExecutableUnitRunner,
+)
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.runtime.parallel.models import ParallelConfig
 from zeroth.runtime.runs import Run, RunFailureState, RunStatus
-
 
 # ---------------------------------------------------------------------------
 # Test models
 # ---------------------------------------------------------------------------
+
 
 class ItemsInput(BaseModel):
     value: int = 0
@@ -62,6 +56,7 @@ class ProcessedOutput(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_agent_runner(
     *,
@@ -174,9 +169,7 @@ async def test_fan_out_basic(sqlite_db) -> None:
     """Fan-out node produces items, downstream processes each, results merged."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
     # The downstream runner processes each item from the fan-out
     sink_runner = _make_agent_runner(
@@ -217,9 +210,7 @@ async def test_fan_out_fan_in_ordering(sqlite_db) -> None:
     """5-item fan-out produces results ordered by branch index."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": i} for i in range(5)]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": i} for i in range(5)]}),
     )
     # Each branch multiplies x by 10 -- ordering should be preserved
     sink_runner = _make_agent_runner(
@@ -263,9 +254,7 @@ async def test_fan_out_best_effort(sqlite_db) -> None:
     """3 branches, 1 fails, run still completes in best-effort mode."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": -1}, {"x": 3}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": -1}, {"x": 3}]}),
     )
 
     def sink_handler(req):
@@ -313,9 +302,7 @@ async def test_fan_out_fail_fast(sqlite_db) -> None:
     """3 branches, 1 fails, run fails with ParallelExecutionError in fail-fast mode."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": -1}, {"x": 3}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": -1}, {"x": 3}]}),
     )
 
     def sink_handler(req):
@@ -390,9 +377,7 @@ async def test_fan_out_history_merged(sqlite_db) -> None:
     """Branch execution_history entries appear in parent run after fan-in."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
     sink_runner = _make_agent_runner(
         input_model=BranchItemInput,
@@ -436,9 +421,7 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
     """Branch audit_refs are appended to parent run after fan-in."""
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(
-            content={"items": [{"x": 1}, {"x": 2}]}
-        ),
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}, {"x": 2}]}),
     )
     sink_runner = _make_agent_runner(
         input_model=BranchItemInput,
@@ -475,9 +458,11 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_operator_cancel_during_fan_out_stops_before_downstream(sqlite_db) -> None:
-    """Audit F3 (fan-out guard): an operator cancel that lands while parallel
+    """Audit F3 (fan-out guard): an operator cancel that lands while parallel.
+
     branches are running is observed at the fan-in, so the downstream node after
-    the fan-in never dispatches and the run ends FAILED."""
+    the fan-in never dispatches and the run ends FAILED.
+    """
     repo = RunRepository(sqlite_db)
     run_id_box: dict[str, str] = {}
 

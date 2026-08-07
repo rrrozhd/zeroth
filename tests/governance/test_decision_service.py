@@ -28,7 +28,6 @@ from typing import Any
 import pytest
 
 from zeroth.contracts.langgraph_gateway.models import AdmissionRequest
-from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit.capture_vocabulary import REASON_CODES
 from zeroth.governance.decisions import (
@@ -41,6 +40,7 @@ from zeroth.governance.decisions import (
     ToolDecisionService,
     request_digest,
 )
+from zeroth.governance.policy import RunAdmissionResult
 from zeroth.service.bootstrap.admission import BoundAdmissionEvaluator
 
 POLICY_VERSION = f"sha256:{'a' * 64}"

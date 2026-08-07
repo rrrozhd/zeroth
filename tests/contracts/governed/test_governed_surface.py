@@ -1,11 +1,16 @@
 """Canonical import surface for the governed contracts package.
 
-Non-golden boundary tests for the Task 12 governed move: the canonical
-``zeroth.contracts.governed`` package must publish the same objects the
-legacy ``zeroth.core.governed`` app and models paths keep republishing, and
-both packages must stay cold-importable from a fresh interpreter in either
-order. Only the contract slice of the vendored governai bundle moves — the
-audit, integrations, memory, runtime, and tools implementations stay put
+Boundary tests for the contract slice of the vendored governai bundle: the
+canonical ``zeroth.contracts.governed`` package publishes the app spec and the
+contract models, and it stays cold-importable together with the run surfaces
+that share its vocabulary.
+
+These began as parity tests against the legacy ``zeroth.core.governed`` paths.
+ZER-25 removed those paths, so the comparisons would compare each module with
+itself. What they were pinning -- the exported surface, and the fact that the
+governed models are the *same objects* the run surface publishes -- is asserted
+directly instead. Only the contract slice moved; the audit, integrations,
+memory, runtime and tools implementations stay put
 (see docs/backend-import-migration.md).
 """
 
@@ -16,80 +21,95 @@ import sys
 
 import pytest
 
+CANONICAL_MODULES = (
+    "zeroth.contracts.governed",
+    "zeroth.contracts.governed.app.spec",
+    "zeroth.contracts.governed.models.approval",
+    "zeroth.contracts.governed.models.audit",
+    "zeroth.contracts.governed.models.common",
+    "zeroth.contracts.governed.models.run_state",
+    "zeroth.runtime.runs",
+)
 
-def test_governed_aggregator_republishes_the_contract_models() -> None:
+
+def test_governed_aggregator_publishes_the_contract_models() -> None:
     from zeroth.contracts import governed as canonical
-    from zeroth.core import governed as legacy
 
-    assert canonical.RunState is legacy.RunState
-    assert canonical.RunStatus is legacy.RunStatus
-
-
-def test_governed_spec_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.contracts.governed.app import spec as canonical
-    from zeroth.core.governed.app import spec as legacy
-
-    assert canonical.ChannelSpec is legacy.ChannelSpec
-    assert canonical.GovernedFlowSpec is legacy.GovernedFlowSpec
-    assert canonical.GovernedStepSpec is legacy.GovernedStepSpec
-    assert canonical.InterruptContract is legacy.InterruptContract
-    assert canonical.TransitionSpec is legacy.TransitionSpec
-    assert canonical.branch is legacy.branch
-    assert canonical.end is legacy.end
-    assert canonical.route_to is legacy.route_to
-    assert canonical.then is legacy.then
+    assert canonical.RunState.__name__ == "RunState"
+    assert canonical.RunStatus.__name__ == "RunStatus"
 
 
-def test_governed_models_are_the_same_surface_through_both_paths() -> None:
-    from zeroth.contracts.governed.models import approval as canonical_approval
-    from zeroth.contracts.governed.models import audit as canonical_audit
-    from zeroth.contracts.governed.models import common as canonical_common
-    from zeroth.contracts.governed.models import run_state as canonical_run_state
-    from zeroth.core.governed.models import approval as legacy_approval
-    from zeroth.core.governed.models import audit as legacy_audit
-    from zeroth.core.governed.models import common as legacy_common
-    from zeroth.core.governed.models import run_state as legacy_run_state
+def test_governed_spec_publishes_its_whole_surface() -> None:
+    from zeroth.contracts.governed.app import spec
 
-    assert canonical_approval.ApprovalDecision is legacy_approval.ApprovalDecision
-    assert canonical_approval.ApprovalDecisionType is legacy_approval.ApprovalDecisionType
-    assert canonical_approval.ApprovalRequest is legacy_approval.ApprovalRequest
-    assert canonical_audit.AuditEvent is legacy_audit.AuditEvent
-    assert canonical_audit.AuditExtension is legacy_audit.AuditExtension
-    assert canonical_common.DeterminismMode is legacy_common.DeterminismMode
-    assert canonical_common.END_STEP is legacy_common.END_STEP
-    assert canonical_common.EventType is legacy_common.EventType
-    assert canonical_common.JSONValue == legacy_common.JSONValue
-    assert canonical_common.RunStatus is legacy_common.RunStatus
-    assert canonical_common.normalize_step_ref is legacy_common.normalize_step_ref
-    assert canonical_run_state.RunState is legacy_run_state.RunState
+    expected = {
+        "ChannelSpec",
+        "GovernedFlowSpec",
+        "GovernedStepSpec",
+        "InterruptContract",
+        "TransitionSpec",
+        "branch",
+        "end",
+        "route_to",
+        "then",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(spec, name))
+    assert not missing, f"governed app spec no longer publishes: {missing}"
 
 
-def test_run_surface_keeps_republishing_the_governed_contract_models() -> None:
+def test_governed_models_publish_their_whole_surface() -> None:
+    from zeroth.contracts.governed.models import approval, audit, common, run_state
+
+    expected = {
+        approval: {"ApprovalDecision", "ApprovalDecisionType", "ApprovalRequest"},
+        audit: {"AuditEvent", "AuditExtension"},
+        common: {
+            "DeterminismMode",
+            "END_STEP",
+            "EventType",
+            "JSONValue",
+            "RunStatus",
+            "normalize_step_ref",
+        },
+        run_state: {"RunState"},
+    }
+
+    missing = sorted(
+        f"{module.__name__}:{name}"
+        for module, names in expected.items()
+        for name in names
+        if not hasattr(module, name)
+    )
+    assert not missing, f"governed models no longer publish: {missing}"
+
+
+def test_the_run_surface_publishes_the_governed_contract_models_themselves() -> None:
+    """The run domain must not fork the governed vocabulary.
+
+    This is the assertion the parity test actually existed for, and it survives
+    the removal unchanged: ``zeroth.runtime.runs`` republishes the *same class
+    objects* the governed contracts define, rather than declaring its own.
+    """
     from zeroth.contracts import governed as canonical
-    from zeroth.core.runs import models as legacy_run_models
     from zeroth.runtime import runs as runtime_runs
 
-    assert legacy_run_models.RunState is canonical.RunState
-    assert legacy_run_models.RunStatus is canonical.RunStatus
     assert runtime_runs.RunState is canonical.RunState
     assert runtime_runs.RunStatus is canonical.RunStatus
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.governed", "zeroth.core.governed"),
-        ("zeroth.core.governed", "zeroth.contracts.governed"),
-        ("zeroth.contracts.governed", "zeroth.core.runs"),
-        ("zeroth.core.runs", "zeroth.contracts.governed"),
-        ("zeroth.contracts.governed", "zeroth.runtime.runs"),
-        ("zeroth.runtime.runs", "zeroth.contracts.governed"),
-    ],
-)
-def test_governed_cold_imports_from_both_directions(first: str, second: str) -> None:
+@pytest.mark.parametrize("module", CANONICAL_MODULES)
+def test_governed_modules_import_in_a_cold_interpreter(module: str) -> None:
+    """Each module imports with nothing else pre-warmed.
+
+    The original ran every ordered pair of canonical and legacy packages to
+    catch a cycle between them. With the legacy packages gone, what remains
+    worth guarding is that each canonical module stands up on its own.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", f"import {module}"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, f"cold import of {module} failed:\n{result.stderr}"

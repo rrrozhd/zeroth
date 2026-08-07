@@ -16,7 +16,7 @@ from apps.vendor_dd.units import (
     RISK_SCORE_SOURCE,
     SANCTIONS_REF,
 )
-from zeroth.core.graph import (
+from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
     AgentToolBinding,
@@ -36,14 +36,14 @@ from zeroth.core.graph import (
     SubgraphNodeData,
     ToolArgument,
 )
-from zeroth.core.mappings.models import (
+from zeroth.contracts.graph.models import ParallelConfig
+from zeroth.contracts.mappings import (
     ConstantMappingOperation,
     DefaultMappingOperation,
     EdgeMapping,
     PassthroughMappingOperation,
     RenameMappingOperation,
 )
-from zeroth.core.parallel.models import ParallelConfig
 
 # Policy allowing the sandboxed units to spawn their subprocess. Registered in
 # the entrypoint's PolicyGuard; binding it on the unit nodes makes the guard

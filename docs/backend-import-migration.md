@@ -1,22 +1,28 @@
 # Backend Import Migration Guide
 
 This guide is the change log for public Python import locations during the
-backend architecture refactor. The migration completed on 2026-07-20: the
-symbol migration log below records every published canonical location, every
-legacy import path keeps resolving through the `zeroth.core` /
-`zeroth.econ_plane` compatibility shell, and
-`tests/contracts/fixtures/backend_surface_canonical.json` is the executable
-form of this guide. New code should use the canonical imports; the legacy
-paths remain supported until the legacy surface is retired by a decision
-outside the refactor plan.
+backend architecture refactor. The migration completed on 2026-07-20, and the
+compatibility shell was **removed in 0.17**.
+
+> **Breaking change in 0.17.** The `zeroth.core` and `zeroth.econ_plane` import
+> paths no longer exist. There is no deprecation period and no alias: importing
+> either raises `ModuleNotFoundError`. Use the symbol migration log below to
+> find the canonical location for each name you import, and
+> `tests/contracts/fixtures/backend_surface_canonical.json` — the executable
+> form of this guide — to confirm it.
+
+Everything that moved kept its call signature, return behaviour, and exception
+semantics; only the import path changed. Two things also left the wheel in
+0.17 and now ship only in the repository: the quickstart tutorial helper
+(`examples/quickstart.py`) and the demo scripts (`examples/demos/`).
 
 ## Compatibility policy
 
 - A useful library capability may move to a clearer domain package, but its
   call signature, return behavior, and public exception semantics remain
   stable.
-- A temporary re-export is optional. Consumers should migrate to the canonical
-  import recorded here instead of relying on compatibility shims.
+- A temporary re-export was optional and is now gone: 0.17 removed every
+  compatibility shim, so the canonical import recorded here is the only one.
 - `tests/contracts/fixtures/backend_surface_legacy.json` is immutable after
   the corrected baseline inventory is accepted. It identifies protected
   capabilities independently of their future import locations.

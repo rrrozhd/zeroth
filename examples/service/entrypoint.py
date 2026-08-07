@@ -1,6 +1,6 @@
-"""Production-shaped entrypoint that extends ``zeroth.core.service.entrypoint``.
+r"""Production-shaped entrypoint that extends ``zeroth.service.entrypoint``.
 
-The stock ``python -m zeroth.core.service.entrypoint`` command loads a
+The stock ``python -m zeroth.service.entrypoint`` command loads a
 deployment by ref and boots FastAPI, but it does **not** register any
 agent runners — that's user code. This module is the canonical
 "drop-in extension" pattern: import the stock bootstrap pieces, build
@@ -26,7 +26,7 @@ Run
 Stop with ``Ctrl-C``.
 
 The env-var shape exactly matches what the stock entrypoint reads in
-``zeroth.core.service.entrypoint`` — this file only adds the
+``zeroth.service.entrypoint`` — this file only adds the
 ``agent_runners`` and auth-config bits the stock version leaves blank.
 """
 
@@ -59,7 +59,7 @@ from zeroth.service.bootstrap.factory import bootstrap_service
 
 
 async def build_app_async():
-    """Mirror of ``zeroth.core.service.entrypoint._bootstrap`` with agent runners."""
+    """Mirror of ``zeroth.service.entrypoint._bootstrap`` with agent runners."""
     settings = get_settings()
     database = await create_database(settings)
 

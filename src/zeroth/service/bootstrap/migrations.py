@@ -11,7 +11,7 @@ def run_migrations(database_url: str) -> None:
     from alembic.config import Config
 
     alembic_cfg = Config()
-    migrations_dir = str(importlib.resources.files("zeroth.core.migrations"))
+    migrations_dir = str(importlib.resources.files("zeroth.service._migrations"))
     alembic_cfg.set_main_option("script_location", migrations_dir)
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(alembic_cfg, "head")

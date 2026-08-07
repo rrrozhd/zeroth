@@ -18,12 +18,9 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
-
-def test_graph_is_the_same_surface_through_both_paths() -> None:
+def test_graph_publishes_its_whole_surface() -> None:
     from zeroth.contracts import graph as canonical
-    from zeroth.core import graph as legacy
 
     for name in (
         "AgentNode",
@@ -50,62 +47,60 @@ def test_graph_is_the_same_surface_through_both_paths() -> None:
         "TemplateMemoryBinding",
         "ToolArgument",
     ):
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
-def test_graph_submodules_are_the_same_surface_through_both_paths() -> None:
+def test_graph_submodules_publish_their_names() -> None:
     from zeroth.contracts.graph import errors as canonical_errors
     from zeroth.contracts.graph import models as canonical_models
     from zeroth.contracts.graph import validation_errors as canonical_validation_errors
-    from zeroth.core.graph import errors as legacy_errors
-    from zeroth.core.graph import models as legacy_models
-    from zeroth.core.graph import validation_errors as legacy_validation_errors
 
-    assert canonical_errors.GraphLifecycleError is legacy_errors.GraphLifecycleError
-    assert canonical_models.Graph is legacy_models.Graph
-    assert canonical_models.NodeBase is legacy_models.NodeBase
-    assert (
-        canonical_validation_errors.GraphValidationError
-        is legacy_validation_errors.GraphValidationError
-    )
-    assert canonical_validation_errors.ValidationIssue is legacy_validation_errors.ValidationIssue
+    assert hasattr(canonical_errors, "GraphLifecycleError")
+    assert hasattr(canonical_models, "Graph")
+    assert hasattr(canonical_models, "NodeBase")
+    assert hasattr(canonical_validation_errors, "GraphValidationError")
+    assert hasattr(canonical_validation_errors, "ValidationIssue")
 
 
 def test_separated_node_models_have_one_contract_owned_definition() -> None:
+    """The node models the runtime packages expose are the contract's own objects.
+
+    The comparison used to run through the legacy republishers; it now runs
+    against the canonical runtime packages, which is what it was always really
+    asserting -- that these packages do not fork the contract's definitions.
+    """
     from zeroth.contracts.graph import models as canonical
-    from zeroth.core.context_window import models as context_window_models
-    from zeroth.core.parallel import models as parallel_models
-    from zeroth.core.subgraph import models as subgraph_models
+    from zeroth.runtime.context import models as context_window_models
+    from zeroth.runtime.parallel import models as parallel_models
+    from zeroth.runtime.subgraphs import models as subgraph_models
 
     assert subgraph_models.SubgraphNodeData is canonical.SubgraphNodeData
     assert parallel_models.ParallelConfig is canonical.ParallelConfig
     assert context_window_models.ContextWindowSettings is canonical.ContextWindowSettings
 
 
-def test_graph_validator_stays_runtime_owned_and_lazily_republished() -> None:
-    from zeroth.core.graph import validation as legacy_validation
+def test_graph_validator_stays_runtime_owned() -> None:
+    """``GraphValidator`` is defined by the runtime, not by the contracts layer.
+
+    The legacy ``zeroth.core.graph.validation`` facade this used to compare
+    against is gone; the ownership it was pinning is asserted directly.
+    """
     from zeroth.runtime.graph_validation import GraphValidator
 
-    assert legacy_validation.GraphValidator is GraphValidator
+    assert GraphValidator.__module__ == "zeroth.runtime.graph_validation"
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.graph", "zeroth.core.graph"),
-        ("zeroth.core.graph", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.subgraph"),
-        ("zeroth.core.subgraph", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.parallel"),
-        ("zeroth.core.parallel", "zeroth.contracts.graph"),
-        ("zeroth.contracts.graph", "zeroth.core.context_window"),
-        ("zeroth.core.context_window", "zeroth.contracts.graph"),
-    ],
-)
-def test_graph_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_models_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.contracts.graph.models"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

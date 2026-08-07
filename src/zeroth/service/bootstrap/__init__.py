@@ -2,9 +2,8 @@
 
 Configuration defaults, Alembic migrations, the dependency container, the
 factory, and the application lifespan each own one concern. The exports
-resolve lazily for the same reason as ``zeroth.service``: the legacy
-``zeroth.core.service.bootstrap`` shim imports these submodules while this
-package initializes.
+resolve lazily for the same reason as ``zeroth.service``: importing one
+concern must not execute the other four.
 """
 
 from __future__ import annotations
@@ -20,13 +19,17 @@ _EXPORTS = {
     "service_lifespan": "zeroth.service.bootstrap.lifecycle",
 }
 
+# The ``# noqa: F822`` markers below are for the commit gate, which lints a copy
+# of the staged file outside the package tree. Without that context Ruff cannot
+# see that ``__getattr__`` resolves these names, so it reports them as undefined.
+# In-tree ``ruff check`` passes without them.
 __all__ = [
-    "DeploymentBootstrapError",
-    "ServiceBootstrap",
-    "bootstrap_app",
-    "bootstrap_service",
-    "run_migrations",
-    "service_lifespan",
+    "DeploymentBootstrapError",  # noqa: F822
+    "ServiceBootstrap",  # noqa: F822
+    "bootstrap_app",  # noqa: F822
+    "bootstrap_service",  # noqa: F822
+    "run_migrations",  # noqa: F822
+    "service_lifespan",  # noqa: F822
 ]
 
 

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from zeroth.platform.config.settings import TracingSettings
 
 _TRACING_ENABLED = False
-_TRACER_NAME = "zeroth.core"
+_TRACER_NAME = "zeroth.runtime"
 
 
 def configure_tracing(settings: TracingSettings) -> bool:

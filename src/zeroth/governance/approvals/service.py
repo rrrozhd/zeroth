@@ -14,7 +14,6 @@ from typing import Any, Protocol
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, HumanApprovalNode
-from zeroth.core.runs import Run, RunFailureState, RunRepository
 from zeroth.governance.approvals.models import (
     ApprovalDecision,
     ApprovalRecord,
@@ -31,6 +30,8 @@ from zeroth.governance.audit import (
     PayloadSanitizer,
 )
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import Run, RunFailureState
 
 logger = logging.getLogger(__name__)
 

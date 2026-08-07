@@ -1,16 +1,22 @@
-"""Tests for zeroth.core.examples.quickstart tutorial helpers.
+"""Tests for the ``examples/quickstart.py`` tutorial helpers.
 
 These tests lock in the shape of ``build_demo_graph`` so the Getting Started
 tutorial and Governance Walkthrough can rely on it remaining a trivial
 ~10-line import.
+
+ZER-25 moved the module out of the wheel and into the repository's ``examples``
+tree, so it is loaded from its file rather than imported by module name. That
+is the point: the file the docs tell a reader to open is the file under test,
+and nothing about it depends on being installable.
 """
 
 from __future__ import annotations
 
-from zeroth.core.examples.quickstart import (
-    build_demo_graph,
-    build_demo_graph_with_policy,
-)
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
+
 from zeroth.contracts.graph.models import (
     AgentNode,
     Edge,
@@ -19,6 +25,29 @@ from zeroth.contracts.graph.models import (
     HumanApprovalNode,
 )
 from zeroth.governance.policy.models import Capability
+
+QUICKSTART_PATH = Path(__file__).resolve().parents[2] / "examples" / "quickstart.py"
+
+
+def _load_quickstart() -> ModuleType:
+    """Load ``examples/quickstart.py`` from disk, outside any installed package."""
+    spec = importlib.util.spec_from_file_location("zeroth_examples_quickstart", QUICKSTART_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+quickstart = _load_quickstart()
+build_demo_graph = quickstart.build_demo_graph
+build_demo_graph_with_policy = quickstart.build_demo_graph_with_policy
+
+
+def test_the_quickstart_helper_ships_outside_the_wheel() -> None:
+    """The tutorial helper is repository content, not an importable API."""
+    assert QUICKSTART_PATH.exists()
+    assert importlib.util.find_spec("zeroth.examples") is None
 
 
 def test_build_demo_graph_returns_graph_instance() -> None:
@@ -78,8 +107,6 @@ def test_build_demo_graph_with_policy_sets_tool_policy_bindings() -> None:
 
 
 def test_quickstart_module_declares_unstable_api() -> None:
-    import zeroth.core.examples.quickstart as qs
-
-    docstring = (qs.__doc__ or "").lower()
+    docstring = (quickstart.__doc__ or "").lower()
     assert "tutorial" in docstring
     assert "not a stable" in docstring or "unstable" in docstring

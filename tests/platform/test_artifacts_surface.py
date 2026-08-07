@@ -11,36 +11,44 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
+
+def test_artifacts_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
+
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.artifacts as canonical
+
+    expected = {
+        "ArtifactNotFoundError",
+        "ArtifactReference",
+        "ArtifactStorageError",
+        "ArtifactStore",
+        "ArtifactStoreError",
+        "ArtifactStoreSettings",
+        "ArtifactTTLError",
+        "FilesystemArtifactStore",
+        "RedisArtifactStore",
+        "generate_artifact_key",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.artifacts no longer publishes: {missing}"
 
 
-def test_artifacts_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import artifacts as legacy
-    from zeroth.platform import artifacts as canonical
+def test_artifacts_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
 
-    assert canonical.ArtifactNotFoundError is legacy.ArtifactNotFoundError
-    assert canonical.ArtifactReference is legacy.ArtifactReference
-    assert canonical.ArtifactStorageError is legacy.ArtifactStorageError
-    assert canonical.ArtifactStore is legacy.ArtifactStore
-    assert canonical.ArtifactStoreError is legacy.ArtifactStoreError
-    assert canonical.ArtifactStoreSettings is legacy.ArtifactStoreSettings
-    assert canonical.ArtifactTTLError is legacy.ArtifactTTLError
-    assert canonical.FilesystemArtifactStore is legacy.FilesystemArtifactStore
-    assert canonical.RedisArtifactStore is legacy.RedisArtifactStore
-    assert canonical.generate_artifact_key is legacy.generate_artifact_key
-
-
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.artifacts", "zeroth.core.artifacts"),
-        ("zeroth.core.artifacts", "zeroth.platform.artifacts"),
-    ],
-)
-def test_artifacts_cold_imports_from_both_directions(first: str, second: str) -> None:
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.artifacts"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

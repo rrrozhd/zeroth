@@ -10,17 +10,17 @@ import websockets
 from starlette.applications import Starlette
 from starlette.websockets import WebSocket, WebSocketState
 
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.econ.budget import BudgetCheckResult
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.core.policy.models import RunAdmissionResult
-from zeroth.core.secrets.provider import EnvSecretProvider
-from zeroth.core.service.auth import (
+from zeroth.econ.analytics import BudgetCheckResult
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.governance.policy import RunAdmissionResult
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.secrets import EnvSecretProvider
+from zeroth.platform.signing import EnvHmacSigner
+from zeroth.service.api.authentication import (
     ServiceAuthConfig,
     ServiceAuthenticator,
     StaticApiKeyCredential,
 )
-from zeroth.core.signing import EnvHmacSigner
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
 from zeroth.service.langgraph_gateway.headers import UpstreamCredentialUnavailableError
 from zeroth.service.langgraph_gateway.routes import (

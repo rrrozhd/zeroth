@@ -183,7 +183,7 @@ def print_curl_hints(port: int) -> None:
 
 async def serve(port: int) -> None:
     # Bootstrap and uvicorn must share one event loop (same rule as
-    # zeroth.core.service.entrypoint): the app's async DB pool and background
+    # zeroth.service.entrypoint): the app's async DB pool and background
     # workers are bound to the loop that creates them. Building the app under
     # its own asyncio.run() and then serving with uvicorn.run() would leave
     # them bound to a closed loop — the service boots, then wedges once the

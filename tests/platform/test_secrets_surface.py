@@ -11,38 +11,46 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
+
+def test_secrets_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
+
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.secrets as canonical
+
+    expected = {
+        "EnvSecretProvider",
+        "SecretProvider",
+        "SecretProviderConfigError",
+        "SecretRedactor",
+        "SecretResolutionError",
+        "SecretResolver",
+        "VaultSecretProvider",
+        "build_secret_provider",
+        "normalize_secret_name",
+        "resolve_async",
+        "resolve_many_async",
+        "resolve_secret_async",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.secrets no longer publishes: {missing}"
 
 
-def test_secrets_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import secrets as legacy
-    from zeroth.platform import secrets as canonical
+def test_secrets_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
 
-    assert canonical.EnvSecretProvider is legacy.EnvSecretProvider
-    assert canonical.SecretProvider is legacy.SecretProvider
-    assert canonical.SecretProviderConfigError is legacy.SecretProviderConfigError
-    assert canonical.SecretRedactor is legacy.SecretRedactor
-    assert canonical.SecretResolutionError is legacy.SecretResolutionError
-    assert canonical.SecretResolver is legacy.SecretResolver
-    assert canonical.VaultSecretProvider is legacy.VaultSecretProvider
-    assert canonical.build_secret_provider is legacy.build_secret_provider
-    assert canonical.normalize_secret_name is legacy.normalize_secret_name
-    assert canonical.resolve_async is legacy.resolve_async
-    assert canonical.resolve_many_async is legacy.resolve_many_async
-    assert canonical.resolve_secret_async is legacy.resolve_secret_async
-
-
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.secrets", "zeroth.core.secrets"),
-        ("zeroth.core.secrets", "zeroth.platform.secrets"),
-    ],
-)
-def test_secrets_cold_imports_from_both_directions(first: str, second: str) -> None:
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.secrets"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

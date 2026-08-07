@@ -2331,7 +2331,7 @@
       },
       "HealthResponse": {
         "additionalProperties": false,
-        "description": "Response payload for the wrapper health endpoint.\n\nDefined here rather than in the app module deliberately: the schema-model\ndiscovery in tests/architecture/test_library_surface.py treats any app.py\nwhose parent directory is literally \"service\" as schema-bearing, which\nwould discover this model under the app module's destination path before\nthe canonical fixture can follow. The legacy zeroth.core.service.app path\nstill resolves the same class object.",
+        "description": "Response payload for the service health endpoint.",
         "properties": {
           "audit_delivery": {
             "anyOf": [

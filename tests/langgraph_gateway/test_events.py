@@ -11,9 +11,9 @@ from zeroth.contracts.langgraph_gateway.models import (
     GovernanceLevel,
     RouteDisposition,
 )
-from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.governance.audit.delivery import AuditDeliveryQueue, DeliveryRejection
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.governance.langgraph_gateway.events import (
     AuditGatewayEventSink,
     TeeObserver,

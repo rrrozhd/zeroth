@@ -29,11 +29,11 @@ from typing import Any
 
 from zeroth.contracts.conditions import NextStepPlanner
 from zeroth.contracts.conditions.models import ConditionContext, NextStepPlan, TraversalState
+from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Edge, Graph, HumanApprovalNode, SubgraphNode
 from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.mappings import MappingExecutor
 from zeroth.contracts.mappings.executor import _set_path
-from zeroth.core.runs import Run, RunFailureState, RunStatus
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents.errors import BudgetExceededError
 from zeroth.runtime.orchestration import token_scope as _ts
@@ -50,6 +50,7 @@ from zeroth.runtime.orchestration.tool_executor import node_by_id
 from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelExecutionError
 from zeroth.runtime.parallel.models import GlobalStepTracker
 from zeroth.runtime.parallel.reducers import dispatch_strategy
+from zeroth.runtime.runs import Run, RunFailureState
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,

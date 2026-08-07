@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.integrations.persistence.runs import RunRepository
-from zeroth.runtime.runs import RunStatus
-from zeroth.runtime.runs import Run
+from zeroth.runtime.orchestration.run_worker import RunWorker
+from zeroth.runtime.runs import Run, RunStatus
 
 DEPLOYMENT = "integration-test-deployment"
 
@@ -119,7 +118,7 @@ async def test_graceful_shutdown_called_on_lifespan_exit() -> None:
     bootstrap.deployment.graph_version_ref = "g:v1"
     bootstrap.authenticator = MagicMock()
 
-    from zeroth.core.service.app import create_app
+    from zeroth.service.app import create_app
 
     app = create_app(bootstrap)
 
@@ -172,7 +171,7 @@ async def test_lifespan_does_not_override_signal_handlers() -> None:
         bootstrap.deployment.graph_version_ref = "g:v1"
         bootstrap.authenticator = MagicMock()
 
-        from zeroth.core.service.app import create_app
+        from zeroth.service.app import create_app
 
         app = create_app(bootstrap)
         async with app.router.lifespan_context(app):
@@ -215,7 +214,7 @@ async def test_arq_consumer_started_when_pool_available() -> None:
     bootstrap.deployment.graph_version_ref = "g:v1"
     bootstrap.authenticator = MagicMock()
 
-    from zeroth.core.service.app import create_app
+    from zeroth.service.app import create_app
 
     app = create_app(bootstrap)
 

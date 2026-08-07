@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 
-def test_entrypoint_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core.service import entrypoint as legacy
-    from zeroth.service import entrypoint as canonical
+def test_entrypoint_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-    assert canonical.main is legacy.main
-    assert canonical.app_factory is legacy.app_factory
-    assert callable(canonical.main)
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.service.entrypoint as canonical
+
+    expected = {
+        "app_factory",
+        "main",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.service.entrypoint no longer publishes: {missing}"

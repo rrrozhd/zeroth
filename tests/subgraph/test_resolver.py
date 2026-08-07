@@ -2,27 +2,24 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from zeroth.service.deployments.models import Deployment
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
     Edge,
     Graph,
-    SubgraphNode,
 )
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
-from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import (
     SubgraphResolver,
     merge_governance,
     namespace_subgraph,
 )
-
+from zeroth.service.deployments.models import Deployment
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -167,10 +164,12 @@ class TestSubgraphResolverResolve:
 
     @pytest.mark.asyncio
     async def test_resolve_refuses_foreign_tenant_ref(self, sqlite_db) -> None:
-        """S7 (real DB): a deployment_ref owned by tenant B must NOT resolve for a
-        run owned by tenant A — cross-tenant subgraph execution is fail-closed."""
-        from zeroth.core.deployments import DeploymentService, SQLiteDeploymentRepository
-        from zeroth.core.graph import GraphRepository
+        """S7 (real DB): a deployment_ref owned by tenant B must NOT resolve for a.
+
+        run owned by tenant A — cross-tenant subgraph execution is fail-closed.
+        """
+        from zeroth.contracts.graph import GraphRepository
+        from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
         graph = _make_graph()
         repo = SQLiteDeploymentRepository(sqlite_db)

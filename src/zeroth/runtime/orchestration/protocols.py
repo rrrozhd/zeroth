@@ -11,6 +11,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from zeroth.runtime.runs.protocols import CheckpointStore, RunReader, RunWriter
+
+
+class RunRepository(RunReader, RunWriter, CheckpointStore, Protocol):
+    """Structural contract for the run store the orchestrator persists through.
+
+    The concrete repository (``zeroth.integrations.persistence.runs``) satisfies
+    this protocol. As with :class:`ExecutableUnitRunner`, the name deliberately
+    matches the concrete class: the ``RuntimeOrchestrator`` ``__init__``
+    annotation that mentions it is pinned by the immutable legacy surface, and
+    signature comparison keeps the bare type name while dropping Zeroth module
+    qualifiers.
+
+    It is exactly the union of the three run protocols the orchestrator drives
+    -- it reads a run, creates and puts it, and writes checkpoints -- so naming
+    it here lets the runtime keep its dependency direction instead of importing
+    the persistence adapter it is handed.
+    """
+
 
 class ExecutableUnitRunner(Protocol):
     """Structural contract for the executable-unit runner the runtime drives.

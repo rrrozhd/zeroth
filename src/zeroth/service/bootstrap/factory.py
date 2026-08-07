@@ -11,7 +11,6 @@ from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
 from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.orchestrator import RuntimeOrchestrator
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
@@ -69,6 +68,7 @@ from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.provider import ProviderAdapter
 from zeroth.runtime.graph_validation import GraphValidator
+from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.service.api.authentication import (
     JWTBearerTokenVerifier,
@@ -588,7 +588,7 @@ async def bootstrap_service(
                 "LangGraph gateway requires an available provenance signer"
             )
         if budget_enforcer is None:
-            from zeroth.core.econ.budget import BudgetEnforcer
+            from zeroth.econ.analytics import BudgetEnforcer
 
             budget_enforcer = BudgetEnforcer(
                 regulus_base_url=settings.regulus.base_url,

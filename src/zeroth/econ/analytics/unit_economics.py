@@ -4,7 +4,7 @@ Cost metering answers "what did I spend"; right-sizing answers "could a model be
 cheaper". Neither answers the question that decides whether an AI app is *economically
 viable*: **what does one good outcome actually cost me** -- because you pay for the
 failures too. This module joins the two facts the runtime already holds -- the
-authoritative per-run outcome (``RunStatus`` on the :class:`~zeroth.core.runs.models.Run`)
+authoritative per-run outcome (``RunStatus`` on the :class:`~zeroth.runtime.runs.models.Run`)
 and the per-run spend (summed ``NodeAuditRecord.cost_usd``) -- into that number.
 
 An *outcome* is a **top-level run** (one end-to-end invocation). Sub-graph child runs
@@ -34,9 +34,10 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.runs.models import Run, RunStatus
+from zeroth.contracts.governed import RunStatus
 from zeroth.econ.analytics.quality import QualityEconomicsReport, quality_economics
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.runtime.runs import Run
 
 _SUCCESS = RunStatus.COMPLETED.value
 _FAILED = RunStatus.FAILED.value

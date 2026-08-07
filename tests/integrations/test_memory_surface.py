@@ -28,12 +28,11 @@ EXPORTS = (
 )
 
 
-def test_memory_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import memory as legacy
+def test_memory_publishes_its_whole_surface() -> None:
     from zeroth.integrations import memory as canonical
 
     for name in EXPORTS:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 @pytest.mark.parametrize(
@@ -64,16 +63,15 @@ def test_memory_is_the_same_surface_through_both_paths() -> None:
         ),
     ],
 )
-def test_memory_modules_are_the_same_surface_through_both_paths(
+def test_memory_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.memory.{module_name}")
     canonical_module = importlib.import_module(f"zeroth.integrations.memory.{module_name}")
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 @pytest.mark.parametrize(
@@ -85,18 +83,17 @@ def test_memory_modules_are_the_same_surface_through_both_paths(
         ("scoped", ("ScopedMemoryConnector",)),
     ],
 )
-def test_governed_memory_modules_are_the_same_surface_through_both_paths(
+def test_governed_memory_modules_publish_their_names(
     module_name: str, names: tuple[str, ...]
 ) -> None:
     import importlib
 
-    legacy_module = importlib.import_module(f"zeroth.core.governed.memory.{module_name}")
     canonical_module = importlib.import_module(
         f"zeroth.integrations.memory.governed.{module_name}"
     )
 
     for name in names:
-        assert getattr(canonical_module, name) is getattr(legacy_module, name), name
+        assert hasattr(canonical_module, name), name
 
 
 def test_memory_scope_keeps_resolving_from_its_contract_owned_definition() -> None:
@@ -106,19 +103,17 @@ def test_memory_scope_keeps_resolving_from_its_contract_owned_definition() -> No
     assert CanonicalMemoryScope is ContractMemoryScope
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.integrations.memory", "zeroth.core.memory"),
-        ("zeroth.core.memory", "zeroth.integrations.memory"),
-        ("zeroth.integrations.memory.governed", "zeroth.core.governed.memory"),
-        ("zeroth.core.governed.memory", "zeroth.integrations.memory.governed"),
-    ],
-)
-def test_memory_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_memory_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.integrations.memory"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

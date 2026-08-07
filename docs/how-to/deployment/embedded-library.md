@@ -1,6 +1,6 @@
 # Embedded in a host application
 
-Embedded mode skips the HTTP surface entirely. You import `zeroth.core` into
+Embedded mode skips the HTTP surface entirely. You import `zeroth.runtime` into
 your own FastAPI app, CLI, worker, or notebook and drive the orchestrator
 directly. Use it when you already have a deployable process and just want
 `zeroth-core` as an in-process library.
@@ -91,14 +91,14 @@ host = FastAPI(lifespan=lifespan)
 
 You can then mount `app.state.zeroth` under a prefix (`host.mount("/zeroth",
 app.state.zeroth)`) or import individual routers from
-`zeroth.core.service.run_api`, `approval_api`, etc.
+`zeroth.service.api.run_api`, `approval_api`, etc.
 
 ## Storage and migrations
 
 - **SQLite:** no migration step required; the schema is created lazily on
   first boot.
 - **Postgres:** run `alembic upgrade head` from the host project before the
-  first boot. Reuse the `zeroth.core.migrations` package as the script
+  first boot. Reuse the `zeroth.runtime.migrations` package as the script
   location.
 
 ## Common gotchas

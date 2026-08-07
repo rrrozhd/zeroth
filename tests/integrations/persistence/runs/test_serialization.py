@@ -12,8 +12,8 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 
-from zeroth.platform.storage.json import to_json_value
 from zeroth.integrations.persistence.runs import serialization
+from zeroth.platform.storage.json import to_json_value
 from zeroth.runtime.runs import (
     Run,
     RunConditionResult,
@@ -29,7 +29,7 @@ def test_package_imports_in_a_cold_interpreter() -> None:
     """The persistence package must import without ``zeroth.core`` warmed first.
 
     This runs in a subprocess on purpose. ``tests/conftest.py`` imports
-    ``zeroth.core.service.bootstrap`` at collection time, so by the time any
+    ``zeroth.service.bootstrap`` at collection time, so by the time any
     in-process test runs ``zeroth.core`` is already in ``sys.modules`` and a
     circular import between this package and ``zeroth.core`` is invisible.
     The extraction only works while ``zeroth.core.runs.__init__`` resolves the
@@ -48,25 +48,6 @@ def test_package_imports_in_a_cold_interpreter() -> None:
     assert result.returncode == 0, (
         f"zeroth.integrations.persistence.runs.serialization is not "
         f"cold-importable:\n{result.stderr}"
-    )
-
-
-def test_legacy_repository_module_still_imports_in_a_cold_interpreter() -> None:
-    """The legacy module must keep importing after the implementation moves.
-
-    ``zeroth.core.runs.repository`` remains a protected import location, and
-    the extracted package imports the run models back out of the runtime
-    domain. Both directions have to resolve from a cold start or the shim has
-    closed a cycle that the warm suite cannot see.
-    """
-    result = subprocess.run(
-        [sys.executable, "-c", "import zeroth.core.runs.repository"],
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, (
-        f"zeroth.core.runs.repository is not cold-importable:\n{result.stderr}"
     )
 
 

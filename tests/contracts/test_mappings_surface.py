@@ -11,49 +11,55 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
 
+def test_mappings_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-def test_mappings_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.contracts import mappings as canonical
-    from zeroth.core import mappings as legacy
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.contracts.mappings as canonical
 
-    assert canonical.ConstantMappingOperation is legacy.ConstantMappingOperation
-    assert canonical.DefaultMappingOperation is legacy.DefaultMappingOperation
-    assert canonical.EdgeMapping is legacy.EdgeMapping
-    assert canonical.MappingExecutionError is legacy.MappingExecutionError
-    assert canonical.MappingExecutor is legacy.MappingExecutor
-    assert canonical.MappingOperation is legacy.MappingOperation
-    assert canonical.MappingValidationError is legacy.MappingValidationError
-    assert canonical.MappingValidator is legacy.MappingValidator
-    assert canonical.PassthroughMappingOperation is legacy.PassthroughMappingOperation
-    assert canonical.RenameMappingOperation is legacy.RenameMappingOperation
-    assert canonical.TransformMappingOperation is legacy.TransformMappingOperation
+    expected = {
+        "ConstantMappingOperation",
+        "DefaultMappingOperation",
+        "EdgeMapping",
+        "MappingExecutionError",
+        "MappingExecutor",
+        "MappingOperation",
+        "MappingValidationError",
+        "MappingValidator",
+        "PassthroughMappingOperation",
+        "RenameMappingOperation",
+        "TransformMappingOperation",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.contracts.mappings no longer publishes: {missing}"
 
 
 def test_mapping_errors_and_models_are_the_same_through_both_paths() -> None:
     from zeroth.contracts.mappings import errors as canonical_errors
     from zeroth.contracts.mappings import models as canonical_models
-    from zeroth.core.mappings import errors as legacy_errors
-    from zeroth.core.mappings import models as legacy_models
 
-    assert canonical_errors.MappingExecutionError is legacy_errors.MappingExecutionError
-    assert canonical_errors.MappingValidationError is legacy_errors.MappingValidationError
-    assert canonical_models.MappingOperationBase is legacy_models.MappingOperationBase
-    assert canonical_models.EdgeMapping is legacy_models.EdgeMapping
+    assert hasattr(canonical_errors, "MappingExecutionError")
+    assert hasattr(canonical_errors, "MappingValidationError")
+    assert hasattr(canonical_models, "MappingOperationBase")
+    assert hasattr(canonical_models, "EdgeMapping")
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.contracts.mappings", "zeroth.core.mappings"),
-        ("zeroth.core.mappings", "zeroth.contracts.mappings"),
-    ],
-)
-def test_mappings_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_mappings_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.contracts.mappings"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr

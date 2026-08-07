@@ -1192,9 +1192,9 @@ class CancellationFence(_FrozenContract):
             self.acknowledged_token_ids
         ) != len(set(self.acknowledged_token_ids)):
             raise ValueError("acknowledged_token_ids must be unique and sorted")
-        if self.acknowledged_dispatch_ids != tuple(
-            sorted(self.acknowledged_dispatch_ids)
-        ) or len(self.acknowledged_dispatch_ids) != len(set(self.acknowledged_dispatch_ids)):
+        if self.acknowledged_dispatch_ids != tuple(sorted(self.acknowledged_dispatch_ids)) or len(
+            self.acknowledged_dispatch_ids
+        ) != len(set(self.acknowledged_dispatch_ids)):
             raise ValueError("acknowledged_dispatch_ids must be unique and sorted")
         return self
 

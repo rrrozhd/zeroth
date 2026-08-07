@@ -3,7 +3,7 @@
 `zeroth-core` ships as a Python library, not a runnable container. When you
 deploy, you build your own image (or compose stack). This page shows the
 minimal recipe for wiring up the **sandbox sidecar** — the isolated container
-backend `zeroth.core` uses to run untrusted executable units.
+backend `zeroth.runtime` uses to run untrusted executable units.
 
 The library does not assume any particular orchestrator. Docker, Podman,
 Kubernetes, or a bare `docker run` all work: the runtime only invokes a

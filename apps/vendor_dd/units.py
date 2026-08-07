@@ -24,7 +24,7 @@ from apps.vendor_dd.contracts import (
     ScreeningReport,
     StampedReport,
 )
-from zeroth.core.execution_units import (
+from zeroth.integrations.execution import (
     BuildConfig,
     CommandArtifactSource,
     ExecutableUnitRegistry,

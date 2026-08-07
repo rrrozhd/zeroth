@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide shows how to drive a published [graph](../concepts/graph.md) with the `RuntimeOrchestrator` — the engine covered in the [orchestrator concept page](../concepts/orchestrator.md). In practice you rarely construct the orchestrator by hand; `zeroth.core.service.bootstrap.bootstrap_service()` wires one up with every dependency already injected (run repository, audit, policy, approvals, memory, conditions, mappings). You then register your `AgentRunner` and `ExecutableUnitRunner` and call `orchestrator.run_graph()`.
+This guide shows how to drive a published [graph](../concepts/graph.md) with the `RuntimeOrchestrator` — the engine covered in the [orchestrator concept page](../concepts/orchestrator.md). In practice you rarely construct the orchestrator by hand; `zeroth.service.bootstrap.bootstrap_service()` wires one up with every dependency already injected (run repository, audit, policy, approvals, memory, conditions, mappings). You then register your `AgentRunner` and `ExecutableUnitRunner` and call `orchestrator.run_graph()`.
 
 ## Minimal example
 
@@ -11,7 +11,12 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from zeroth.core.examples.quickstart import build_demo_graph
+# ``build_demo_graph`` is a tutorial helper that ships in the repository, not in
+# the wheel. Run this from the repository root, or copy the function into your code.
+import sys
+
+sys.path.insert(0, "examples")
+from quickstart import build_demo_graph
 from zeroth.contracts.graph import GraphRepository
 from zeroth.service.bootstrap.factory import bootstrap_service
 from zeroth.service.bootstrap.migrations import run_migrations
@@ -66,4 +71,4 @@ asyncio.run(main())
 
 ## Reference cross-link
 
-See the [Python API reference for `zeroth.core.orchestrator`](../reference/python-api/orchestrator.md).
+See the [Python API reference for `zeroth.runtime.orchestration`](../reference/python-api/orchestrator.md).

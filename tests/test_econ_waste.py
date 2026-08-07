@@ -15,20 +15,6 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from zeroth.runtime.agents import AgentConfig, AgentRunner
-from zeroth.runtime.agents.errors import AgentOutputValidationError
-from zeroth.runtime.agents.models import RetryPolicy
-from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
-from zeroth.runtime.agents.resilience import CachingProviderAdapter
-from zeroth.governance.audit import AuditRepository
-from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
-from zeroth.econ.analytics import (
-    EconThresholdError,
-    WasteKind,
-    analyze_run,
-    waste_gate,
-)
-from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.contracts.graph import (
     AgentNode,
     AgentNodeData,
@@ -37,8 +23,22 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
-from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.econ.analytics import (
+    EconThresholdError,
+    WasteKind,
+    analyze_run,
+    waste_gate,
+)
+from zeroth.governance.audit import AuditRepository
+from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
+from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.agents import AgentConfig, AgentRunner
+from zeroth.runtime.agents.errors import AgentOutputValidationError
+from zeroth.runtime.agents.models import RetryPolicy
+from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
+from zeroth.runtime.agents.resilience import CachingProviderAdapter
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.runtime.runs import RunStatus
 
 
@@ -235,8 +235,10 @@ class _AnyIn(BaseModel):
 
 
 class _CostedFailingProvider:
-    """Returns a response carrying cost (as an instrumented adapter would) whose
-    content fails output validation — the paid-then-failed case."""
+    """Returns a response carrying cost (as an instrumented adapter would) whose.
+
+    content fails output validation — the paid-then-failed case.
+    """
 
     async def ainvoke(self, request):  # noqa: ANN001
         """Return a costed response with the wrong shape for ``_ValueOut``."""

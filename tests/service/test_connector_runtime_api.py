@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from zeroth.integrations.memory.governed.models import MemoryScope
 
 from tests.service.helpers import (
     agent_graph,
@@ -12,9 +11,10 @@ from tests.service.helpers import (
     reviewer_headers,
 )
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
+from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry
 from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "connectors-runtime-test"
 
@@ -270,7 +270,8 @@ async def test_probe_env_connector_succeeds(sqlite_db) -> None:
 
 
 async def test_probe_is_tenant_namespaced_not_shared_cell(sqlite_db) -> None:
-    """G9: the probe runs behind the tenant-scoping wrapper, so it must NOT touch
+    """G9: the probe runs behind the tenant-scoping wrapper, so it must NOT touch.
+
     the un-namespaced SHARED ``__shared__`` probe cell that two tenants sharing a
     backend would otherwise collide on.
 

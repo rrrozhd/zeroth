@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.runtime.agents.factory import (
     AgentRunnerFactoryError,
     build_agent_runners,
 )
-from zeroth.service.bootstrap.factory import build_runners_for_deployment
 from zeroth.runtime.agents.mcp import MCPServerConfig
-from zeroth.contracts.registry import ContractRegistry
-from zeroth.core.examples.demo_service import (
+from zeroth.service.bootstrap.factory import build_runners_for_deployment
+from zeroth.service.demo import (
     DEMO_GRAPH_ID,
     DEMO_INPUT_CONTRACT,
     DEMO_OUTPUT_CONTRACT,
@@ -97,7 +97,7 @@ async def test_build_runners_for_missing_deployment_returns_none(sqlite_db):
 
 
 def test_cli_parser_has_expected_subcommands():
-    from zeroth.core.cli import build_parser
+    from zeroth.service.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["seed-demo", "--deployment-ref", "x", "--model", "m"])

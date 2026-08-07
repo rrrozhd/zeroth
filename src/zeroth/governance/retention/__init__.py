@@ -19,7 +19,7 @@ concern:
 Task 13 merged the remaining legacy modules — the erasure facade, worker,
 coordination, econ eraser, models, cleanup manifest, and the four
 repositories — into this package, so the whole retention surface now
-resolves eagerly from one home. ``zeroth.core.retention`` keeps
+resolves eagerly from one home. ``zeroth.governance.retention`` keeps
 republishing the same objects, resolving the erasure service lazily for
 the reason documented there;
 ``tests/governance/retention/test_cold_import.py`` pins both directions

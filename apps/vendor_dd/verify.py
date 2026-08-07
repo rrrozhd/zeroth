@@ -144,7 +144,7 @@ def main() -> int:
     )
 
     # 5. Cost events reached the bundled econ plane.
-    from zeroth.core.econ.service_auth import mint_econ_service_token
+    from zeroth.econ.analytics.service_auth import mint_econ_service_token
 
     token = mint_econ_service_token()
     cost = get(f"/v1/tenants/{tenant}/cost", headers={"Authorization": f"Bearer {token}"})

@@ -5,7 +5,7 @@ domain models and the narrow repository protocols runtime code executes
 against live in :mod:`zeroth.runtime.runs`; nothing here is imported by the
 runtime, which receives these adapters through injection.
 
-Submodules are imported on access rather than eagerly. ``zeroth.core.runs``
+Submodules are imported on access rather than eagerly. ``zeroth.runtime.runs``
 resolves :class:`RunRepository` and :class:`ThreadRepository` lazily so that
 reading a run *model* does not drag in the SQL adapter, and keeping this
 package lazy in the same way preserves that property for consumers who import

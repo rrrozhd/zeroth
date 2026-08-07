@@ -9,11 +9,13 @@ from typing import Any, Protocol
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.core.runs import Run, RunFailureState, RunRepository, RunStatus
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import Run, RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,
@@ -115,9 +117,7 @@ def register_run_routes(app: FastAPI | APIRouter) -> None:
             thread_id=thread_id,
             current_node_ids=[],
             pending_node_ids=(
-                []
-                if token_engine_enabled(graph.execution_settings)
-                else [_entry_step(graph)]
+                [] if token_engine_enabled(graph.execution_settings) else [_entry_step(graph)]
             ),
             metadata=_initial_metadata(graph, validated_input),
         )

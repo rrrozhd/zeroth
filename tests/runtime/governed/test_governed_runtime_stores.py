@@ -16,10 +16,9 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    ("legacy_module", "canonical_module", "names"),
+    ("canonical_module", "names"),
     [
         (
-            "zeroth.core.governed.runtime.interrupts",
             "zeroth.runtime.orchestration.interrupts",
             (
                 "InMemoryInterruptStore",
@@ -31,7 +30,6 @@ import pytest
             ),
         ),
         (
-            "zeroth.core.governed.runtime.run_store",
             "zeroth.runtime.orchestration.run_store",
             (
                 "InMemoryRunStore",
@@ -43,36 +41,44 @@ import pytest
         ),
     ],
 )
-def test_governed_runtime_stores_are_the_same_objects(
-    legacy_module: str, canonical_module: str, names: tuple[str, ...]
+def test_governed_runtime_stores_publish_their_names(
+    canonical_module: str, names: tuple[str, ...]
 ) -> None:
-    legacy = importlib.import_module(legacy_module)
     canonical = importlib.import_module(canonical_module)
 
     for name in names:
-        assert getattr(canonical, name) is getattr(legacy, name), name
+        assert hasattr(canonical, name), name
 
 
 def test_governed_runtime_package_exports_stay_available() -> None:
-    from zeroth.core.governed import runtime as legacy
+    """The merged stores are reachable from the runtime orchestration package.
+
+    This compared them against the vendored ``zeroth.core.governed.runtime``
+    republisher, which ZER-25 removed; availability at the canonical location
+    is what the assertion was protecting.
+    """
     from zeroth.runtime.orchestration.interrupts import RedisInterruptStore
     from zeroth.runtime.orchestration.run_store import RedisRunStore
 
-    assert legacy.RedisInterruptStore is RedisInterruptStore
-    assert legacy.RedisRunStore is RedisRunStore
+    assert RedisInterruptStore.__module__ == "zeroth.runtime.orchestration.interrupts"
+    assert RedisRunStore.__module__ == "zeroth.runtime.orchestration.run_store"
 
 
 @pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.runtime.orchestration.run_store", "zeroth.core.governed.runtime"),
-        ("zeroth.core.governed.runtime", "zeroth.runtime.orchestration.interrupts"),
-    ],
+    "module", ("zeroth.runtime.orchestration.interrupts", "zeroth.runtime.orchestration.run_store")
 )
-def test_governed_runtime_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_governed_runtime_modules_import_in_a_cold_interpreter(module: str) -> None:
+    """Each canonical module imports with nothing else pre-warmed.
+
+    The original ran every ordered pair of canonical and legacy packages to
+    catch a cycle between them. With the legacy packages gone, an emptied
+    parameter list would collect zero cases and pass while proving nothing --
+    so it asserts each canonical module stands up on its own instead.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", f"import {module}"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, f"cold import of {module} failed:\n{result.stderr}"

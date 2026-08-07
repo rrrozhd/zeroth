@@ -8,7 +8,12 @@ This guide shows how to attach a human-approval gate to a graph node and resolve
 
 ```python
 # Slice from examples/20_approval_gate.py — approval gate, resolved in-process.
-from zeroth.core.examples.quickstart import build_demo_graph
+# ``build_demo_graph`` is a tutorial helper that ships in the repository, not in
+# the wheel. Run this from the repository root, or copy the function into your code.
+import sys
+
+sys.path.insert(0, "examples")
+from quickstart import build_demo_graph
 from zeroth.contracts.graph import GraphRepository
 
 # 1. Author a graph that contains a HumanApprovalNode.

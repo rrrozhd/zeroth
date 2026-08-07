@@ -12,7 +12,7 @@ def test_app_module_uses_the_extracted_lifespan() -> None:
     lifespan's cleanup behavior itself is characterized by
     ``tests/service/test_app.py::test_lifespan_closes_secret_provider_exactly_once``.
     """
-    from zeroth.core.service import app as app_module
+    from zeroth.service import app as app_module
     from zeroth.service.bootstrap.lifecycle import service_lifespan
 
     assert app_module.service_lifespan is service_lifespan

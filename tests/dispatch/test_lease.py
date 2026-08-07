@@ -1,14 +1,15 @@
 """Tests for the backend-conditional LeaseManager."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.integrations.persistence.runs import RunRepository
-from zeroth.runtime.runs import RunStatus
+from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.runtime.runs import RunStatus
 
 DEPLOYMENT = "test-deployment"
 WORKER_A = "worker-a"
@@ -17,7 +18,8 @@ WORKER_B = "worker-b"
 
 async def _create_pending_run(run_repo: RunRepository) -> str:
     """Create a PENDING run and return its run_id."""
-    from zeroth.core.runs.models import Run
+    from zeroth.runtime.runs import Run
+
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = await run_repo.create(run)
     return persisted.run_id
@@ -63,9 +65,7 @@ async def test_claim_pending_sets_lease_columns(sqlite_db: AsyncSQLiteDatabase) 
 
     # Directly inspect the database for lease columns.
     async with sqlite_db.transaction() as conn:
-        row = await conn.fetch_one(
-            "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
-        )
+        row = await conn.fetch_one("SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,))
     assert row["lease_worker_id"] == WORKER_A
 
 
@@ -169,7 +169,9 @@ async def test_claim_pending_sqlite_fallback(sqlite_db: AsyncSQLiteDatabase) -> 
     assert manager._is_postgres() is False
 
     # Patch on the class (slots=True prevents instance-level patching)
-    with patch.object(LeaseManager, "_claim_pending_sqlite", new_callable=AsyncMock, return_value=None) as mock_sqlite:
+    with patch.object(
+        LeaseManager, "_claim_pending_sqlite", new_callable=AsyncMock, return_value=None
+    ) as mock_sqlite:
         await manager.claim_pending(DEPLOYMENT, WORKER_A)
         mock_sqlite.assert_called_once_with(DEPLOYMENT, WORKER_A)
 
@@ -218,7 +220,9 @@ async def test_claim_pending_pg_uses_skip_locked() -> None:
     pg_db = AsyncPostgresDatabase(pool=mock_pool)
     manager = LeaseManager(pg_db)  # type: ignore[arg-type]
 
-    with patch.object(LeaseManager, "_claim_pending_pg", new_callable=AsyncMock, return_value="test-run") as mock_pg:
+    with patch.object(
+        LeaseManager, "_claim_pending_pg", new_callable=AsyncMock, return_value="test-run"
+    ) as mock_pg:
         result = await manager.claim_pending(DEPLOYMENT, WORKER_A)
         mock_pg.assert_called_once_with(DEPLOYMENT, WORKER_A)
         assert result == "test-run"
@@ -284,7 +288,7 @@ def test_lease_status_literals_match_the_run_status_enum() -> None:
     persisted status strings as module constants; this pin fails if the run
     domain ever changes the persisted vocabulary.
     """
-    from zeroth.core.runs import RunStatus
+    from zeroth.contracts.governed import RunStatus
     from zeroth.platform.dispatch import lease
 
     assert RunStatus.PENDING.value == lease._STATUS_PENDING

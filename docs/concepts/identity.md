@@ -18,7 +18,7 @@ Keeping the model tiny also keeps the identity package free of framework depende
 
 Identity is consumed on both sides of the request boundary.
 
-On the inbound side, `zeroth.core.service.auth` reads `ServiceAuthConfig` (API keys or JWT bearer settings), verifies the credential, and returns an `AuthenticatedPrincipal`. That principal is scoped to a tenant and workspace via `PrincipalScope`.
+On the inbound side, `zeroth.service.api.authentication` reads `ServiceAuthConfig` (API keys or JWT bearer settings), verifies the credential, and returns an `AuthenticatedPrincipal`. That principal is scoped to a tenant and workspace via `PrincipalScope`.
 
 On the outbound side, the principal is downgraded to `ActorIdentity` (request-only claims stripped) and handed to [runs](runs.md), [approvals](approvals.md), and [audit](audit.md) so each record can faithfully answer "who did this?". The [approvals](approvals.md) API uses the role set to authorize `resolve`; the [service](service.md) API enforces the same roles on every route.
 

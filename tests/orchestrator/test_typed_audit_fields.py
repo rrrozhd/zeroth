@@ -10,7 +10,7 @@ re-empty the field on exactly the records carrying sensitive data).
 
 from __future__ import annotations
 
-from zeroth.core.orchestrator.runtime import RuntimeOrchestrator
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 
 _fields = RuntimeOrchestrator._typed_audit_fields
 
