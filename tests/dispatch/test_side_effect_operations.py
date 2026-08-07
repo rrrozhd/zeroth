@@ -1294,3 +1294,28 @@ class TestTerminalOperationAudit:
         assert carried is not None, "a timeout must carry its operation facts"
         assert carried["operation_state"] == "ambiguous"
         assert carried["operation_residual_duplicate_risk"] is True
+
+    async def test_a_reconciled_re_execution_settles_the_audit_state(
+        self, dual_database
+    ) -> None:
+        """A successful retry must be audited COMPLETED, not frozen at ambiguous.
+
+        The reconciliation branch stamped the audit with the state
+        record_reconciliation() returned — AMBIGUOUS when nothing could be
+        asked — and the re-execution that then succeeded never updated it. The
+        durable record said "still unknown" about an operation the store had
+        just settled.
+        """
+        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        runner = _CountingRunner()
+        dispatcher = _dispatcher(store, runner)
+        run = _run_with_dispatch()
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        await _seed_ambiguous(store, identity)
+
+        _output, audit = await _dispatch_once(dispatcher, run)
+
+        assert runner.applications == 1, "within budget and unresolvable: re-execution runs"
+        assert audit["operation_state"] == "completed", (
+            "a successful re-execution must settle the audited state"
+        )

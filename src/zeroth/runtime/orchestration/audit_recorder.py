@@ -260,6 +260,13 @@ class RuntimeAuditRecorder:
         audit_record: dict[str, Any] = (
             dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
+        # ZER-26/AUD-008: a timed-out side effect attaches its operation facts
+        # as ``operation_audit`` — the state is AMBIGUOUS and the effect may
+        # have landed. Merging (not replacing) keeps the rejection/bare-error
+        # classification while making the operation state durable.
+        operation_audit = getattr(error, "operation_audit", None)
+        if isinstance(operation_audit, Mapping):
+            audit_record.update(operation_audit)
         audit_refs = list(run.audit_refs)
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
@@ -369,6 +376,11 @@ class RuntimeAuditRecorder:
         audit_record: dict[str, Any] = (
             dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
+        # Same ZER-26/AUD-008 merge as the non-branch path: a branch can run a
+        # side-effect node, and its timeout facts must not be lost either.
+        operation_audit = getattr(error, "operation_audit", None)
+        if isinstance(operation_audit, Mapping):
+            audit_record.update(operation_audit)
         audit_record["branch_id"] = ctx.branch_id
         audit_record["branch_index"] = ctx.branch_index
         audit_seq = len(ctx.audit_refs) + 1
