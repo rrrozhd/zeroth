@@ -980,7 +980,11 @@ async def test_attested_generated_run_is_reported_in_header_and_terminal_event()
             async def __aiter__(self):
                 yield b'{"run_id":"upstream-generated"}'
 
-        return httpx.Response(200, stream=Body())
+        return httpx.Response(
+            200,
+            stream=Body(),
+            headers={"content-type": "application/json"},
+        )
 
     settings = LangGraphGatewaySettings(
         enabled=True,
@@ -1029,6 +1033,75 @@ async def test_attested_generated_run_is_reported_in_header_and_terminal_event()
     assert response.headers["x-zeroth-governance-level"] == "observed"
     assert sink.events[-1].governance_level is GovernanceLevel.OBSERVED
     assert sink.events[-1].correlation.run_id == claims.run_id
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_reporting_closes_acquired_upstream_response():
+    report_started = asyncio.Event()
+    upstream_closed = asyncio.Event()
+
+    class BlockingProvider:
+        async def evidence_for_governance_run(self, governance_run_id):
+            del governance_run_id
+            report_started.set()
+            await asyncio.Future()
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"response"
+
+        async def aclose(self):
+            upstream_closed.set()
+
+    async def upstream(request):
+        await request.aread()
+        return httpx.Response(200, stream=Body())
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(
+            EnvHmacSigner(key_id="gateway", keys={"gateway": b"shared-key"}),
+            clock=lambda: 1000,
+        ),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        capability_reporter=CapabilityReporter(
+            governance_evidence_provider=BlockingProvider()
+        ),
+        clock=lambda: 1000,
+        correlation_factory=lambda: "corr-cancelled-report",
+    )
+
+    task = asyncio.create_task(
+        proxy.handle_http(
+            governed_request(
+                b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+                path="/threads/thread-4/runs",
+            )
+        )
+    )
+    await report_started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(upstream_closed.wait(), timeout=0.1)
+    await asyncio.sleep(0)
+    assert not transport._open_responses
     await transport.aclose()
 
 

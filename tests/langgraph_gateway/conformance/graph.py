@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, interrupt
+from zeroth.integrations.langgraph import (
+    InventoryCoverage,
+    LangGraphGatewayClient,
+    ToolInventory,
+    govern_graph,
+)
 
 
 class FixtureState(TypedDict, total=False):
@@ -151,3 +159,33 @@ for node in ("echo", "interrupt", "cancel", "error", "model", "retry", "tools"):
     builder.add_edge(node, END)
 
 graph = builder.compile()
+
+
+def _governed_graph():
+    gateway_url = os.environ.get("ZEROTH_CONFORMANCE_GATEWAY_URL")
+    if gateway_url is None:
+        return graph
+    client = LangGraphGatewayClient(
+        gateway_url,
+        api_key="gateway-key",
+        tenant_id="conformance-tenant",
+        principal_id="conformance-user",
+        deployment_ref="conformance-deployment",
+        policy_version="sha256:conformance",
+        graph_version="graph:conformance",
+        inventory=ToolInventory(entries=(), coverage=InventoryCoverage.PARTIAL),
+        heartbeat_interval_seconds=None,
+    )
+    governed = govern_graph(graph, gateway_client=client)
+
+    def invoke_governed(state: FixtureState, config: RunnableConfig) -> FixtureState:
+        return governed.invoke(state, config=config)
+
+    governed_builder = StateGraph(FixtureState)
+    governed_builder.add_node("governed", invoke_governed)
+    governed_builder.add_edge(START, "governed")
+    governed_builder.add_edge("governed", END)
+    return governed_builder.compile()
+
+
+governed_graph = _governed_graph()
