@@ -22,14 +22,15 @@ threshold before ZER-24 moved it. None of them is complexity this task authored.
 from __future__ import annotations
 
 import ast
+import os
 import re
+import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).parents[2]
-SEARCH_ROOTS = (REPO_ROOT / "src", REPO_ROOT / "tests")
-
 _SUPPRESSION = re.compile(r"#\s*noqa:[^\n]*\bC901\b")
 
 # path -> the functions permitted to carry a C901 suppression.
@@ -50,26 +51,40 @@ EXPECTED_SUPPRESSIONS: dict[str, frozenset[str]] = {
 }
 
 
-def _actual_suppressions() -> dict[str, frozenset[str]]:
+def _tracked_python_files(repo_root: Path) -> tuple[Path, ...]:
+    """Return every Python file Git tracks, including tools outside package roots."""
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.py"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+    )
+    return tuple(
+        repo_root / os.fsdecode(relative) for relative in result.stdout.split(b"\0") if relative
+    )
+
+
+def _actual_suppressions(
+    *,
+    repo_root: Path = REPO_ROOT,
+    paths: Iterable[Path] | None = None,
+) -> dict[str, frozenset[str]]:
     """Map each file to the functions whose ``def`` line carries a C901 noqa."""
     found: dict[str, set[str]] = {}
-    for root in SEARCH_ROOTS:
-        for path in root.rglob("*.py"):
-            if path == Path(__file__):
-                # This registry quotes the marker in its own prose.
+    for path in paths if paths is not None else _tracked_python_files(repo_root):
+        text = path.read_text()
+        if not _SUPPRESSION.search(text):
+            continue
+        lines = text.splitlines()
+        names: set[str] = set()
+        for node in ast.walk(ast.parse(text, filename=str(path))):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
-            text = path.read_text()
-            if not _SUPPRESSION.search(text):
-                continue
-            lines = text.splitlines()
-            names: set[str] = set()
-            for node in ast.walk(ast.parse(text, filename=str(path))):
-                if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                    continue
-                # ``lineno`` is the ``def`` line itself; decorators sit above it.
-                if _SUPPRESSION.search(lines[node.lineno - 1]):
-                    names.add(node.name)
-            found[path.relative_to(REPO_ROOT).as_posix()] = names
+            # ``lineno`` is the ``def`` line itself; decorators sit above it.
+            if _SUPPRESSION.search(lines[node.lineno - 1]):
+                names.add(node.name)
+        if names:
+            found[path.relative_to(repo_root).as_posix()] = names
     return {path: frozenset(names) for path, names in found.items()}
 
 
@@ -81,6 +96,17 @@ def test_no_c901_suppression_exists_outside_the_pinned_set() -> None:
     is inherited (record it here) or newly authored (reduce it instead).
     """
     assert _actual_suppressions() == EXPECTED_SUPPRESSIONS
+
+
+def test_scanner_accepts_tracked_python_files_outside_src_and_tests(tmp_path: Path) -> None:
+    """A repository-level registry must inspect Python tools as well as packages."""
+    script = tmp_path / "scripts" / "tool.py"
+    script.parent.mkdir()
+    script.write_text("def tool(value):  # noqa: C901\n    return value\n")
+
+    assert _actual_suppressions(repo_root=tmp_path, paths=[script]) == {
+        "scripts/tool.py": frozenset({"tool"})
+    }
 
 
 @pytest.mark.parametrize("path", sorted(EXPECTED_SUPPRESSIONS))

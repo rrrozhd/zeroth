@@ -1,13 +1,15 @@
 """Public exceptions raised by the orchestration runtime.
 
 These are protected capabilities, re-exported by
-:mod:`zeroth.runtime.orchestration`. The definitions live here rather than in
-that package because the collaborators that raise them may not import the
-facade — doing so would close an import cycle, since the facade imports the
-collaborators.
+:mod:`zeroth.runtime.orchestration`. They are defined in their own module, and
+that module imports nothing from ``zeroth`` at all, so any collaborator can
+raise one without taking on a dependency — importable from any layer, in any
+order, with no risk of an import cycle.
 
-This module imports nothing from ``zeroth``, so it is importable from any layer
-and in any order.
+(An earlier revision of this docstring claimed the package facade imports its
+collaborators, and that raising through the facade would therefore close a
+cycle. That is not true: the facade resolves each export lazily, and importing
+``OrchestratorError`` through it loads only this module.)
 """
 
 from __future__ import annotations
