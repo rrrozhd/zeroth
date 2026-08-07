@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.5] - 2026-08-07
+
+### Fixed
+
+- Encrypt side-effect receipts at rest wherever the database exposes an
+  encrypted field, matching how run checkpoints are protected, and include
+  `side_effect_operations` in run erasure. The receipts previously stored the
+  target's own response to a side effect as plaintext that erasing a run could
+  not reach.
+
 ## [0.18.4.1] - 2026-08-07
 
 ### Fixed
