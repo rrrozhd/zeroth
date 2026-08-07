@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.2.6] - 2026-08-07
+
+### Fixed
+
+- Govern LangGraph event streams and sync/async batch inputs with the same
+  callback, gateway, hook, correlation, and cost-capture behavior as existing
+  governed entrypoints.
+
 ## [0.16.2.5.1] - 2026-08-07
 
 ### Added

@@ -31,7 +31,7 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
-    assert "org.opencontainers.image.version=0.16.2.5.1" in dockerfile
+    assert "org.opencontainers.image.version=0.16.2.6" in dockerfile
     assert "memory-pg,langgraph,langgraph-gateway" in compose
     build_step = next(
         step
@@ -44,7 +44,7 @@ def test_container_and_compatibility_contract() -> None:
         "-t zeroth-core:${{ github.ref_name }} ."
     )
     assert "langgraph-fixture:" in compose
-    assert "ZEROTH_LANGGRAPH_GATEWAY__ENABLED: \"true\"" in compose
+    assert 'ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"' in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF:" in compose
@@ -61,9 +61,7 @@ def test_container_and_compatibility_contract() -> None:
     assert "gh attestation verify zeroth-core-image.tar" in workflow
     assert '--repo "$GITHUB_REPOSITORY"' in workflow
     assert "release/langgraph/attestation-verification.json" in workflow
-    assert workflow.index("gh attestation verify") < workflow.index(
-        "validate --phase final"
-    )
+    assert workflow.index("gh attestation verify") < workflow.index("validate --phase final")
     assert "image-evidence" in workflow
     assert "image-packages" in workflow
     assert "--sbom release/langgraph/image.spdx.json" in workflow
@@ -73,12 +71,11 @@ def test_container_and_compatibility_contract() -> None:
     assert "validate --phase final" in workflow
     assert '"docker", "run"' in runtime and "importlib.metadata" in runtime
     assert "hashlib.sha256" in runtime
-    assert "release/langgraph/image-packages.json" in manifest["evidence"]["security"][
-        "artifacts"
-    ]
-    assert "release/langgraph/attestation-verification.json" in manifest["evidence"][
-        "security"
-    ]["artifacts"]
+    assert "release/langgraph/image-packages.json" in manifest["evidence"]["security"]["artifacts"]
+    assert (
+        "release/langgraph/attestation-verification.json"
+        in manifest["evidence"]["security"]["artifacts"]
+    )
     assert "zeroth-core seed-demo" in workflow
     assert "timeout 15" in workflow
     assert "Input should be 'sqlite' or 'postgres'" in workflow
@@ -90,9 +87,10 @@ def test_container_and_compatibility_contract() -> None:
     assert compatibility["tested"]["langgraph"] == "1.2.9"
     assert compatibility["tested"]["agent_server"] == "0.11.1"
     assert {"gateway", "adapter"} <= compatibility["deployment_artifacts"].keys()
-    assert "langgraph-checkpoint-sqlite>=3.0,<4" in compatibility["deployment_artifacts"][
-        "adapter"
-    ]["dependencies"]
+    assert (
+        "langgraph-checkpoint-sqlite>=3.0,<4"
+        in compatibility["deployment_artifacts"]["adapter"]["dependencies"]
+    )
 
 
 def test_installed_image_packages_are_compared_with_compatibility(
@@ -121,7 +119,11 @@ def test_installed_image_packages_are_compared_with_compatibility(
     }
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        output = json.dumps(packages) if command[1] == "run" else json.dumps([{"Config": {"Labels": labels}}])
+        output = (
+            json.dumps(packages)
+            if command[1] == "run"
+            else json.dumps([{"Config": {"Labels": labels}}])
+        )
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     monkeypatch.setattr("runtime_smoke.subprocess.run", fake_run)
