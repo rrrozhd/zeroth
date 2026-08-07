@@ -17,6 +17,10 @@ class DatabaseErasureOutcome(BaseModel):
 
     audits_erased: int = 0
     checkpoints_deleted: int = 0
+    # ZER-26: side_effect_operations rows removed with the run. Defaults to 0 so
+    # manifests persisted before the field existed still parse (those erasures
+    # genuinely deleted no operation rows).
+    operations_deleted: int = 0
     run_redacted: bool = False
 
 

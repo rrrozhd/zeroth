@@ -10,12 +10,12 @@ from __future__ import annotations
 import pytest
 
 from zeroth.governance.retention.cleanup_manifest import CleanupManifest, operation_id
-from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.manifests import (
     build_cleanup_manifest,
     manifest_complete,
     result_from_manifest,
 )
+from zeroth.governance.retention.models import ErasureResult
 
 
 class _Store:
@@ -221,3 +221,25 @@ def test_forced_status_overrides_the_derived_one() -> None:
     )
 
     assert result.external_cleanup_status == "pending"
+
+
+def test_operations_deleted_survives_the_manifest_round_trip() -> None:
+    """ZER26-AUD-010: the receipt count must not be dropped by projection.
+
+    The erasure service counts the ``side_effect_operations`` rows it removed,
+    but the durable manifest had no field for the count and the projection
+    rebuilt the result without it — an erasure that removed receipts durably
+    reported that it had not.
+    """
+    manifest = build_cleanup_manifest(
+        _result(operations_deleted=3),
+        [],
+        ["run-1"],
+        artifact_store=_Store(),
+        econ_eraser=_Eraser(),
+    )
+    assert manifest.database_result.operations_deleted == 3
+
+    projected = result_from_manifest(manifest, authorization_log_id="log-1", retry_log_id=None)
+
+    assert projected.operations_deleted == 3

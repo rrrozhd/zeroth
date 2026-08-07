@@ -4,6 +4,6 @@ import { VERSION } from "./version";
 
 describe("console version", () => {
   it("matches the integrated Python package version", () => {
-    expect(VERSION).toBe("0.18.8");
+    expect(VERSION).toBe("0.18.8.1");
   });
 });

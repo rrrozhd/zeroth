@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.8.1] - 2026-08-07
+
+Replaying claim decrypts the stored receipt, and operations_deleted survives the cleanup-manifest round trip (ZER26-AUD-010).
+
 ## [0.18.8] - 2026-08-07
 
 Suppress re-execution when a competing reconciler settled the operation COMPLETED while the local outcome lookup returned nothing; the stored receipt is replayed instead (ZER26-AUD-002).

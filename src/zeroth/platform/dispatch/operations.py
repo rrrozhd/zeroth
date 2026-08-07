@@ -213,12 +213,15 @@ class SideEffectOperationStore:
             attempts = int(row["reconciliation_attempts"])
 
             if state is OperationState.COMPLETED:
-                # Replay suppression: the effect is known to have landed.
+                # Replay suppression: the effect is known to have landed. The
+                # receipt is decrypted here because the caller replays it as
+                # JSON -- returning the raw column hands ciphertext to
+                # json.loads whenever encryption is configured.
                 self._count("zeroth_side_effect_replay_suppressed_total")
                 return OperationClaim(
                     state=state,
                     first_execution=False,
-                    receipt=row["receipt"],
+                    receipt=self._decrypt(row["receipt"]),
                     attempts=attempts,
                 )
 

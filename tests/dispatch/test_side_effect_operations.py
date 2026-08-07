@@ -7,6 +7,8 @@ evidence that revision 020 upgrades cleanly on both backends.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.conftest import requires_docker
@@ -1186,6 +1188,38 @@ class TestReceiptPrivacy:
                 )
             assert sentinel not in raw["receipt"], "the receipt must not be stored in the clear"
             assert (await store.get(KEY))["receipt"] == sentinel, "reads must round-trip"
+        finally:
+            delattr(dual_database, "encrypted_field")
+
+    async def test_a_replaying_claim_returns_the_decrypted_receipt(self, dual_database) -> None:
+        """The replay path reads receipts too, and must see plaintext.
+
+        ``claim()`` on a completed operation returns the stored receipt so the
+        dispatcher can replay the original output. Before the fix that branch
+        returned the raw column — ciphertext when encryption is configured — and
+        the replay path then attempted ``json.loads`` on it.
+        """
+
+        class _Field:
+            def encrypt(self, value: str) -> str:
+                return "enc:" + value[::-1]
+
+            def decrypt(self, value: str) -> str:
+                return value[4:][::-1] if value.startswith("enc:") else value
+
+        sentinel = '{"charge": "ok"}'
+        dual_database.encrypted_field = _Field()  # type: ignore[attr-defined]
+        try:
+            store = SideEffectOperationStore(dual_database)
+            await _claim(store)
+            await store.complete(KEY, receipt=sentinel)
+
+            replay = await _claim(store, attempt=1)
+
+            assert replay.state is OperationState.COMPLETED
+            assert replay.first_execution is False
+            assert replay.receipt == sentinel, "a replaying claim must decrypt the receipt"
+            assert json.loads(replay.receipt) == {"charge": "ok"}
         finally:
             delattr(dual_database, "encrypted_field")
 
