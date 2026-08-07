@@ -3,6 +3,7 @@ import hashlib
 import json
 import tomllib
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,11 @@ from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
 from zeroth.contracts.langgraph_gateway.inventory import classify_endpoint
-from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
+from zeroth.contracts.langgraph_gateway.models import (
+    CompatibilityStatus,
+    GovernanceLevel,
+    RunCapabilityEvidence,
+)
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
@@ -22,6 +27,7 @@ from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner, NullSigner
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
@@ -945,6 +951,84 @@ async def test_run_create_without_run_id_mints_signed_governance_run_identity():
 
     assert claims.run_id not in {None, "corr-governance-run"}
     assert claims.run_id != "upstream-generated"
+    await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_attested_generated_run_is_reported_in_header_and_terminal_event():
+    captured = {}
+    sink = RecordingEventSink()
+    signer = EnvHmacSigner(key_id="gateway", keys={"gateway": b"shared-key"})
+    observed_at = datetime(2026, 8, 7, tzinfo=UTC)
+
+    class EvidenceProvider:
+        async def evidence_for_governance_run(self, governance_run_id):
+            captured["queried_run_id"] = governance_run_id
+            return RunCapabilityEvidence(
+                correlation_id="corr-observed",
+                run_id=governance_run_id,
+                governance_level=GovernanceLevel.OBSERVED,
+                observed_at=observed_at,
+                graph_version="graph:v1",
+                signature_valid=True,
+            )
+
+    async def upstream(request):
+        captured["body"] = await request.aread()
+
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"run_id":"upstream-generated"}'
+
+        return httpx.Response(200, stream=Body())
+
+    settings = LangGraphGatewaySettings(
+        enabled=True,
+        upstream_url="http://agent-server",
+        upstream_audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+    transport = HTTPGatewayTransport(
+        settings,
+        EnvSecretProvider(),
+        http_transport=httpx.MockTransport(upstream),
+    )
+    reporter = CapabilityReporter(
+        governance_evidence_provider=EvidenceProvider(),
+        expected_graph_version="graph:v1",
+        now=lambda: observed_at,
+    )
+    proxy = GatewayProxy(
+        settings=settings,
+        transport=transport,
+        context_codec=ReservedContextCodec(signer, clock=lambda: 1000),
+        policy_guard=AllowPolicy(),
+        budget_checker=AllowBudget(),
+        compatibility=supported_compatibility(),
+        capability_reporter=reporter,
+        event_sink=sink,
+        clock=lambda: 1000,
+        correlation_factory=lambda: "corr-observed",
+    )
+
+    response = await proxy.handle_http(
+        governed_request(
+            b'{"assistant_id":"assistant-2","input":{"question":"hello"}}',
+            path="/threads/thread-4/runs",
+        )
+    )
+    _ = b"".join([chunk async for chunk in response.body_iterator])
+    claims = ReservedContextCodec(signer, clock=lambda: 1000).decode(
+        json.loads(captured["body"])["config"]["configurable"]["_zeroth"],
+        audience="agent-server:fixture",
+        deployment_ref="deployment-a",
+    )
+
+    assert captured["queried_run_id"] == claims.run_id
+    assert claims.run_id != "upstream-generated"
+    assert response.headers["x-zeroth-governance-level"] == "observed"
+    assert sink.events[-1].governance_level is GovernanceLevel.OBSERVED
+    assert sink.events[-1].correlation.run_id == claims.run_id
     await transport.aclose()
 
 

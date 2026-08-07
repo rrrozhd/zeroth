@@ -486,6 +486,11 @@ class RaisingEvidenceProvider:
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
         raise ValueError("malformed backend evidence containing secret")
 
+    async def evidence_for_governance_run(
+        self, governance_run_id: str
+    ) -> RunCapabilityEvidence | None:
+        raise ValueError("malformed backend evidence containing secret")
+
 
 class RaisingEvidence:
     @property
@@ -588,6 +593,12 @@ async def test_heartbeat_without_run_attestation_does_not_upgrade_run() -> None:
         )
         is GovernanceLevel.ADMISSION
     )
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
+        is GovernanceLevel.ADMISSION
+    )
 
 
 @pytest.mark.asyncio
@@ -622,6 +633,32 @@ async def test_run_lookup_validates_signed_governance_run_identity() -> None:
     )
     assert (
         await reporter.level_for_governance_run("run-2", graph_version="graph-v1")
+        is GovernanceLevel.ADMISSION
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        None,
+        _evidence(run_id="run-1", observed_at=NOW - timedelta(seconds=91)),
+        _evidence(run_id="run-1", observed_at=NOW + timedelta(seconds=1)),
+        _evidence(run_id="other-run"),
+        _evidence(run_id="run-1", correlation_id="other-correlation"),
+        _evidence(run_id="run-1", graph_version="graph-v2"),
+        _evidence(run_id="run-1", signature_valid=False),
+    ],
+)
+async def test_exact_run_lookup_falls_back_for_incomplete_or_invalid_evidence(
+    evidence: RunCapabilityEvidence | None,
+) -> None:
+    reporter = CapabilityReporter(StaticEvidenceProvider(evidence), now=lambda: NOW)
+
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
         is GovernanceLevel.ADMISSION
     )
 
@@ -706,6 +743,12 @@ async def test_provider_failure_falls_back_to_admission() -> None:
 
     assert (
         await reporter.level_for_run("corr-1", graph_version="graph-v1")
+        is GovernanceLevel.ADMISSION
+    )
+    assert (
+        await reporter.level_for_governance_run(
+            "run-1", correlation_id="corr-1", graph_version="graph-v1"
+        )
         is GovernanceLevel.ADMISSION
     )
 

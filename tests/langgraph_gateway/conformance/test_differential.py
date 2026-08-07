@@ -296,6 +296,8 @@ def test_live_direct_and_proxied_wait_cases_have_zero_semantic_divergence(
             ),
             audit_event_present=any(row.get("kind") == "audit" for row in evidence),
         )
+    assert dict(proxied.headers)["x-zeroth-governance-level"] == "observed"
+    assert proxied.audit_event_present is True
     if input_payload["mode"] == "model":
         expected = {
             "content": "fixture response",
