@@ -33,6 +33,7 @@ def test_canonical_guide_covers_release_operations_and_commands_execute(tmp_path
         "environment variables",
         "docker compose run --rm zeroth zeroth-core seed-demo",
         "gateway-smoke",
+        "validate --phase final",
     ):
         assert marker.lower() in guide.lower(), marker
 
@@ -51,6 +52,8 @@ def test_canonical_guide_covers_release_operations_and_commands_execute(tmp_path
             "validate",
             "--manifest",
             "release/langgraph/release-manifest.json",
+            "--phase",
+            "source",
         ],
         cwd=ROOT,
         check=False,

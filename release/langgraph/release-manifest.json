@@ -18,7 +18,9 @@
       "artifacts": [
         "release/langgraph/image.spdx.json",
         "release/langgraph/provenance.bundle.json",
-        "release/langgraph/image-compatibility.json"
+        "release/langgraph/attestation-verification.json",
+        "release/langgraph/image-compatibility.json",
+        "release/langgraph/image-packages.json"
       ],
       "kind": "container-security"
     },
@@ -29,6 +31,6 @@
       "kind": "junit"
     }
   },
-  "release": "0.16.2.1",
-  "schema_version": 2
+  "release": "0.16.2.2",
+  "schema_version": 4
 }
