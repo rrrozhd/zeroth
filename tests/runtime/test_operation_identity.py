@@ -426,3 +426,59 @@ def test_the_executor_actually_passes_it_to_the_concrete_runner_signature() -> N
     )
 
     assert set(selected) == {"enforcement_context", "operation_identity"}
+
+
+def test_the_tool_call_id_makes_distinct_calls_distinct_after_recovery() -> None:
+    """The ordinal alone restarts; the provider's call id does not.
+
+    `build()` uses a process-local counter, so a rebuilt executor numbers from
+    zero again. After recovery a *different* first call to the same target
+    therefore inherited the previous call's key and could be suppressed as a
+    duplicate — silently dropping real work, which is worse than missing a
+    suppression. Two executors are built here precisely to reproduce that reset.
+    """
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    node = ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://send-email",
+            execution_mode="wrapped_command",
+        ),
+    )
+    graph = _GraphOf(node)
+
+    def _factory(target_ref: str, ordinal: int):
+        return operation_identity(
+            run_id="run_1",
+            dispatch_id="dsp_abc",
+            idempotency_key="idem_abc",
+            attempt=0,
+            target_ref=target_ref,
+            call_ordinal=ordinal,
+        )
+
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    def _key_for(call_id):
+        runner = _RecordingRunner()
+        execute = _executor(runner).build(graph, {}, operation_identity_factory=_factory)
+        asyncio.run(execute(_Binding(), {}, call_id))
+        return runner.calls[0]["operation_identity"].operation_key
+
+    # Both are the FIRST call of a freshly built executor, so both get ordinal 0.
+    first_turn = _key_for("call_aaa")
+    after_recovery = _key_for("call_bbb")
+    replay_of_first = _key_for("call_aaa")
+
+    assert first_turn != after_recovery, (
+        "a different call must not inherit the previous call's identity"
+    )
+    assert first_turn == replay_of_first, "an exact replay must still be recognised"

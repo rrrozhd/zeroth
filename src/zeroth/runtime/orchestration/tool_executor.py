@@ -115,7 +115,11 @@ class RuntimeToolExecutor:
         # would make the second call look like a duplicate of the first.
         call_ordinal = itertools.count()
 
-        async def execute(binding: Any, arguments: Mapping[str, Any] | None) -> Any:
+        async def execute(
+            binding: Any,
+            arguments: Mapping[str, Any] | None,
+            tool_call_id: str | None = None,
+        ) -> Any:
             target_node_id = str(binding.executable_unit_ref).removeprefix("node://")
             target = node_by_id(graph, target_node_id)
             if not isinstance(target, ExecutableUnitNode):
@@ -128,10 +132,17 @@ class RuntimeToolExecutor:
             target_ref = (
                 f"node://{target_node_id}" if inline else target.executable_unit.manifest_ref
             )
+            # Prefer the provider's own tool-call id over the positional
+            # counter. The counter is process-local and restarts whenever the
+            # executor is rebuilt, so after recovery a *different* first call to
+            # the same target inherited the previous call's key and could be
+            # suppressed as a duplicate. Wrongly suppressing real work is worse
+            # than missing a suppression, so distinctness wins here.
+            keyed_ref = f"{target_ref}#{tool_call_id}" if tool_call_id else target_ref
             identity = (
                 None
                 if operation_identity_factory is None
-                else operation_identity_factory(target_ref, next(call_ordinal))
+                else operation_identity_factory(keyed_ref, next(call_ordinal))
             )
             if inline:
                 result = await self.run_inline(
