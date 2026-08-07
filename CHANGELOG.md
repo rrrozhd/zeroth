@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.3.3] - 2026-08-07
+
+### Fixed
+
+- Give an ambiguous operation a settle path to a confirmed failure. With
+  `fail()` refusing to demote AMBIGUOUS and reconciliation able to resolve only
+  to COMPLETED, an operation the target confirmed had not happened could wedge
+  as ambiguous permanently.
+- Route the fork-lineage exception path through the resumable pause; it
+  intercepts before the root handler and still failed runs terminally.
+- Replace a conditional race assertion with a deterministic one that exercises
+  the disputed transition on every run.
+
 ## [0.18.3.2] - 2026-08-07
 
 ### Fixed
