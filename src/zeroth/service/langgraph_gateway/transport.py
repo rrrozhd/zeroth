@@ -102,11 +102,14 @@ class _UpstreamStreamingResponse(StreamingResponse):
         super().__init__(content, status_code=status_code)
         self._close_upstream = close_upstream
 
+    async def aclose(self) -> None:
+        await self._close_upstream()
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
             await super().__call__(scope, receive, send)
         finally:
-            await self._close_upstream()
+            await self.aclose()
 
 
 class HTTPGatewayTransport:
