@@ -605,12 +605,20 @@ class AgentRunner:
                             effective_capabilities,
                             node_id=self.config.name,
                         )
+                    mcp_at_least_once = False
                     with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
                         # Route MCP tool calls through MCPClientManager
                         if (
                             binding.executable_unit_ref.startswith("mcp://")
                             and self._mcp_manager is not None
                         ):
+                            # ZER-26/AUD-006: MCP tools are NOT graph nodes, so
+                            # they never pass through RuntimeToolExecutor and
+                            # carry no operation identity. Rather than imply a
+                            # guarantee that does not hold, the gap is made
+                            # visible: an MCP call is at-least-once with no
+                            # replay suppression and no reconciliation.
+                            mcp_at_least_once = True
                             result = await self._mcp_manager.call_tool(call["name"], call["args"])
                         else:
                             # Offer the provider's tool-call id so the operation
@@ -628,6 +636,7 @@ class AgentRunner:
                         binding=binding,
                         arguments=call["args"],
                         granted_permissions=self.granted_tool_permissions,
+                        at_least_once=mcp_at_least_once,
                         outcome=result if isinstance(result, Mapping) else {"value": result},
                     )
                     content = json.dumps(result, ensure_ascii=False, sort_keys=True)

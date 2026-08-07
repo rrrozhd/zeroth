@@ -482,3 +482,27 @@ def test_the_tool_call_id_makes_distinct_calls_distinct_after_recovery() -> None
         "a different call must not inherit the previous call's identity"
     )
     assert first_turn == replay_of_first, "an exact replay must still be recognised"
+
+
+def test_an_mcp_tool_call_is_marked_as_outside_the_guarantee() -> None:
+    """MCP calls bypass the side-effect boundary, so the record must say so.
+
+    An unmarked audit record reads as though the operation guarantee applied. It
+    does not: an MCP tool is not a graph node, never reaches
+    RuntimeToolExecutor, and therefore has no identity, no suppression and no
+    reconciliation. The negative control matters as much as the positive one —
+    a non-MCP call must NOT carry the marker, or the marker means nothing.
+    """
+    from zeroth.runtime.agents.tools import ToolAttachmentBinding, ToolAttachmentBridge
+
+    bridge = ToolAttachmentBridge()
+    mcp = ToolAttachmentBinding(alias="search", executable_unit_ref="mcp://server/search")
+    unit = ToolAttachmentBinding(alias="charge", executable_unit_ref="node://charge")
+
+    marked = bridge.build_call_audit(binding=mcp, arguments={}, at_least_once=True)
+    unmarked = bridge.build_call_audit(binding=unit, arguments={})
+
+    assert marked["operation_support"] == "at_least_once"
+    assert marked["operation_residual_duplicate_risk"] is True
+    assert "operation_support" not in unmarked
+    assert "operation_residual_duplicate_risk" not in unmarked
