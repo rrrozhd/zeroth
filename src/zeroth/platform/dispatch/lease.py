@@ -117,11 +117,17 @@ class LeaseManager:
         return await self._claim_pending_sqlite(deployment_ref, worker_id)
 
     async def _claim_pending_sqlite(self, deployment_ref: str, worker_id: str) -> str | None:
-        """Claim using timestamp-expiry UPDATE with verify re-read (SQLite)."""
+        """Claim using a guarded UPDATE ... RETURNING (SQLite).
+
+        The previous shape selected a candidate, updated it, then re-read to
+        check ``lease_worker_id`` matched. That verify is not a race check: two
+        claimers sharing a worker id both saw their own id and both reported
+        success. ``RETURNING`` makes the guard and the answer one statement, so
+        exactly one caller gets a row back regardless of worker ids.
+        """
         now = _utc_now()
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         async with self.database.transaction() as conn:
-            # Pick the oldest PENDING unleased run for this deployment.
             row = await conn.fetch_one(
                 """
                 SELECT run_id FROM runs
@@ -135,11 +141,9 @@ class LeaseManager:
             )
             if row is None:
                 return None
-            run_id = row["run_id"]
-            # Atomic write-lock: only one concurrent writer can update this row.
             # The generation advances with the claim so a displaced worker's
             # writes can be told apart from the new owner's.
-            await conn.execute(
+            won = await conn.fetch_one(
                 """
                 UPDATE runs
                 SET lease_worker_id = ?,
@@ -147,23 +151,20 @@ class LeaseManager:
                     lease_expires_at = ?,
                     lease_generation = lease_generation + 1
                 WHERE run_id = ?
+                  AND status = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
+                RETURNING run_id
                 """,
                 (
                     worker_id,
                     now.isoformat(),
                     expires_at.isoformat(),
-                    run_id,
+                    row["run_id"],
+                    _STATUS_PENDING,
                     now.isoformat(),
                 ),
             )
-            # Verify we actually won the race (rowcount == 1).
-            verify_row = await conn.fetch_one(
-                "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
-            )
-            if verify_row is None or verify_row["lease_worker_id"] != worker_id:
-                return None
-        return run_id
+        return None if won is None else str(won["run_id"])
 
     async def _claim_pending_pg(self, deployment_ref: str, worker_id: str) -> str | None:
         """Atomic claim using SELECT ... FOR UPDATE SKIP LOCKED (Postgres).
@@ -236,7 +237,10 @@ class LeaseManager:
                     (run_id,),
                 )
                 recovery_checkpoint_id = cp_row["checkpoint_id"] if cp_row else None
-                await conn.execute(
+                # Guarded on the row still being expired: the SELECT above is
+                # not a lock, so another worker can reclaim between the two
+                # statements and both would otherwise report the same run.
+                won = await conn.fetch_one(
                     """
                     UPDATE runs
                     SET lease_worker_id = ?,
@@ -245,6 +249,9 @@ class LeaseManager:
                         recovery_checkpoint_id = ?,
                         lease_generation = lease_generation + 1
                     WHERE run_id = ?
+                      AND status = ?
+                      AND lease_expires_at < ?
+                    RETURNING run_id
                     """,
                     (
                         worker_id,
@@ -252,9 +259,12 @@ class LeaseManager:
                         expires_at.isoformat(),
                         recovery_checkpoint_id,
                         run_id,
+                        _STATUS_RUNNING,
+                        now.isoformat(),
                     ),
                 )
-                claimed.append(run_id)
+                if won is not None:
+                    claimed.append(run_id)
         return claimed
 
     # ---------------------------------------------------------------------------
