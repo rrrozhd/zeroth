@@ -593,6 +593,11 @@ class AgentRunner:
                         f"approval required for side-effecting tool call: {binding.alias}"
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
+                # Initialized before the try so the except branch can read it:
+                # True only once an MCP dispatch was actually attempted — a
+                # failed MCP call may still have landed (at-least-once), while
+                # a call rejected before dispatch produced no effect at all.
+                mcp_at_least_once = False
                 try:
                     # WS-C: capability gate BEFORE any dispatch. A denial raises
                     # CapabilityDeniedError, which the except branch below turns
@@ -605,7 +610,6 @@ class AgentRunner:
                             effective_capabilities,
                             node_id=self.config.name,
                         )
-                    mcp_at_least_once = False
                     with start_span("zeroth.tool", {"zeroth.tool": call["name"]}):
                         # Route MCP tool calls through MCPClientManager
                         if (
@@ -660,11 +664,15 @@ class AgentRunner:
                     )
                 except Exception as exc:
                     # Feed tool failures back as tool results so the model can react.
+                    # ZER-26/AUD-006: a *failed* MCP call is the marker's most
+                    # important case — the effect may have landed and nobody can
+                    # ask — so the exception path must carry it too.
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
                         arguments=call["args"],
                         granted_permissions=self.granted_tool_permissions,
                         error=str(exc),
+                        at_least_once=mcp_at_least_once,
                     )
                     error_content = str(exc)
                     if self.config.tool_output_safety.enabled:
