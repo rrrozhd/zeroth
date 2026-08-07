@@ -65,6 +65,17 @@ class SideEffectOperationStore:
 
     database: AsyncDatabase
     max_reconciliation_attempts: int = 3
+    metrics_collector: Any | None = None
+
+    def _count(self, name: str) -> None:
+        """Emit one counter, if a collector was wired.
+
+        Each outcome gets its own counter rather than one counter with a label,
+        so "how often did we suppress a replay" is answerable without a metrics
+        backend that supports label queries.
+        """
+        if self.metrics_collector is not None:
+            self.metrics_collector.increment(name)
 
     # -----------------------------------------------------------------------
     # Reads
@@ -153,6 +164,7 @@ class SideEffectOperationStore:
                         now,
                     ),
                 )
+                self._count("zeroth_side_effect_first_execution_total")
                 return OperationClaim(
                     state=OperationState.IN_FLIGHT,
                     first_execution=True,
@@ -164,6 +176,7 @@ class SideEffectOperationStore:
 
             if state is OperationState.COMPLETED:
                 # Replay suppression: the effect is known to have landed.
+                self._count("zeroth_side_effect_replay_suppressed_total")
                 return OperationClaim(
                     state=state,
                     first_execution=False,
@@ -180,6 +193,7 @@ class SideEffectOperationStore:
                     """,
                     (OperationState.IN_FLIGHT.value, attempt, now, operation_key),
                 )
+                self._count("zeroth_side_effect_first_execution_total")
                 return OperationClaim(
                     state=OperationState.IN_FLIGHT,
                     first_execution=True,
@@ -204,6 +218,7 @@ class SideEffectOperationStore:
                 )
 
         exhausted = attempts >= self.max_reconciliation_attempts
+        self._count("zeroth_side_effect_ambiguous_total")
         return OperationClaim(
             state=OperationState.AMBIGUOUS,
             first_execution=False,
@@ -269,6 +284,7 @@ class SideEffectOperationStore:
 
     async def mark_ambiguous(self, operation_key: str, *, reason: str) -> None:
         """Record that the outcome is unknown -- distinct from known-failed."""
+        self._count("zeroth_side_effect_ambiguous_total")
         now = _utc_now()
         async with self.database.transaction() as conn:
             await conn.execute(
@@ -323,6 +339,7 @@ class SideEffectOperationStore:
                     """,
                     (OperationState.COMPLETED.value, receipt, now, operation_key),
                 )
+                self._count("zeroth_side_effect_reconciliation_succeeded_total")
                 return OperationState.COMPLETED
 
             await conn.execute(
@@ -335,6 +352,7 @@ class SideEffectOperationStore:
                 """,
                 (OperationState.AMBIGUOUS.value, error, now, operation_key),
             )
+        self._count("zeroth_side_effect_reconciliation_failed_total")
         return OperationState.AMBIGUOUS
 
 

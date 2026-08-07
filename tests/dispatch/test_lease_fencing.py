@@ -324,3 +324,46 @@ async def test_lease_loss_is_counted_as_a_metric(sqlite_db) -> None:
 
     assert collector.counts.get("zeroth_lease_lost_total") == 1
     assert "zeroth_worker_crashes_total" not in collector.counts
+
+
+@pytest.mark.asyncio
+async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
+    """R8: a rejected stale write is countable, not only observable as False.
+
+    The counter lives on ``commit_fenced`` rather than on ``LeaseManager``
+    itself: the manager's constructor signature is pinned by the immutable
+    legacy surface fixture, so the optional collector rides on the new method.
+    """
+
+    class _Collector:
+        def __init__(self) -> None:
+            self.counts: dict[str, int] = {}
+
+        def increment(self, name: str, *args, **kwargs) -> None:
+            self.counts[name] = self.counts.get(name, 0) + 1
+
+    collector = _Collector()
+    manager = LeaseManager(sqlite_db)
+    run_id = await _pending_run(sqlite_db)
+    await manager.claim_pending(DEPLOYMENT, WORKER_A)
+    await _expire_lease(sqlite_db, run_id)
+    await manager.claim_pending(DEPLOYMENT, WORKER_B)
+
+    rejected = await manager.commit_fenced(
+        run_id,
+        WORKER_A,
+        generation=1,
+        metrics_collector=collector,
+        current_step="stale",
+    )
+    accepted = await manager.commit_fenced(
+        run_id,
+        WORKER_B,
+        generation=2,
+        metrics_collector=collector,
+        current_step="live",
+    )
+
+    assert rejected is False
+    assert accepted is True
+    assert collector.counts.get("zeroth_lease_fencing_rejected_total") == 1
