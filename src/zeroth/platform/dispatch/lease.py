@@ -332,8 +332,7 @@ class LeaseManager:
             applied = False
         else:
             applied = (
-                row["lease_worker_id"] == worker_id
-                and int(row["lease_generation"]) == generation
+                row["lease_worker_id"] == worker_id and int(row["lease_generation"]) == generation
             )
         if not applied and metrics_collector is not None:
             metrics_collector.increment("zeroth_lease_fencing_rejected_total")
