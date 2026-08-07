@@ -138,11 +138,23 @@ class RuntimeToolExecutor:
             # the same target inherited the previous call's key and could be
             # suppressed as a duplicate. Wrongly suppressing real work is worse
             # than missing a suppression, so distinctness wins here.
-            keyed_ref = f"{target_ref}#{tool_call_id}" if tool_call_id else target_ref
+            #
+            # When an id exists it is the WHOLE distinguishing suffix: mixing
+            # the counter back in re-broke recovery from the other side — the
+            # same call replayed at a different position minted a different
+            # key, so a genuine replay of a non-first call was not suppressed.
+            # The counter is key material only for executors that pass no id,
+            # and it is not consumed otherwise, so mixed streams stay stable.
+            if tool_call_id:
+                keyed_ref = f"{target_ref}#{tool_call_id}"
+                ordinal = 0
+            else:
+                keyed_ref = target_ref
+                ordinal = next(call_ordinal)
             identity = (
                 None
                 if operation_identity_factory is None
-                else operation_identity_factory(keyed_ref, next(call_ordinal))
+                else operation_identity_factory(keyed_ref, ordinal)
             )
             if inline:
                 result = await self.run_inline(
