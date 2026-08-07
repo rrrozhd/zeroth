@@ -79,6 +79,25 @@ duplicate was possible. It cannot tell you that one did not happen.** Closing
 that gap requires the integration to support an idempotency key or an outcome
 query; there is no runtime-side substitute.
 
+## What sits outside the boundary entirely
+
+Everything above describes executable units, which reach the runtime through
+`RuntimeToolExecutor`. **MCP tools do not.** An MCP tool is not a graph node, so
+an agent's MCP call goes straight to the MCP client manager and never passes the
+side-effect boundary at all. Concretely, an MCP call has:
+
+- no operation identity and no durable operation record;
+- no replay suppression — a retried agent turn calls the tool again;
+- no reconciliation path for an ambiguous outcome.
+
+This is a real limit, not an oversight to be read past. It is marked rather than
+implied: a tool-call audit record for an MCP call carries
+`operation_support: at_least_once` and `operation_residual_duplicate_risk: true`,
+so a record that *lacks* those fields is one the guarantee actually covered.
+
+If you need suppression for a side-effecting MCP tool today, wrap it as an
+executable unit so it dispatches through the guarded path.
+
 ## Fencing stale workers
 
 Leases carry a generation that advances on every claim and reclaim. Renewal is
@@ -105,9 +124,13 @@ that supports label queries:
 - `zeroth_lease_fencing_rejected_total`
 - `zeroth_lease_lost_total`
 
-Node audit records carry a `side_effect_operation` block with the operation key,
-target, declared support, state, whether this was a first execution or a
-suppressed replay, and the residual duplicate risk.
+Node audit records carry the same facts as flat, individually-typed keys —
+`operation_key`, `operation_target_ref`, `operation_support`, `operation_state`,
+`operation_first_execution`, `operation_replay_suppressed`,
+`operation_reconciliation_required`, `operation_reconciliation_exhausted`, and
+`operation_residual_duplicate_risk`. Flat is load-bearing, not stylistic: the
+audit capture boundary keeps an allowlisted, per-key-typed projection of
+top-level keys, so a nested block is discarded before it is ever persisted.
 
 ## Opting in
 

@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.6] - 2026-08-07
+
+### Fixed
+
+- Mark MCP tool calls as outside the side-effect guarantee. MCP tools are not
+  graph nodes, so they never reach `RuntimeToolExecutor` and carry no operation
+  identity, replay suppression, or reconciliation. Their audit records now say
+  so explicitly, and the delivery-guarantee documentation states the limit
+  rather than implying the guarantee is universal.
+
+### Documentation
+
+- Correct the audit-record description to the flat, individually-typed keys the
+  capture boundary actually persists.
+
 ## [0.18.5.1] - 2026-08-07
 
 ### Fixed
