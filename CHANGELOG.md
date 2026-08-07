@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.7] - 2026-08-07
+
+### Fixed
+
+- Record a side-effect operation's terminal state in the node audit. The record
+  was built from the claim, so every successful effect was filed as perpetually
+  IN_FLIGHT.
+- Carry a timeout's operation facts on the raised exception; re-raising
+  previously discarded the audit for the one outcome whose record matters most.
+- Stop recording reconciliation exhaustion as a failed execution before pausing
+  the run. Doing both stated two contradictory things about one node.
+
 ## [0.18.6] - 2026-08-07
 
 ### Fixed

@@ -998,11 +998,17 @@ class TestExhaustionPausesRatherThanFails:
         repo = RunRepository(dual_database)
 
         class _Recorder:
+            failed_executions = 0
+            histories = 0
+
             def redact(self, message: str) -> str:
                 return message
 
             async def record_failed_execution(self, *args, **kwargs) -> None:
-                return None
+                type(self).failed_executions += 1
+
+            async def record_history(self, *args, **kwargs) -> None:
+                type(self).histories += 1
 
         class _Driver:
             run_repository = repo
@@ -1036,6 +1042,10 @@ class TestExhaustionPausesRatherThanFails:
         assert paused.failure_state is None
         assert failed.status is RunStatus.FAILED, "ordinary errors must still fail the run"
         assert failed.failure_state is not None
+        # Recording a failed execution *and* pausing states two contradictory
+        # things about one node. Exhaustion gets a history record instead.
+        assert _Recorder.failed_executions == 1, "only the ordinary error is a failed execution"
+        assert _Recorder.histories == 1, "exhaustion records history, not failure"
 
 
 @requires_docker
@@ -1159,3 +1169,52 @@ class TestReceiptPrivacy:
         # Idempotent: erasing again deletes nothing and does not raise.
         async with dual_database.transaction() as conn:
             assert await erase_operations_for_run(conn, RUN) == 0
+
+
+@requires_docker
+class TestTerminalOperationAudit:
+    """AUD-008: the audit must record the outcome, not the moment of claiming."""
+
+    async def test_a_completed_operation_is_not_recorded_as_in_flight(
+        self, dual_database
+    ) -> None:
+        """The audit was built from the claim and never updated.
+
+        Every successful side effect was therefore filed as perpetually
+        IN_FLIGHT — the one state it definitively is not by the time the record
+        is written.
+        """
+        store = SideEffectOperationStore(dual_database)
+        dispatcher = _dispatcher(store, _CountingRunner())
+
+        _output, audit = await _dispatch_once(dispatcher, _run_with_dispatch())
+
+        assert audit["operation_state"] == "completed", (
+            "a settled operation must not be audited as in flight"
+        )
+        assert audit["operation_first_execution"] is True
+
+    async def test_a_timeout_carries_its_operation_facts_on_the_exception(
+        self, dual_database
+    ) -> None:
+        """Re-raising discarded the audit, losing the record that matters most.
+
+        A timeout is precisely the outcome worth auditing — the effect may have
+        landed — so the facts ride the exception to whoever records it.
+        """
+
+        class _TimingOutRunner:
+            async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
+                          operation_identity=None):
+                raise TimeoutError("no receipt within deadline")
+
+        store = SideEffectOperationStore(dual_database)
+        dispatcher = _dispatcher(store, _TimingOutRunner())
+
+        with pytest.raises(TimeoutError) as raised:
+            await _dispatch_once(dispatcher, _run_with_dispatch())
+
+        carried = getattr(raised.value, "operation_audit", None)
+        assert carried is not None, "a timeout must carry its operation facts"
+        assert carried["operation_state"] == "ambiguous"
+        assert carried["operation_residual_duplicate_risk"] is True

@@ -309,7 +309,12 @@ class NodeDispatcher:
                 return None, audit
             return await self._resolve_ambiguous(identity, claim, invoke, audit)
 
-        return await self._invoke_checkpointed(identity, invoke), audit
+        result = await self._invoke_checkpointed(identity, invoke)
+        # The audit was built from the *claim*, when the operation was still
+        # IN_FLIGHT. Leaving it there records every successful side effect as
+        # perpetually in flight, so the terminal state is written back.
+        audit["operation_state"] = OperationState.COMPLETED.value.lower()
+        return result, audit
 
     async def _invoke_checkpointed(
         self,
@@ -331,9 +336,21 @@ class NodeDispatcher:
             result = await invoke()
         except TimeoutError as error:
             await store.mark_ambiguous(identity.operation_key, reason=str(error) or "timeout")
+            # Carry the operation facts on the exception: re-raising discards the
+            # audit dict this method never returns, and a timeout is exactly the
+            # outcome whose record matters most.
+            error.operation_audit = {  # type: ignore[attr-defined]
+                "operation_key": identity.operation_key,
+                "operation_state": OperationState.AMBIGUOUS.value.lower(),
+                "operation_residual_duplicate_risk": not identity.dedupe_supported,
+            }
             raise
         except Exception as error:
             await store.fail(identity.operation_key, error=str(error))
+            error.operation_audit = {  # type: ignore[attr-defined]
+                "operation_key": identity.operation_key,
+                "operation_state": OperationState.FAILED.value.lower(),
+            }
             raise
         await store.complete(
             identity.operation_key,
