@@ -182,16 +182,17 @@ class _FakeGraph:
     entry_step: str = "start"
 
 
+@requires_docker
 @pytest.mark.asyncio
-async def test_lease_loss_cancels_the_running_execution(sqlite_db) -> None:
+async def test_lease_loss_cancels_the_running_execution(dual_database) -> None:
     """Ownership loss must stop the work, not merely be logged.
 
     Before this, ``_renewal_loop`` observed the loss, logged a warning and
     returned -- leaving the displaced worker driving the run to completion
     alongside its new owner.
     """
-    run_repo = RunRepository(sqlite_db)
-    manager = LeaseManager(sqlite_db, lease_duration_seconds=2)
+    run_repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
     worker = RunWorker(
@@ -202,14 +203,14 @@ async def test_lease_loss_cancels_the_running_execution(sqlite_db) -> None:
         lease_manager=manager,
         max_concurrency=1,
     )
-    run_id = await _pending_run(sqlite_db)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, worker.worker_id)
 
     task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
     await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
 
     # Another worker takes over while this one is mid-flight.
-    await _expire_lease(sqlite_db, run_id)
+    await _expire_lease(dual_database, run_id)
     # The run is RUNNING by now, so the realistic takeover path is the orphan
     # reclaim a fresh worker performs at startup -- not claim_pending.
     assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
@@ -220,15 +221,16 @@ async def test_lease_loss_cancels_the_running_execution(sqlite_db) -> None:
     assert orchestrator.completed is False
 
 
+@requires_docker
 @pytest.mark.asyncio
-async def test_lease_loss_does_not_mark_the_run_failed(sqlite_db) -> None:
+async def test_lease_loss_does_not_mark_the_run_failed(dual_database) -> None:
     """The displaced worker must not write a verdict on the new owner's run.
 
     Marking FAILED here would be a stale write with real consequences: the run
     is not failed, it simply belongs to somebody else now.
     """
-    run_repo = RunRepository(sqlite_db)
-    manager = LeaseManager(sqlite_db, lease_duration_seconds=2)
+    run_repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
     worker = RunWorker(
@@ -239,12 +241,12 @@ async def test_lease_loss_does_not_mark_the_run_failed(sqlite_db) -> None:
         lease_manager=manager,
         max_concurrency=1,
     )
-    run_id = await _pending_run(sqlite_db)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, worker.worker_id)
 
     task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
     await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
-    await _expire_lease(sqlite_db, run_id)
+    await _expire_lease(dual_database, run_id)
     # The run is RUNNING by now, so the realistic takeover path is the orphan
     # reclaim a fresh worker performs at startup -- not claim_pending.
     assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
@@ -255,11 +257,12 @@ async def test_lease_loss_does_not_mark_the_run_failed(sqlite_db) -> None:
     assert run.status is not RunStatus.FAILED
 
 
+@requires_docker
 @pytest.mark.asyncio
-async def test_lease_loss_releases_the_concurrency_slot(sqlite_db) -> None:
+async def test_lease_loss_releases_the_concurrency_slot(dual_database) -> None:
     """Stopping early must not leak the slot the run was occupying."""
-    run_repo = RunRepository(sqlite_db)
-    manager = LeaseManager(sqlite_db, lease_duration_seconds=2)
+    run_repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
     worker = RunWorker(
@@ -270,12 +273,12 @@ async def test_lease_loss_releases_the_concurrency_slot(sqlite_db) -> None:
         lease_manager=manager,
         max_concurrency=1,
     )
-    run_id = await _pending_run(sqlite_db)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, worker.worker_id)
 
     task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
     await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
-    await _expire_lease(sqlite_db, run_id)
+    await _expire_lease(dual_database, run_id)
     # The run is RUNNING by now, so the realistic takeover path is the orphan
     # reclaim a fresh worker performs at startup -- not claim_pending.
     assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
@@ -284,11 +287,12 @@ async def test_lease_loss_releases_the_concurrency_slot(sqlite_db) -> None:
     assert worker._semaphore._value == 1
 
 
+@requires_docker
 @pytest.mark.asyncio
-async def test_lease_loss_is_counted_as_a_metric(sqlite_db) -> None:
+async def test_lease_loss_is_counted_as_a_metric(dual_database) -> None:
     """R8: lease loss is distinguishable in metrics, not just in a log line."""
-    run_repo = RunRepository(sqlite_db)
-    manager = LeaseManager(sqlite_db, lease_duration_seconds=2)
+    run_repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
     class _Collector:
@@ -311,12 +315,12 @@ async def test_lease_loss_is_counted_as_a_metric(sqlite_db) -> None:
         max_concurrency=1,
         metrics_collector=collector,
     )
-    run_id = await _pending_run(sqlite_db)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, worker.worker_id)
 
     task = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
     await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
-    await _expire_lease(sqlite_db, run_id)
+    await _expire_lease(dual_database, run_id)
     # The run is RUNNING by now, so the realistic takeover path is the orphan
     # reclaim a fresh worker performs at startup -- not claim_pending.
     assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
@@ -327,7 +331,7 @@ async def test_lease_loss_is_counted_as_a_metric(sqlite_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
+async def test_fencing_rejection_is_counted_as_a_metric(dual_database) -> None:
     """R8: a rejected stale write is countable, not only observable as False.
 
     The counter lives on ``commit_fenced`` rather than on ``LeaseManager``
@@ -343,10 +347,10 @@ async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
             self.counts[name] = self.counts.get(name, 0) + 1
 
     collector = _Collector()
-    manager = LeaseManager(sqlite_db)
-    run_id = await _pending_run(sqlite_db)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
-    await _expire_lease(sqlite_db, run_id)
+    await _expire_lease(dual_database, run_id)
     await manager.claim_pending(DEPLOYMENT, WORKER_B)
 
     rejected = await manager.commit_fenced(
@@ -370,7 +374,7 @@ async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_commit_fenced_refuses_to_write_the_fence_columns(sqlite_db) -> None:
+async def test_commit_fenced_refuses_to_write_the_fence_columns(dual_database) -> None:
     """A fenced write must not be able to re-grant the lease it is fenced by.
 
     Each case below defeats the *previous* implementation, which intersected
@@ -378,8 +382,8 @@ async def test_commit_fenced_refuses_to_write_the_fence_columns(sqlite_db) -> No
     quoted spellings missed the denylist entirely, and a fragment reached the
     statement text. The allowlist rejects all of them by construction.
     """
-    manager = LeaseManager(sqlite_db)
-    run_id = await _pending_run(sqlite_db)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
 
     bypasses = [
@@ -397,7 +401,7 @@ async def test_commit_fenced_refuses_to_write_the_fence_columns(sqlite_db) -> No
 
     # None of the rejected attempts may have altered ownership or the fence.
     assert await manager.current_generation(run_id) == 1
-    async with sqlite_db.transaction() as conn:
+    async with dual_database.transaction() as conn:
         row = await conn.fetch_one(
             "SELECT lease_worker_id, current_step FROM runs WHERE run_id = ?", (run_id,)
         )
