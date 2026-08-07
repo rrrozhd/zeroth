@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.2.3] - 2026-08-07
+
+### Fixed
+
+- Build the release image with the PostgreSQL, LangGraph adapter, and gateway
+  dependencies exercised by its Compose smoke validation.
+- Accept Syft's SPDX `DESCRIBES` relationship orientation while rejecting the
+  reversed relationship in final release evidence.
+
 ## [0.16.2.2] - 2026-08-07
 
 ### Security

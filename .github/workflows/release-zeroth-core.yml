@@ -261,7 +261,7 @@ jobs:
           path: release/langgraph
 
       - name: Build release image
-        run: docker build -t zeroth-core:${{ github.ref_name }} .
+        run: docker build --build-arg ZEROTH_EXTRAS=memory-pg,langgraph,langgraph-gateway -t zeroth-core:${{ github.ref_name }} .
 
       - name: Reject invalid configuration
         shell: bash
