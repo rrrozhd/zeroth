@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18] - 2026-08-07
+
+### Added
+
+- Document the runtime's delivery guarantee at the side-effect boundary,
+  including the residual at-least-once case for integrations that support
+  neither an idempotency key nor an outcome query.
+
 ## [0.17.0.7] - 2026-08-07
 
 ### Added
