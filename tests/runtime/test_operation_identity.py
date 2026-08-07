@@ -484,6 +484,63 @@ def test_the_tool_call_id_makes_distinct_calls_distinct_after_recovery() -> None
     assert first_turn == replay_of_first, "an exact replay must still be recognised"
 
 
+def test_a_non_first_replay_after_recovery_is_still_recognised() -> None:
+    """ZER26-AUD-007: with a call id present, the ordinal must not be key material.
+
+    The earlier proof compared only *first* calls, forcing ordinal 0 on both
+    sides of the recovery. A call that was the agent's third call before the
+    crash replays as the recovered executor's first call — same provider call
+    id, different ordinal — and mixing the ordinal into the key minted a new
+    identity for it, so the replay was not suppressed.
+    """
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    node = ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://send-email",
+            execution_mode="wrapped_command",
+        ),
+    )
+    graph = _GraphOf(node)
+
+    def _factory(target_ref: str, ordinal: int):
+        return operation_identity(
+            run_id="run_1",
+            dispatch_id="dsp_abc",
+            idempotency_key="idem_abc",
+            attempt=0,
+            target_ref=target_ref,
+            call_ordinal=ordinal,
+        )
+
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    def _keys_for(call_ids):
+        runner = _RecordingRunner()
+        execute = _executor(runner).build(graph, {}, operation_identity_factory=_factory)
+        for call_id in call_ids:
+            asyncio.run(execute(_Binding(), {}, call_id))
+        return [call["operation_identity"].operation_key for call in runner.calls]
+
+    # Before the crash: call_ccc is the agent's THIRD call.
+    before_crash = _keys_for(["call_aaa", "call_bbb", "call_ccc"])
+    # After recovery: the same call replays as the new executor's FIRST call.
+    (after_recovery,) = _keys_for(["call_ccc"])
+
+    assert after_recovery == before_crash[2], (
+        "the same provider call id must key the same operation at any position"
+    )
+    assert len(set(before_crash)) == 3, "distinct calls must still be distinct"
+
+
 def test_an_mcp_tool_call_is_marked_as_outside_the_guarantee() -> None:
     """MCP calls bypass the side-effect boundary, so the record must say so.
 
