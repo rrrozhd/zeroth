@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.5] - 2026-08-07
+
+### Added
+
+- Add `side_effect_operations`: a durable receipt per logical side-effecting
+  operation, distinguishing not-started, in-flight, completed, failed, and
+  ambiguous outcomes, with convergent duplicate reports and a bounded
+  reconciliation path for ambiguous ones.
+- Add lease generations. Claiming and reclaiming a run advance the generation,
+  renewal is qualified by it, and `commit_fenced` rejects a write from a
+  superseded generation.
+
+### Fixed
+
+- Losing a lease now stops the displaced worker's execution instead of only
+  logging it, and the worker no longer marks the new owner's run as failed.
+
 ## [0.17.0.4] - 2026-08-07
 
 ### Added
