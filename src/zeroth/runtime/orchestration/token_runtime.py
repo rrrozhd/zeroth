@@ -567,10 +567,14 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         return None
                     await TokenLifecycleAdapter(self.store).cancel(run.run_id)
                     return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
-                await self.driver.audit_recorder.record_failed_execution(
-                    run, node, node.node_id, input_payload, exc, started_at=node_started_at
+                # The same terminal-vs-resumable decision the legacy driver
+                # makes. This is the DEFAULT execution path, so routing it here
+                # is what actually stops an exhausted ambiguous side effect from
+                # stranding a run -- fixing only the legacy driver fixed the
+                # path fewer runs take.
+                return await self.driver._settle_failed_dispatch(
+                    run, node, node.node_id, input_payload, exc, node_started_at
                 )
-                return await self.driver.fail_run(run, "node_execution_failed", str(exc))
 
         lifecycle_stop = await self._settle_cancellation_requests(run)
         if lifecycle_stop is not None:

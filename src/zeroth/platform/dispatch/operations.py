@@ -331,14 +331,21 @@ class SideEffectOperationStore:
         return won is not None
 
     async def fail(self, operation_key: str, *, error: str) -> None:
-        """Record a *confirmed* failure.  A completed operation is never undone."""
+        """Record a *confirmed* failure.
+
+        Neither a COMPLETED nor an AMBIGUOUS operation is overwritten. Completed
+        is obvious. Ambiguous is the subtler one: it means an earlier attempt may
+        have applied the effect and nobody can say, so demoting it to FAILED
+        would assert it did not happen -- and would discard the durable
+        reconciliation work that exists precisely because the answer is unknown.
+        """
         now = _utc_now()
         async with self.database.transaction() as conn:
             await conn.execute(
                 """
                 UPDATE side_effect_operations
                 SET state = ?, error = ?, updated_at = ?
-                WHERE operation_key = ? AND state != ?
+                WHERE operation_key = ? AND state NOT IN (?, ?)
                 """,
                 (
                     OperationState.FAILED.value,
@@ -346,6 +353,7 @@ class SideEffectOperationStore:
                     now,
                     operation_key,
                     OperationState.COMPLETED.value,
+                    OperationState.AMBIGUOUS.value,
                 ),
             )
 

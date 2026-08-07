@@ -373,23 +373,39 @@ async def test_fencing_rejection_is_counted_as_a_metric(sqlite_db) -> None:
 async def test_commit_fenced_refuses_to_write_the_fence_columns(sqlite_db) -> None:
     """A fenced write must not be able to re-grant the lease it is fenced by.
 
-    Without this, `**columns` accepted `lease_worker_id`/`lease_generation`, so a
-    displaced worker could hand itself ownership in the very statement the fence
-    was meant to reject — making the fence decorative.
+    Each case below defeats the *previous* implementation, which intersected
+    exact lowercase names and then interpolated them into SQL: uppercase and
+    quoted spellings missed the denylist entirely, and a fragment reached the
+    statement text. The allowlist rejects all of them by construction.
     """
     manager = LeaseManager(sqlite_db)
     run_id = await _pending_run(sqlite_db)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
 
-    for column, value in (
-        ("lease_worker_id", WORKER_A),
-        ("lease_generation", 99),
-        ("lease_expires_at", "2099-01-01T00:00:00+00:00"),
-    ):
-        with pytest.raises(ValueError, match="lease columns"):
-            await manager.commit_fenced(run_id, WORKER_A, generation=1, **{column: value})
+    bypasses = [
+        "lease_worker_id",  # the exact name the old denylist caught
+        "LEASE_WORKER_ID",  # case bypass: old check was exact-lowercase
+        "lease_generation",
+        "Lease_Generation",
+        '"lease_worker_id"',  # quoted alias
+        "current_step = 'x', lease_generation",  # injected fragment
+        "nonexistent_column",
+    ]
+    for column in bypasses:
+        with pytest.raises(ValueError):
+            await manager.commit_fenced(run_id, WORKER_A, generation=1, **{column: "x"})
+
+    # None of the rejected attempts may have altered ownership or the fence.
+    assert await manager.current_generation(run_id) == 1
+    async with sqlite_db.transaction() as conn:
+        row = await conn.fetch_one(
+            "SELECT lease_worker_id, current_step FROM runs WHERE run_id = ?", (run_id,)
+        )
+    assert row["lease_worker_id"] == WORKER_A
+    assert row["current_step"] != "x"
 
     # The legitimate write still works.
-    assert await manager.commit_fenced(
-        run_id, WORKER_A, generation=1, current_step="ok"
-    ) is True
+    assert (
+        await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok")
+        is True
+    )
