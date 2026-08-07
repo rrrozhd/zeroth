@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.7] - 2026-08-07
+
+### Added
+
+- Consult the side-effect receipt store on the executable-unit dispatch path:
+  a completed operation is replayed from its stored receipt instead of applying
+  the effect again, a timeout becomes ambiguous reconciliation work rather than
+  a confirmed failure, and the outcome is recorded in the node's audit record.
+- Count first execution, replay suppression, ambiguity, reconciliation success
+  and failure, and lease-fencing rejection as distinct metrics.
+
 ## [0.17.0.6] - 2026-08-07
 
 ### Added

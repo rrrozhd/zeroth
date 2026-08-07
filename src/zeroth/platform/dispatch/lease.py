@@ -292,6 +292,7 @@ class LeaseManager:
         worker_id: str,
         *,
         generation: int,
+        metrics_collector: object | None = None,
         **columns: object,
     ) -> bool:
         """Apply a run-state write only if the caller still holds the lease.
@@ -328,8 +329,15 @@ class LeaseManager:
                 (run_id,),
             )
         if row is None:
-            return False
-        return row["lease_worker_id"] == worker_id and int(row["lease_generation"]) == generation
+            applied = False
+        else:
+            applied = (
+                row["lease_worker_id"] == worker_id
+                and int(row["lease_generation"]) == generation
+            )
+        if not applied and metrics_collector is not None:
+            metrics_collector.increment("zeroth_lease_fencing_rejected_total")
+        return applied
 
     async def release_lease(self, run_id: str, worker_id: str) -> None:
         """Clear the lease columns after a run finishes (success or failure)."""
