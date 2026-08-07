@@ -1493,11 +1493,27 @@ class GraphDriver:
         failure: the effect may have landed and nobody can say, so the run pauses
         resumably instead of asserting it did not happen.
         """
+        if isinstance(exc, SideEffectReconciliationExhaustedError):
+            # Not a failed execution. Recording one and then pausing states two
+            # contradictory things about the same node: that it failed, and that
+            # it is waiting to be reconciled. Only the pause is true.
+            await self.audit_recorder.record_history(
+                run,
+                node,
+                node_id,
+                input_payload,
+                {},
+                {
+                    "reason_code": "side_effect_reconciliation_exhausted",
+                    "operation_reconciliation_exhausted": True,
+                    "operation_residual_duplicate_risk": True,
+                },
+                started_at=node_started_at,
+            )
+            return await self.pause_for_reconciliation(run, node_id, str(exc))
         await self.audit_recorder.record_failed_execution(
             run, node, node_id, input_payload, exc, started_at=node_started_at
         )
-        if isinstance(exc, SideEffectReconciliationExhaustedError):
-            return await self.pause_for_reconciliation(run, node_id, str(exc))
         return await self.fail_run(run, "node_execution_failed", str(exc))
 
     async def pause_for_reconciliation(self, run: Run, node_id: str, message: str) -> Run:
