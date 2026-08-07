@@ -17,13 +17,24 @@ A governed medium-code platform for building, running, and deploying production-
 
 Zeroth treats an agentic application as an **explicit executable graph** rather than an opaque prompt chain. Every node boundary is typed, executable units can run inside a hardened Docker/sidecar sandbox (the default local backend is for development), memory is attachable and shareable, and audits are recorded per node. The result is a system you can reason about, govern, and deploy with confidence.
 
+| Capability | Observed | Partial | Enforced |
+|---|---:|---:|---:|
+| Gateway admission, compatibility, and request audit | ✓ | — | ✓ |
+| LangGraph causal spans and stream order | ✓ | — | — |
+| Tool inventory coverage | ✓ | ✓ | — |
+| In-process `govern_tools` / `ZerothMiddleware` calls | ✓ | — | ✓ |
+
+> **Gateway-only mode cannot enforce internal Agent Server tool calls.** Install
+> the in-process `langgraph` adapter for tool-body allow, deny, and approval
+> enforcement. `Partial` above describes inventory coverage, not a governance level.
+
 ---
 
 ## Documentation
 
 Full documentation lives at **<https://rrrozhd.github.io/zeroth/>** —
 start with the [Getting Started tutorial](https://rrrozhd.github.io/zeroth/tutorials/getting-started/)
-or the [Governance Walkthrough](https://rrrozhd.github.io/zeroth/tutorials/governance-walkthrough/).
+or the [LangGraph release deployment guide](docs/how-to/deployment/langgraph-release.md).
 
 Project links: [source](https://github.com/rrrozhd/zeroth) ·
 [releases](https://github.com/rrrozhd/zeroth/releases) ·

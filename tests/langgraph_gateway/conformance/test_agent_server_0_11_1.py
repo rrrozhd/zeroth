@@ -250,6 +250,35 @@ def test_fixture_replays_tools_and_fails_closed_on_a_cassette_miss(
         )
 
 
+def test_fixture_replays_model_and_fails_closed_on_a_cassette_miss() -> None:
+    request = {
+        "messages": [{"content": "fixture question", "role": "user"}],
+        "model": "fixture-model-v1",
+        "temperature": 0,
+    }
+
+    replay = graph.invoke({"mode": "model", "model_request": request})
+
+    assert replay["model_response"] == {
+        "content": "fixture response",
+        "finish_reason": "stop",
+        "role": "assistant",
+    }
+    with pytest.raises(AssertionError, match="model cassette miss"):
+        graph.invoke(
+            {
+                "mode": "model",
+                "model_request": {**request, "model": "unrecorded-model"},
+            }
+        )
+
+
+def test_fixture_exposes_the_retry_attempt_sequence() -> None:
+    result = graph.invoke({"mode": "retry", "retry_key": "direct-retry"})
+
+    assert result["retry_attempts"] == [1, 2]
+
+
 def test_fixture_custom_events_are_ordered_and_exception_is_predictable() -> None:
     events = list(graph.stream({"mode": "echo", "text": "ordered"}, stream_mode="custom"))
     assert [(event["kind"], event["sequence"]) for event in events] == [

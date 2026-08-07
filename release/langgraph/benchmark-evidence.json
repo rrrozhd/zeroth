@@ -1,0 +1,286 @@
+{
+  "baseline": {
+    "hardware": {
+      "cpu_count": 14,
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.12.13",
+      "release": "25.5.0",
+      "system": "Darwin"
+    },
+    "methodology": "langgraph-local-vs-loopback-sidecar",
+    "metrics": {
+      "decision_latency_p95_ms": 2.095792,
+      "peak_memory_bytes": 172497.0,
+      "sidecar_overhead_p95_ms": 3.192833,
+      "throughput_tokens_per_second": 8546.644849,
+      "ttft_p95_ms": 3.894875
+    },
+    "release": "0.16.1.7",
+    "sample_count": 20,
+    "schema_version": 1,
+    "source": {
+      "commit": "d4f235f70f43f669d7d14df14a69b0cda10eaea5",
+      "package_version": "0.16.1.7",
+      "path": "archived src/zeroth/integrations/langgraph"
+    }
+  },
+  "evaluation": {
+    "decision_latency_p95_ms": true,
+    "peak_memory_bytes": true,
+    "sidecar_overhead_p95_ms": true,
+    "throughput_tokens_per_second": true,
+    "ttft_p95_ms": true
+  },
+  "hardware": {
+    "cpu_count": 14,
+    "machine": "arm64",
+    "processor": "arm",
+    "python": "3.12.13",
+    "release": "25.5.0",
+    "system": "Darwin"
+  },
+  "injected_regression": false,
+  "methodology": {
+    "clock": "time.perf_counter",
+    "description": "Repeated public govern_tools StateGraph execution versus the same graph using HttpToolDecisionClient over a real loopback HTTP sidecar.",
+    "external_network_included": false,
+    "kind": "langgraph-local-vs-loopback-sidecar",
+    "model_latency_included": false
+  },
+  "observed": {
+    "decision_latency_p95_ms": 1.655542,
+    "peak_memory_bytes": 172468.0,
+    "sidecar_overhead_p95_ms": 2.925375,
+    "throughput_tokens_per_second": 9096.72119,
+    "ttft_p95_ms": 3.425458
+  },
+  "passed": true,
+  "release": "0.16.2.5.1",
+  "sample_count": 20,
+  "sample_distribution": {
+    "decision_latency_ms": [
+      2.766667,
+      1.655542,
+      1.443667,
+      1.348875,
+      1.527666,
+      1.426833,
+      1.408708,
+      1.44475,
+      1.419375,
+      1.449833,
+      1.451542,
+      1.501209,
+      1.465917,
+      1.494125,
+      1.487375,
+      1.425083,
+      1.4985,
+      1.523125,
+      1.447917,
+      1.568042
+    ],
+    "local_overhead_ms": [
+      2.285791,
+      0.835,
+      0.79175,
+      0.747916,
+      0.702667,
+      0.814667,
+      0.714583,
+      0.737042,
+      0.767875,
+      0.754958,
+      0.756791,
+      0.755084,
+      0.736208,
+      0.803458,
+      0.635417,
+      1.065667,
+      0.813208,
+      0.774667,
+      1.022667,
+      0.779167
+    ],
+    "peak_memory_bytes": [
+      172468.0,
+      144097.0,
+      147109.0,
+      148006.0,
+      125789.0,
+      124954.0,
+      125001.0,
+      124139.0,
+      142624.0,
+      139994.0,
+      144354.0,
+      141505.0,
+      123348.0,
+      125438.0,
+      138358.0,
+      141001.0,
+      140530.0,
+      122044.0,
+      140449.0,
+      140218.0
+    ],
+    "sidecar_overhead_ms": [
+      2.726834,
+      2.739916,
+      2.637541,
+      2.607459,
+      2.753791,
+      2.543291,
+      2.819125,
+      2.611417,
+      2.616666,
+      2.630459,
+      2.692209,
+      2.637749,
+      2.897375,
+      2.651125,
+      2.925375,
+      2.348375,
+      2.834,
+      2.653083,
+      2.308,
+      2.955833
+    ],
+    "throughput_tokens_per_second": [
+      6383.880536,
+      8951.25887,
+      9331.374717,
+      9536.936932,
+      9258.032399,
+      9529.600888,
+      9055.643709,
+      9556.63479,
+      9454.753184,
+      9452.306305,
+      9278.051737,
+      9431.645916,
+      8806.734375,
+      9263.057224,
+      8986.764853,
+      9373.053825,
+      8773.834716,
+      9335.570075,
+      9607.685079,
+      8567.603669
+    ],
+    "token_cadence_ms": [
+      0.001238,
+      0.001085,
+      0.001125,
+      0.001113,
+      0.001027,
+      0.001078,
+      0.001056,
+      0.001118,
+      0.001054,
+      0.001073,
+      0.001051,
+      0.001097,
+      0.001063,
+      0.001085,
+      0.001036,
+      0.001155,
+      0.001071,
+      0.001054,
+      0.001129,
+      0.001243
+    ],
+    "ttft_ms": [
+      4.756542,
+      3.32325,
+      3.206291,
+      3.122125,
+      3.244958,
+      3.106125,
+      3.291875,
+      3.089042,
+      3.15075,
+      3.14725,
+      3.220667,
+      3.156583,
+      3.376958,
+      3.233417,
+      3.323875,
+      3.140292,
+      3.425458,
+      3.188583,
+      3.090917,
+      3.36175
+    ]
+  },
+  "schema_version": 2,
+  "stream_ordering": {
+    "samples_checked": 20,
+    "valid": true
+  },
+  "summary": {
+    "decision_latency_ms": {
+      "mean": 1.537738,
+      "p95": 1.655542
+    },
+    "local_overhead_ms": {
+      "mean": 0.864729,
+      "p95": 1.065667
+    },
+    "peak_memory_bytes": {
+      "mean": 137571.3,
+      "p95": 148006.0
+    },
+    "sidecar_overhead_ms": {
+      "mean": 2.679481,
+      "p95": 2.925375
+    },
+    "throughput_tokens_per_second": {
+      "mean": 9096.72119,
+      "p95": 9556.63479
+    },
+    "token_cadence_ms": {
+      "mean": 0.001098,
+      "p95": 0.001238
+    },
+    "ttft_ms": {
+      "mean": 3.297835,
+      "p95": 3.425458
+    }
+  },
+  "thresholds": {
+    "derived_from": "0.16.1.7",
+    "rules": {
+      "decision_latency_p95_ms": {
+        "maximum": 10.0
+      },
+      "peak_memory_bytes": {
+        "maximum": 2000000
+      },
+      "sidecar_overhead_p95_ms": {
+        "maximum": 15.0
+      },
+      "throughput_tokens_per_second": {
+        "minimum": 2136.66121225
+      },
+      "ttft_p95_ms": {
+        "maximum": 15.5795
+      }
+    }
+  },
+  "variance": {
+    "decision_latency_ms": 0.083494,
+    "local_overhead_ms": 0.115413,
+    "peak_memory_bytes": 140829473.11,
+    "sidecar_overhead_ms": 0.026331,
+    "throughput_tokens_per_second": 467918.849001,
+    "token_cadence_ms": 0.0,
+    "ttft_ms": 0.121608
+  },
+  "workload": {
+    "local_path": "govern_tools+StateGraph",
+    "sidecar_path": "govern_tools+HttpToolDecisionClient",
+    "tokens_per_sample": 32
+  }
+}

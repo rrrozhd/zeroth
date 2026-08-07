@@ -273,6 +273,18 @@ class CompatibilityDetector:
                 openapi_fingerprint=openapi_digest,
                 reason="detected Agent Server version is not in the tested matrix",
             )
+        if openapi_response.status_code == 404:
+            return self._result(
+                CompatibilityStatus.UNSUPPORTED,
+                detected_version=detected_version,
+                reason="upstream OpenAPI fingerprint is unavailable",
+            )
+        if not 200 <= openapi_response.status_code < 300:
+            return self._result(
+                CompatibilityStatus.UNAVAILABLE,
+                detected_version=detected_version,
+                reason="upstream OpenAPI probe failed",
+            )
         if openapi_malformed:
             return self._result(
                 CompatibilityStatus.UNSUPPORTED,
@@ -288,7 +300,7 @@ class CompatibilityDetector:
             )
         if detected_version is not None:
             expected_digest = self._expected_openapi_fingerprints.get(detected_version)
-            if openapi_digest is not None and openapi_digest != expected_digest:
+            if openapi_digest != expected_digest:
                 return self._result(
                     CompatibilityStatus.UNSUPPORTED,
                     detected_version=detected_version,

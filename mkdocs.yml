@@ -123,6 +123,7 @@ nav:
       - Standalone service: how-to/deployment/standalone-service.md
       - Embedded library: how-to/deployment/embedded-library.md
       - With Regulus: how-to/deployment/with-regulus.md
+      - LangGraph release deployment: how-to/deployment/langgraph-release.md
     - Migration from monolith: how-to/migration-from-monolith.md
   - Concepts:
     - concepts/index.md
