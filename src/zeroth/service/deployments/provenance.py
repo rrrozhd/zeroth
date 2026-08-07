@@ -70,9 +70,7 @@ def build_attestation_payload(deployment: object) -> dict[str, object]:
         "created_at": deployment.created_at.isoformat(),
     }
     if getattr(deployment, "attestation_payload_version", 1) >= 2:
-        payload["attestation_payload_version"] = int(
-            deployment.attestation_payload_version
-        )
+        payload["attestation_payload_version"] = int(deployment.attestation_payload_version)
         payload["engine_mode"] = str(deployment.engine_mode)
     return {
         **payload,
@@ -111,9 +109,7 @@ def verify_attestation(deployment: object, attestation: dict[str, object]) -> li
         "created_at": deployment.created_at.isoformat(),
     }
     if getattr(deployment, "attestation_payload_version", 1) >= 2:
-        current["attestation_payload_version"] = int(
-            deployment.attestation_payload_version
-        )
+        current["attestation_payload_version"] = int(deployment.attestation_payload_version)
         current["engine_mode"] = str(deployment.engine_mode)
     current["attestation_digest"] = compute_attestation_digest(current)
     fields = [

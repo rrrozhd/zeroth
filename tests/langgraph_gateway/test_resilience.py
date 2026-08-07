@@ -13,8 +13,8 @@ from starlette.requests import Request
 
 from tests.langgraph_gateway.conformance.harness import create_gateway_app
 from zeroth.contracts.langgraph_gateway.models import GatewayEventStatus
-from zeroth.core.config.settings import LangGraphGatewaySettings
-from zeroth.core.secrets.provider import EnvSecretProvider
+from zeroth.platform.config import LangGraphGatewaySettings
+from zeroth.platform.secrets import EnvSecretProvider
 from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
 
 
@@ -239,7 +239,7 @@ async def test_observer_exception_preserves_delivered_bytes_and_closes_once(
         authenticated_empty_request,
         supported_compatibility,
     )
-    from zeroth.core.signing import EnvHmacSigner
+    from zeroth.platform.signing import EnvHmacSigner
     from zeroth.service.langgraph_gateway.context import ReservedContextCodec
     from zeroth.service.langgraph_gateway.proxy import GatewayProxy
 

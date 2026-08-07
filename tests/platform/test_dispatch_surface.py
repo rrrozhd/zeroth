@@ -13,22 +13,29 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_dispatch_is_the_same_surface_through_both_paths() -> None:
-    from zeroth.core import dispatch as legacy
-    from zeroth.platform import dispatch as canonical
+def test_dispatch_publishes_its_whole_surface() -> None:
+    """Every name the package is documented to export is still exported.
 
-    assert canonical.LeaseManager is legacy.LeaseManager
-    assert canonical.WAKEUP_TASK_NAME is legacy.WAKEUP_TASK_NAME
-    assert canonical.arq_settings_from_zeroth is legacy.arq_settings_from_zeroth
-    assert canonical.create_arq_pool is legacy.create_arq_pool
-    assert canonical.enqueue_wakeup is legacy.enqueue_wakeup
-    assert canonical.run_arq_consumer is legacy.run_arq_consumer
+    This replaced a parity assertion comparing each name against the legacy
+    republisher. ZER-25 removed that path, so the comparison would compare
+    the module with itself; the surface it pinned is asserted directly.
+    """
+    import zeroth.platform.dispatch as canonical
+
+    expected = {
+        "LeaseManager",
+        "WAKEUP_TASK_NAME",
+        "arq_settings_from_zeroth",
+        "create_arq_pool",
+        "enqueue_wakeup",
+        "run_arq_consumer",
+    }
+
+    missing = sorted(name for name in expected if not hasattr(canonical, name))
+    assert not missing, f"zeroth.platform.dispatch no longer publishes: {missing}"
 
 
 def test_the_run_worker_lives_in_the_runtime_domain() -> None:
@@ -38,31 +45,41 @@ def test_the_run_worker_lives_in_the_runtime_domain() -> None:
     approval service; none of that may sit below the runtime layer. The legacy
     ``zeroth.core.dispatch`` path keeps republishing it lazily.
     """
-    from zeroth.core import dispatch as legacy
     from zeroth.runtime.orchestration import run_worker
 
-    assert legacy.RunWorker is run_worker.RunWorker
+    assert hasattr(run_worker, "RunWorker")
 
 
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("zeroth.platform.dispatch", "zeroth.core.dispatch"),
-        ("zeroth.core.dispatch", "zeroth.platform.dispatch"),
-    ],
-)
-def test_dispatch_cold_imports_from_both_directions(first: str, second: str) -> None:
+def test_dispatch_imports_in_a_cold_interpreter() -> None:
+    """The canonical package imports with nothing else pre-warmed.
+
+    This kept the canonical half of a test that used to import the legacy
+    and canonical packages in both orders, guarding a cycle between them.
+    With the legacy package gone there is one direction left to guard.
+    """
     result = subprocess.run(
-        [sys.executable, "-c", f"import {first}\nimport {second}\n"],
+        [sys.executable, "-c", "import zeroth.platform.dispatch"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"cold import {first} then {second} failed:\n{result.stderr}"
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_dispatch_extra_smoke_uses_the_canonical_packaged_surface() -> None:
     """The wheel gate must follow dispatch moves and exercise its dependencies."""
     workflow = (REPO_ROOT / ".github/workflows/verify-extras.yml").read_text(encoding="utf-8")
 
-    assert "zeroth.core.dispatch.worker" not in workflow
+    # Every zeroth module the extras gate imports must actually exist. The
+    # earlier form asserted the absence of one hard-coded name, which passed
+    # trivially once that name was retired -- and would keep passing if the
+    # workflow started naming some *other* module that no longer exists.
+    import importlib.util
+    import re
+
+    named = sorted(set(re.findall(r"\bzeroth(?:\.[a-z_]+)+", workflow)))
+    assert named, "the extras gate imports no zeroth modules -- the scan is wrong"
+    missing = [name for name in named if importlib.util.find_spec(name) is None]
+    assert not missing, f"the extras gate imports modules that do not exist: {missing}"
+
     assert workflow.count("import arq, redis, zeroth.platform.dispatch.arq_wakeup") == 2

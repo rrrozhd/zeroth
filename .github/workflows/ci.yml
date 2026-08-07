@@ -25,4 +25,4 @@ jobs:
           uv sync --all-groups --all-extras
           uv run ruff check src tests
           uv run pytest -v --no-header -ra
-          uv run interrogate src/zeroth/core
+          uv run interrogate src/zeroth

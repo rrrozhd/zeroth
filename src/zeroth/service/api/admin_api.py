@@ -15,10 +15,11 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
-from zeroth.core.runs import RunFailureState, RunStatus
+from zeroth.contracts.governed import RunStatus
 from zeroth.runtime.orchestration.interrupts import InterruptManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
+from zeroth.runtime.runs import RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

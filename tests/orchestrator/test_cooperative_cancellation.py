@@ -1,4 +1,5 @@
-"""Audit F3: an operator's out-of-band cancel/interrupt must actually stop an
+"""Audit F3: an operator's out-of-band cancel/interrupt must actually stop an.
+
 in-flight run before the next node dispatches.
 
 The drive loop holds an in-memory Run and blind-writes RUNNING every node hop.
@@ -14,16 +15,18 @@ from typing import Any
 
 import pytest
 
-from zeroth.governance.audit import AuditRepository
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, Graph
-from zeroth.core.orchestrator import RuntimeOrchestrator
+from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 
 
 class _CancelDuringDispatchRunner:
-    """A runner that flips the persisted run status mid-dispatch, as an operator's
-    admin cancel/interrupt would from another task."""
+    """A runner that flips the persisted run status mid-dispatch, as an operator's.
+
+    admin cancel/interrupt would from another task.
+    """
 
     def __init__(self, repo: RunRepository, run_id: str, *, transition_to: RunStatus) -> None:
         self._repo = repo
@@ -188,9 +191,11 @@ async def test_precancelled_run_never_dispatches(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
-    """F3 re-audit: a cancelled run's queued successors are persisted, so a
+    """F3 re-audit: a cancelled run's queued successors are persisted, so a.
+
     FAILED->PENDING replay resumes from where it stopped instead of being marked
-    COMPLETED with the remaining nodes silently skipped."""
+    COMPLETED with the remaining nodes silently skipped.
+    """
     repo = RunRepository(sqlite_db)
     # Seed only the entry node; successors are queued dynamically per hop (as real
     # runs do), so the checkpoint after the cancelled hop must include n2.
@@ -225,7 +230,8 @@ async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_external_stop_yields_to_concurrent_operator_transition(sqlite_db) -> None:
-    """F3 re-audit follow-up: if an operator replay (FAILED->PENDING) lands
+    """F3 re-audit follow-up: if an operator replay (FAILED->PENDING) lands.
+
     between _external_stop's read and its write, the loop must NOT blind-write the
     stale FAILED back and silently revert the operator — it yields to them.
     """
@@ -259,8 +265,10 @@ async def test_external_stop_yields_to_concurrent_operator_transition(sqlite_db)
 
 @pytest.mark.asyncio
 async def test_external_stop_persists_when_no_concurrent_transition(sqlite_db) -> None:
-    """No operator raced in: _external_stop persists the adopted stop status and
-    checkpoints the queue state (unchanged happy path)."""
+    """No operator raced in: _external_stop persists the adopted stop status and.
+
+    checkpoints the queue state (unchanged happy path).
+    """
     from unittest.mock import AsyncMock
 
     repo = RunRepository(sqlite_db)

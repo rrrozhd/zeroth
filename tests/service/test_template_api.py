@@ -10,8 +10,8 @@ from tests.service.helpers import (
     deploy_service,
     operator_headers,
 )
-from zeroth.core.service.bootstrap import bootstrap_app
 from zeroth.contracts.templates.registry import TemplateRegistry
+from zeroth.service.bootstrap import bootstrap_app
 
 
 async def _build_app(sqlite_db, *, template_registry=None):

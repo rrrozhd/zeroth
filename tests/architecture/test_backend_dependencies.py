@@ -92,17 +92,21 @@ def test_importfrom_resolves_top_level_package_alias(tmp_path: Path) -> None:
 def test_importfrom_resolves_nested_module_alias(tmp_path: Path) -> None:
     architecture = importlib.import_module("zeroth._architecture")
     source_root = tmp_path / "src"
-    _write_module(source_root, "zeroth.core.runs.repository", "")
+    _write_module(source_root, "zeroth.integrations.persistence.repository", "")
     _write_module(
         source_root,
         "zeroth.runtime.driver",
-        "from zeroth.core.runs import repository\n",
+        "from zeroth.integrations.persistence import repository\n",
     )
 
     violations = architecture.find_dependency_violations(source_root)
 
+    # Both edges are reported: the package named in the ``from`` clause and the
+    # submodule the alias resolves to. The second is the one this test is about --
+    # without alias resolution the scanner would only ever see the package.
     assert [(item.importer, item.imported) for item in violations] == [
-        ("zeroth.runtime.driver", "zeroth.core.runs.repository")
+        ("zeroth.runtime.driver", "zeroth.integrations.persistence"),
+        ("zeroth.runtime.driver", "zeroth.integrations.persistence.repository"),
     ]
 
 
@@ -129,17 +133,17 @@ def test_package_init_importer_is_normalized_when_resolving_alias(
 def test_relative_importfrom_resolves_child_module_alias(tmp_path: Path) -> None:
     architecture = importlib.import_module("zeroth._architecture")
     source_root = tmp_path / "src"
-    _write_module(source_root, "zeroth.core.runs.repository", "")
+    _write_module(source_root, "zeroth.contracts.graph.repository", "import zeroth.service.app\n")
     _write_module(
         source_root,
-        "zeroth.core.runs.__init__",
+        "zeroth.contracts.graph.__init__",
         "from . import repository\n",
     )
 
     violations = architecture.find_dependency_violations(source_root, exceptions={})
 
     assert [(item.importer, item.imported) for item in violations] == [
-        ("zeroth.core.runs", "zeroth.core.runs.repository")
+        ("zeroth.contracts.graph.repository", "zeroth.service.app")
     ]
 
 
@@ -186,7 +190,7 @@ def test_scanner_parses_unclassified_modules_and_reports_syntax_errors(
     source_root = tmp_path / "src"
     module = _write_module(
         source_root,
-        "zeroth.core.examples.broken",
+        "zeroth.contracts.examples.broken",
         "def broken(:\n",
     )
 
@@ -244,68 +248,27 @@ def test_real_repository_obeys_backend_dependency_direction() -> None:
     )
 
 
-def test_langgraph_gateway_modules_classify_into_the_expected_domains() -> None:
-    architecture = importlib.import_module("zeroth._architecture")
-
-    assert {
-        module: architecture._canonical_domain(module)
-        for module in (
-            "zeroth.core.langgraph_gateway",
-            "zeroth.core.langgraph_gateway.models",
-            "zeroth.core.langgraph_gateway.inventory",
-            "zeroth.core.langgraph_gateway.capabilities",
-            "zeroth.core.langgraph_gateway.events",
-            "zeroth.core.langgraph_gateway.admission",
-            "zeroth.core.langgraph_gateway.compatibility",
-            "zeroth.core.langgraph_gateway.context",
-            "zeroth.core.langgraph_gateway.enforcement",
-            "zeroth.core.langgraph_gateway.enforcement_store",
-            "zeroth.core.langgraph_gateway.headers",
-            "zeroth.core.langgraph_gateway.proxy",
-            "zeroth.core.langgraph_gateway.routes",
-            "zeroth.core.langgraph_gateway.transport",
-        )
-    } == {
-        "zeroth.core.langgraph_gateway": "service",
-        "zeroth.core.langgraph_gateway.models": "contracts",
-        "zeroth.core.langgraph_gateway.inventory": "contracts",
-        "zeroth.core.langgraph_gateway.capabilities": "governance",
-        "zeroth.core.langgraph_gateway.events": "governance",
-        "zeroth.core.langgraph_gateway.admission": "service",
-        "zeroth.core.langgraph_gateway.compatibility": "service",
-        "zeroth.core.langgraph_gateway.context": "service",
-        "zeroth.core.langgraph_gateway.enforcement": "service",
-        "zeroth.core.langgraph_gateway.enforcement_store": "service",
-        "zeroth.core.langgraph_gateway.headers": "service",
-        "zeroth.core.langgraph_gateway.proxy": "service",
-        "zeroth.core.langgraph_gateway.routes": "service",
-        "zeroth.core.langgraph_gateway.transport": "service",
-    }
-
-
-def test_legacy_domain_prefixes_pin_the_exact_gateway_mapping_set() -> None:
-    architecture = importlib.import_module("zeroth._architecture")
-
-    gateway_prefixes = {
-        key: value
-        for key, value in architecture.LEGACY_DOMAIN_PREFIXES.items()
-        if key.startswith("zeroth.core.langgraph_gateway")
-    }
-
-    assert gateway_prefixes == {
-        "zeroth.core.langgraph_gateway": "service",
-        "zeroth.core.langgraph_gateway.models": "contracts",
-        "zeroth.core.langgraph_gateway.inventory": "contracts",
-        "zeroth.core.langgraph_gateway.capabilities": "governance",
-        "zeroth.core.langgraph_gateway.events": "governance",
-    }
 
 
 def test_every_langgraph_gateway_file_on_disk_classifies_to_a_domain() -> None:
-    architecture = importlib.import_module("zeroth._architecture")
-    gateway_root = SOURCE_ROOT / "zeroth" / "core" / "langgraph_gateway"
+    """Every relocated gateway module resolves to a backend domain.
 
-    for path in sorted(gateway_root.glob("*.py")):
+    This iterated ``src/zeroth/core/langgraph_gateway``, which ZER-25 deleted --
+    so the loop ran zero times and the test passed by iterating nothing. It now
+    walks the three canonical packages the gateway was split across, and asserts
+    it found files before checking them.
+    """
+    architecture = importlib.import_module("zeroth._architecture")
+    roots = [
+        SOURCE_ROOT / "zeroth" / "contracts" / "langgraph_gateway",
+        SOURCE_ROOT / "zeroth" / "governance" / "langgraph_gateway",
+        SOURCE_ROOT / "zeroth" / "service" / "langgraph_gateway",
+    ]
+
+    paths = sorted(path for root in roots for path in root.glob("*.py"))
+    assert len(paths) >= 12, f"expected the relocated gateway modules, found {len(paths)}"
+
+    for path in paths:
         module, _ = architecture._module_name(path, SOURCE_ROOT)
         assert architecture._canonical_domain(module) is not None, module
 
@@ -316,8 +279,7 @@ def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
     gateway_edges = {
         (item.importer, item.imported)
         for item in scan.violations
-        if item.importer.startswith("zeroth.core.langgraph_gateway")
-        or item.imported.startswith("zeroth.core.langgraph_gateway")
+        if "langgraph_gateway" in item.importer or "langgraph_gateway" in item.imported
     }
 
     # ZER-24 removed both gateway exceptions by moving the dependencies rather
@@ -325,6 +287,11 @@ def test_langgraph_gateway_scan_surfaces_exactly_the_forbidden_edges() -> None:
     # evaluator, and S3a moved the enforcement wire protocol into
     # ``integrations``, where the client reaches it without leaving its own
     # domain. Neither produces a permitted edge -- there is no edge at all.
+    #
+    # The filter matches ``langgraph_gateway`` anywhere in either endpoint. It
+    # used to match the ``zeroth.core.langgraph_gateway`` prefix, which ZER-25
+    # deleted -- leaving a set that was empty because nothing could ever match
+    # it, rather than because the edges are gone.
     assert gateway_edges == set()
 
 
@@ -341,3 +308,50 @@ def test_langgraph_gateway_exceptions_are_the_only_gateway_entries_and_documente
         exception = architecture.TEMPORARY_EXCEPTIONS[edge]
         assert exception.reason.strip()
         assert exception.removal_task.startswith("Task ")
+
+
+def test_domain_classification_has_no_legacy_prefix_table() -> None:
+    """A module's domain comes from its own path, with no shim indirection.
+
+    While ``LEGACY_DOMAIN_PREFIXES`` existed, a dependency that went through a
+    ``zeroth.core`` shim was classified as if it went straight to the canonical
+    package, so real cross-domain edges never surfaced. ZER-25 deleted both the
+    shims and the table; this pins that it does not come back.
+    """
+    architecture = importlib.import_module("zeroth._architecture")
+
+    assert not hasattr(architecture, "LEGACY_DOMAIN_PREFIXES")
+    assert architecture._canonical_domain("zeroth.runtime.runs") == "runtime"
+    assert architecture._canonical_domain("zeroth.core.runs") is None
+
+
+def test_the_relocated_gateway_modules_classify_by_their_canonical_paths() -> None:
+    """The gateway's domains come from where its modules now live.
+
+    This pinned the legacy-prefix table's gateway rows, which mapped each
+    ``zeroth.core.langgraph_gateway`` submodule to the domain that would own it
+    after ZER-24. Both the shims and the table are gone, so the same mapping is
+    asserted against the canonical paths instead.
+    """
+    architecture = importlib.import_module("zeroth._architecture")
+
+    assert {
+        module: architecture._canonical_domain(module)
+        for module in (
+            "zeroth.contracts.langgraph_gateway.models",
+            "zeroth.contracts.langgraph_gateway.inventory",
+            "zeroth.governance.langgraph_gateway.capabilities",
+            "zeroth.governance.langgraph_gateway.events",
+            "zeroth.service.langgraph_gateway.proxy",
+            "zeroth.service.langgraph_gateway.routes",
+            "zeroth.integrations.langgraph.enforcement_protocol",
+        )
+    } == {
+        "zeroth.contracts.langgraph_gateway.models": "contracts",
+        "zeroth.contracts.langgraph_gateway.inventory": "contracts",
+        "zeroth.governance.langgraph_gateway.capabilities": "governance",
+        "zeroth.governance.langgraph_gateway.events": "governance",
+        "zeroth.service.langgraph_gateway.proxy": "service",
+        "zeroth.service.langgraph_gateway.routes": "service",
+        "zeroth.integrations.langgraph.enforcement_protocol": "integrations",
+    }

@@ -28,9 +28,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.core.runs import RunStatus
-from zeroth.core.runs.models import Run
+from zeroth.contracts.governed import RunStatus
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.runtime.runs import Run
 
 
 class WasteKind(StrEnum):

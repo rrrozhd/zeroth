@@ -12,7 +12,7 @@ from tests.service.helpers import (
     wait_for,
 )
 from zeroth.contracts.graph import GraphRepository
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 
 async def test_phase4_end_to_end_deploy_invoke_resume_thread_and_rollback(sqlite_db) -> None:

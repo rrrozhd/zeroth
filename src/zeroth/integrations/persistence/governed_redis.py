@@ -5,7 +5,7 @@ from a :class:`~zeroth.platform.storage.redis.RedisConfig`. This is
 domain-aware wiring over the platform's Redis configuration: it constructs
 runtime and governance store implementations, which is why it lives in the
 integrations layer rather than in ``zeroth.platform.storage`` (Task 11); the
-legacy ``zeroth.core.storage`` paths keep republishing both symbols lazily.
+legacy ``zeroth.platform.storage`` paths keep republishing both symbols lazily.
 """
 
 from __future__ import annotations

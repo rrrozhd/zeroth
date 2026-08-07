@@ -179,7 +179,7 @@ async def test_readiness_unhealthy_when_db_down():
         "regulus": DependencyStatus(status="ok", latency_ms=3.0),
     }
     # Import the function that determines overall status
-    from zeroth.core.service.health import determine_readiness_status
+    from zeroth.service.api.health import determine_readiness_status
 
     status = determine_readiness_status(checks)
     assert status == "unhealthy"
@@ -193,7 +193,7 @@ async def test_readiness_degraded_when_regulus_down():
         "redis": DependencyStatus(status="ok", latency_ms=2.0),
         "regulus": DependencyStatus(status="unavailable"),
     }
-    from zeroth.core.service.health import determine_readiness_status
+    from zeroth.service.api.health import determine_readiness_status
 
     status = determine_readiness_status(checks)
     assert status == "degraded"

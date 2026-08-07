@@ -1,6 +1,6 @@
 # Orchestrator
 
-::: zeroth.core.orchestrator
+::: zeroth.runtime.orchestration
     options:
       show_root_heading: true
       members_order: source

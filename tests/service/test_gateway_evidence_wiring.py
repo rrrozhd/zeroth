@@ -110,8 +110,8 @@ async def _gateway_bootstrap(sqlite_db: Any, monkeypatch: Any, graph_id: str) ->
     object under test. ``GatewayProxy`` and the websocket handler are inert
     because neither participates in classifying a run.
     """
-    from zeroth.core.config.settings import LangGraphGatewaySettings, get_settings
-    from zeroth.core.signing import EnvHmacSigner
+    from zeroth.platform.config import LangGraphGatewaySettings, get_settings
+    from zeroth.platform.signing import EnvHmacSigner
     from zeroth.service.bootstrap.factory import bootstrap_service
 
     service, _ = await deploy_service(

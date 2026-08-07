@@ -77,13 +77,13 @@ from typing import Protocol
 from uuid import uuid4
 
 from zeroth.contracts.langgraph_gateway.models import GatewayEvent
-from zeroth.core.audit import NodeAuditRecord
-from zeroth.core.identity import ActorIdentity
+from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.audit.delivery import (
     AuditDeliveryQueue,
     AuditRecordWriter,
     DeliveryRejection,
 )
+from zeroth.governance.identity import ActorIdentity
 
 logger = logging.getLogger(__name__)
 

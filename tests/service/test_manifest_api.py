@@ -13,7 +13,7 @@ from zeroth.integrations.execution.models import (
     PythonModuleArtifactSource,
 )
 from zeroth.integrations.execution.runner import ExecutableUnitBinding
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "manifests-test"
 

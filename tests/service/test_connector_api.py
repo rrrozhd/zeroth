@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import agent_graph, deploy_service, operator_headers
-from zeroth.core.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap import bootstrap_app
 
 DEPLOYMENT = "connectors-test"
 

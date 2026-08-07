@@ -289,7 +289,7 @@ packaging/console/  # Pre-built zeroth-console Python distribution
 docs/               # MkDocs documentation source
 ```
 
-New code should use the canonical domain packages. `zeroth.core` remains a
+New code should use the canonical domain packages. `zeroth.runtime` remains a
 supported compatibility surface; see the
 [backend import migration map](docs/backend-import-migration.md) for the
 canonical equivalent of each legacy import.

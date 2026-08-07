@@ -19,9 +19,9 @@ from zeroth.platform.storage import AsyncDatabase
 
 if TYPE_CHECKING:
     # Annotation-only: importing the validator eagerly would put the whole
-    # validation package on ``zeroth.core.graph``'s own import path, and the
+    # validation package on the graph contracts' own import path, and the
     # validators import graph models straight back.
-    from zeroth.core.graph.validation import GraphValidator
+    from zeroth.runtime.graph_validation import GraphValidator
 
 
 class GraphRepository:

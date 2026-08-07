@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.core.runs import RunFailureState
+from zeroth.runtime.runs import RunFailureState
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,

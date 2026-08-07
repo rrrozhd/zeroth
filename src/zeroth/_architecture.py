@@ -30,57 +30,6 @@ ALLOWED_DEPENDENCIES = {
     "eval": frozenset({"contracts", "platform", "runtime"}),
 }
 
-LEGACY_DOMAIN_PREFIXES = {
-    "zeroth.core.agent_runtime": "runtime",
-    "zeroth.core.approvals": "governance",
-    "zeroth.core.artifacts": "platform",
-    "zeroth.core.audit": "governance",
-    "zeroth.core.conditions": "contracts",
-    "zeroth.core.config": "platform",
-    "zeroth.core.context_window": "runtime",
-    "zeroth.core.contracts": "contracts",
-    "zeroth.core.deployments": "service",
-    "zeroth.core.dispatch": "platform",
-    "zeroth.core.econ": "econ",
-    "zeroth.core.eval": "eval",
-    "zeroth.core.execution_units": "integrations",
-    "zeroth.core.governed.app": "contracts",
-    "zeroth.core.governed.audit": "governance",
-    "zeroth.core.governed.integrations": "integrations",
-    "zeroth.core.governed.memory": "integrations",
-    "zeroth.core.governed.models": "contracts",
-    "zeroth.core.governed.runtime": "runtime",
-    "zeroth.core.governed.tools": "runtime",
-    "zeroth.core.graph": "contracts",
-    "zeroth.core.guardrails": "governance",
-    "zeroth.core.http": "integrations",
-    "zeroth.core.identity": "governance",
-    "zeroth.core.langgraph_gateway": "service",
-    "zeroth.core.langgraph_gateway.models": "contracts",
-    "zeroth.core.langgraph_gateway.inventory": "contracts",
-    "zeroth.core.langgraph_gateway.capabilities": "governance",
-    "zeroth.core.langgraph_gateway.events": "governance",
-    "zeroth.core.mappings": "contracts",
-    "zeroth.core.memory": "integrations",
-    "zeroth.core.observability": "platform",
-    "zeroth.core.orchestrator": "runtime",
-    "zeroth.core.parallel": "runtime",
-    "zeroth.core.policy": "governance",
-    "zeroth.core.rag": "integrations",
-    "zeroth.core.retention": "governance",
-    "zeroth.core.runs.repository": "integrations",
-    "zeroth.core.runs": "runtime",
-    "zeroth.core.sandbox_sidecar": "integrations",
-    "zeroth.core.secrets": "platform",
-    "zeroth.core.service": "service",
-    "zeroth.core.signing": "platform",
-    "zeroth.core.storage": "platform",
-    "zeroth.core.subgraph": "runtime",
-    "zeroth.core.templates": "contracts",
-    "zeroth.core.webhooks": "service",
-    "zeroth.econ_plane": "econ",
-}
-
 
 @dataclass(frozen=True)
 class DependencyViolation:
@@ -112,34 +61,81 @@ def _exception_group(
 
 TEMPORARY_EXCEPTIONS = {
     **_exception_group(
-        ("zeroth.core.runs", "zeroth.integrations.persistence.runs"),
+        ("zeroth.contracts.graph.repository", "zeroth.runtime.graph_validation"),
         reason=(
-            "zeroth.core.runs:RunRepository and :ThreadRepository are protected "
-            "legacy capabilities, so the legacy package must keep republishing the "
-            "concrete adapters it no longer owns. Resolution stays lazy: making it "
-            "eager reintroduces the cycle that blocked the extraction."
+            "GraphRepository validates on write through the public GraphValidator, "
+            "which composes contract validators with execution checks and so lives "
+            "in the runtime layer. Until ZER-25 the call went through the "
+            "zeroth.core.graph shim, which the scanner classified as contracts, so "
+            "the edge scored as contracts->contracts and never appeared."
         ),
         removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
+            "Task beyond the 2026-07-18 refactor plan: give the contracts layer a "
+            "validation seam the runtime registers into, so writing a graph does "
+            "not reach execution checks directly. Exposed by ZER-25, which removed "
+            "the shim that hid it."
         ),
     ),
     **_exception_group(
-        ("zeroth.core.graph.validation", "zeroth.runtime.graph_validation"),
+        ("zeroth.governance.approvals.service", "zeroth.integrations.persistence.runs"),
+        ("zeroth.governance.approvals.service", "zeroth.runtime.runs"),
+        ("zeroth.governance.guardrails.dead_letter", "zeroth.integrations.persistence.runs"),
+        ("zeroth.governance.guardrails.dead_letter", "zeroth.runtime.runs"),
+        ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
         reason=(
-            "zeroth.core.graph.validation is a compatibility re-export of the "
-            "public GraphValidator, which composes contract validators with "
-            "execution checks and therefore lives in the runtime layer. "
-            "Resolution stays lazy: an eager import here would put the runtime "
-            "on the import path of anything reaching zeroth.core.graph."
+            "Governance reads and writes run state: approvals resume a run, the "
+            "dead-letter manager records a run failure, and retention erases a "
+            "run's rows. Each names the run models and the concrete repository "
+            "directly. Until ZER-25 all of it went through zeroth.core.runs, which "
+            "the scanner classified as runtime, so governance->runtime scored as "
+            "runtime->runtime and governance->integrations was invisible."
         ),
         removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
+            "Task beyond the 2026-07-18 refactor plan: give governance a "
+            "run-state port it depends on instead of the run domain and its "
+            "persistence adapter. The ZER-25 spec assumed these edges would end "
+            "with the legacy surface; measured after the removal, they are real "
+            "dependencies the shim classification was masking, not artefacts of it."
+        ),
+    ),
+    **_exception_group(
+        ("zeroth.platform.secrets.provider", "zeroth.integrations.execution.models"),
+        reason=(
+            "SecretResolver's pinned legacy signatures name EnvironmentVariable in "
+            "their annotations, and the dependency scanner walks the AST, so even "
+            "the TYPE_CHECKING import records the edge. The resolver cannot move to "
+            "the integrations layer: runtime code consumes it, and runtime may not "
+            "import integrations."
+        ),
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: give the platform layer a "
+            "same-named structural contract for EnvironmentVariable, the way "
+            "zeroth.runtime.orchestration.protocols does for RunRepository, so the "
+            "pinned annotation text survives while the import does not."
+        ),
+    ),
+    **_exception_group(
+        ("zeroth.runtime.agents.thread_store", "zeroth.integrations.persistence.runs"),
+        ("zeroth.runtime.orchestration.run_worker", "zeroth.integrations.persistence.runs"),
+        reason=(
+            "The runtime names the concrete run and thread repositories it is "
+            "handed. Until ZER-25 these edges were laundered through "
+            "zeroth.core.runs, which the scanner classified as runtime, so they "
+            "never appeared. Converting the consumers to canonical imports "
+            "exposed the real dependency rather than creating it. "
+            "RuntimeOrchestrator already names its store through the "
+            "runtime-owned RunRepository protocol; thread_store additionally "
+            "*constructs* both repositories when none is injected, which needs a "
+            "factory seam rather than an annotation change."
+        ),
+        removal_task=(
+            "Task beyond the 2026-07-18 refactor plan: give the agent thread "
+            "store and the run worker an injected "
+            "repository factory so the runtime never constructs a persistence "
+            "adapter, then delete these two edges. Exposed by ZER-25, which "
+            "removed the legacy republisher that hid them; see "
+            "zeroth.runtime.orchestration.protocols for the same-named-protocol "
+            "seam the orchestrator already uses."
         ),
     ),
     **_exception_group(
@@ -162,152 +158,10 @@ TEMPORARY_EXCEPTIONS = {
         ),
     ),
     **_exception_group(
-        ("zeroth.governance.retention.erasure_service", "zeroth.integrations.persistence.runs"),
-        reason=(
-            "RetentionErasureService's pinned __init__ names RunRepository in the "
-            "run_repository annotation, and the dependency scanner walks the AST, "
-            "so even the TYPE_CHECKING import records the edge. Narrowing to the "
-            "run persistence protocols changes the pinned annotation text -- the "
-            "same wall as RepositoryThreadStateStore. Task 9 removed the two "
-            "econ_plane edges by moving the concrete eraser into the econ domain; "
-            "this one outlives the decomposition and ends with the legacy surface."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.platform.secrets.provider", "zeroth.integrations.execution.models"),
-        reason=(
-            "SecretResolver's pinned legacy signatures name EnvironmentVariable "
-            "in their annotations, and the dependency scanner walks the AST, so "
-            "even the TYPE_CHECKING import records the edge. The resolver cannot "
-            "move to the integrations layer: runtime code (the orchestrator and "
-            "audit recorder) consumes it, and runtime may not import "
-            "integrations. Same wall as RepositoryThreadStateStore in "
-            "docs/backend-import-migration.md."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.core.dispatch", "zeroth.runtime.orchestration.run_worker"),
-        reason=(
-            "zeroth.core.dispatch:RunWorker is a protected legacy capability, so "
-            "the legacy dispatch package must keep republishing the run worker "
-            "that now lives in the runtime layer. Resolution stays lazy: making "
-            "it eager would put the orchestrator on the import path of the "
-            "dispatch shim."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.core.storage.redis", "zeroth.integrations.persistence.governed_redis"),
-        reason=(
-            "zeroth.core.storage:GovernAIRedisRuntimeStores and "
-            ":build_governai_redis_runtime are protected legacy capabilities, so "
-            "the legacy storage package must keep republishing the governed store "
-            "factory it no longer owns. Resolution stays lazy: making it eager "
-            "would put runtime and governance code on the import path of "
-            "everything that touches storage."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.core.conditions.recorder", "zeroth.runtime.runs.condition_recorder"),
-        reason=(
-            "zeroth.core.conditions:ConditionResultRecorder is a protected "
-            "legacy capability, but the recorder mutates Run objects and so "
-            "lives in the runtime run domain; the legacy conditions package "
-            "must keep republishing it. Resolution stays lazy: an eager "
-            "import would put the runtime run domain on the import path of "
-            "the legacy conditions package."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.governance.approvals.service", "zeroth.core.runs"),
-        reason=(
-            "ApprovalService's pinned __init__ names RunRepository in the "
-            "run_repository annotation, and the immutable legacy fixture pins "
-            "that signature text, so the parameter cannot be re-annotated with "
-            "a governance-owned protocol -- the same wall as "
-            "RetentionErasureService. Run and RunFailureState are also "
-            "consumed at runtime for resume bookkeeping. The RunStatus import "
-            "moved to its contract-owned definition in zeroth.contracts."
-            "governed, so this edge carries only the run bookkeeping objects."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.governance.guardrails.dead_letter", "zeroth.core.runs"),
-        reason=(
-            "DeadLetterManager's pinned dataclass signature names RunRepository "
-            "in the run_repository annotation, and the immutable legacy fixture "
-            "pins that signature text, so the field cannot be re-annotated with "
-            "a governance-owned protocol -- the same wall as "
-            "RetentionErasureService. RunFailureState is also constructed at "
-            "runtime when a run is dead-lettered. The RunStatus import moved to "
-            "its contract-owned definition in zeroth.contracts.governed, and "
-            "the dead-letter reason literal is pinned locally instead of "
-            "imported from the persistence module, so this edge carries only "
-            "the run bookkeeping objects."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
-        ("zeroth.core.agent_runtime.factory", "zeroth.service.bootstrap.factory"),
-        reason=(
-            "zeroth.core.agent_runtime.factory:build_runners_for_deployment is "
-            "deployment-fetch wiring that moved to service bootstrap, and the "
-            "legacy factory path keeps republishing it. Resolution stays lazy: "
-            "an eager import would put the service domain on the import path "
-            "of the legacy agent runtime package."
-        ),
-        removal_task=(
-            "Task beyond the 2026-07-18 refactor plan: retire the zeroth.core "
-            "legacy surface. The pinned legacy fixture walls this edge off, so "
-            "it ends with the legacy surface itself; see "
-            "docs/backend-import-migration.md."
-        ),
-    ),
-    **_exception_group(
         ("zeroth.econ.analytics.adapter", "zeroth.runtime.agents.provider"),
         ("zeroth.econ.analytics.opportunities", "zeroth.governance.audit.models"),
         ("zeroth.econ.analytics.quality", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.quality", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.quality", "zeroth.runtime.runs"),
         (
             "zeroth.econ.analytics.rightsizing_experiment",
             "zeroth.runtime.agents.provider",
@@ -320,10 +174,9 @@ TEMPORARY_EXCEPTIONS = {
         ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.eval.runner"),
         ("zeroth.econ.analytics.rightsizing_experiment", "zeroth.eval.scorers"),
         ("zeroth.econ.analytics.unit_economics", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.unit_economics", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.unit_economics", "zeroth.runtime.runs"),
         ("zeroth.econ.analytics.waste", "zeroth.governance.audit.models"),
-        ("zeroth.econ.analytics.waste", "zeroth.core.runs"),
-        ("zeroth.econ.analytics.waste", "zeroth.core.runs.models"),
+        ("zeroth.econ.analytics.waste", "zeroth.runtime.runs"),
         reason=(
             "Economics analytics read runs, audit records, provider adapters, and "
             "evaluation helpers directly; the reads move behind contract-owned "
@@ -409,12 +262,18 @@ def _imports(path: Path, source_root: Path, module_index: frozenset[str]) -> lis
 
 
 def _canonical_domain(module: str) -> str | None:
+    """The backend domain a module belongs to, or ``None`` if it is outside them.
+
+    ZER-25 removed the legacy-prefix table this used to consult after the
+    canonical check. While it existed, a module under ``zeroth.core`` was
+    classified as whichever domain now owns it, which meant a dependency routed
+    through a compatibility shim was scored as if it went directly to the
+    canonical package -- so several real violations were invisible. With the
+    shims deleted there is one rule: the second path segment names the domain.
+    """
     parts = module.split(".")
     if len(parts) >= 2 and parts[0] == "zeroth" and parts[1] in BACKEND_DOMAINS:
         return parts[1]
-    for prefix in sorted(LEGACY_DOMAIN_PREFIXES, key=len, reverse=True):
-        if module == prefix or module.startswith(f"{prefix}."):
-            return LEGACY_DOMAIN_PREFIXES[prefix]
     return None
 
 

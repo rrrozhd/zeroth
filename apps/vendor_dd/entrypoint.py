@@ -44,36 +44,39 @@ os.environ.setdefault("ZEROTH_WEBHOOK__ENABLED", "true")
 os.environ.setdefault("ZEROTH_APPROVAL_SLA__ENABLED", "false")
 os.environ.setdefault("ZEROTH_REDIS__MODE", "disabled")
 
-import uvicorn
+import uvicorn  # noqa: E402
 
-from apps.vendor_dd.fixtures.policy_corpus import POLICY_CORPUS
-from apps.vendor_dd.graphs import (
+from apps.vendor_dd.fixtures.policy_corpus import POLICY_CORPUS  # noqa: E402
+from apps.vendor_dd.graphs import (  # noqa: E402
     CHAT_DEPLOYMENT_REF,
     DIMENSION_DEPLOYMENT_REF,
     MAIN_DEPLOYMENT_REF,
     UNITS_POLICY_ID,
 )
-from apps.vendor_dd.providers import is_hermetic, select_provider
-from apps.vendor_dd.units import build_unit_registry
-from zeroth.core.agent_runtime.factory import build_agent_runners
-from zeroth.core.config.settings import get_settings
-from zeroth.core.contracts import ContractRegistry
-from zeroth.core.deployments import SQLiteDeploymentRepository
-from zeroth.core.execution_units import ExecutableUnitRunner
-from zeroth.core.governed.memory.models import MemoryScope
-from zeroth.core.graph.serialization import deserialize_graph
-from zeroth.core.identity import ServiceRole
-from zeroth.core.policy import (
-    Capability,
+from apps.vendor_dd.providers import is_hermetic, select_provider  # noqa: E402
+from apps.vendor_dd.units import build_unit_registry  # noqa: E402
+from zeroth.contracts.governed import MemoryScope  # noqa: E402
+from zeroth.contracts.graph import Capability  # noqa: E402
+from zeroth.contracts.graph.serialization import deserialize_graph  # noqa: E402
+from zeroth.contracts.registry import ContractRegistry  # noqa: E402
+from zeroth.governance.identity import ServiceRole  # noqa: E402
+from zeroth.governance.policy import (  # noqa: E402
     CapabilityRegistry,
     PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.core.service.app import create_app
-from zeroth.core.service.auth import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.core.service.bootstrap import bootstrap_service
-from zeroth.core.storage.factory import create_database
+from zeroth.integrations.execution import ExecutableUnitRunner  # noqa: E402
+from zeroth.platform.config import get_settings  # noqa: E402
+from zeroth.platform.storage import create_database  # noqa: E402
+from zeroth.runtime.agents.factory import build_agent_runners  # noqa: E402
+from zeroth.service.api.authentication import (  # noqa: E402
+    ServiceAuthConfig,
+    StaticApiKeyCredential,
+)
+from zeroth.service.app import create_app  # noqa: E402
+from zeroth.service.bootstrap import bootstrap_service  # noqa: E402
+from zeroth.service.deployments import SQLiteDeploymentRepository  # noqa: E402
 
 API_KEY = os.environ.get("VENDOR_DD_API_KEY", "vendor-dd-ops-key")
 TENANT_ID = os.environ.get("VENDOR_DD_TENANT", "tenant-acme")
@@ -163,7 +166,7 @@ async def build_app_async():
 async def _serve() -> None:
     # Bootstrap and uvicorn must share one event loop (the durable worker and
     # webhook delivery tasks bind to it) — same pattern as the stock
-    # zeroth.core.service.entrypoint.
+    # zeroth.service.entrypoint.
     app = await build_app_async()
     config = uvicorn.Config(app, host=HOST, port=PORT, proxy_headers=True)
     await uvicorn.Server(config).serve()
