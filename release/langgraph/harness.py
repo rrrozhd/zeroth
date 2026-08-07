@@ -12,6 +12,7 @@ from langgraph_benchmark import benchmark
 from release_evidence import validate_manifest
 from runtime_smoke import (
     gateway_smoke,
+    installed_package_evidence,
     resolved_image_evidence,
     serve_mock_upstream,
     smoke,
@@ -29,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     bench.add_argument("--output", type=Path, required=True)
     check = commands.add_parser("validate")
     check.add_argument("--manifest", type=Path, required=True)
-    check.add_argument("--phase", choices=("source", "final"), default="source")
+    check.add_argument("--phase", choices=("source", "final"), default="final")
     check.add_argument("--evidence-root", type=Path, default=ROOT)
     probe = commands.add_parser("smoke")
     probe.add_argument("--url", default="http://127.0.0.1:8000/health/ready")
@@ -44,7 +45,14 @@ def _parser() -> argparse.ArgumentParser:
     fixture.add_argument("--port", type=int, default=8123)
     images = commands.add_parser("image-evidence")
     images.add_argument("--image", action="append", required=True)
+    images.add_argument("--sbom", type=Path, required=True)
+    images.add_argument("--artifact", type=Path, required=True)
     images.add_argument("--output", type=Path, required=True)
+    packages = commands.add_parser("image-packages")
+    packages.add_argument("--image", required=True)
+    packages.add_argument("--compatibility", type=Path, required=True)
+    packages.add_argument("--image-evidence", type=Path, required=True)
+    packages.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -98,7 +106,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gateway-smoke":
         return _smoke(args, gateway=True)
     if args.command == "image-evidence":
-        _write_json(args.output, resolved_image_evidence(args.image))
+        _write_json(
+            args.output,
+            resolved_image_evidence(
+                args.image, sbom=args.sbom, artifact=args.artifact
+            ),
+        )
+        return 0
+    if args.command == "image-packages":
+        _write_json(
+            args.output,
+            installed_package_evidence(
+                args.image, args.compatibility, args.image_evidence
+            ),
+        )
         return 0
     serve_mock_upstream(args.host, args.port)
     return 0

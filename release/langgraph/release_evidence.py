@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree
 
+from generated_evidence import validate_generated
 from langgraph_benchmark import (
     CURRENT_RELEASE,
     DISTRIBUTION_NAMES,
@@ -38,7 +37,9 @@ REQUIRED_EVIDENCE = {
         "artifacts": [
             "release/langgraph/image.spdx.json",
             "release/langgraph/provenance.bundle.json",
+            "release/langgraph/attestation-verification.json",
             "release/langgraph/image-compatibility.json",
+            "release/langgraph/image-packages.json",
         ],
     },
     "tests": {
@@ -62,12 +63,15 @@ EXPECTED_DEPLOYMENT_ARTIFACTS = {
 }
 EXPECTED_RESOLVED = {
     "agent_server": "0.11.1",
+    "httpx": "0.28.1",
     "langchain": "1.3.14",
     "langgraph": "1.2.9",
     "langgraph_checkpoint_sqlite": "3.1.1",
     "langgraph_sdk": "0.4.2",
     "python_image": "python:3.12.13-slim-bookworm",
     "postgres_image": "postgres:16.9-bookworm",
+    "websockets": "15.0.1",
+    "zeroth_core": CURRENT_RELEASE,
 }
 HARDWARE_KEYS = {"system", "release", "machine", "processor", "cpu_count", "python"}
 BASELINE_SOURCE = {
@@ -125,7 +129,9 @@ def _valid_hardware(value: Any) -> bool:
     )
 
 
-def _validate_compatibility(path: Path, errors: list[str]) -> None:
+def _validate_compatibility(
+    path: Path, errors: list[str]
+) -> dict[str, Any] | None:
     value = _json_file(path, "compatibility evidence", errors)
     expected_keys = {
         "schema_version",
@@ -137,7 +143,7 @@ def _validate_compatibility(path: Path, errors: list[str]) -> None:
     }
     if value is None or (
         set(value) != expected_keys
-        or value.get("schema_version") != 1
+        or value.get("schema_version") != 2
         or value.get("release") != CURRENT_RELEASE
         or value.get("adapter_version") != "1.0"
         or value.get("tested")
@@ -146,6 +152,8 @@ def _validate_compatibility(path: Path, errors: list[str]) -> None:
         or value.get("resolved") != EXPECTED_RESOLVED
     ):
         errors.append("compatibility schema invalid")
+        return None
+    return value
 
 
 def _validate_baseline(path: Path, errors: list[str]) -> dict[str, Any] | None:
@@ -285,87 +293,8 @@ def _validate_benchmark(
         errors.append("performance evidence did not pass")
 
 
-def _validate_junit(path: Path, errors: list[str]) -> None:
-    try:
-        root = ElementTree.parse(path).getroot()
-    except (OSError, ElementTree.ParseError) as error:
-        errors.append(f"test evidence is not JUnit XML: {error}")
-        return
-    suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
-    try:
-        tests = sum(int(suite.get("tests", "0")) for suite in suites)
-        failures = sum(int(suite.get("failures", "0")) for suite in suites)
-        errors_count = sum(int(suite.get("errors", "0")) for suite in suites)
-    except ValueError:
-        errors.append("test evidence is not JUnit XML")
-        return
-    if tests <= 0:
-        errors.append("JUnit contains no test results")
-    if failures or errors_count:
-        errors.append("JUnit failures or errors are nonzero")
-
-
-def _validate_spdx(path: Path, errors: list[str]) -> None:
-    value = _json_file(path, "SPDX JSON", errors)
-    if value is None or (
-        not str(value.get("spdxVersion", "")).startswith("SPDX-")
-        or not value.get("name")
-        or not value.get("documentNamespace")
-        or not isinstance(value.get("packages"), list)
-        or not value["packages"]
-    ):
-        errors.append("security evidence is not valid nonempty SPDX JSON")
-
-
-def _validate_sigstore(path: Path, errors: list[str]) -> None:
-    value = _json_file(path, "Sigstore bundle", errors)
-    if value is None or (
-        not str(value.get("mediaType", "")).startswith(
-            "application/vnd.dev.sigstore.bundle"
-        )
-        or not isinstance(value.get("verificationMaterial"), dict)
-        or not value["verificationMaterial"]
-        or not isinstance(value.get("dsseEnvelope"), dict)
-        or not value["dsseEnvelope"].get("signatures")
-    ):
-        errors.append("provenance evidence is not a nonempty Sigstore bundle")
-
-
-def _valid_image_entries(images: Any) -> bool:
-    if not isinstance(images, list) or len(images) != 3:
-        return False
-    references = [str(image.get("reference")) for image in images if isinstance(image, dict)]
-    application = [item for item in references if item.startswith("zeroth-core:")]
-    expected_bases = {"python:3.12.13-slim-bookworm", "postgres:16.9-bookworm"}
-    return (
-        len(references) == 3
-        and len(set(references)) == 3
-        and expected_bases.issubset(references)
-        and len(application) == 1
-        and application[0].removeprefix("zeroth-core:").removeprefix("v")
-        == CURRENT_RELEASE
-        and all(
-            set(image) == {"reference", "id", "repo_digests"}
-            and re.fullmatch(r"sha256:[0-9a-f]{64}", str(image.get("id"))) is not None
-            and isinstance(image.get("repo_digests"), list)
-            for image in images
-        )
-    )
-
-
-def _validate_images(path: Path, errors: list[str]) -> None:
-    value = _json_file(path, "image compatibility evidence", errors)
-    if value is None or (
-        set(value) != {"schema_version", "release", "images"}
-        or value.get("schema_version") != 1
-        or value.get("release") != CURRENT_RELEASE
-        or not _valid_image_entries(value.get("images"))
-    ):
-        errors.append("image compatibility evidence is invalid")
-
-
 def validate_manifest(
-    path: Path, *, phase: str = "source", evidence_root: Path = ROOT
+    path: Path, *, phase: str = "final", evidence_root: Path = ROOT
 ) -> list[str]:
     """Return fail-closed source or generated release-evidence errors."""
     errors: list[str] = []
@@ -374,20 +303,22 @@ def validate_manifest(
         return errors
     if (
         set(manifest) != {"schema_version", "release", "baseline_release", "evidence"}
-        or manifest.get("schema_version") != 2
+        or manifest.get("schema_version") != 4
         or manifest.get("release") != CURRENT_RELEASE
         or manifest.get("baseline_release") != PREVIOUS_RELEASE
         or manifest.get("evidence") != REQUIRED_EVIDENCE
     ):
         return ["manifest schema or release is invalid"]
     performance = REQUIRED_EVIDENCE["performance"]["artifacts"]
-    _validate_compatibility(evidence_root / "release/langgraph/compatibility.json", errors)
+    compatibility = _validate_compatibility(
+        evidence_root / "release/langgraph/compatibility.json", errors
+    )
     baseline = _validate_baseline(evidence_root / performance[0], errors)
     _validate_benchmark(evidence_root / performance[1], baseline, errors)
     if phase == "final":
         security = REQUIRED_EVIDENCE["security"]["artifacts"]
-        _validate_spdx(evidence_root / security[0], errors)
-        _validate_sigstore(evidence_root / security[1], errors)
-        _validate_images(evidence_root / security[2], errors)
-        _validate_junit(evidence_root / "release/langgraph/junit.xml", errors)
+        junit = REQUIRED_EVIDENCE["tests"]["artifacts"][0]
+        errors.extend(
+            validate_generated(evidence_root, security, compatibility or {}, junit)
+        )
     return errors

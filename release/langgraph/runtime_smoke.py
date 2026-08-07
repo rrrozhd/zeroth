@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import time
@@ -10,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from generated_evidence import LABEL_KEYS, PACKAGE_KEYS
 from langgraph_benchmark import CURRENT_RELEASE
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,22 +91,112 @@ def serve_mock_upstream(host: str, port: int) -> None:
         server.server_close()
 
 
-def resolved_image_evidence(references: list[str]) -> dict[str, Any]:
-    """Record immutable local image IDs for the compatibility matrix."""
+def _inspect_image(reference: str) -> dict[str, Any]:
+    result = subprocess.run(
+        ["docker", "image", "inspect", reference],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)[0]
+
+
+def _spdx_digest(path: Path, reference: str) -> str:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    roots = [
+        package
+        for package in value.get("packages", [])
+        if package.get("name") == reference
+        and package.get("primaryPackagePurpose") == "CONTAINER"
+    ]
+    if len(roots) != 1 or not str(roots[0].get("versionInfo", "")).startswith("sha256:"):
+        raise RuntimeError("SBOM does not identify the built image digest")
+    return str(roots[0]["versionInfo"])
+
+
+def _resolved_digest(inspected: dict[str, Any]) -> str:
+    repo_digests = inspected.get("RepoDigests") or []
+    if repo_digests and "@" in repo_digests[0]:
+        return str(repo_digests[0]).split("@", 1)[1]
+    return str(inspected["Id"])
+
+
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def resolved_image_evidence(
+    references: list[str], *, sbom: Path, artifact: Path
+) -> dict[str, Any]:
+    """Record immutable image and exported-artifact digests."""
     images = []
-    for reference in references:
-        result = subprocess.run(
-            ["docker", "image", "inspect", reference],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        inspected = json.loads(result.stdout)[0]
+    for index, reference in enumerate(references):
+        inspected = _inspect_image(reference)
         images.append(
             {
                 "reference": reference,
                 "id": inspected["Id"],
+                "digest": _spdx_digest(sbom, reference)
+                if index == 0
+                else _resolved_digest(inspected),
                 "repo_digests": inspected.get("RepoDigests") or [],
             }
         )
-    return {"schema_version": 1, "release": CURRENT_RELEASE, "images": images}
+    return {
+        "schema_version": 2,
+        "release": CURRENT_RELEASE,
+        "artifact": {"path": artifact.name, "digest": _file_digest(artifact)},
+        "images": images,
+    }
+
+
+def _expected_packages(compatibility: dict[str, Any]) -> dict[str, str]:
+    resolved = compatibility["resolved"]
+    return {name: str(resolved[key]) for name, key in PACKAGE_KEYS.items()}
+
+
+def _expected_labels(compatibility: dict[str, Any]) -> dict[str, str]:
+    values = {
+        **compatibility["resolved"],
+        "adapter_version": compatibility["adapter_version"],
+    }
+    return {name: str(values[key]) for name, key in LABEL_KEYS.items()}
+
+
+def installed_package_evidence(
+    image: str, compatibility_path: Path, image_evidence_path: Path
+) -> dict[str, Any]:
+    """Inspect the built image and reject versions that drift from the matrix."""
+    compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
+    image_evidence = json.loads(image_evidence_path.read_text(encoding="utf-8"))
+    identity = next(item for item in image_evidence["images"] if item["reference"] == image)
+    names = tuple(PACKAGE_KEYS)
+    script = (
+        "import json,importlib.metadata as m;"
+        f"names={names!r};"
+        "print(json.dumps({name:m.version(name) for name in names},sort_keys=True))"
+    )
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "python", image, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    packages = json.loads(result.stdout)
+    labels = (_inspect_image(image).get("Config", {}).get("Labels") or {})
+    selected_labels = {name: labels.get(name) for name in LABEL_KEYS}
+    if packages != _expected_packages(compatibility):
+        raise RuntimeError("installed image packages do not match compatibility evidence")
+    if selected_labels != _expected_labels(compatibility):
+        raise RuntimeError("image labels do not match compatibility evidence")
+    return {
+        "schema_version": 1,
+        "release": CURRENT_RELEASE,
+        "image": {"reference": image, "digest": identity["digest"]},
+        "packages": packages,
+        "labels": selected_labels,
+    }

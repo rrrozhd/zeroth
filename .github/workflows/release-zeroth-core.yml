@@ -309,12 +309,27 @@ jobs:
           output-file: release/langgraph/image.spdx.json
 
       - name: Record resolved image compatibility
+        id: images
+        shell: bash
         run: |
+          set -euo pipefail
           python release/langgraph/harness.py image-evidence \
             --image zeroth-core:${{ github.ref_name }} \
             --image python:3.12.13-slim-bookworm \
             --image postgres:16.9-bookworm \
+            --sbom release/langgraph/image.spdx.json \
+            --artifact zeroth-core-image.tar \
             --output release/langgraph/image-compatibility.json
+          IMAGE_DIGEST=$(python -c "import json; p=json.load(open('release/langgraph/image-compatibility.json')); print(next(i['digest'] for i in p['images'] if i['reference'].startswith('zeroth-core:')))")
+          echo "digest=${IMAGE_DIGEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify installed image package compatibility
+        run: |
+          python release/langgraph/harness.py image-packages \
+            --image zeroth-core:${{ github.ref_name }} \
+            --compatibility release/langgraph/compatibility.json \
+            --image-evidence release/langgraph/image-compatibility.json \
+            --output release/langgraph/image-packages.json
 
       - name: Attest build provenance
         id: provenance
@@ -325,10 +340,23 @@ jobs:
       - name: Capture Sigstore provenance bundle
         run: cp "${{ steps.provenance.outputs.bundle-path }}" release/langgraph/provenance.bundle.json
 
+      - name: Cryptographically verify provenance attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify zeroth-core-image.tar \
+            --bundle release/langgraph/provenance.bundle.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --format json \
+            > release/langgraph/attestation-verification.json
+
       - name: Attest image SBOM
         uses: actions/attest@v4
         with:
-          subject-path: zeroth-core-image.tar
+          subject-name: zeroth-core
+          subject-digest: ${{ steps.images.outputs.digest }}
           sbom-path: release/langgraph/image.spdx.json
 
       - name: Validate generated release evidence
@@ -342,7 +370,9 @@ jobs:
             zeroth-core-image.tar
             release/langgraph/image.spdx.json
             release/langgraph/image-compatibility.json
+            release/langgraph/image-packages.json
             release/langgraph/provenance.bundle.json
+            release/langgraph/attestation-verification.json
             release/langgraph/junit.xml
             release/langgraph/compatibility.json
             release/langgraph/benchmark-evidence.json

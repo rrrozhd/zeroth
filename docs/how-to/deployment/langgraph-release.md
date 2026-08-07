@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.16.2.1`.
+This is the canonical clean install and operations path for Zeroth `0.16.2.2`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -16,7 +16,7 @@ Use Python 3.12 and install only the deployment surface you operate:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2.1"
+pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2.2"
 ```
 
 For managed Agent Server deployments, put the Zeroth gateway in front of the
@@ -83,8 +83,17 @@ Run the real governance demo, repeated benchmark, and fail-closed checklist:
 ```bash
 python examples/27_langgraph_release.py --json
 python release/langgraph/harness.py benchmark --samples 20 --output /tmp/benchmark.json
-python release/langgraph/harness.py validate --manifest release/langgraph/release-manifest.json
+python release/langgraph/harness.py validate --phase source --manifest release/langgraph/release-manifest.json
+# After the image, JUnit, SPDX, package inventory, attestation bundle, and
+# verification receipt exist:
+python release/langgraph/harness.py validate --phase final --manifest release/langgraph/release-manifest.json
 ```
+
+Final validation is the CLI default and the only publishable checklist result;
+`--phase source` is an explicit pre-build check of committed evidence only. The
+final gate cross-checks the expected release tests, installed image packages,
+image-bound SPDX document, and the GitHub CLI verification receipt for the
+exported image archive instead of accepting unrelated files with similar shapes.
 
 The benchmark executes one deterministic public `govern_tools` `StateGraph`
 locally and through `HttpToolDecisionClient` over a real loopback HTTP sidecar.

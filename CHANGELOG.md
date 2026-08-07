@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.2.2] - 2026-08-07
+
+### Security
+
+- Bind final release validation to the expected JUnit tests, installed image
+  packages and labels, image-specific SPDX contents, and a cryptographically
+  verified provenance receipt for the exported image before publication.
+- Make final evidence validation the default and keep source-only validation an
+  explicit pre-build phase.
+
 ## [0.16.2.1] - 2026-08-07
 
 ### Fixed
