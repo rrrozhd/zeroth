@@ -130,6 +130,13 @@ class RuntimeAuditRecorder:
             tool = tc.get("tool")
             tool = tool if isinstance(tool, Mapping) else {}
             error = tc.get("error")
+            # ZER-26/AUD-006: the at-least-once marker must survive promotion —
+            # the typed columns are the queryable durable record, and dropping
+            # the marker there made every MCP call read as though the operation
+            # guarantee applied. None stays None: an unmarked call must not
+            # grow a marker.
+            support = tc.get("operation_support")
+            residual_risk = tc.get("operation_residual_duplicate_risk")
             try:
                 tool_calls.append(
                     ToolCallRecord(
@@ -138,6 +145,10 @@ class RuntimeAuditRecorder:
                         arguments=_as_dict(tc.get("arguments")) or {},
                         outcome=_as_dict(tc.get("outcome")),
                         error=error if error is None else str(error),
+                        operation_support=None if support is None else str(support),
+                        operation_residual_duplicate_risk=(
+                            None if residual_risk is None else bool(residual_risk)
+                        ),
                     )
                 )
             except Exception as exc:

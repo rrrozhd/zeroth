@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
+from zeroth.runtime.agents.errors import AgentProviderError
 from zeroth.runtime.agents.mcp import MCPClientManager, MCPServerConfig
 from zeroth.runtime.agents.models import AgentConfig
 from zeroth.runtime.agents.provider import ProviderResponse
@@ -150,7 +151,7 @@ class TestAgentRunnerMCPWiring:
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ),
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(AgentProviderError, match="boom"):
                 await runner.run(SimpleInput(text="hello"))
 
             mock_stop.assert_called_once()
@@ -199,6 +200,55 @@ class TestAgentRunnerMCPWiring:
             )
 
         mock_manager.call_tool.assert_called_once_with("mcp_search", {"q": "test"})
+
+    @pytest.mark.asyncio
+    async def test_a_failed_mcp_call_still_carries_the_at_least_once_marker(self):
+        """ZER26-AUD-006: the failure path is the marker's most important case.
+
+        A failed MCP call may still have landed — the at-least-once residual in
+        its purest form — yet the exception path built its audit without the
+        marker, so exactly the calls most worth flagging were unflagged. This
+        drives the real ``_resolve_tool_calls`` loop with a raising manager.
+        """
+        config = _make_config(
+            tool_attachments=[
+                ToolAttachmentManifest(
+                    alias="mcp_search",
+                    executable_unit_ref="mcp://web/search",
+                    description="Search",
+                ),
+            ],
+            max_tool_calls=2,
+        )
+        provider = AsyncMock()
+        runner = AgentRunner(config, provider)
+
+        mock_manager = AsyncMock(spec=MCPClientManager)
+        mock_manager.call_tool = AsyncMock(side_effect=RuntimeError("connection reset mid-call"))
+        runner._mcp_manager = mock_manager
+
+        tool_response = MagicMock()
+        tool_response.tool_calls = [{"id": "tc1", "name": "mcp_search", "args": {"q": "test"}}]
+        tool_response.raw = None
+        tool_response.content = None
+
+        final_response = _make_provider_response()
+
+        with patch(
+            "zeroth.runtime.agents.runner.run_provider_with_timeout",
+            new=AsyncMock(return_value=final_response),
+        ):
+            _response, _messages, tool_audits = await runner._resolve_tool_calls(
+                response=tool_response,
+                messages=[],
+                provider_timeout_seconds=30.0,
+                approval_required_for_side_effects=False,
+            )
+
+        (audit,) = tool_audits
+        assert audit["error"] is not None, "the failure must be audited"
+        assert audit["operation_support"] == "at_least_once"
+        assert audit["operation_residual_duplicate_risk"] is True
 
     @pytest.mark.asyncio
     async def test_non_mcp_tool_call_uses_executor(self):
