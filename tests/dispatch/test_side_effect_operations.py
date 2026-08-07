@@ -837,3 +837,115 @@ class TestClaimVersusSettleRaces:
 
         assert claim.state is OperationState.IN_FLIGHT
         assert claim.first_execution is True, "a confirmed failure is safe to retry"
+
+
+@requires_docker
+class TestExhaustionPausesRatherThanFails:
+    """An exhausted ambiguous operation must not be reported as a failure."""
+
+    async def test_pausing_persists_a_resumable_waiting_interrupt_run(
+        self, dual_database
+    ) -> None:
+        """FAILED asserts the effect did not happen. Nobody knows that.
+
+        AUD-002 flagged that exhaustion raised into the driver's generic catch,
+        which terminally failed the run — turning "we cannot tell" into "it did
+        not happen" and stranding the reconciliation work with no way to resume.
+
+        This drives the real persistence path rather than reading the source: a
+        structural check would pass against a method that wrote nothing.
+        """
+        from zeroth.integrations.persistence.runs import RunRepository
+        from zeroth.runtime.orchestration.driver import GraphDriver
+        from zeroth.runtime.runs import Run, RunStatus
+
+        repo = RunRepository(dual_database)
+        run = await repo.create(Run(graph_version_ref="g:v1", deployment_ref="dep-pause"))
+
+        class _Recorder:
+            def redact(self, message: str) -> str:
+                return message
+
+        class _Driver:
+            run_repository = repo
+            audit_recorder = _Recorder()
+            emitted: list[str] = []
+
+            async def emit_webhook(self, event_type, run, data):
+                type(self).emitted.append(event_type)
+
+        persisted = await GraphDriver.pause_for_reconciliation(
+            _Driver(), run, "charge-node", "budget spent"
+        )
+
+        assert persisted.status is RunStatus.WAITING_INTERRUPT, (
+            "an ambiguous, out-of-retries operation must pause, not fail"
+        )
+        # run_store rejects WAITING_INTERRUPT without an interrupt id, so a pause
+        # that omitted it would be unloadable.
+        assert persisted.pending_interrupt_id == "reconcile:charge-node"
+        assert persisted.metadata["pending_reconciliation"]["node_id"] == "charge-node"
+        assert persisted.failure_state is None, "a pause must not record a failure"
+
+        reloaded = await repo.get(run.run_id)
+        assert reloaded.status is RunStatus.WAITING_INTERRUPT, "the pause must be durable"
+        assert _Driver.emitted == ["run.waiting_interrupt"]
+
+    async def test_the_dispatch_handler_routes_exhaustion_to_the_pause(
+        self, dual_database
+    ) -> None:
+        """The terminal-vs-resumable decision, exercised rather than read.
+
+        Both outcomes go through one handler, so this drives it twice: an
+        exhausted ambiguity must pause, and an ordinary error must still fail.
+        Testing only the first would pass against a handler that paused for
+        everything.
+        """
+        from zeroth.integrations.persistence.runs import RunRepository
+        from zeroth.runtime.orchestration.dispatcher import (
+            SideEffectReconciliationExhaustedError,
+        )
+        from zeroth.runtime.orchestration.driver import GraphDriver
+        from zeroth.runtime.runs import Run, RunStatus
+
+        repo = RunRepository(dual_database)
+
+        class _Recorder:
+            def redact(self, message: str) -> str:
+                return message
+
+            async def record_failed_execution(self, *args, **kwargs) -> None:
+                return None
+
+        class _Driver:
+            run_repository = repo
+            audit_recorder = _Recorder()
+
+            async def emit_webhook(self, event_type, run, data):
+                return None
+
+            fail_run = GraphDriver.fail_run
+            pause_for_reconciliation = GraphDriver.pause_for_reconciliation
+            refresh_artifact_ttls = staticmethod(lambda run: None)
+
+        async def _settle(exc):
+            run = await repo.create(
+                Run(graph_version_ref="g:v1", deployment_ref="dep-settle")
+            )
+            driver = _Driver()
+
+            async def _noop_ttls(run):
+                return None
+
+            driver.refresh_artifact_ttls = _noop_ttls
+            return await GraphDriver._settle_failed_dispatch(
+                driver, run, object(), "charge-node", {}, exc, None
+            )
+
+        paused = await _settle(SideEffectReconciliationExhaustedError("budget spent"))
+        failed = await _settle(RuntimeError("card declined"))
+
+        assert paused.status is RunStatus.WAITING_INTERRUPT
+        assert paused.failure_state is None
+        assert failed.status is RunStatus.FAILED, "ordinary errors must still fail the run"
+        assert failed.failure_state is not None
