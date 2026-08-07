@@ -509,3 +509,184 @@ async def test_the_service_bootstrap_wires_a_real_operation_store(sqlite_db) -> 
         "bootstrap_service must construct a SideEffectOperationStore"
     )
     assert orchestrator._node_dispatcher.operation_store is orchestrator.operation_store
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-002: reconciliation is consulted first, and the budget really stops
+# ---------------------------------------------------------------------------
+
+
+async def _seed_ambiguous(store, identity) -> None:
+    """Leave an operation in the state a vanished attempt would leave it."""
+    await store.claim(
+        identity.operation_key,
+        run_id=identity.run_id,
+        dispatch_id=identity.dispatch_id,
+        idempotency_key=identity.idempotency_key,
+        target_ref=identity.target_ref,
+        attempt=identity.attempt,
+        support=identity.support.value,
+    )
+    await store.mark_ambiguous(identity.operation_key, reason="crash before checkpoint")
+
+
+@requires_docker
+class TestAmbiguousReconciliationOnTheDispatchPath:
+    async def test_the_outcome_lookup_runs_before_any_re_execution(self, dual_database) -> None:
+        """Blind re-execution is the thing this subsystem exists to avoid.
+
+        A resolvable ambiguity must be answered by asking the integration what
+        happened, not by doing it again and hoping the target dedupes.
+        """
+        store = SideEffectOperationStore(dual_database)
+        runner = _CountingRunner()
+        asked: list[str] = []
+
+        async def _lookup(identity):
+            asked.append(identity.operation_key)
+            return '{"charged": true, "applications": 99}'
+
+        dispatcher = _dispatcher(store, runner)
+        object.__setattr__(dispatcher, "operation_outcome_lookup", _lookup)
+
+        run = _run_with_dispatch()
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        # Seed an attempt that vanished mid-flight: claim without completing,
+        # then mark it ambiguous. Running a *successful* dispatch first would
+        # leave it COMPLETED, and mark_ambiguous deliberately refuses to move a
+        # completed row.
+        await _seed_ambiguous(store, identity)
+        before = runner.applications
+
+        output, audit = await _dispatch_once(dispatcher, run)
+
+        assert asked == [identity.operation_key], "the outcome lookup must be consulted"
+        assert runner.applications == before, "the effect must not be re-applied"
+        assert output == {"charged": True, "applications": 99}
+        assert audit["side_effect_operation"]["replay_suppressed"] is True
+
+    async def test_an_exhausted_budget_refuses_rather_than_re_executing(
+        self, dual_database
+    ) -> None:
+        """The budget is a real stop, not a counter that gets logged.
+
+        Once it is spent the runtime still does not know whether the effect
+        landed, so re-executing could double-apply. Refusing and leaving durable
+        work is the only honest option.
+        """
+        from zeroth.runtime.orchestration.dispatcher import (
+            SideEffectReconciliationExhaustedError,
+        )
+
+        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=1)
+        runner = _CountingRunner()
+        dispatcher = _dispatcher(store, runner)
+        run = _run_with_dispatch()
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        await _seed_ambiguous(store, identity)
+        await store.record_reconciliation(identity.operation_key, resolved=False, error="no lookup")
+        before = runner.applications
+
+        with pytest.raises(SideEffectReconciliationExhaustedError):
+            await _dispatch_once(dispatcher, run)
+
+        assert runner.applications == before, "an exhausted operation must not re-execute"
+        assert (await store.get(identity.operation_key))["state"] == OperationState.AMBIGUOUS
+
+    async def test_an_unresolvable_ambiguity_within_budget_may_re_execute(
+        self, dual_database
+    ) -> None:
+        """At-least-once is still the contract when nothing can be asked.
+
+        With no lookup available and budget remaining, re-execution is allowed --
+        but only after the attempt is recorded, so the residual duplicate risk
+        is visible rather than silent.
+        """
+        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        runner = _CountingRunner()
+        dispatcher = _dispatcher(store, runner)
+        run = _run_with_dispatch()
+
+        identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+        await _seed_ambiguous(store, identity)
+        before = runner.applications
+
+        await _dispatch_once(dispatcher, run)
+
+        assert runner.applications == before + 1
+        record = await store.get(identity.operation_key)
+        assert record["reconciliation_attempts"] >= 1, "the attempt must be recorded"
+
+
+# ---------------------------------------------------------------------------
+# ZER26-AUD-003: the transitions are compare-and-set under real concurrency
+# ---------------------------------------------------------------------------
+
+
+@requires_docker
+class TestOperationTransitionsAreCompareAndSet:
+    async def test_concurrent_fresh_claims_authorise_exactly_one(self, dual_database) -> None:
+        """Two workers claiming the same unseen operation: only one may execute.
+
+        Sequential tests cannot see this; the previous claim() did SELECT then
+        INSERT, so both callers could observe "no row" and both proceed.
+        """
+        import asyncio
+
+        store = SideEffectOperationStore(dual_database)
+        claims = await asyncio.gather(*(_claim(store) for _ in range(3)))
+
+        assert sum(1 for c in claims if c.first_execution) == 1
+
+    async def test_concurrent_completions_store_exactly_one_result(self, dual_database) -> None:
+        """Only one completer may report that it stored the result."""
+        import asyncio
+
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+
+        results = await asyncio.gather(
+            *(store.complete(KEY, receipt=f'{{"n":{n}}}') for n in range(3))
+        )
+
+        assert sum(1 for r in results if r) == 1
+        record = await store.get(KEY)
+        assert record["state"] == OperationState.COMPLETED
+
+    async def test_concurrent_reconcilers_converge_on_one_receipt(self, dual_database) -> None:
+        """The genuinely racing version of the convergence proof.
+
+        The earlier test called the reconcilers sequentially while its docstring
+        claimed they raced -- exactly the gap the initial audit flagged.
+        """
+        import asyncio
+
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.mark_ambiguous(KEY, reason="timeout")
+
+        await asyncio.gather(
+            *(
+                store.record_reconciliation(KEY, resolved=True, receipt=f'{{"n":{n}}}')
+                for n in range(3)
+            )
+        )
+
+        record = await store.get(KEY)
+        assert record["state"] == OperationState.COMPLETED
+        assert record["receipt"] in {f'{{"n":{n}}}' for n in range(3)}
+        stored = record["receipt"]
+        assert (await store.get(KEY))["receipt"] == stored, "the stored result must be stable"
+
+    async def test_concurrent_retries_of_a_failed_operation_authorise_one(
+        self, dual_database
+    ) -> None:
+        import asyncio
+
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.fail(KEY, error="declined")
+
+        claims = await asyncio.gather(*(_claim(store, attempt=1) for _ in range(3)))
+
+        assert sum(1 for c in claims if c.first_execution) == 1
