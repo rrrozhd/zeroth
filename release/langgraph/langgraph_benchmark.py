@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 ROOT = Path(__file__).resolve().parents[2]
-CURRENT_RELEASE = "0.16.2.1"
+CURRENT_RELEASE = "0.16.2.2"
 PREVIOUS_RELEASE = "0.16.1.7"
 BASELINE_PATH = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
 BASELINE = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
