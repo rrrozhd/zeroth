@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.8.5] - 2026-08-07
+
+Run-state saves are fenced on lease ownership inside the upsert itself, installed by the worker for every leased drive; fencing rejections and lease losses leave durable audit records (ZER26-AUD-004, ZER26-AUD-008).
+
 ## [0.18.8.4] - 2026-08-07
 
 The at-least-once marker survives promotion to the typed ToolCallRecord and rides the MCP failure path; OpenAPI snapshot gains the two additive optional fields (ZER26-AUD-006).
