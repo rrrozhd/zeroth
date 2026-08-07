@@ -1,0 +1,18 @@
+{
+  "adapter_version": "1.0",
+  "deployment_artifacts": {
+    "adapter": {
+      "artifact": "zeroth-core[langgraph]",
+      "dependencies": ["langchain>=1.0,<2", "langgraph>=1.0,<2"]
+    },
+    "gateway": {
+      "artifact": "zeroth-core[langgraph-gateway]",
+      "dependencies": ["httpx[http2]>=0.27", "websockets>=15,<16"]
+    }
+  },
+  "release": "0.16.2",
+  "tested": {
+    "agent_server": "0.11.1",
+    "langgraph": "1.2.9"
+  }
+}

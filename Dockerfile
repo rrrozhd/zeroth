@@ -18,8 +18,13 @@ RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
 
 FROM python:3.12-slim
 
-# Optional extras baked into the image, e.g. --build-arg ZEROTH_EXTRAS=regulus
-ARG ZEROTH_EXTRAS=""
+# Release image includes both supported LangGraph deployment surfaces.
+ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"
+
+LABEL org.opencontainers.image.version=0.16.2 \
+      io.zeroth.langgraph.adapter.version=1.0 \
+      io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
+      io.zeroth.langgraph.compatibility.agent-server=0.11.1
 
 RUN useradd --create-home --uid 10001 zeroth
 COPY --from=build /dist/*.whl /tmp/
@@ -39,5 +44,8 @@ RUN mkdir -p /data && chown zeroth:zeroth /data
 VOLUME /data
 USER zeroth
 EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import json,urllib.request; p=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=4)); assert p['status'] in ('ok','degraded') and p['checks']"]
 
 CMD ["zeroth-core", "serve"]

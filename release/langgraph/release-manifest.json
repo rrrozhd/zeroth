@@ -1,0 +1,36 @@
+{
+  "evidence": {
+    "compatibility": {
+      "artifacts": [
+        "release/langgraph/compatibility.json"
+      ],
+      "status": "passed"
+    },
+    "performance": {
+      "artifacts": [
+        "release/langgraph/benchmark-evidence.json"
+      ],
+      "status": "passed"
+    },
+    "security": {
+      "artifacts": [
+        "Dockerfile",
+        "docker-compose.yml",
+        ".github/workflows/release-zeroth-core.yml"
+      ],
+      "status": "passed"
+    },
+    "tests": {
+      "artifacts": [
+        "tests/langgraph_release/test_benchmark.py",
+        "tests/langgraph_release/test_container_contract.py",
+        "tests/langgraph_release/test_demo.py",
+        "tests/langgraph_release/test_release_checklist.py",
+        "tests/docs/test_langgraph_release_docs.py"
+      ],
+      "status": "passed"
+    }
+  },
+  "release": "0.16.2",
+  "schema_version": 1
+}

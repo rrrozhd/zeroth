@@ -142,7 +142,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (trusted publisher)
-    needs: [smoke-install, test-wheel]
+    needs: [smoke-install, test-wheel, container-evidence]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -227,3 +227,78 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         # Default index, Sigstore attestations default-on in v1.14+ (D-13)
+
+  container-evidence:
+    name: Validate LangGraph container evidence
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate release checklist
+        run: python release/langgraph/harness.py validate --manifest release/langgraph/release-manifest.json
+
+      - name: Build release image
+        run: docker build -t zeroth-core:${{ github.ref_name }} .
+
+      - name: Reject invalid configuration
+        shell: bash
+        run: |
+          if docker run --rm -e ZEROTH_DATABASE__BACKEND=invalid zeroth-core:${{ github.ref_name }}; then
+            echo "::error::invalid configuration started successfully"
+            exit 1
+          fi
+
+      - name: Readiness and shutdown smoke validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create zeroth-release-data
+          docker run --rm -v zeroth-release-data:/data zeroth-core:${{ github.ref_name }} zeroth-core seed-demo
+          CONTAINER=$(docker run -d -p 8000:8000 -v zeroth-release-data:/data zeroth-core:${{ github.ref_name }})
+          trap 'docker stop --time 30 "${CONTAINER}"; docker volume rm zeroth-release-data' EXIT
+          for _ in $(seq 1 30); do
+            if python release/langgraph/harness.py smoke; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "${CONTAINER}"
+          exit 1
+
+      - name: Export image artifact
+        run: docker save --output zeroth-core-image.tar zeroth-core:${{ github.ref_name }}
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: zeroth-core:${{ github.ref_name }}
+          format: spdx-json
+          output-file: release/langgraph/image.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: zeroth-core-image.tar
+
+      - name: Attest image SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: zeroth-core-image.tar
+          sbom-path: release/langgraph/image.spdx.json
+
+      - name: Upload reproducible container evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: langgraph-container-evidence
+          path: |
+            zeroth-core-image.tar
+            release/langgraph/image.spdx.json
+            release/langgraph/compatibility.json
+            release/langgraph/benchmark-evidence.json
+            release/langgraph/release-manifest.json

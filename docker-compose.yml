@@ -10,7 +10,9 @@ services:
       context: .
       args:
         # psycopg for the Postgres backend below.
-        ZEROTH_EXTRAS: memory-pg
+        ZEROTH_EXTRAS: memory-pg,langgraph,langgraph-gateway
+    init: true
+    stop_grace_period: 30s
     ports:
       - "8000:8000"
     environment:
@@ -22,6 +24,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; p=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=4)); assert p['status'] in ('ok','degraded') and p['checks']"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   db:
     image: postgres:16
