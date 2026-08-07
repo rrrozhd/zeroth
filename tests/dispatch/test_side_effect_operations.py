@@ -838,30 +838,66 @@ class TestClaimVersusSettleRaces:
             "a later failure report must not erase an ambiguous outcome"
         )
 
-    async def test_a_claim_racing_a_failure_never_loses_the_stronger_state(
+    async def test_a_failure_after_ambiguity_is_refused_deterministically(
         self, dual_database
     ) -> None:
-        """The race that surfaced it, kept as a regression guard.
+        """No scheduling, no conditional assertion — the transition every run.
 
-        Whichever way the interleaving falls, the stored state must never end up
-        weaker than what is actually known.
+        The previous version raced a claim against a fail() and only asserted
+        when the interleaving happened to land, so an unfavourable schedule
+        passed without exercising the disputed transition at all. That fails the
+        non-vacuity standard recorded after check 4, so the ordering is forced.
         """
-        import asyncio
-
         store = SideEffectOperationStore(dual_database)
-        await _claim(store)  # row is IN_FLIGHT
+        await _claim(store)
+        await store.mark_ambiguous(KEY, reason="crash before checkpoint")
+        assert (await store.get(KEY))["state"] == OperationState.AMBIGUOUS
 
-        async def _fail_soon():
-            await asyncio.sleep(0)
-            await store.fail(KEY, error="card declined")
+        await store.fail(KEY, error="card declined")
 
-        claim, _ = await asyncio.gather(_claim(store, attempt=1), _fail_soon())
+        assert (await store.get(KEY))["state"] == OperationState.AMBIGUOUS, (
+            "a later failure report must not erase an ambiguous outcome"
+        )
 
+    async def test_reconciliation_can_settle_ambiguity_as_a_confirmed_failure(
+        self, dual_database
+    ) -> None:
+        """Ambiguity must have a way out, or refusing fail() wedges it forever.
+
+        Check 5 caught this: with fail() refusing AMBIGUOUS and reconciliation
+        able to resolve only to COMPLETED, an operation the target confirms did
+        NOT happen had no path to FAILED. The distinction is who is asserting —
+        a timeout knows nothing, whereas this is the target's own answer.
+        """
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.mark_ambiguous(KEY, reason="timeout")
+
+        state = await store.record_reconciliation(
+            KEY, resolved=False, confirmed_failed=True, error="target reports no charge"
+        )
+
+        assert state is OperationState.FAILED
         record = await store.get(KEY)
-        if claim.state is OperationState.AMBIGUOUS:
-            assert record["state"] == OperationState.AMBIGUOUS, (
-                "an ambiguous claim must not be overwritten by a later failure"
-            )
+        assert record["state"] == OperationState.FAILED
+        # And a settled failure is retryable again, so the run can make progress.
+        retry = await _claim(store, attempt=2)
+        assert retry.first_execution is True
+
+    async def test_a_confirmed_failure_still_cannot_undo_a_completion(
+        self, dual_database
+    ) -> None:
+        """The new settle path must not become a way to erase a known success."""
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.complete(KEY, receipt='{"charge":"ok"}')
+
+        state = await store.record_reconciliation(
+            KEY, resolved=False, confirmed_failed=True, error="late contradictory report"
+        )
+
+        assert state is OperationState.COMPLETED
+        assert (await store.get(KEY))["receipt"] == '{"charge":"ok"}'
 
     async def test_a_settled_failure_is_reported_as_failed_by_a_later_claim(
         self, dual_database
