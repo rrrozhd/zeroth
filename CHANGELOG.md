@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.6] - 2026-08-07
+
+### Added
+
+- Thread `OperationIdentity` through all three executable-unit invocation
+  paths (manifest ref, inline source, and agent mid-loop tool calls) as an
+  explicit parameter, so integrations consume it without parsing run metadata.
+  Each tool call in an agent turn receives its own call ordinal.
+
 ## [0.17.0.5] - 2026-08-07
 
 ### Added
