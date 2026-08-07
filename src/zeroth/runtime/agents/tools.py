@@ -289,8 +289,16 @@ class ToolAttachmentBridge:
         granted_permissions: Sequence[str] | None = None,
         outcome: Mapping[str, Any] | None = None,
         error: str | None = None,
+        at_least_once: bool = False,
     ) -> dict[str, Any]:
-        """Create an audit record for a single tool call, including its arguments and result."""
+        """Create an audit record for a single tool call, including its arguments and result.
+
+        ``at_least_once`` marks a call that bypassed the side-effect operation
+        boundary entirely -- today, an MCP tool, which is not a graph node and so
+        never reaches ``RuntimeToolExecutor``. Such a call has no operation
+        record, no replay suppression and no reconciliation, and saying so is the
+        point: an unmarked record would read as though the guarantee applied.
+        """
         binding_audit = self._binding_audit(binding)
         self.validate_permissions(binding, granted_permissions)
         record = {
@@ -299,6 +307,9 @@ class ToolAttachmentBridge:
             "outcome": dict(outcome or {}),
             "error": error,
         }
+        if at_least_once:
+            record["operation_residual_duplicate_risk"] = True
+            record["operation_support"] = "at_least_once"
         return record
 
     def _binding_audit(
