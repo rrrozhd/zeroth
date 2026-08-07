@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.4.1] - 2026-08-07
+
+### Fixed
+
+- Key an agent tool call's operation identity by the provider's tool-call id
+  rather than a process-local ordinal. The counter restarted whenever the
+  executor was rebuilt, so after recovery a different first call to the same
+  target inherited the previous call's key and could be wrongly suppressed.
+
 ## [0.18.4] - 2026-08-07
 
 ### Fixed
