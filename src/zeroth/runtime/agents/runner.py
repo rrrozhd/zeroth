@@ -8,6 +8,7 @@ retries, and saves thread state. It is the entry point for running an agent.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Mapping
 from copy import copy, deepcopy
@@ -58,6 +59,31 @@ from zeroth.runtime.agents.sanitization import (
 from zeroth.runtime.agents.tooling.tool_calls import build_tool_message
 from zeroth.runtime.agents.tools import ToolAttachmentBridge
 from zeroth.runtime.agents.validation import OutputValidator
+
+
+def _call_tool_executor(
+    executor: Any,
+    binding: Any,
+    arguments: Any,
+    tool_call_id: str | None,
+) -> Any:
+    """Invoke a tool executor, passing the tool-call id only if it takes one.
+
+    The executor is supplied by the caller, so its arity is not ours to assume:
+    the runtime's own closure accepts the id, while a third-party or test double
+    written against the two-argument shape must keep working untouched.
+    """
+    if tool_call_id is not None:
+        try:
+            parameters = inspect.signature(executor).parameters
+        except (TypeError, ValueError):  # builtins and C callables have no signature
+            parameters = {}
+        accepts_id = len(parameters) >= 3 or any(
+            parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters.values()
+        )
+        if accepts_id:
+            return executor(binding, arguments, tool_call_id)
+    return executor(binding, arguments)
 
 
 class AgentRunner:
@@ -587,7 +613,15 @@ class AgentRunner:
                         ):
                             result = await self._mcp_manager.call_tool(call["name"], call["args"])
                         else:
-                            result = self.tool_executor(binding, call["args"])
+                            # Offer the provider's tool-call id so the operation
+                            # identity is distinct per call rather than per
+                            # position in a process-local counter -- but only to
+                            # executors that accept it. ``tool_executor`` is a
+                            # caller-supplied callable, so widening the call
+                            # unconditionally would break every existing one.
+                            result = _call_tool_executor(
+                                self.tool_executor, binding, call["args"], call.get("id")
+                            )
                             if asyncio.iscoroutine(result):
                                 result = await result
                     audit = self.tool_bridge.build_call_audit(
