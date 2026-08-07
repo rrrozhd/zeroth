@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.2.2] - 2026-08-07
+
+### Fixed
+
+- Report a concurrently failed operation as FAILED rather than AMBIGUOUS when a
+  claim races a settle, so a confirmed outcome is not dressed up as uncertainty.
+- Strengthen three proofs the third contextual check found under-assertive: the
+  capture test now drives the real AuditCapturePolicy (with a negative control
+  for the nested shape), and the retry test asserts the operation actually
+  settles instead of passing against the bug it was written for.
+
 ## [0.18.2.1] - 2026-08-07
 
 ### Fixed
