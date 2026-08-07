@@ -11,6 +11,7 @@ import time
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 from typing import Any
@@ -27,13 +28,18 @@ from starlette.routing import Route
 # the package initializer itself imports bootstrap and otherwise creates a standalone
 # subprocess-only circular import through ``proxy -> service.auth``.
 import zeroth.core.service.bootstrap as _service_bootstrap  # noqa: F401 - see above
-from zeroth.contracts.langgraph_gateway.models import CompatibilityStatus
+from zeroth.contracts.langgraph_gateway.models import (
+    CompatibilityStatus,
+    GovernanceLevel,
+    RunCapabilityEvidence,
+)
 from zeroth.core.config.settings import LangGraphGatewaySettings
 from zeroth.core.econ.budget import BudgetCheckResult
 from zeroth.core.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.core.policy.models import RunAdmissionResult
 from zeroth.core.secrets.provider import EnvSecretProvider
 from zeroth.core.signing import EnvHmacSigner
+from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
 from zeroth.service.langgraph_gateway.context import ReservedContextCodec
 from zeroth.service.langgraph_gateway.proxy import GatewayProxy
@@ -326,6 +332,20 @@ class _RecordingSink:
         return None
 
 
+class _ObservedEvidenceProvider:
+    async def evidence_for_governance_run(
+        self, governance_run_id: str
+    ) -> RunCapabilityEvidence:
+        return RunCapabilityEvidence(
+            correlation_id="conformance-correlation",
+            run_id=governance_run_id,
+            governance_level=GovernanceLevel.OBSERVED,
+            observed_at=datetime.now(tz=UTC),
+            graph_version="graph:conformance",
+            signature_valid=True,
+        )
+
+
 def _append_evidence(path: str | None, row: dict[str, Any]) -> None:
     if path is None:
         return
@@ -413,9 +433,14 @@ def create_gateway_app(
             openapi_fingerprint="sha256:conformance",
             status=CompatibilityStatus.SUPPORTED,
         ),
+        capability_reporter=CapabilityReporter(
+            governance_evidence_provider=_ObservedEvidenceProvider(),
+            expected_graph_version="graph:conformance",
+        ),
         event_sink=event_sink
         or (_FileRecordingSink(evidence_path) if evidence_path else _RecordingSink()),
         principal_resolver=_principal,
+        correlation_factory=lambda: "conformance-correlation",
     )
 
     async def route(request: Request) -> Response:
