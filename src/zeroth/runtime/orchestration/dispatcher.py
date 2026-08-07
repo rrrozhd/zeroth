@@ -158,6 +158,15 @@ def substitute_binding_key(
     return _KEY_PLACEHOLDER_RE.sub(_replace, key)
 
 
+class SideEffectReconciliationExhaustedError(NodeDispatcherError):
+    """Raised when an ambiguous operation has spent its reconciliation budget.
+
+    Refusing is deliberate. The alternative -- re-executing anyway -- risks
+    applying the effect a second time on an integration that cannot dedupe,
+    which is the one outcome worse than stalling and asking a human.
+    """
+
+
 def _operation_audit_fields(
     identity: OperationIdentity,
     claim: OperationClaim,
@@ -206,6 +215,9 @@ class NodeDispatcher:
     context_window_enabled: bool = True
     # Optional: without it, side-effecting dispatch behaves exactly as before.
     operation_store: SideEffectOperationStore | None = None
+    # Optional callback asking a target what a prior operation did. Absent means
+    # the integration cannot be queried -- the residual at-least-once case.
+    operation_outcome_lookup: Callable[[OperationIdentity], Awaitable[str | None]] | None = None
 
     def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
         if self.policy_gate is None:
@@ -278,9 +290,7 @@ class NodeDispatcher:
             if claim.state is OperationState.COMPLETED:
                 audit["replayed_output"] = json.loads(claim.receipt or "{}")
                 return None, audit
-            # Ambiguous: re-executing is the caller's decision, and the record
-            # already says whether a duplicate is actually possible.
-            return await invoke(), audit
+            return await self._resolve_ambiguous(identity, claim, invoke, audit)
 
         try:
             result = await invoke()
@@ -295,6 +305,60 @@ class NodeDispatcher:
             receipt=json.dumps(result.output_data, default=str, sort_keys=True),
         )
         return result, audit
+
+    async def _resolve_ambiguous(
+        self,
+        identity: OperationIdentity,
+        claim: OperationClaim,
+        invoke: Callable[[], Awaitable[Any]],
+        audit: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any]]:
+        """Consult the reconciliation path before considering re-execution.
+
+        Blind re-execution is what this whole subsystem exists to avoid, so the
+        outcome lookup runs *first*. The budget is a real stop: once it is spent
+        the operation is refused rather than re-executed, because the runtime
+        still does not know whether the effect landed and guessing would be the
+        one failure mode worse than stalling.
+        """
+        store = self.operation_store
+        assert store is not None  # only reached from the guarded path
+        if claim.reconciliation_exhausted:
+            audit["side_effect_operation"]["reconciliation_exhausted"] = True
+            raise SideEffectReconciliationExhaustedError(
+                f"operation {identity.operation_key} is ambiguous and its "
+                "reconciliation budget is spent; re-executing could apply the "
+                "effect twice"
+            )
+
+        receipt: str | None = None
+        error: str | None = None
+        if self.operation_outcome_lookup is not None:
+            try:
+                receipt = await self.operation_outcome_lookup(identity)
+            except Exception as exc:  # noqa: BLE001 - a failed lookup is data
+                error = f"outcome lookup failed: {exc}"
+        else:
+            # No lookup means the integration cannot be asked what happened.
+            # That is exactly the residual at-least-once case, recorded rather
+            # than implied away.
+            error = "integration exposes no outcome lookup"
+
+        state = await store.record_reconciliation(
+            identity.operation_key,
+            resolved=receipt is not None,
+            receipt=receipt,
+            error=error,
+        )
+        audit["side_effect_operation"]["state"] = state.value
+        if state is OperationState.COMPLETED and receipt is not None:
+            audit["side_effect_operation"]["replay_suppressed"] = True
+            audit["replayed_output"] = json.loads(receipt or "{}")
+            return None, audit
+
+        # Unresolved and still within budget: re-execution is permitted, and the
+        # record already says whether a duplicate is genuinely possible.
+        return await invoke(), audit
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:

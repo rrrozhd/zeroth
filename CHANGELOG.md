@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.2] - 2026-08-07
+
+### Fixed
+
+- Consult the reconciliation path before re-executing an ambiguous operation,
+  and make the attempt budget a real stop: an exhausted operation is refused
+  rather than re-executed, since the runtime still cannot tell whether the
+  effect landed.
+- Make claim, complete and reconciliation genuine compare-and-set using guarded
+  `UPDATE ... RETURNING` and `INSERT ... ON CONFLICT DO NOTHING RETURNING`,
+  so concurrent callers cannot both be authorised to apply one side effect.
+
 ## [0.18.1.1] - 2026-08-07
 
 ### Fixed
