@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.4] - 2026-08-07
+
+### Fixed
+
+- Make both lease claim paths genuine compare-and-set. The SQLite verify
+  re-read checked only the worker id, so two claimers sharing one id both
+  reported success, and orphan reclaim updated rows without rechecking that
+  they were still expired.
+- Skip the side-effect guard for executable units whose manifest declares
+  `side_effect = False`, so read-only units keep their previous behaviour.
+  Unknown declarations stay guarded.
+
 ## [0.18.3.3] - 2026-08-07
 
 ### Fixed
