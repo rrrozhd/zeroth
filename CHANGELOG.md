@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.17.0.4] - 2026-08-07
+
+### Added
+
+- Govern LangGraph `astream_events`, `batch`, and `abatch` through the same
+  callback, gateway, hook, correlation, and cost-capture path as the existing
+  governed entrypoints.
+
+### Fixed
+
+- Preserve caller-driven LangGraph v3 streams, transformer and finalization
+  failures, nested run ancestry, and collision-resistant cost-event identities.
+
 ## [0.17.0.3] - 2026-08-06
 
 ### Fixed
@@ -128,7 +141,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bring `src/` into `ruff format` conformance. Eleven files predated the check
   and would have failed the release gate.
+## [0.16.2.8] - 2026-08-07
 
+### Fixed
+
+- Capture LangGraph v3 cost telemetry through transformer processing and
+  finalization failures while preserving nested run ancestry.
+
+## [0.16.2.7] - 2026-08-07
+
+### Fixed
+
+- Preserve LangGraph v3 caller-driven event streams under governance and cost
+  capture, including private correlation during driver pulls and aborts.
+- Give every LangGraph cost event a collision-resistant execution identity.
+
+## [0.16.2.6] - 2026-08-07
+
+### Fixed
+
+- Govern LangGraph event streams and sync/async batch inputs with the same
+  callback, gateway, hook, correlation, and cost-capture behavior as existing
+  governed entrypoints.
 ## [0.16.2.5.1] - 2026-08-07
 
 ### Added
