@@ -98,6 +98,22 @@ class MetadataKind(StrEnum):
 # correlates two records that shared one while carrying none of the text.
 METADATA_KINDS: Mapping[str, MetadataKind] = {
     "admission_digest": MetadataKind.DIGEST,
+    # ZER-26 side-effect operations. Flat, not nested: the projection retains
+    # only allowlisted top-level keys, so a nested block is dropped before it is
+    # ever persisted. ``operation_key`` is IDENTIFIER because consumers must be
+    # able to *compare* two records that describe one logical operation -- an
+    # OPAQUE digest would satisfy a presence check while breaking correlation.
+    # ``operation_target_ref`` stays OPAQUE: it can carry a manifest ref chosen
+    # outside this codebase.
+    "operation_first_execution": MetadataKind.BOOLEAN,
+    "operation_key": MetadataKind.IDENTIFIER,
+    "operation_reconciliation_exhausted": MetadataKind.BOOLEAN,
+    "operation_reconciliation_required": MetadataKind.BOOLEAN,
+    "operation_replay_suppressed": MetadataKind.BOOLEAN,
+    "operation_residual_duplicate_risk": MetadataKind.BOOLEAN,
+    "operation_state": MetadataKind.VOCABULARY,
+    "operation_support": MetadataKind.VOCABULARY,
+    "operation_target_ref": MetadataKind.OPAQUE,
     "admitted": MetadataKind.BOOLEAN,
     "assistant_id": MetadataKind.OPAQUE,
     "attempt": MetadataKind.NUMBER,
@@ -353,6 +369,13 @@ REASON_CODES: frozenset[str] = (
 # both sides (tests are not bound by the layering rule) and pins each mirror
 # against its source.
 METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
+    # OperationState and SideEffectSupport. Enumerable by construction, so a
+    # vocabulary is the right kind: an unknown term is a producer bug and gets
+    # summarized rather than retained.
+    "operation_state": frozenset(
+        {"not_started", "in_flight", "completed", "failed", "ambiguous"}
+    ),
+    "operation_support": frozenset({"idempotent", "outcome_queryable", "at_least_once"}),
     # PolicyDecision plus the approval verdicts ApprovalDecisionType mints, plus
     # ``require_approval``: the tool-enforcement verdict for "this call is
     # waiting on a human". ``approve``/``reject`` are ApprovalDecisionType

@@ -179,19 +179,17 @@ def _operation_audit_fields(
     instead of being implied away.
     """
     return {
-        "side_effect_operation": {
-            "operation_key": identity.operation_key,
-            "target_ref": identity.target_ref,
-            "support": identity.support.value,
-            "state": claim.state.value,
-            "first_execution": claim.first_execution,
-            "replay_suppressed": (
-                not claim.first_execution and claim.state is OperationState.COMPLETED
-            ),
-            "reconciliation_required": claim.reconciliation_required,
-            "reconciliation_exhausted": claim.reconciliation_exhausted,
-            "residual_duplicate_risk": claim.residual_duplicate_risk,
-        }
+        "operation_key": identity.operation_key,
+        "operation_target_ref": identity.target_ref,
+        "operation_support": identity.support.value,
+        "operation_state": claim.state.value.lower(),
+        "operation_first_execution": claim.first_execution,
+        "operation_replay_suppressed": (
+            not claim.first_execution and claim.state is OperationState.COMPLETED
+        ),
+        "operation_reconciliation_required": claim.reconciliation_required,
+        "operation_reconciliation_exhausted": claim.reconciliation_exhausted,
+        "operation_residual_duplicate_risk": claim.residual_duplicate_risk,
     }
 
 
@@ -292,6 +290,24 @@ class NodeDispatcher:
                 return None, audit
             return await self._resolve_ambiguous(identity, claim, invoke, audit)
 
+        return await self._invoke_checkpointed(identity, invoke), audit
+
+    async def _invoke_checkpointed(
+        self,
+        identity: OperationIdentity,
+        invoke: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """Perform the effect and record its outcome durably.
+
+        Both the first execution and a reconciliation retry go through here. A
+        retry that bypassed this left a *successful* re-execution still marked
+        AMBIGUOUS, so the very next attempt would reconcile it all over again.
+
+        A timeout is deliberately not folded into the failure branch: it is the
+        one outcome where the effect may well have landed.
+        """
+        store = self.operation_store
+        assert store is not None  # only reached from the guarded path
         try:
             result = await invoke()
         except TimeoutError as error:
@@ -304,7 +320,7 @@ class NodeDispatcher:
             identity.operation_key,
             receipt=json.dumps(result.output_data, default=str, sort_keys=True),
         )
-        return result, audit
+        return result
 
     async def _resolve_ambiguous(
         self,
@@ -324,7 +340,7 @@ class NodeDispatcher:
         store = self.operation_store
         assert store is not None  # only reached from the guarded path
         if claim.reconciliation_exhausted:
-            audit["side_effect_operation"]["reconciliation_exhausted"] = True
+            audit["operation_reconciliation_exhausted"] = True
             raise SideEffectReconciliationExhaustedError(
                 f"operation {identity.operation_key} is ambiguous and its "
                 "reconciliation budget is spent; re-executing could apply the "
@@ -350,15 +366,17 @@ class NodeDispatcher:
             receipt=receipt,
             error=error,
         )
-        audit["side_effect_operation"]["state"] = state.value
+        audit["operation_state"] = state.value.lower()
         if state is OperationState.COMPLETED and receipt is not None:
-            audit["side_effect_operation"]["replay_suppressed"] = True
+            audit["operation_replay_suppressed"] = True
             audit["replayed_output"] = json.loads(receipt or "{}")
             return None, audit
 
         # Unresolved and still within budget: re-execution is permitted, and the
-        # record already says whether a duplicate is genuinely possible.
-        return await invoke(), audit
+        # record already says whether a duplicate is genuinely possible. It goes
+        # through the same checkpoint as a first execution, so a successful
+        # retry settles the operation instead of staying AMBIGUOUS forever.
+        return await self._invoke_checkpointed(identity, invoke), audit
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:

@@ -236,11 +236,15 @@ class SideEffectOperationStore:
 
             # IN_FLIGHT (a vanished attempt) or already AMBIGUOUS.
             if state is OperationState.IN_FLIGHT:
+                # Guarded on IN_FLIGHT, not just the key: the in-flight attempt
+                # may complete between the read above and this write, and an
+                # unguarded update would demote a COMPLETED operation back to
+                # AMBIGUOUS -- losing a known-good receipt.
                 await conn.execute(
                     """
                     UPDATE side_effect_operations
                     SET state = ?, attempt = ?, ambiguity_reason = ?, updated_at = ?
-                    WHERE operation_key = ?
+                    WHERE operation_key = ? AND state = ?
                     """,
                     (
                         OperationState.AMBIGUOUS.value,
@@ -248,8 +252,27 @@ class SideEffectOperationStore:
                         "claimed while a previous attempt was still in flight",
                         now,
                         operation_key,
+                        OperationState.IN_FLIGHT.value,
                     ),
                 )
+                # The guard may have refused because the in-flight attempt just
+                # completed. Report what is actually stored rather than
+                # asserting ambiguity we no longer have.
+                settled = await conn.fetch_one(
+                    "SELECT state, receipt FROM side_effect_operations WHERE operation_key = ?",
+                    (operation_key,),
+                )
+                if (
+                    settled is not None
+                    and OperationState(settled["state"]) is OperationState.COMPLETED
+                ):
+                    self._count("zeroth_side_effect_replay_suppressed_total")
+                    return OperationClaim(
+                        state=OperationState.COMPLETED,
+                        first_execution=False,
+                        receipt=settled["receipt"],
+                        attempts=attempts,
+                    )
 
         exhausted = attempts >= self.max_reconciliation_attempts
         self._count("zeroth_side_effect_ambiguous_total")
