@@ -67,6 +67,27 @@ class SideEffectOperationStore:
     max_reconciliation_attempts: int = 3
     metrics_collector: Any | None = None
 
+    def _encrypt(self, receipt: str | None) -> str | None:
+        """Encrypt a receipt at rest when the database exposes an encrypted field.
+
+        A receipt is the target's own response to a side effect -- a charge
+        confirmation, a message id, whatever the integration returned -- so it is
+        the same class of content as a run checkpoint and is protected the same
+        way. Passthrough when no encrypted_field is configured, matching
+        ``CheckpointStore``.
+        """
+        encrypted_field = getattr(self.database, "encrypted_field", None)
+        if encrypted_field is None or receipt is None:
+            return receipt
+        return encrypted_field.encrypt(receipt)
+
+    def _decrypt(self, receipt: str | None) -> str | None:
+        """Reverse of :meth:`_encrypt`; passthrough when no encrypted_field."""
+        encrypted_field = getattr(self.database, "encrypted_field", None)
+        if encrypted_field is None or receipt is None:
+            return receipt
+        return encrypted_field.decrypt(receipt)
+
     def _count(self, name: str) -> None:
         """Emit one counter, if a collector was wired.
 
@@ -91,6 +112,7 @@ class SideEffectOperationStore:
         if row is None:
             return None
         record = dict(row)
+        record["receipt"] = self._decrypt(record.get("receipt"))
         record["dedupe_supported"] = record["support"] != SUPPORT_AT_LEAST_ONCE
         return record
 
@@ -111,7 +133,7 @@ class SideEffectOperationStore:
                 """,
                 (run_id, OperationState.AMBIGUOUS.value),
             )
-        return [dict(row) for row in rows]
+        return [dict(row) | {"receipt": self._decrypt(row["receipt"])} for row in rows]
 
     # -----------------------------------------------------------------------
     # Claim
@@ -270,7 +292,7 @@ class SideEffectOperationStore:
                     return OperationClaim(
                         state=OperationState.COMPLETED,
                         first_execution=False,
-                        receipt=settled["receipt"],
+                        receipt=self._decrypt(settled["receipt"]),
                         attempts=attempts,
                     )
                 if settled_state is OperationState.FAILED:
@@ -322,7 +344,7 @@ class SideEffectOperationStore:
                 """,
                 (
                     OperationState.COMPLETED.value,
-                    receipt,
+                    self._encrypt(receipt),
                     now,
                     operation_key,
                     OperationState.COMPLETED.value,
@@ -416,7 +438,7 @@ class SideEffectOperationStore:
                     """,
                     (
                         OperationState.COMPLETED.value,
-                        receipt,
+                        self._encrypt(receipt),
                         now,
                         operation_key,
                         OperationState.COMPLETED.value,
@@ -482,3 +504,23 @@ class SideEffectOperationStore:
 def record_is_dedupe_supported(record: Mapping[str, Any]) -> bool:
     """Whether a stored record's target can collapse a repeat."""
     return record["support"] != SUPPORT_AT_LEAST_ONCE
+
+
+async def erase_operations_for_run(connection: Any, run_id: str) -> int:
+    """Delete a run's side-effect receipts, returning how many rows were removed.
+
+    Receipts are a plaintext-adjacent PII surface of exactly the kind run
+    erasure exists to reach -- the target's own response to a side effect -- and
+    neither deleting checkpoints nor redacting the run row touches them.
+    Idempotent: a second call deletes nothing and returns 0.
+    """
+    rows = await connection.fetch_all(
+        "SELECT operation_key FROM side_effect_operations WHERE run_id = ?",
+        (run_id,),
+    )
+    if rows:
+        await connection.execute(
+            "DELETE FROM side_effect_operations WHERE run_id = ?",
+            (run_id,),
+        )
+    return len(rows)

@@ -57,6 +57,7 @@ from zeroth.governance.retention.manifests import (
 from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
+from zeroth.platform.dispatch.operations import erase_operations_for_run
 
 if TYPE_CHECKING:
     from zeroth.governance.audit.repository import AuditRepository
@@ -309,6 +310,13 @@ class RetentionErasureService:
                     )
                 )
                 await self._runs.erase_token_snapshot_for_run_in_transaction(
+                    transaction.connection,
+                    run_id,
+                )
+                # ZER-26 receipts are the target's own response to a side effect
+                # -- the same class of content as a checkpoint, and equally
+                # unreached by deleting or redacting the run row.
+                result.operations_deleted = await erase_operations_for_run(
                     transaction.connection,
                     run_id,
                 )
