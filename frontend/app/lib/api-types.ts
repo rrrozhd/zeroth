@@ -3345,14 +3345,7 @@ export interface components {
         };
         /**
          * HealthResponse
-         * @description Response payload for the wrapper health endpoint.
-         *
-         *     Defined here rather than in the app module deliberately: the schema-model
-         *     discovery in tests/architecture/test_library_surface.py treats any app.py
-         *     whose parent directory is literally "service" as schema-bearing, which
-         *     would discover this model under the app module's destination path before
-         *     the canonical fixture can follow. The legacy zeroth.core.service.app path
-         *     still resolves the same class object.
+         * @description Response payload for the service health endpoint.
          */
         HealthResponse: {
             audit_delivery?: components["schemas"]["AuditDeliveryHealth"] | null;
