@@ -18,7 +18,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.16.1.7] - 2026-08-07
+
+### Fixed
+
+- Preserve exact compatibility fingerprinting and asynchronous WebSocket
+  authentication across the canonical LangGraph gateway relocation.
+
+## [0.16.1.6] - 2026-08-07
+
+### Security
+
+- Keep HTTP and WebSocket authentication responsive during remote JWKS reads,
+  throttle key-refresh misses, and reject redirects outside HTTP(S).
+
+## [0.16.1.5] - 2026-08-07
+
+### Fixed
+
+- Deliver async LangGraph policy audit records through the owning event loop
+  while authorization remains offloaded.
+
+## [0.16.1.4.1] - 2026-08-06
+
+### Tests
+
+- Assert edited approval arguments before execution and terminal compaction
+  afterward in synchronous and asynchronous callable-wrapper coverage.
+
+## [0.16.1.4] - 2026-08-06
+
+### Fixed
+
+- Keep async LangGraph tool graphs responsive while synchronous policy
+  authorization waits, preserving fail-closed decisions and approval revalidation.
+
+## [0.16.1.3] - 2026-08-06
+
+### Security
+
+- Remove original and edited tool arguments from terminal LangGraph approval
+  records while preserving durable replay fences and exact retry validation.
+
+## [0.16.1.2] - 2026-08-06
+
+### Security
+
+- Bound and cache remote JWKS retrieval, refresh rotated keys once, and reject
+  unavailable or invalid key sets as bearer authentication failures.
+
+## [0.16.1.1] - 2026-08-06
+
+### Fixed
+
+- Require an exact allowlisted Agent Server OpenAPI fingerprint before proxying
+  and reject unavailable compatibility evidence.
+- Compare recorded model, retry, disconnect, and graph outcomes through stable
+  escaped paths, and pin the tested LangChain compatibility version in CI.
+
 ## [0.16.1] - 2026-08-06
+
+### Added
+
+- Run the pinned LangGraph and Agent Server compatibility pair in CI and report
+  the exact first unexplained differential path without exposing compared values.
+
+### Security
+
+- Reject bearer tokens that omit expiry and verify replacement versus retired
+  signing-key identifiers.
 
 ### Changed
 

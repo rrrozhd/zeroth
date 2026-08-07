@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from itertools import islice
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import uvicorn
@@ -74,6 +75,8 @@ class CapturedExchange:
     errors: tuple[Any, ...]
     cancellation_outcome: Any
     terminal_state: Any
+    retry_attempts: tuple[int, ...] = ()
+    disconnect_outcome: str | None = None
     forwarded_context_present: bool = False
     audit_event_present: bool = False
 
@@ -82,11 +85,13 @@ class CapturedExchange:
 class DifferentialReport:
     semantic_divergences: list[str]
     expected_governance_additions: list[str]
+    first_divergence_path: str | None = None
 
     def write_human_report(self, path: Path) -> None:
         path.write_text(
             "LangGraph gateway differential report\n"
             f"semantic divergences: {self.semantic_divergences or ['none']}\n"
+            f"first divergence: {self.first_divergence_path or 'none'}\n"
             f"expected governance additions: {self.expected_governance_additions or ['none']}\n",
             encoding="utf-8",
         )
@@ -206,6 +211,8 @@ def _semantic_projection(
         "tool_sequence": normalize(capture.tool_sequence),
         "errors": normalize(capture.errors),
         "cancellation_outcome": capture.cancellation_outcome,
+        "disconnect_outcome": capture.disconnect_outcome,
+        "retry_attempts": capture.retry_attempts,
         "terminal_state": capture.terminal_state,
     }
 
@@ -222,6 +229,43 @@ def _normalize_sse_frame_id(frame: bytes, frame_id: str | None, index: int) -> b
             content = f"id: <generated-sse-id:{index}>".encode()
         normalized.append(content + ending)
     return b"".join(normalized)
+
+
+def _json_pointer(path: tuple[str, ...]) -> str:
+    pointer = "/" + "/".join(
+        segment.replace("~", "~0").replace("/", "~1") for segment in path
+    )
+    return f"#{quote(pointer, safe='/~')}"
+
+
+def _first_divergence_path(
+    direct: Any,
+    proxied: Any,
+    path: tuple[str, ...] = (),
+) -> str | None:
+    if isinstance(direct, Mapping) and isinstance(proxied, Mapping):
+        keys = sorted(set(direct) | set(proxied), key=lambda key: str(key))
+        for key in keys:
+            child_path = (*path, str(key))
+            if key not in direct or key not in proxied:
+                return _json_pointer(child_path)
+            divergence = _first_divergence_path(direct[key], proxied[key], child_path)
+            if divergence is not None:
+                return divergence
+        return None
+    if type(direct) is type(proxied) and isinstance(direct, (list, tuple)):
+        for index, (direct_item, proxied_item) in enumerate(zip(direct, proxied, strict=False)):
+            divergence = _first_divergence_path(
+                direct_item,
+                proxied_item,
+                (*path, str(index)),
+            )
+            if divergence is not None:
+                return divergence
+        if len(direct) != len(proxied):
+            return _json_pointer((*path, str(min(len(direct), len(proxied)))))
+        return None
+    return None if direct == proxied else _json_pointer(path)
 
 
 def compare_exchanges(
@@ -260,7 +304,11 @@ def compare_exchanges(
         additions.append("forwarded.config.configurable._zeroth")
     if proxied.audit_event_present:
         additions.append("audit.langgraph.gateway")
-    return DifferentialReport(divergences, additions)
+    return DifferentialReport(
+        divergences,
+        additions,
+        _first_divergence_path(direct_projection, proxied_projection),
+    )
 
 
 class _AllowPolicy:
@@ -651,11 +699,12 @@ def _capture_case_request(
     evidence: tuple[dict[str, Any], ...] = (),
 ) -> CapturedExchange:
     payload = _render_case_value(case.request(context), context)
+    disconnect_outcome: str | None = None
     if case.expected_content_type == "text/event-stream" and case.group in {
         "threads",
         "event-stream",
     }:
-        captured_response, raw_chunks = _capture_subscription_frames(
+        captured_response, raw_chunks, disconnect_outcome = _capture_subscription_frames(
             client,
             base_url,
             case,
@@ -729,12 +778,14 @@ def _capture_case_request(
     interrupts = ()
     resume_values = ()
     tool_sequence = ()
+    retry_attempts = ()
     if isinstance(final_json, dict):
         interrupts = tuple(final_json.get("__interrupt__", ()))
         result = final_json.get("result")
         if isinstance(result, str) and result.startswith("resumed:"):
             resume_values = (result.removeprefix("resumed:"),)
         tool_sequence = tuple(final_json.get("tool_sequence", ()))
+        retry_attempts = tuple(final_json.get("retry_attempts", ()))
     errors = (
         ()
         if captured_response.is_success
@@ -752,6 +803,8 @@ def _capture_case_request(
         errors=errors,
         cancellation_outcome=cancellation_outcome,
         terminal_state=terminal_state,
+        retry_attempts=retry_attempts,
+        disconnect_outcome=disconnect_outcome,
         forwarded_context_present=any(
             row.get("kind") == "forwarded" and row.get("zeroth_present") for row in evidence
         ),
@@ -784,7 +837,7 @@ def _capture_subscription_frames(
     context: Mapping[str, str],
     headers: Mapping[str, str],
     payload: Any,
-) -> tuple[httpx.Response, tuple[bytes, ...]]:
+) -> tuple[httpx.Response, tuple[bytes, ...], str]:
     frame_limit = 6 if case.group == "threads" else 4
     ready = threading.Event()
     finished = threading.Event()
@@ -842,7 +895,7 @@ def _capture_subscription_frames(
         raise AssertionError(
             f"subscription yielded {len(frames)} of {frame_limit} frames: {case.name}"
         )
-    return result["response"], frames
+    return result["response"], frames, "client_stream_closed"
 
 
 def _matching_generated_pairs(
@@ -1035,6 +1088,9 @@ def capture_response(
 ) -> CapturedExchange:
     content_type = response.headers.get("content-type", "")
     final_json = response.json() if content_type.startswith("application/json") else None
+    retry_attempts = (
+        tuple(final_json.get("retry_attempts", ())) if isinstance(final_json, dict) else ()
+    )
     return CapturedExchange(
         status_code=response.status_code,
         headers=tuple(response.headers.multi_items()),
@@ -1049,6 +1105,7 @@ def capture_response(
         errors=() if response.is_success else (final_json or response.text,),
         cancellation_outcome=None,
         terminal_state="success" if response.is_success else "error",
+        retry_attempts=retry_attempts,
         forwarded_context_present=forwarded_context_present,
         audit_event_present=audit_event_present,
     )

@@ -23,10 +23,12 @@ and a read back distinguishes the two.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import json
 import tempfile
+import threading
 from enum import StrEnum
 from typing import Any
 
@@ -34,6 +36,7 @@ import pytest
 
 from tests.integrations.langgraph.tools._hostile import HostileStr
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.langgraph import _tool_guard
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
@@ -48,6 +51,7 @@ from zeroth.integrations.langgraph._tool_errors import (
 from zeroth.integrations.langgraph._tool_guard import (
     TOOL_GUARD_NODE_ID,
     _recognized_decision,
+    aguard_tool_call,
     authorize_tool_call,
     guard_tool_call,
 )
@@ -111,6 +115,33 @@ class StubClient:
     def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
         """Return the configured verdict."""
         return self.verdict  # type: ignore[return-value]
+
+
+@dataclasses.dataclass
+class BlockingClient:
+    """A decision client held until the event loop proves it is still live."""
+
+    started: threading.Event = dataclasses.field(default_factory=threading.Event)
+    release: threading.Event = dataclasses.field(default_factory=threading.Event)
+    thread_id: int | None = None
+    released: bool = False
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Wait boundedly for the test coroutine to release authorization."""
+        del action, context
+        self.thread_id = threading.get_ident()
+        self.started.set()
+        self.released = self.release.wait(timeout=2)
+        return ALLOW
+
+
+class TimeoutClient:
+    """A decision client whose policy source times out."""
+
+    def decide(self, action: ToolAction, context: ToolGovernanceContext) -> ToolDecision:
+        """Raise the transport-shaped failure the shared seam must deny."""
+        del action, context
+        raise TimeoutError("decision timed out")
 
 
 @dataclasses.dataclass
@@ -204,6 +235,70 @@ def test_authorizing_without_invoking_returns_the_allow_verdict() -> None:
     verdict = authorize_tool_call(ACTION, THREADED, client=StubClient(ALLOW))
 
     assert verdict.kind is ToolDecisionKind.ALLOW
+
+
+async def test_async_authorization_keeps_the_event_loop_live_and_invokes_once() -> None:
+    client = BlockingClient()
+    event_loop_thread = threading.get_ident()
+    downstream_calls = 0
+
+    async def heartbeat() -> bool:
+        return await asyncio.to_thread(client.started.wait, 2)
+
+    async def downstream() -> str:
+        nonlocal downstream_calls
+        downstream_calls += 1
+        return "tool-result"
+
+    guarded = asyncio.create_task(aguard_tool_call(ACTION, THREADED, downstream, client=client))
+    try:
+        authorization_started = await heartbeat()
+        heartbeat_beat_before_release = not guarded.done()
+    finally:
+        client.release.set()
+
+    result = await asyncio.wait_for(guarded, 2)
+
+    assert authorization_started
+    assert heartbeat_beat_before_release
+    assert client.released
+    assert client.thread_id != event_loop_thread
+    assert downstream_calls == 1
+    assert result == "tool-result"
+
+
+async def test_async_policy_timeout_delivers_the_outage_on_the_event_loop(sqlite_db) -> None:
+    repository = AuditRepository(sqlite_db)
+    audit = AuditDeliveryQueue(repository, base_delay_seconds=0, max_delay_seconds=0)
+    downstream_calls = 0
+
+    async def downstream() -> None:
+        nonlocal downstream_calls
+        downstream_calls += 1
+
+    try:
+        with pytest.raises(PolicyViolation):
+            await aguard_tool_call(
+                ACTION,
+                THREADED,
+                downstream,
+                client=TimeoutClient(),
+                audit=audit,
+                actor=ACTOR,
+            )
+    finally:
+        report = await audit.aclose(timeout=2)
+
+    stored = await repository.list_by_run("run-1")
+    assert downstream_calls == 0
+    assert report.drained
+    assert report.undelivered_audit_ids == ()
+    assert report.counts.queued == 1
+    assert report.counts.delivered == 1
+    assert audit.pending == 0
+    assert len(stored) == 1
+    assert stored[0].execution_metadata["decision"] == "deny"
+    assert stored[0].execution_metadata["reason_code"] == "policy_unavailable"
 
 
 # --- R5: a denial raises before the body, which runs zero times ----------------
