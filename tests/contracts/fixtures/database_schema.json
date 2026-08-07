@@ -75,6 +75,10 @@
     {
       "down_revision": "018",
       "revision": "019"
+    },
+    {
+      "down_revision": "019",
+      "revision": "020"
     }
   ],
   "tables": {
@@ -2898,9 +2902,18 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "INTEGER"
+        },
+        {
+          "cid": 36,
+          "default": "0",
+          "hidden": 0,
+          "name": "lease_generation",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE runs ( run_id TEXT PRIMARY KEY, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT , token_snapshot_write_disabled INTEGER DEFAULT '0' NOT NULL)",
+      "constraint_definition": "CREATE TABLE runs ( run_id TEXT PRIMARY KEY, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT , token_snapshot_write_disabled INTEGER DEFAULT '0' NOT NULL, lease_generation INTEGER NOT NULL DEFAULT 0)",
       "foreign_keys": [],
       "indexes": [
         {
@@ -2996,6 +3009,159 @@
             "scope"
           ],
           "name": "sqlite_autoindex_schema_versions_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "side_effect_operations": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "operation_key",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "dispatch_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "idempotency_key",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "target_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": "0",
+          "hidden": 0,
+          "name": "attempt",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "state",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": "'at_least_once'",
+          "hidden": 0,
+          "name": "support",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "receipt",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "error",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "ambiguity_reason",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": "0",
+          "hidden": 0,
+          "name": "reconciliation_attempts",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE side_effect_operations ( operation_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, target_ref TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, support TEXT NOT NULL DEFAULT 'at_least_once', receipt TEXT, error TEXT, ambiguity_reason TEXT, reconciliation_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "run_id",
+            "state"
+          ],
+          "name": "idx_side_effect_operations_pending",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "operation_key"
+          ],
+          "name": "sqlite_autoindex_side_effect_operations_1",
           "origin": "pk",
           "partial": false,
           "unique": true

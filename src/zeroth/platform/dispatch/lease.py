@@ -103,12 +103,15 @@ class LeaseManager:
                 return None
             run_id = row["run_id"]
             # Atomic write-lock: only one concurrent writer can update this row.
+            # The generation advances with the claim so a displaced worker's
+            # writes can be told apart from the new owner's.
             await conn.execute(
                 """
                 UPDATE runs
                 SET lease_worker_id = ?,
                     lease_acquired_at = ?,
-                    lease_expires_at = ?
+                    lease_expires_at = ?,
+                    lease_generation = lease_generation + 1
                 WHERE run_id = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
                 """,
@@ -157,7 +160,8 @@ class LeaseManager:
                 UPDATE runs
                 SET lease_worker_id = ?,
                     lease_acquired_at = ?,
-                    lease_expires_at = ?
+                    lease_expires_at = ?,
+                    lease_generation = lease_generation + 1
                 WHERE run_id = ?
                 """,
                 (worker_id, now.isoformat(), expires_at.isoformat(), run_id),
@@ -204,7 +208,8 @@ class LeaseManager:
                     SET lease_worker_id = ?,
                         lease_acquired_at = ?,
                         lease_expires_at = ?,
-                        recovery_checkpoint_id = ?
+                        recovery_checkpoint_id = ?,
+                        lease_generation = lease_generation + 1
                     WHERE run_id = ?
                     """,
                     (
@@ -222,29 +227,109 @@ class LeaseManager:
     # Lease maintenance
     # ---------------------------------------------------------------------------
 
-    async def renew_lease(self, run_id: str, worker_id: str) -> bool:
+    async def renew_lease(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        generation: int | None = None,
+    ) -> bool:
         """Extend the lease expiry for an active run.
 
         Returns True if the lease was renewed (i.e. we still own it), False if
         another worker has taken over or the run no longer exists.
+
+        ``generation`` qualifies the renewal on top of ownership.  Worker ids are
+        fresh per process, so owner-qualification alone already catches takeover
+        by a *different* worker; the generation additionally catches the case
+        where the lease was released and re-acquired, and is what the caller
+        must then present to :meth:`commit_fenced`.
         """
         now = _utc_now()
         new_expires = now + timedelta(seconds=self.lease_duration_seconds)
         async with self.database.transaction() as conn:
-            await conn.execute(
-                """
-                UPDATE runs
-                SET lease_expires_at = ?
-                WHERE run_id = ? AND lease_worker_id = ?
-                """,
-                (new_expires.isoformat(), run_id, worker_id),
-            )
+            if generation is None:
+                await conn.execute(
+                    """
+                    UPDATE runs
+                    SET lease_expires_at = ?
+                    WHERE run_id = ? AND lease_worker_id = ?
+                    """,
+                    (new_expires.isoformat(), run_id, worker_id),
+                )
+            else:
+                await conn.execute(
+                    """
+                    UPDATE runs
+                    SET lease_expires_at = ?
+                    WHERE run_id = ?
+                      AND lease_worker_id = ?
+                      AND lease_generation = ?
+                    """,
+                    (new_expires.isoformat(), run_id, worker_id, generation),
+                )
             row = await conn.fetch_one(
-                "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
+                "SELECT lease_worker_id, lease_generation FROM runs WHERE run_id = ?",
+                (run_id,),
             )
         if row is None:
             return False
-        return row["lease_worker_id"] == worker_id
+        if row["lease_worker_id"] != worker_id:
+            return False
+        return generation is None or int(row["lease_generation"]) == generation
+
+    async def current_generation(self, run_id: str) -> int | None:
+        """The run's current lease generation, or None if the run is unknown."""
+        async with self.database.transaction() as conn:
+            row = await conn.fetch_one(
+                "SELECT lease_generation FROM runs WHERE run_id = ?", (run_id,)
+            )
+        return None if row is None else int(row["lease_generation"])
+
+    async def commit_fenced(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        generation: int,
+        **columns: object,
+    ) -> bool:
+        """Apply a run-state write only if the caller still holds the lease.
+
+        The fence is part of the UPDATE predicate rather than a preceding check,
+        because a check-then-write leaves a window in which ownership can move
+        between the two statements -- precisely the race this exists to close.
+
+        Returns True when the write landed, False when a newer generation (or a
+        different owner) has superseded the caller.
+        """
+        if not columns:
+            raise ValueError("commit_fenced requires at least one column to write")
+        assignments = ", ".join(f"{name} = ?" for name in columns)
+        params = (
+            *columns.values(),
+            run_id,
+            worker_id,
+            generation,
+        )
+        async with self.database.transaction() as conn:
+            await conn.execute(
+                f"""
+                UPDATE runs
+                SET {assignments}
+                WHERE run_id = ?
+                  AND lease_worker_id = ?
+                  AND lease_generation = ?
+                """,
+                params,
+            )
+            row = await conn.fetch_one(
+                "SELECT lease_worker_id, lease_generation FROM runs WHERE run_id = ?",
+                (run_id,),
+            )
+        if row is None:
+            return False
+        return row["lease_worker_id"] == worker_id and int(row["lease_generation"]) == generation
 
     async def release_lease(self, run_id: str, worker_id: str) -> None:
         """Clear the lease columns after a run finishes (success or failure)."""
