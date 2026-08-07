@@ -630,9 +630,7 @@ class NodeDispatcher:
         ):
             self.executable_unit_runner.secret_resolver = self.secret_resolver
         inline = node.executable_unit.inline_source is not None
-        target_ref = (
-            f"node://{node.node_id}" if inline else node.executable_unit.manifest_ref
-        )
+        target_ref = f"node://{node.node_id}" if inline else node.executable_unit.manifest_ref
         identity = self._operation_identity_for(run, target_ref)
 
         async def _invoke() -> Any:
