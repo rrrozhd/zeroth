@@ -91,7 +91,7 @@ class RunStartContext:
         handler_registered: Always ``True`` when emitted; the handler is merged
             before the hook fires.
         entrypoint: Which entrypoint started the run: ``"invoke"``, ``"ainvoke"``,
-            ``"stream"`` or ``"astream"``.
+            ``"stream"``, ``"astream"`` or ``"astream_events"``.
     """
 
     graph: Any
@@ -113,6 +113,33 @@ def _published_run_context(
     finally:
         reset_reserved_context_token(token_marker)
         reset_correlation(correlation_marker)
+
+
+class _ContextualAsyncIterator:
+    """Keep private run context around a v3 driver's pulls and close."""
+
+    def __init__(
+        self,
+        iterator: Any,
+        correlation: str | None,
+        reserved_token: str | None,
+    ) -> None:
+        self._iterator = iterator
+        self._correlation = correlation
+        self._reserved_token = reserved_token
+
+    def __aiter__(self) -> _ContextualAsyncIterator:
+        return self
+
+    async def __anext__(self) -> Any:
+        with _published_run_context(self._correlation, self._reserved_token):
+            return await self._iterator.__anext__()
+
+    async def aclose(self) -> None:
+        aclose = getattr(self._iterator, "aclose", None)
+        if aclose is not None:
+            with _published_run_context(self._correlation, self._reserved_token):
+                await aclose()
 
 
 class GovernedGraph:
@@ -152,8 +179,8 @@ class GovernedGraph:
         """Wrap ``graph``; optionally register a one-shot ``on_run_start`` hook.
 
         Args:
-            graph: A compiled LangGraph (anything exposing the Runnable
-                ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` surface).
+            graph: A compiled LangGraph exposing the governed runnable
+                entrypoints.
             on_run_start: Optional stability seam invoked exactly once per
                 run-start. Defaults to ``None`` (no-op).
             gateway_client: Optional enforcement client that registers inventory
@@ -265,7 +292,53 @@ class GovernedGraph:
         """
         args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
         self._run_start("astream", correlation, reserved_token)
-        return self._correlated_astream(args, kwargs, correlation, reserved_token)
+        return self._correlated_astream("astream", args, kwargs, correlation, reserved_token)
+
+    def astream_events(self, *args: Any, **kwargs: Any) -> Any:
+        """Stream events with governance and private per-event run context."""
+        args, kwargs, correlation, reserved_token = self._prepare(args, kwargs)
+        self._run_start("astream_events", correlation, reserved_token)
+        if kwargs.get("version") == "v3":
+            return self._correlated_astream_events_v3(args, kwargs, correlation, reserved_token)
+        return self._correlated_astream("astream_events", args, kwargs, correlation, reserved_token)
+
+    def batch(
+        self,
+        inputs: list[Any],
+        config: Any = None,
+        *,
+        return_exceptions: bool = False,
+        **kwargs: Any,
+    ) -> list[Any]:
+        """Invoke every input through the governed sync entrypoint."""
+        from langchain_core.runnables import Runnable
+
+        return Runnable.batch(
+            self,
+            inputs,
+            config,
+            return_exceptions=return_exceptions,
+            **kwargs,
+        )
+
+    async def abatch(
+        self,
+        inputs: list[Any],
+        config: Any = None,
+        *,
+        return_exceptions: bool = False,
+        **kwargs: Any,
+    ) -> list[Any]:
+        """Async-invoke every input through the governed async entrypoint."""
+        from langchain_core.runnables import Runnable
+
+        return await Runnable.abatch(
+            self,
+            inputs,
+            config,
+            return_exceptions=return_exceptions,
+            **kwargs,
+        )
 
     def _correlated_stream(
         self,
@@ -302,13 +375,14 @@ class GovernedGraph:
 
     async def _correlated_astream(
         self,
+        entrypoint: str,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         correlation: str | None,
         reserved_token: str | None,
     ) -> Any:
         """Async-yield the delegate stream with private run context."""
-        iterator = self._delegate.astream(*args, **kwargs).__aiter__()
+        iterator = getattr(self._delegate, entrypoint)(*args, **kwargs).__aiter__()
         try:
             while True:
                 with _published_run_context(correlation, reserved_token):
@@ -323,6 +397,23 @@ class GovernedGraph:
                 with _published_run_context(correlation, reserved_token):
                     await aclose()
 
+    async def _correlated_astream_events_v3(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        correlation: str | None,
+        reserved_token: str | None,
+    ) -> Any:
+        """Await a v3 run and scope every pull of its caller-driven iterator."""
+        with _published_run_context(correlation, reserved_token):
+            run = await self._delegate.astream_events(*args, **kwargs)
+        run._graph_aiter = _ContextualAsyncIterator(
+            run._graph_aiter,
+            correlation,
+            reserved_token,
+        )
+        return run
+
     def with_config(self, config: Any = None, **kwargs: Any) -> GovernedGraph:
         """Return a still-governed graph that binds ``config`` into every run.
 
@@ -335,8 +426,8 @@ class GovernedGraph:
         (tags/metadata/configurable/callbacks/run_name/...) wholesale, matching
         ``RunnableBinding``; they do not accumulate. Attribute delegation and
         single-handler injection are preserved, and the bound config is applied to
-        every ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` call exactly as
-        the bare graph's ``with_config`` would.
+        every governed entrypoint call exactly as the bare graph's
+        ``with_config`` would.
 
         Args:
             config: A ``RunnableConfig`` mapping to bind. Defaults to ``None``.
@@ -385,9 +476,10 @@ def govern_graph(
     """Install one-line, observed-mode governance over a compiled LangGraph.
 
     The returned :class:`GovernedGraph` is a transparent wrapper: ``invoke``,
-    ``ainvoke``, ``stream`` and ``astream`` return byte-for-byte equivalent
-    results and identically ordered chunks, propagate upstream exceptions
-    unchanged, and delegate every other attribute to the wrapped graph. Cost
+    ``ainvoke``, ``stream``, ``astream``, ``astream_events``, ``batch`` and
+    ``abatch`` return equivalent results and identically ordered chunks/events,
+    propagate upstream exceptions unchanged, and delegate every other attribute
+    to the wrapped graph. Cost
     capture keeps working because the wrapper reuses the econ instrumentation
     delegation, and a Zeroth governance callback handler is merged into each
     run's ``config["callbacks"]`` without replacing or duplicating any callbacks
@@ -398,12 +490,11 @@ def govern_graph(
     attestation must succeed before the wrapped graph can execute.
 
     Args:
-        graph: A compiled LangGraph (anything exposing ``invoke`` / ``ainvoke`` /
-            ``stream`` / ``astream``).
+        graph: A compiled LangGraph exposing the governed runnable entrypoints.
         on_run_start: Optional stability seam invoked exactly once per run-start
-            (per ``invoke`` / ``ainvoke`` / ``stream`` / ``astream`` call) with a
-            small, attestation-free :class:`RunStartContext`. Defaults to ``None``
-            (no-op), in which case output is byte-identical to omitting it.
+            (once per stream, or once per batch input) with a small,
+            attestation-free :class:`RunStartContext`. Defaults to ``None``
+            (no-op).
         gateway_client: Optional enforcement client. When supplied, a valid
             gateway reserved token is required and run-start evidence is emitted
             before delegation.

@@ -8,9 +8,10 @@ Public API::
     graph = govern_graph(graph, on_run_start=hook)   # optional stability seam
     tools = govern_tools(tools, context=context)     # raw tool lists (ZER-6)
 
-The wrapper is transparent and observed-mode only: it preserves results,
-streamed chunks and exceptions, reuses the econ instrumentation delegation for
-cost capture, and merges a Zeroth governance callback handler into each run's
+The wrapper is transparent and observed-mode only: ``invoke``, ``ainvoke``,
+``stream``, ``astream``, ``astream_events``, ``batch`` and ``abatch`` preserve
+results, ordering and exceptions, reuse the econ instrumentation delegation for
+cost capture, and merge a Zeroth governance callback handler into each run's
 config without replacing or duplicating user callbacks. It mints no attestation
 and never promotes a run above ``admission`` (FA5); promotion to ``observed`` is
 deferred.
