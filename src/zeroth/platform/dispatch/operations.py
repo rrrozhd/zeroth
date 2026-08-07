@@ -255,22 +255,31 @@ class SideEffectOperationStore:
                         OperationState.IN_FLIGHT.value,
                     ),
                 )
-                # The guard may have refused because the in-flight attempt just
-                # completed. Report what is actually stored rather than
-                # asserting ambiguity we no longer have.
+                # The guard may have refused because the in-flight attempt
+                # settled first -- either way. Report what is actually stored
+                # rather than asserting an ambiguity we no longer have.
                 settled = await conn.fetch_one(
                     "SELECT state, receipt FROM side_effect_operations WHERE operation_key = ?",
                     (operation_key,),
                 )
-                if (
-                    settled is not None
-                    and OperationState(settled["state"]) is OperationState.COMPLETED
-                ):
+                settled_state = (
+                    None if settled is None else OperationState(settled["state"])
+                )
+                if settled_state is OperationState.COMPLETED:
                     self._count("zeroth_side_effect_replay_suppressed_total")
                     return OperationClaim(
                         state=OperationState.COMPLETED,
                         first_execution=False,
                         receipt=settled["receipt"],
+                        attempts=attempts,
+                    )
+                if settled_state is OperationState.FAILED:
+                    # A concurrent fail() won. That is a *confirmed* outcome, so
+                    # calling it ambiguous would invent uncertainty and send the
+                    # caller down a reconciliation path with nothing to resolve.
+                    return OperationClaim(
+                        state=OperationState.FAILED,
+                        first_execution=False,
                         attempts=attempts,
                     )
 

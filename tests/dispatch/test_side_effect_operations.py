@@ -616,6 +616,13 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         assert runner.applications == before + 1
         record = await store.get(identity.operation_key)
         assert record["reconciliation_attempts"] >= 1, "the attempt must be recorded"
+        # The retry must run through the same checkpoint a first execution uses.
+        # Without this the test passed against the bypass bug it exists for: the
+        # effect was re-applied and the operation stayed AMBIGUOUS forever.
+        assert record["state"] == OperationState.COMPLETED, (
+            "a successful retry must settle the operation, not leave it ambiguous"
+        )
+        assert record["receipt"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -700,38 +707,81 @@ class TestOperationTransitionsAreCompareAndSet:
 def test_operation_audit_keys_survive_the_metadata_only_capture() -> None:
     """Emitting audit fields is not the same as persisting them.
 
-    The capture boundary keeps an allowlisted, per-key-typed projection and
-    drops everything else, so the original nested `side_effect_operation` block
-    was discarded before it ever reached storage. These keys are flat and
-    registered; `operation_key` in particular must come back *verbatim*, since
-    correlating two records for one logical operation means comparing it.
+    This drives the *real* AuditCapturePolicy rather than inspecting the
+    registry. The earlier version only asserted that the keys were declared, so
+    it would have passed against a nested emitter or a broken projection —
+    exactly the bug it was written to catch, where the whole
+    `side_effect_operation` block was discarded before storage.
     """
-    from zeroth.governance.audit.capture_vocabulary import (
-        METADATA_KINDS,
-        METADATA_VOCABULARIES,
-        MetadataKind,
+    from zeroth.contracts.graph import operation_identity
+    from zeroth.governance.audit.capture_policy import AuditCapturePolicy
+    from zeroth.governance.audit.models import NodeAuditRecord
+    from zeroth.platform.dispatch.operations import OperationClaim
+    from zeroth.runtime.orchestration.dispatcher import _operation_audit_fields
+
+    identity = operation_identity(
+        run_id="run_1",
+        dispatch_id="dsp_abc",
+        idempotency_key="idem_abc",
+        attempt=0,
+        target_ref="unit://charge-card",
+    )
+    emitted = _operation_audit_fields(
+        identity,
+        OperationClaim(
+            state=OperationState.AMBIGUOUS,
+            first_execution=False,
+            reconciliation_required=True,
+            residual_duplicate_risk=True,
+        ),
+    )
+    record = NodeAuditRecord(
+        audit_id="audit-op",
+        run_id="run-1",
+        node_id="node-1",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment-1",
+        tenant_id="tenant-a",
+        status="completed",
+        execution_metadata=dict(emitted),
     )
 
-    emitted = {
-        "operation_key": "op_db95664b9665d1175d256770",
-        "operation_target_ref": "unit://charge-card",
-        "operation_support": "at_least_once",
-        "operation_state": "ambiguous",
-        "operation_first_execution": False,
-        "operation_replay_suppressed": False,
-        "operation_reconciliation_required": True,
-        "operation_reconciliation_exhausted": False,
-        "operation_residual_duplicate_risk": True,
-    }
+    captured = AuditCapturePolicy().apply(record).execution_metadata
 
-    for key in emitted:
-        assert key in METADATA_KINDS, f"{key} would be dropped by the capture boundary"
+    # The correlating key must come back verbatim: a digest would satisfy a
+    # presence check while breaking the ability to join two records for one
+    # logical operation.
+    assert captured["operation_key"] == identity.operation_key
+    assert captured["operation_support"] == "at_least_once"
+    assert captured["operation_state"] == "ambiguous"
+    assert captured["operation_residual_duplicate_risk"] is True
+    assert captured["operation_first_execution"] is False
 
-    # The two vocabularies must actually admit the values the runtime emits.
-    assert emitted["operation_support"] in METADATA_VOCABULARIES["operation_support"]
-    assert emitted["operation_state"] in METADATA_VOCABULARIES["operation_state"]
-    # Correlation depends on the key surviving intact, not as a digest.
-    assert METADATA_KINDS["operation_key"] is MetadataKind.IDENTIFIER
+
+def test_a_nested_operation_block_would_not_survive_capture() -> None:
+    """The negative control for the bug that motivated flattening.
+
+    Without this, "the keys survive" proves nothing about *why* — the flat shape
+    is load-bearing, and a future refactor back to a nested block would silently
+    stop persisting the fields again.
+    """
+    from zeroth.governance.audit.capture_policy import AuditCapturePolicy
+    from zeroth.governance.audit.models import NodeAuditRecord
+
+    record = NodeAuditRecord(
+        audit_id="audit-nested",
+        run_id="run-1",
+        node_id="node-1",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment-1",
+        tenant_id="tenant-a",
+        status="completed",
+        execution_metadata={"side_effect_operation": {"operation_key": "op_abc"}},
+    )
+
+    captured = AuditCapturePolicy().apply(record).execution_metadata
+
+    assert captured.get("side_effect_operation") != {"operation_key": "op_abc"}
 
 
 def test_every_operation_state_and_support_value_is_in_its_vocabulary() -> None:
@@ -741,3 +791,49 @@ def test_every_operation_state_and_support_value_is_in_its_vocabulary() -> None:
 
     assert {s.value.lower() for s in OperationState} <= METADATA_VOCABULARIES["operation_state"]
     assert {s.value for s in SideEffectSupport} <= METADATA_VOCABULARIES["operation_support"]
+
+
+@requires_docker
+class TestClaimVersusSettleRaces:
+    """A claim racing a settle must report the settled truth, never invent it."""
+
+    async def test_a_claim_racing_a_completion_reports_the_stored_receipt(
+        self, dual_database
+    ) -> None:
+        """The guarded transition must not demote a COMPLETED operation."""
+        import asyncio
+
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)  # leaves it IN_FLIGHT
+
+        claim, _ = await asyncio.gather(
+            _claim(store, attempt=1),
+            store.complete(KEY, receipt='{"charge":"ok"}'),
+        )
+
+        record = await store.get(KEY)
+        assert record["state"] == OperationState.COMPLETED, "a receipt must never be lost"
+        assert record["receipt"] == '{"charge":"ok"}'
+        # Whichever order the two landed in, the claim must not authorise work.
+        assert claim.first_execution is False
+
+    async def test_a_claim_racing_a_failure_reports_failed_not_ambiguous(
+        self, dual_database
+    ) -> None:
+        """A confirmed failure must not be dressed up as uncertainty.
+
+        Reporting FAILED as AMBIGUOUS would invent doubt and send the caller
+        down a reconciliation path with nothing to resolve.
+        """
+        store = SideEffectOperationStore(dual_database)
+        await _claim(store)
+        await store.fail(KEY, error="card declined")
+
+        # Re-enter the in-flight branch by putting it back in flight, then let a
+        # failure settle it before the claim's guarded update lands.
+        await _claim(store, attempt=1)  # FAILED -> IN_FLIGHT
+        await store.fail(KEY, error="declined again")
+        claim = await _claim(store, attempt=2)
+
+        assert claim.state is OperationState.IN_FLIGHT
+        assert claim.first_execution is True, "a confirmed failure is safe to retry"
