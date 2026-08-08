@@ -7,6 +7,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.1.3] - 2026-08-08
+
+### Tests
+
+- Assert the trust boundary itself, which until now was recorded only as prose. The
+  decision rests on the claim that the canonical argument projection grants no
+  exemption on injection *provenance* — but every existing test covered one side
+  of it, injected arguments reaching the projection. This pins the equality the
+  claim actually rests on: two tools with the same declared field, type and value,
+  differing only in whether `ToolNode` injects `user_id` or the model supplies it,
+  are shown to policy identically, on both surfaces and both drivers. Were
+  governance ever to start exempting on provenance — the option this project
+  considered and rejected — those two would diverge with nothing else to catch it.
+
+## [0.18.11.1.2] - 2026-08-08
+
+### Fixed
+
+- Correct three residuals the resolution check found in the previous entry's fixes.
+  The trust-boundary section still said `two of its five rows` after the table
+  grew to six with `ToolRuntime`. The both-drivers claim was corrected in prose but
+  its one exception was still only prose: a row refused while the tool is *wrapped*
+  reaches no driver on the `govern_tools` surface, so that is now carried as data
+  on the scenario and the completeness test asserts exactly which row has it —
+  a second row acquiring the property cannot widen the exception set silently.
+  And the canonical-projection message was asserted with an unanchored substring
+  match, which would still have matched had the projection begun refusing for a
+  further reason and said so; it is now compared against the whole message.
+
+## [0.18.11.1.1] - 2026-08-08
+
+### Fixed
+
+- Correct the second ground on which the injected-argument trust boundary rejects
+  excluding injection-annotated fields. The previous wording said `nothing keys off
+  the annotation: not the projection, not the identity fallback`, and the identity
+  fallback is exactly where the annotation *is* read — it reprs field metadata when
+  a declared type has no JSON schema, which is why `InjectedStore()` is refused at
+  all. The claim now says what is true and no more: the canonical argument
+  projection grants no exemption on injection provenance, while the identity stage
+  reads the annotation as opaque material to digest rather than as a reason to
+  trust a value. The ticket's spoofed-annotation worry is answered separately and
+  accurately: as a caller-side attack it does not arise, because LangGraph strips
+  caller-supplied values for every injected key before inserting its own. The
+  actual cost of the rejected option is declaration-side — a per-field exemption
+  the tool author declares, and a governed surface that would track a third-party
+  library's annotation conventions.
+
+### Tests
+
+- Add the injected shape the table was missing. `ToolRuntime` is injected by
+  parameter *type* rather than by an `Annotated` marker, so an annotation-shaped
+  table did not cover it; it is refused by the canonical projection like a store
+  handle, on both surfaces and both drivers.
+- Pin the refusal *mechanisms* the cookbook describes, which comparing exception
+  classes did not: that `schema_digest` succeeds for `InjectedStore` and raises the
+  unstable-identity error for `InjectedStore()`, that `BaseStore` is what fails to
+  build a JSON schema while the narrowed type does build one, and that the class
+  form's call is refused with the canonical-projection message in those words.
+- Scope the both-drivers claim to what is true. The `InjectedStore()` row on the
+  `govern_tools` surface is refused while the tool is being wrapped, so it reaches
+  neither driver; that is now a pinned fact rather than an unstated hole. Adds the
+  wrapper-surface counterpart to the middleware entry-point control: governing a
+  coroutine-only tool must not manufacture a sync path.
+
+## [0.18.11.1] - 2026-08-08
+
+### Documentation
+
+- Record the trust-boundary decision for framework-injected tool arguments, which
+  the tool-enforcement work left open. **The boundary is the argument's value, not
+  where the argument came from.** A framework-injected value gets no special trust
+  and no special suspicion; it goes through exactly the projection every other
+  argument goes through. Both options that were on the table are rejected as
+  framed. Excluding injection-annotated fields from the projection would
+  un-govern `Annotated[str, InjectedState("user_id")]` — the very declaration the
+  cookbook tells users to migrate *to* — and would make the annotation itself a
+  security-relevant input; under the adopted boundary nothing keys off the
+  annotation, so that question does not arise. "Leave them refused" is not a
+  description of the behaviour either: two of the five shapes are governed. What
+  the exclusion was reaching for is answered by declaring a dependency as one —
+  a closure or a resolver seam — rather than exempting it inside the argument
+  list.
+- Correct the injected-argument table. The `InjectedStore` row was one row and is
+  two, because the class and an instance of it are refused by different rules:
+  `Annotated[BaseStore, InjectedStore]` reaches the argument projection and is
+  refused for an unrepresentable value, while `Annotated[BaseStore,
+  InjectedStore()]` is refused earlier, at schema identity — `BaseStore` has no
+  JSON schema, so identity falls back to reprs of the field metadata and an
+  annotation instance renders with a memory address. Also records that a
+  storeless graph never reaches governance at all, since LangGraph refuses first.
+- Narrow the `0.13.13.3` note below, which said it had covered "all four
+  injected-argument shapes" in the parity table. Three were covered; the
+  `InjectedStore` row had no test on any surface until `0.18.11.0.1`.
+
+## [0.18.11.0.1] - 2026-08-08
+
+### Tests
+
+- Cover the injected-argument boundary on every shape the cookbook's table names,
+  through a real `create_agent` invocation on both install surfaces and through
+  **both** drivers. The table previously ran three of its four shapes and only
+  `invoke`: an `InjectedStore` argument had no test at all, so the row asserting
+  it was refused was prose. Both annotation forms are now pinned, and they are
+  refused by different rules — `Annotated[BaseStore, InjectedStore]` reaches the
+  argument projection and is refused for an unrepresentable value, while
+  `Annotated[BaseStore, InjectedStore()]` is refused earlier, at schema identity,
+  because `BaseStore` has no JSON schema and the fallback reprs an annotation
+  instance carrying a memory address.
+- Keep the async half from going vacuous. Which governance wrapper runs is decided
+  by the driver, so `ainvoke` reaches `awrap_tool_call` even for a tool whose only
+  body is sync — and that tool's body then runs in a threadpool. Async rows are
+  therefore built from `coroutine` alone, asserted per row, with a control proving
+  a coroutine-only tool has no sync path, and a second control asserting the
+  entry point each driver actually took. The last one is what covers a *refused*
+  row, whose body never runs at all.
+- Pin two boundaries the store rows depend on: with no store compiled, LangGraph
+  refuses before governance is reached (had it injected `None`, which *is*
+  representable, the call would have been governed and the cookbook's row would be
+  wrong for every graph without a store); and the two surfaces refuse an unstable
+  annotation at different stages — `govern_tools` when it wraps, `ZerothMiddleware`
+  on the first call.
+
 ## [0.18.11] - 2026-08-08
 
 ### Added
