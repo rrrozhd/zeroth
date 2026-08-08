@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.0.1] - 2026-08-08
+
+### Tests
+
+- Cover the injected-argument boundary on every shape the cookbook's table names,
+  through a real `create_agent` invocation on both install surfaces and through
+  **both** drivers. The table previously ran three of its four shapes and only
+  `invoke`: an `InjectedStore` argument had no test at all, so the row asserting
+  it was refused was prose. Both annotation forms are now pinned, and they are
+  refused by different rules — `Annotated[BaseStore, InjectedStore]` reaches the
+  argument projection and is refused for an unrepresentable value, while
+  `Annotated[BaseStore, InjectedStore()]` is refused earlier, at schema identity,
+  because `BaseStore` has no JSON schema and the fallback reprs an annotation
+  instance carrying a memory address.
+- Keep the async half from going vacuous. Which governance wrapper runs is decided
+  by the driver, so `ainvoke` reaches `awrap_tool_call` even for a tool whose only
+  body is sync — and that tool's body then runs in a threadpool. Async rows are
+  therefore built from `coroutine` alone, asserted per row, with a control proving
+  a coroutine-only tool has no sync path, and a second control asserting the
+  entry point each driver actually took. The last one is what covers a *refused*
+  row, whose body never runs at all.
+- Pin two boundaries the store rows depend on: with no store compiled, LangGraph
+  refuses before governance is reached (had it injected `None`, which *is*
+  representable, the call would have been governed and the cookbook's row would be
+  wrong for every graph without a store); and the two surfaces refuse an unstable
+  annotation at different stages — `govern_tools` when it wraps, `ZerothMiddleware`
+  on the first call.
+
 ## [0.18.11] - 2026-08-08
 
 ### Added
