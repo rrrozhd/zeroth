@@ -692,12 +692,38 @@ decides the outcome:
 
 | Declared argument | Injected value | Outcome |
 | --- | --- | --- |
-| `Annotated[dict, InjectedState]` | the whole state, whose `messages` are `BaseMessage` objects | **refused** |
-| `Annotated[MyStore, InjectedStore]` | a `BaseStore` instance | **refused** |
+| `Annotated[dict, InjectedState]` | the whole state, whose `messages` are `BaseMessage` objects | **refused** — unrepresentable value |
+| `Annotated[BaseStore, InjectedStore]` | a `BaseStore` instance | **refused** — unrepresentable value |
+| `Annotated[BaseStore, InjectedStore()]` | a `BaseStore` instance | **refused** *earlier* — unstable schema identity |
+| `runtime: ToolRuntime` (injected by type, no `Annotated`) | a `ToolRuntime` dataclass | **refused** — unrepresentable value |
 | `Annotated[str, InjectedState("user_id")]` | a `str` from one state field | **governed** — policy sees `user_id` |
 | `Annotated[str, InjectedToolCallId]` | the call id, a `str` | **governed** — policy sees `tool_call_id` |
 
-So the workaround is to **narrow the injection to the slice the tool actually
+These are the shapes LangGraph 1.2 injects; the rule is the projection's, so a new
+injected shape is decided by its value like any other rather than needing a row
+added here first.
+
+**The two store rows differ only in whether the annotation is the class or an
+instance of it, and they are refused by different rules.** `BaseStore` has no JSON
+schema, so tool identity cannot be taken from one and falls back to describing the
+declared fields — which reprs the field's *metadata*. The class `InjectedStore`
+reprs stably, so identity succeeds and the call goes on to be refused on its
+value, like the whole-state row. `InjectedStore()` inherits `object.__repr__` and
+so renders with a memory address, which is refused as an unstable identity before
+any call is decided: `govern_tools` refuses while the agent is still being built,
+`ZerothMiddleware` on the first call.
+
+Note that `InjectedState("user_id")` is an annotation instance too, and is
+governed fine. Its declared type is `str`, so the JSON schema builds and the
+metadata is never rendered. The trigger is the undescribable *type*, not the
+injection and not the annotation instance.
+
+A tool declaring `InjectedStore` on a graph compiled **without** a store never
+reaches governance at all — LangGraph raises first. That matters: had it injected
+`None`, which *is* canonically representable, the call would have been governed
+rather than refused and the rows above would be wrong for every storeless graph.
+
+So the supported route is to **narrow the injection to the slice the tool actually
 needs**. `InjectedState("user_id")` is both representable and a better tool
 declaration: it is the field the body uses, and it is a field a policy can be
 written against.
@@ -729,14 +755,100 @@ a value no gate had seen. Deciding the validated call is what made the value
 visible, and a visible unrepresentable value is refused.
 
 Pinned by `test_a_tool_with_an_injected_state_argument_is_refused_rather_than_half_decided`
-and, for all four rows above driven through both surfaces, by
-`test_both_surfaces_decide_an_injected_argument_identically`.
+and, for every row above driven through both surfaces and through both `invoke`
+and `ainvoke`, by `test_both_surfaces_decide_an_injected_argument_identically`.
+One cell is a genuine exception and is pinned as one: the `InjectedStore()` row on
+the `govern_tools` surface is refused while the tool is being wrapped, so it never
+reaches a driver at all
+(`test_the_wrapper_surface_refuses_an_unstable_annotation_before_any_driver_runs`).
+The storeless case is `test_an_injected_store_without_a_store_is_refused_by_langgraph_first`,
+the two refusal stages are
+`test_the_two_surfaces_refuse_an_unstable_annotation_at_different_stages`, and the
+mechanisms behind them — which projection message, and which schema fails to build —
+are pinned by `test_the_store_rows_are_refused_by_the_mechanisms_documented`.
 
 Showing policy the *names* of injected arguments without their values would be a
 third option — neither refusing nor eliding. It is deliberately not implemented:
 it needs a new `ToolAction` facet rather than a change to the argument projection,
 because an argument mapping that mixes decided values with named-only entries is
 one a policy cannot read unambiguously.
+
+### The trust boundary: value representability, not injection provenance
+
+The rows above are the *consequence* of a decision. The decision itself was left
+open by the enforcement work that produced them, and this is the record of it.
+
+The question was whether a value the **framework** supplies — rather than the
+model — should sit outside the governed argument surface. Two options were on the
+table:
+
+- **Option A — exclude injection-annotated fields from the canonical projection.**
+  Treat framework-injected state as trusted infrastructure: policy decides on the
+  model-supplied arguments only.
+- **Option B — leave injected arguments refused**, and document the
+  incompatibility with a migration path.
+
+**Neither is adopted as framed. The boundary is the argument's *value*, not where
+the argument came from.** A framework-injected value gets no special trust and no
+special suspicion: it goes through exactly the projection every other argument
+goes through, and whether it is representable decides the outcome. That is what
+the table above describes, and it is why two of its six rows are governed rather
+than refused — which is also why B is the wrong description of the behaviour, even
+though the refusals it asks for are real and the migration path it asks for is
+above.
+
+Option A is rejected on two grounds:
+
+1. **It would un-govern the shape this page prescribes.**
+   `Annotated[str, InjectedState("user_id")]` is injection-annotated, so A would
+   exclude it from the projection — policy would stop seeing `user_id` on exactly
+   the declaration users are told to migrate *to*. A deletes the workaround it
+   exists to enable, and it does so silently: the call keeps working, and the
+   field a policy was written against simply stops being decided.
+2. **It would make an annotation decide what policy is allowed to see.** Under A,
+   a field's governed-or-not status is read off its annotation, so the set of
+   arguments a policy decides on becomes a function of LangGraph's annotation
+   classification rather than of the call. Two costs follow. The exemption is
+   declared per field by the *tool author*, so a field annotated by mistake — or
+   by design — leaves the governed surface while the call keeps succeeding and
+   nothing reports it. And the governed surface would then track a third-party
+   library's metadata conventions: a future `Annotated` form, or a change to what
+   counts as injected, silently moves the boundary of what policy sees.
+
+   The adopted boundary has no such input. **The canonical argument projection
+   grants no exemption on injection provenance** — it asks only whether a value
+   is representable, and the two store rows above make that concrete: they are
+   refused by two different rules, neither of which asks whether the argument was
+   injected.
+
+   That equality is asserted rather than merely stated. Two tools with the same
+   declared field, type and value, differing only in whether `ToolNode` injects
+   `user_id` or the model supplies it, are shown to policy identically on both
+   surfaces and both drivers
+   (`test_provenance_does_not_change_what_policy_is_shown`). If governance ever
+   began treating provenance as grounds for exemption, those two would diverge
+   and this paragraph would be wrong with nothing else to catch it.
+
+   Be precise about the scope of that claim, because a nearby one is false. The
+   *identity* stage does read a field's annotation: when a declared type has no
+   JSON schema, `_model_field_material` reprs the field's metadata, which is how
+   `InjectedStore()` comes to be refused at all. It reads the annotation as
+   opaque material to digest, never as a reason to trust a value — so no stage
+   treats injection as grounds for exemption, but "nothing looks at the
+   annotation" would be wrong.
+
+   ZER-19 raised a narrower worry here: that an attacker-controlled annotation
+   would be a bypass. As a *caller*-side attack that one does not arise even
+   today, and not because of anything above — LangGraph strips caller-supplied
+   values for every injected key before inserting its own, precisely so a model
+   cannot forge a hidden `InjectedToolArg` through `ToolCall.args`. The cost of A
+   is the declaration-side one stated above, not a forged call.
+
+What A was reaching for is real: a store handle or a client genuinely is
+infrastructure rather than a decidable argument. The answer is to declare it as
+such — pass it through **a closure or a resolver seam** — not to keep it in the
+argument list and exempt it there. An argument is the thing policy decides about;
+a dependency is not. Recorded as ZER-19.
 
 ## Known divergences
 
