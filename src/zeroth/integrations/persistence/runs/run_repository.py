@@ -258,9 +258,7 @@ class _RunThreadStore:
         async with self.database.transaction() as connection:
             await self._save_thread_in_connection(connection, thread)
 
-    async def _save_thread_in_connection(
-        self, connection: AsyncConnection, thread: Thread
-    ) -> None:
+    async def _save_thread_in_connection(self, connection: AsyncConnection, thread: Thread) -> None:
         await connection.execute(
             """
                 INSERT INTO threads (
@@ -284,24 +282,24 @@ class _RunThreadStore:
                     last_run_id = excluded.last_run_id,
                     updated_at = excluded.updated_at
                 """,
-                (
-                    thread.thread_id,
-                    thread.graph_version_ref,
-                    thread.deployment_ref,
-                    thread.tenant_id,
-                    thread.workspace_id,
-                    thread.status.value,
-                    to_json_value(thread.participating_agent_refs),
-                    to_json_value(thread.state_snapshot_refs),
-                    to_json_value(thread.checkpoint_refs),
-                    _dump_list(thread.memory_bindings),
-                    to_json_value(thread.run_ids),
-                    thread.active_run_id,
-                    thread.last_run_id,
-                    thread.created_at.isoformat(),
-                    thread.updated_at.isoformat(),
-                ),
-            )
+            (
+                thread.thread_id,
+                thread.graph_version_ref,
+                thread.deployment_ref,
+                thread.tenant_id,
+                thread.workspace_id,
+                thread.status.value,
+                to_json_value(thread.participating_agent_refs),
+                to_json_value(thread.state_snapshot_refs),
+                to_json_value(thread.checkpoint_refs),
+                _dump_list(thread.memory_bindings),
+                to_json_value(thread.run_ids),
+                thread.active_run_id,
+                thread.last_run_id,
+                thread.created_at.isoformat(),
+                thread.updated_at.isoformat(),
+            ),
+        )
 
     async def get_run(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
         """Load a run from the database by its ID, or return None if not found.
