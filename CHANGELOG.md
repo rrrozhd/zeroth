@@ -281,6 +281,14 @@ Formatter pass over two files the final gate flagged (capture_vocabulary, operat
 - Introduce `OperationIdentity`, a stable logical-operation identity for
   side-effecting work, derived so that transport retries, token retries, and
   recovered workers reproduce the same key while distinct operations do not.
+- Govern LangGraph `astream_events`, `batch`, and `abatch` through the same
+  callback, gateway, hook, correlation, and cost-capture path as the existing
+  governed entrypoints.
+
+### Fixed
+
+- Preserve caller-driven LangGraph v3 streams, transformer and finalization
+  failures, nested run ancestry, and collision-resistant cost-event identities.
 
 ## [0.17.0.3] - 2026-08-06
 
@@ -392,7 +400,28 @@ Formatter pass over two files the final gate flagged (capture_vocabulary, operat
 
 - Bring `src/` into `ruff format` conformance. Eleven files predated the check
   and would have failed the release gate.
+## [0.16.2.8] - 2026-08-07
 
+### Fixed
+
+- Capture LangGraph v3 cost telemetry through transformer processing and
+  finalization failures while preserving nested run ancestry.
+
+## [0.16.2.7] - 2026-08-07
+
+### Fixed
+
+- Preserve LangGraph v3 caller-driven event streams under governance and cost
+  capture, including private correlation during driver pulls and aborts.
+- Give every LangGraph cost event a collision-resistant execution identity.
+
+## [0.16.2.6] - 2026-08-07
+
+### Fixed
+
+- Govern LangGraph event streams and sync/async batch inputs with the same
+  callback, gateway, hook, correlation, and cost-capture behavior as existing
+  governed entrypoints.
 ## [0.16.2.5.1] - 2026-08-07
 
 ### Added
