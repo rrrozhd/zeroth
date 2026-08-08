@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.1.1] - 2026-08-08
+
+### Fixed
+
+- Correct the second ground on which the injected-argument trust boundary rejects
+  excluding injection-annotated fields. The previous wording said `nothing keys off
+  the annotation: not the projection, not the identity fallback`, and the identity
+  fallback is exactly where the annotation *is* read — it reprs field metadata when
+  a declared type has no JSON schema, which is why `InjectedStore()` is refused at
+  all. The claim now says what is true and no more: the canonical argument
+  projection grants no exemption on injection provenance, while the identity stage
+  reads the annotation as opaque material to digest rather than as a reason to
+  trust a value. The ticket's spoofed-annotation worry is answered separately and
+  accurately: as a caller-side attack it does not arise, because LangGraph strips
+  caller-supplied values for every injected key before inserting its own. The
+  actual cost of the rejected option is declaration-side — a per-field exemption
+  the tool author declares, and a governed surface that would track a third-party
+  library's annotation conventions.
+
+### Tests
+
+- Add the injected shape the table was missing. `ToolRuntime` is injected by
+  parameter *type* rather than by an `Annotated` marker, so an annotation-shaped
+  table did not cover it; it is refused by the canonical projection like a store
+  handle, on both surfaces and both drivers.
+- Pin the refusal *mechanisms* the cookbook describes, which comparing exception
+  classes did not: that `schema_digest` succeeds for `InjectedStore` and raises the
+  unstable-identity error for `InjectedStore()`, that `BaseStore` is what fails to
+  build a JSON schema while the narrowed type does build one, and that the class
+  form's call is refused with the canonical-projection message in those words.
+- Scope the both-drivers claim to what is true. The `InjectedStore()` row on the
+  `govern_tools` surface is refused while the tool is being wrapped, so it reaches
+  neither driver; that is now a pinned fact rather than an unstated hole. Adds the
+  wrapper-surface counterpart to the middleware entry-point control: governing a
+  coroutine-only tool must not manufacture a sync path.
+
 ## [0.18.11.1] - 2026-08-08
 
 ### Documentation

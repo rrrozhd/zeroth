@@ -72,9 +72,11 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import InjectedState, InjectedStore
+from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from pydantic import BaseModel, field_validator
+from pydantic.errors import PydanticInvalidForJsonSchema
 
 from tests.integrations.langgraph.tools._agents import TOOL_CALL_ID, scripted_model
 from zeroth.governance.audit import NodeAuditRecord
@@ -88,6 +90,7 @@ from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
+from zeroth.integrations.langgraph._tool_fingerprint import schema_digest
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
     ToolAction,
@@ -1301,6 +1304,29 @@ def build_store_instance_tool(*, is_async: bool) -> tuple[StructuredTool, list[d
     return _one_body_tool(_run, _arun, is_async=is_async), observed
 
 
+def build_tool_runtime_tool(*, is_async: bool) -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build a tool that takes the injected ``ToolRuntime`` handle.
+
+    The shape that is injected by *type* rather than by an ``Annotated`` marker:
+    LangGraph resolves a ``ToolRuntime`` parameter from the parameter's own
+    annotation. Its value is a dataclass instance carrying the store, the state
+    and the config, so it is refused exactly where a store handle is, and it is a
+    row because the rest of this table is annotation-shaped and would not have
+    covered a directly injected argument at all.
+    """
+    observed: list[dict[str, Any]] = []
+
+    def _run(query: str, runtime: ToolRuntime) -> str:
+        observed.append({"query": query})
+        return BODY_RESULT
+
+    async def _arun(query: str, runtime: ToolRuntime) -> str:
+        observed.append({"query": query})
+        return BODY_RESULT
+
+    return _one_body_tool(_run, _arun, is_async=is_async), observed
+
+
 def build_state_slice_tool(*, is_async: bool) -> tuple[StructuredTool, list[dict[str, Any]]]:
     """Build a tool that injects one representable field out of the state.
 
@@ -1394,6 +1420,12 @@ INJECTED_SCENARIOS = (
         decided=None,
         refusal=UnstableToolIdentityError,
         store=True,
+    ),
+    InjectedScenario(
+        label="an-injected-tool-runtime-is-not-representable",
+        build=build_tool_runtime_tool,
+        decided=None,
+        refusal=ToolGovernanceError,
     ),
     InjectedScenario(
         label="a-narrowed-state-slice-is-representable",
@@ -1513,20 +1545,27 @@ def test_both_surfaces_decide_an_injected_argument_identically(
 def test_the_injected_parity_table_covers_refused_and_representable_shapes() -> None:
     """Every row is named, so deleting one cannot pass quietly.
 
-    Both directions and both refusal *stages*: the two store rows differ only in
-    whether the annotation is the class or an instance of it, and they are refused
-    by different rules, so losing either one silently would leave the cookbook's
-    store row asserting something no test runs.
+    Both directions, both refusal *stages*, and both *injection forms*. The two
+    store rows differ only in whether the annotation is the class or an instance
+    of it and are refused by different rules; the ``ToolRuntime`` row is injected
+    by parameter type with no ``Annotated`` marker at all, so an annotation-shaped
+    table would not have covered it. Losing any of them silently would leave a row
+    of the cookbook's table asserting something no test runs.
+
+    This names the shapes LangGraph 1.2 injects. It is not a claim that no other
+    shape exists: the governing rule is the projection's, so an injected shape not
+    listed here is decided by its value like any other.
     """
     assert {scenario.label for scenario in INJECTED_SCENARIOS} == {
         "the-whole-graph-state-is-not-representable",
         "an-injected-store-handle-is-not-representable",
         "an-injected-store-annotation-instance-has-no-stable-identity",
+        "an-injected-tool-runtime-is-not-representable",
         "a-narrowed-state-slice-is-representable",
         "an-injected-tool-call-id-is-representable",
     }
     refused = [scenario for scenario in INJECTED_SCENARIOS if scenario.decided is None]
-    assert len(refused) == 3
+    assert len(refused) == 4
     assert {scenario.refusal for scenario in refused} == {
         ToolGovernanceError,
         UnstableToolIdentityError,
@@ -1683,6 +1722,98 @@ def test_the_two_surfaces_refuse_an_unstable_annotation_at_different_stages() ->
     )
 
     with pytest.raises(UnstableToolIdentityError):
+        agent.invoke({"messages": [HumanMessage("hi")]})
+
+    assert (client.seen, observed) == ([], [])
+
+
+def test_the_wrapper_surface_refuses_an_unstable_annotation_before_any_driver_runs() -> None:
+    """The one cell of the matrix above that reaches neither driver, pinned as one.
+
+    ``govern_tools`` derives identity while it wraps, so the ``InjectedStore()``
+    row is refused inside the install call — before ``create_agent`` is built and
+    therefore before anything chooses ``invoke`` or ``ainvoke``. Its "sync" and
+    "async" parametrizations are the same code path.
+
+    That is not a gap to paper over; it is a property of governing at install
+    time, and the sync/async question does not arise for a tool that is never
+    installed. But "every row runs through both drivers" would be false without
+    this written down, so it is written down: if the wrapper surface ever started
+    deferring this refusal to the call, this test fails and the claim can be
+    widened deliberately rather than by accident.
+    """
+    tool, observed = build_store_instance_tool(is_async=True)
+    client = ArgumentRecordingClient()
+
+    with pytest.raises(UnstableToolIdentityError):
+        _wrapper_install(tool, client)
+
+    assert (client.seen, observed) == ([], [])
+
+
+def test_the_governed_wrapper_keeps_an_async_tool_async() -> None:
+    """The wrapper-surface counterpart to the middleware entry-point control.
+
+    The middleware control subclasses ``ZerothMiddleware``, so it can only speak
+    for that surface. Here the equivalent property is a shape one: governing a
+    coroutine-only tool must not manufacture a sync path, or an async row on this
+    surface would be served by one and the async execution would never be
+    exercised. The governed twin carries the coroutine and refuses a sync call
+    exactly as its delegate does, and the async call runs the real body.
+    """
+
+    async def _arun(query: str) -> str:
+        return BODY_RESULT
+
+    delegate = StructuredTool.from_function(
+        coroutine=_arun, name="search", description="search for things."
+    )
+    governed = govern_tools(
+        [delegate], context=THREADED, client=ArgumentRecordingClient(), side_effect=read_only
+    )[0]
+
+    with pytest.raises(NotImplementedError):
+        governed.invoke({"query": "cats"})
+    assert asyncio.run(governed.ainvoke({"query": "cats"})) == BODY_RESULT
+
+
+def test_the_store_rows_are_refused_by_the_mechanisms_documented() -> None:
+    """Pin *why* each store row is refused, not merely that it is.
+
+    The matrix compares exception classes, which would stay green if some other
+    pre-policy stage started raising the same class for some other reason — and
+    the cookbook makes specific mechanism claims that nothing else falsifies. So:
+    the class form's refusal really is the canonical-projection message; identity
+    really does succeed for the class form and fail for the instance form; and the
+    reason identity has to fall back at all really is that ``BaseStore`` has no
+    JSON schema, which the representable rows do have.
+    """
+    class_form, _ = build_store_tool(is_async=False)
+    instance_form, _ = build_store_instance_tool(is_async=False)
+    slice_form, _ = build_state_slice_tool(is_async=False)
+
+    # Identity: stable for the class, unstable for the instance. This is the whole
+    # difference between the two rows, and it is upstream of any call.
+    assert schema_digest(class_form.args_schema)
+    with pytest.raises(UnstableToolIdentityError, match="unstable identity"):
+        schema_digest(instance_form.args_schema)
+
+    # Why identity has to describe fields at all: BaseStore builds no JSON schema,
+    # while the type the cookbook tells you to narrow to does.
+    with pytest.raises(PydanticInvalidForJsonSchema):
+        class_form.args_schema.model_json_schema()
+    assert slice_form.args_schema.model_json_schema()
+
+    # And the class form's *call* is refused by the projection, in those words.
+    tool, observed = build_store_tool(is_async=False)
+    client = ArgumentRecordingClient()
+    agent = create_agent(
+        scripted_model("search", dict(RAW_INJECTED_CALL)),
+        **_middleware_install(tool, client),
+        store=InMemoryStore(),
+    )
+
+    with pytest.raises(ToolGovernanceError, match="not representable as canonical JSON"):
         agent.invoke({"messages": [HumanMessage("hi")]})
 
     assert (client.seen, observed) == ([], [])
