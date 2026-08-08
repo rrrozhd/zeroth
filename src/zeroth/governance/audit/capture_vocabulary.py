@@ -98,6 +98,22 @@ class MetadataKind(StrEnum):
 # correlates two records that shared one while carrying none of the text.
 METADATA_KINDS: Mapping[str, MetadataKind] = {
     "admission_digest": MetadataKind.DIGEST,
+    # ZER-26 side-effect operations. Flat, not nested: the projection retains
+    # only allowlisted top-level keys, so a nested block is dropped before it is
+    # ever persisted. ``operation_key`` is IDENTIFIER because consumers must be
+    # able to *compare* two records that describe one logical operation -- an
+    # OPAQUE digest would satisfy a presence check while breaking correlation.
+    # ``operation_target_ref`` stays OPAQUE: it can carry a manifest ref chosen
+    # outside this codebase.
+    "operation_first_execution": MetadataKind.BOOLEAN,
+    "operation_key": MetadataKind.IDENTIFIER,
+    "operation_reconciliation_exhausted": MetadataKind.BOOLEAN,
+    "operation_reconciliation_required": MetadataKind.BOOLEAN,
+    "operation_replay_suppressed": MetadataKind.BOOLEAN,
+    "operation_residual_duplicate_risk": MetadataKind.BOOLEAN,
+    "operation_state": MetadataKind.VOCABULARY,
+    "operation_support": MetadataKind.VOCABULARY,
+    "operation_target_ref": MetadataKind.OPAQUE,
     "admitted": MetadataKind.BOOLEAN,
     "assistant_id": MetadataKind.OPAQUE,
     "attempt": MetadataKind.NUMBER,
@@ -118,6 +134,11 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "input_sha256": MetadataKind.DIGEST,
     "input_size_bytes": MetadataKind.NUMBER,
     "join_key": MetadataKind.IDENTIFIER,
+    # ZER-26/AUD-008 worker-level lease events: which worker was displaced and
+    # at which generation. The worker id is IDENTIFIER for the same reason
+    # operation_key is: consumers must correlate the displaced worker across
+    # records, and it is machine-minted uuid4 hex, so retaining it leaks nothing.
+    "lease_generation": MetadataKind.NUMBER,
     "model_name": MetadataKind.OPAQUE,
     "network_mode": MetadataKind.VOCABULARY,
     "node_kind": MetadataKind.VOCABULARY,
@@ -132,6 +153,7 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "sandbox_strictness_mode": MetadataKind.VOCABULARY,
     "status": MetadataKind.OPAQUE,
     "upstream_status_code": MetadataKind.NUMBER,
+    "worker_id": MetadataKind.IDENTIFIER,
 }
 
 # Derived, never maintained alongside: the two cannot drift apart.
@@ -246,6 +268,8 @@ _ZEROTH_FAILURE_CODES: frozenset[str] = frozenset(
         "join_reduction_claim_changed_error",
         "join_reduction_recovery_error",
         "join_reduction_release_error",
+        "lease_fencing_rejected",
+        "lease_lost",
         "legal_hold_error",
         "loop_reduction_claim_changed_error",
         "loop_reduction_recovery_error",
@@ -353,6 +377,11 @@ REASON_CODES: frozenset[str] = (
 # both sides (tests are not bound by the layering rule) and pins each mirror
 # against its source.
 METADATA_VOCABULARIES: Mapping[str, frozenset[str]] = {
+    # OperationState and SideEffectSupport. Enumerable by construction, so a
+    # vocabulary is the right kind: an unknown term is a producer bug and gets
+    # summarized rather than retained.
+    "operation_state": frozenset({"not_started", "in_flight", "completed", "failed", "ambiguous"}),
+    "operation_support": frozenset({"idempotent", "outcome_queryable", "at_least_once"}),
     # PolicyDecision plus the approval verdicts ApprovalDecisionType mints, plus
     # ``require_approval``: the tool-enforcement verdict for "this call is
     # waiting on a human". ``approve``/``reject`` are ApprovalDecisionType

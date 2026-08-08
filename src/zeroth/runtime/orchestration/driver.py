@@ -38,7 +38,10 @@ from zeroth.platform.observability import start_span
 from zeroth.runtime.agents.errors import BudgetExceededError
 from zeroth.runtime.orchestration import token_scope as _ts
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
-from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
+from zeroth.runtime.orchestration.dispatcher import (
+    NodeDispatcher,
+    SideEffectReconciliationExhaustedError,
+)
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.parallel_executor import (
     RuntimeParallelExecutor,
@@ -675,10 +678,13 @@ class GraphDriver:
                     node, run, input_payload, graph
                 )
             except Exception as exc:
-                await self.audit_recorder.record_failed_execution(
-                    run, node, node_id, input_payload, exc, started_at=node_started_at
+                # One clause, with the terminal-vs-resumable decision in the
+                # helper: `drive` is already at the complexity ceiling the
+                # commit gate enforces, and a second except clause pushes it
+                # over without making the branch any clearer.
+                return await self._settle_failed_dispatch(
+                    run, node, node_id, input_payload, exc, node_started_at
                 )
-                return await self.fail_run(run, "node_execution_failed", str(exc))
 
             # Phase 38: Parallel fan-out detection.
             parallel_config = getattr(node, "parallel_config", None)
@@ -1468,6 +1474,76 @@ class GraphDriver:
                 "graph_version_ref": persisted.graph_version_ref,
                 "status": "failed",
                 "failure_reason": reason,
+            },
+        )
+        return persisted
+
+    async def _settle_failed_dispatch(
+        self,
+        run: Run,
+        node: Any,
+        node_id: str,
+        input_payload: Any,
+        exc: BaseException,
+        node_started_at: Any,
+    ) -> Run:
+        """Record the failed dispatch, then end the run the way it deserves.
+
+        An exhausted ambiguous side effect is the one case that is *not* a
+        failure: the effect may have landed and nobody can say, so the run pauses
+        resumably instead of asserting it did not happen.
+        """
+        if isinstance(exc, SideEffectReconciliationExhaustedError):
+            # Not a failed execution. Recording one and then pausing states two
+            # contradictory things about the same node: that it failed, and that
+            # it is waiting to be reconciled. Only the pause is true.
+            await self.audit_recorder.record_history(
+                run,
+                node,
+                node_id,
+                input_payload,
+                {},
+                {
+                    "reason_code": "side_effect_reconciliation_exhausted",
+                    "operation_reconciliation_exhausted": True,
+                    "operation_residual_duplicate_risk": True,
+                },
+                started_at=node_started_at,
+            )
+            return await self.pause_for_reconciliation(run, node_id, str(exc))
+        await self.audit_recorder.record_failed_execution(
+            run, node, node_id, input_payload, exc, started_at=node_started_at
+        )
+        return await self.fail_run(run, "node_execution_failed", str(exc))
+
+    async def pause_for_reconciliation(self, run: Run, node_id: str, message: str) -> Run:
+        """Pause a run whose side effect is ambiguous and out of retries.
+
+        Failing here would be a claim the runtime cannot support: an exhausted
+        ambiguous operation means nobody knows whether the effect landed, and
+        ``FAILED`` asserts it did not. ``WAITING_INTERRUPT`` is the resumable
+        state, so the durable reconciliation work can be settled out of band and
+        the run continued rather than restarted.
+        """
+        run.status = RunStatus.WAITING_INTERRUPT
+        # run_store rejects WAITING_INTERRUPT without an interrupt id, and the
+        # operation key is the natural handle for the work that has to settle.
+        run.pending_interrupt_id = f"reconcile:{node_id}"
+        run.metadata["pending_reconciliation"] = {
+            "node_id": node_id,
+            "reason": self.audit_recorder.redact(message),
+        }
+        run.touch()
+        persisted = await self.run_repository.put(run)
+        await self.run_repository.write_checkpoint(persisted)
+        await self.emit_webhook(
+            "run.waiting_interrupt",
+            persisted,
+            {
+                "run_id": persisted.run_id,
+                "graph_version_ref": persisted.graph_version_ref,
+                "status": "waiting_interrupt",
+                "reason": "side_effect_reconciliation_exhausted",
             },
         )
         return persisted

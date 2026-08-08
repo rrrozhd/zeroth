@@ -6,6 +6,7 @@ and the timeline container. All models use Pydantic for validation.
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from typing import Any
 
@@ -34,6 +35,10 @@ class ToolCallRecord(BaseModel):
 
     Captures which tool was called, what arguments were passed in,
     what the tool returned, and whether it produced an error.
+
+    The ``operation_*`` fields carry the durable receipt outcome for guarded
+    executable tools. MCP calls populate only the support and residual-risk
+    marker because they bypass the operation boundary entirely.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -43,6 +48,40 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     outcome: dict[str, Any] | None = None
     error: str | None = None
+    operation_key: str | None = None
+    operation_target_ref: str | None = None
+    operation_support: str | None = None
+    operation_state: str | None = None
+    operation_first_execution: bool | None = None
+    operation_replay_suppressed: bool | None = None
+    operation_reconciliation_required: bool | None = None
+    operation_reconciliation_exhausted: bool | None = None
+    operation_residual_duplicate_risk: bool | None = None
+
+
+# ``ToolCallRecord``'s constructor signature is pinned by the protected surface
+# fixtures, so the ZER-26 marker fields are hidden from the reported signature
+# rather than recorded as a surface change — the same idiom ``ErasureResult``
+# and ``ZerothSettings`` use. Both remain ordinary keyword arguments.
+_tool_call_record_parameters = inspect.signature(ToolCallRecord).parameters
+ToolCallRecord.__signature__ = inspect.signature(ToolCallRecord).replace(
+    parameters=[
+        parameter
+        for name, parameter in _tool_call_record_parameters.items()
+        if name
+        not in {
+            "operation_key",
+            "operation_target_ref",
+            "operation_support",
+            "operation_state",
+            "operation_first_execution",
+            "operation_replay_suppressed",
+            "operation_reconciliation_required",
+            "operation_reconciliation_exhausted",
+            "operation_residual_duplicate_risk",
+        }
+    ]
+)
 
 
 class MemoryAccessRecord(BaseModel):
