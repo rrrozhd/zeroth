@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.1] - 2026-08-08
+
+### Documentation
+
+- Record the trust-boundary decision for framework-injected tool arguments, which
+  the tool-enforcement work left open. **The boundary is the argument's value, not
+  where the argument came from.** A framework-injected value gets no special trust
+  and no special suspicion; it goes through exactly the projection every other
+  argument goes through. Both options that were on the table are rejected as
+  framed. Excluding injection-annotated fields from the projection would
+  un-govern `Annotated[str, InjectedState("user_id")]` — the very declaration the
+  cookbook tells users to migrate *to* — and would make the annotation itself a
+  security-relevant input; under the adopted boundary nothing keys off the
+  annotation, so that question does not arise. "Leave them refused" is not a
+  description of the behaviour either: two of the five shapes are governed. What
+  the exclusion was reaching for is answered by declaring a dependency as one —
+  a closure or a resolver seam — rather than exempting it inside the argument
+  list.
+- Correct the injected-argument table. The `InjectedStore` row was one row and is
+  two, because the class and an instance of it are refused by different rules:
+  `Annotated[BaseStore, InjectedStore]` reaches the argument projection and is
+  refused for an unrepresentable value, while `Annotated[BaseStore,
+  InjectedStore()]` is refused earlier, at schema identity — `BaseStore` has no
+  JSON schema, so identity falls back to reprs of the field metadata and an
+  annotation instance renders with a memory address. Also records that a
+  storeless graph never reaches governance at all, since LangGraph refuses first.
+- Narrow the `0.13.13.3` note below, which said it had covered "all four
+  injected-argument shapes" in the parity table. Three were covered; the
+  `InjectedStore` row had no test on any surface until `0.18.11.0.1`.
+
 ## [0.18.11.0.1] - 2026-08-08
 
 ### Tests
