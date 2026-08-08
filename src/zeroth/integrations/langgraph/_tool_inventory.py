@@ -102,6 +102,7 @@ from zeroth.integrations.langgraph._tool_normalize import (
     normalize_capability_refs,
     normalize_contract_ref,
     normalize_identifier,
+    normalize_identity_configuration,
     normalize_requires_approval,
 )
 from zeroth.integrations.langgraph._tool_types import (
@@ -273,6 +274,9 @@ def _entry_from_binding(binding: object) -> ToolInventoryEntry:
         contract_ref=normalize_contract_ref(_peek(binding, "contract_ref")),
         capability_refs=normalize_capability_refs(_peek(binding, "capability_refs")),
         requires_approval=_peek(binding, "requires_approval") is True,
+        identity_configuration=normalize_identity_configuration(
+            _peek(binding, "identity_configuration")
+        ),
     )
 
 
