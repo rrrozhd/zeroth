@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11] - 2026-08-08
+
+### Added
+
+- Tool authors can declare instance configuration as identity-bearing, so two
+  instances of one tool class that differ only in a configured endpoint,
+  credential or file root no longer share a fingerprint. A `BaseTool` subclass
+  declares `zeroth_identity_configuration: ClassVar[tuple[str, ...]]`; a body that
+  closes over its configuration uses the exported `identity_configuration`
+  decorator to name its free variables. Every carrier of a declared name is
+  digested — the instance attribute and each implementation slot's free variable —
+  because they hold different values rather than different spellings of one, and
+  fingerprinting only the first could describe a value the executed body never
+  reads.
+- `GovernedToolBinding.identity_configuration` and
+  `ToolInventoryEntry.identity_configuration` report the declared field names, so
+  an operator can see that a tool pinned its configuration. The digest itself is
+  inside `identity.fingerprint`, which is what `match_tool_inventory` compares, so
+  a reconfigured tool is reported as a substitution.
+
+### Changed
+
+- Declared configuration is re-read on every call and verified once more
+  immediately before the body runs, which closes the window in which a caller's
+  metadata resolvers, decision client, audit sink and approval seam execute —
+  all of them hold the tool and all of them run after the identity comparison.
+  Reconfiguring a governed tool is therefore a detected substitution.
+- Declared configuration fails closed: a declared name that no carrier answers, a
+  declared value the canonical projection cannot represent, a declaration that is
+  not exactly a `tuple`, and a tool whose class supplies its own `__dict__` are
+  all refused rather than degraded to a weaker identity. Reading a declaration or
+  a carrier never runs delegate-controlled code — no `__eq__`, `__hash__`,
+  `__iter__` or `items()` on a namespace the tool controls.
+- Tools that declare nothing are unaffected: the `configuration` key is absent
+  from their identity material, so every fingerprint recorded before this change
+  still matches, and a tool that mutates undeclared state still passes its own
+  identity check across hundreds of calls.
+
 ### Documentation
 
 - Remove internal implementation specifications, refactor work logs, deferred
