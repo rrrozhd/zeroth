@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.9.1] - 2026-08-07
+
+Formatter pass over the extracted thread-save helper (indentation only).
+
 ## [0.18.9] - 2026-08-07
 
 A fenced put_run performs its thread, checkpoint and runs-row writes in one transaction so a rejection rolls back all three; graceful shutdown stops the drive before the voluntary release; a reused provider call id with different arguments mints a distinct operation key (ZER26-AUD-004, ZER26-AUD-007).
