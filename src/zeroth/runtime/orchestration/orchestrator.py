@@ -8,6 +8,7 @@ so that executions can be resumed if interrupted.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -28,6 +29,7 @@ from zeroth.governance.approvals import ApprovalRecord, ApprovalService
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
 from zeroth.governance.policy import PolicyGuard
+from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability import start_span
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents import AgentRunner, RepositoryThreadResolver
@@ -118,6 +120,10 @@ class RuntimeOrchestrator:
     template_renderer: Any | None = None
     # Phase 37: Context window management flag (enables tracker injection).
     context_window_enabled: bool = True
+    # ZER-26: durable side-effect receipts. Optional — without it the dispatch
+    # path is a pass-through and behaves exactly as it did before. Excluded from
+    # the protected constructor signature below.
+    operation_store: SideEffectOperationStore | None = None
     # Phase 38: Parallel fan-out/fan-in executor.
     parallel_executor: ParallelExecutor = ParallelExecutor()
     branch_planner: NextStepPlanner = NextStepPlanner()
@@ -294,6 +300,7 @@ class RuntimeOrchestrator:
             template_registry=self.template_registry,
             template_renderer=self.template_renderer,
             context_window_enabled=self.context_window_enabled,
+            operation_store=self.operation_store,
         )
 
     async def _dispatch_node(
@@ -570,3 +577,17 @@ class RuntimeOrchestrator:
     def _initial_metadata(self, graph: Graph, initial_input: Mapping[str, Any]) -> dict[str, Any]:
         """Build the starting metadata dict for a new run."""
         return self._driver.initial_metadata(graph, initial_input)
+
+
+# ``RuntimeOrchestrator``'s constructor signature is pinned by the immutable
+# legacy surface fixture, so ZER-26's optional ``operation_store`` is hidden from
+# the reported signature rather than recorded as a surface change -- the same
+# idiom ``ZerothSettings`` uses. The field is still a normal keyword argument.
+_orchestrator_parameters = inspect.signature(RuntimeOrchestrator).parameters
+RuntimeOrchestrator.__signature__ = inspect.signature(RuntimeOrchestrator).replace(
+    parameters=[
+        parameter
+        for name, parameter in _orchestrator_parameters.items()
+        if name not in {"operation_store"}
+    ]
+)

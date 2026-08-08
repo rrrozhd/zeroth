@@ -8,6 +8,7 @@ retries, and saves thread state. It is the entry point for running an agent.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Mapping
 from copy import copy, deepcopy
@@ -58,6 +59,31 @@ from zeroth.runtime.agents.sanitization import (
 from zeroth.runtime.agents.tooling.tool_calls import build_tool_message
 from zeroth.runtime.agents.tools import ToolAttachmentBridge
 from zeroth.runtime.agents.validation import OutputValidator
+
+
+def _call_tool_executor(
+    executor: Any,
+    binding: Any,
+    arguments: Any,
+    tool_call_id: str | None,
+) -> Any:
+    """Invoke a tool executor, passing the tool-call id only if it takes one.
+
+    The executor is supplied by the caller, so its arity is not ours to assume:
+    the runtime's own closure accepts the id, while a third-party or test double
+    written against the two-argument shape must keep working untouched.
+    """
+    if tool_call_id is not None:
+        try:
+            parameters = inspect.signature(executor).parameters
+        except (TypeError, ValueError):  # builtins and C callables have no signature
+            parameters = {}
+        accepts_id = len(parameters) >= 3 or any(
+            parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters.values()
+        )
+        if accepts_id:
+            return executor(binding, arguments, tool_call_id)
+    return executor(binding, arguments)
 
 
 class AgentRunner:
@@ -567,6 +593,11 @@ class AgentRunner:
                         f"approval required for side-effecting tool call: {binding.alias}"
                     )
                 self.tool_bridge.validate_permissions(binding, self.granted_tool_permissions)
+                # Initialized before the try so the except branch can read it:
+                # True only once an MCP dispatch was actually attempted — a
+                # failed MCP call may still have landed (at-least-once), while
+                # a call rejected before dispatch produced no effect at all.
+                mcp_at_least_once = False
                 try:
                     # WS-C: capability gate BEFORE any dispatch. A denial raises
                     # CapabilityDeniedError, which the except branch below turns
@@ -585,17 +616,36 @@ class AgentRunner:
                             binding.executable_unit_ref.startswith("mcp://")
                             and self._mcp_manager is not None
                         ):
+                            # ZER-26/AUD-006: MCP tools are NOT graph nodes, so
+                            # they never pass through RuntimeToolExecutor and
+                            # carry no operation identity. Rather than imply a
+                            # guarantee that does not hold, the gap is made
+                            # visible: an MCP call is at-least-once with no
+                            # replay suppression and no reconciliation.
+                            mcp_at_least_once = True
                             result = await self._mcp_manager.call_tool(call["name"], call["args"])
                         else:
-                            result = self.tool_executor(binding, call["args"])
+                            # Offer the provider's tool-call id so the operation
+                            # identity is distinct per call rather than per
+                            # position in a process-local counter -- but only to
+                            # executors that accept it. ``tool_executor`` is a
+                            # caller-supplied callable, so widening the call
+                            # unconditionally would break every existing one.
+                            result = _call_tool_executor(
+                                self.tool_executor, binding, call["args"], call.get("id")
+                            )
                             if asyncio.iscoroutine(result):
                                 result = await result
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
                         arguments=call["args"],
                         granted_permissions=self.granted_tool_permissions,
+                        at_least_once=mcp_at_least_once,
                         outcome=result if isinstance(result, Mapping) else {"value": result},
                     )
+                    operation_audit = getattr(result, "operation_audit", None)
+                    if isinstance(operation_audit, Mapping):
+                        audit.update(operation_audit)
                     content = json.dumps(result, ensure_ascii=False, sort_keys=True)
                     if self.config.tool_output_safety.enabled:
                         sanitized = self.tool_output_sanitizer.sanitize(
@@ -617,12 +667,19 @@ class AgentRunner:
                     )
                 except Exception as exc:
                     # Feed tool failures back as tool results so the model can react.
+                    # ZER-26/AUD-006: a *failed* MCP call is the marker's most
+                    # important case — the effect may have landed and nobody can
+                    # ask — so the exception path must carry it too.
                     audit = self.tool_bridge.build_call_audit(
                         binding=binding,
                         arguments=call["args"],
                         granted_permissions=self.granted_tool_permissions,
                         error=str(exc),
+                        at_least_once=mcp_at_least_once,
                     )
+                    operation_audit = getattr(exc, "operation_audit", None)
+                    if isinstance(operation_audit, Mapping):
+                        audit.update(operation_audit)
                     error_content = str(exc)
                     if self.config.tool_output_safety.enabled:
                         sanitized = self.tool_output_sanitizer.sanitize(
