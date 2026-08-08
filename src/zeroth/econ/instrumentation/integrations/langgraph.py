@@ -3,11 +3,99 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from zeroth.econ.instrumentation.client import resolve_join_key
 from zeroth.econ.instrumentation.integrations._capture import finalize_capture_metadata, should_capture_layer, should_emit_by_rate, start_time_ms
 from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
+
+
+def _new_run_id() -> str:
+    return f"lg_{uuid4().hex}"
+
+
+class _CapturedV3Driver:
+    """Capture one econ event across the complete caller-driven v3 lifecycle."""
+
+    def __init__(
+        self,
+        owner: InstrumentedLangGraph,
+        run: Any,
+        run_id: str,
+        started: float,
+        started_ms: int,
+    ) -> None:
+        self._owner = owner
+        self._run = run
+        self._pump = run._apump_next
+        self._abort = run.abort
+        self._mux_apush = run._mux.apush
+        self._mux_aclose = run._mux.aclose
+        self._run_id = run_id
+        self._started = started
+        self._started_ms = started_ms
+        self._emitted = False
+        self._terminal_error: BaseException | None = None
+
+    def _remember_error(self, error: BaseException) -> None:
+        if self._terminal_error is None:
+            self._terminal_error = error
+
+    def _error(self) -> BaseException | None:
+        if self._terminal_error is not None:
+            return self._terminal_error
+        events = getattr(self._run._mux, "_events", None)
+        return getattr(events, "_error", None)
+
+    async def _finish(self, error: BaseException | None = None) -> None:
+        if self._emitted:
+            return
+        self._emitted = True
+        await self._owner._safe_aemit(
+            self._run_id,
+            self._started,
+            self._started_ms,
+            "astream_events",
+            error=error,
+            streaming=True,
+        )
+
+    async def apush(self, event: Any) -> None:
+        try:
+            await self._mux_apush(event)
+        except BaseException as exc:
+            self._remember_error(exc)
+            raise
+
+    async def aclose_mux(self) -> None:
+        try:
+            await self._mux_aclose()
+        except BaseException as exc:
+            self._remember_error(exc)
+            raise
+
+    async def pump(self) -> bool:
+        with get_runtime().capture_context("langgraph", run_id=self._run_id):
+            try:
+                progressed = await self._pump()
+            except BaseException as exc:
+                self._remember_error(exc)
+                await self._finish(exc)
+                raise
+            if not progressed:
+                await self._finish(self._error())
+            return progressed
+
+    async def abort(self) -> None:
+        with get_runtime().capture_context("langgraph", run_id=self._run_id):
+            try:
+                await self._abort()
+            except BaseException as exc:
+                self._remember_error(exc)
+                await self._finish(exc)
+                raise
+            await self._finish(self._error())
 
 
 class InstrumentedLangGraph:
@@ -105,7 +193,7 @@ class InstrumentedLangGraph:
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             return self._graph.invoke(*args, **kwargs)
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -121,7 +209,7 @@ class InstrumentedLangGraph:
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             return await self._graph.ainvoke(*args, **kwargs)
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -138,7 +226,7 @@ class InstrumentedLangGraph:
         if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
             yield from self._graph.stream(*args, **kwargs)
             return
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -157,7 +245,7 @@ class InstrumentedLangGraph:
             async for chunk in self._graph.astream(*args, **kwargs):
                 yield chunk
             return
-        run_id = f"lg_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -170,6 +258,83 @@ class InstrumentedLangGraph:
                 raise
             finally:
                 await self._safe_aemit(run_id, started, started_ms, "astream", error=error, streaming=True)
+
+    def astream_events(self, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("version") == "v3":
+            return self._astream_events_v3(*args, **kwargs)
+        return self._astream_events_v1_v2(*args, **kwargs)
+
+    async def _astream_events_v1_v2(self, *args: Any, **kwargs: Any):
+        iterator = self._graph.astream_events(*args, **kwargs).__aiter__()
+        if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
+            try:
+                while True:
+                    yield await iterator.__anext__()
+            except StopAsyncIteration:
+                return
+            finally:
+                aclose = getattr(iterator, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+        run_id = _new_run_id()
+        started = perf_counter()
+        started_ms = start_time_ms()
+        error: BaseException | None = None
+        with get_runtime().capture_context("langgraph", run_id=run_id):
+            try:
+                while True:
+                    yield await iterator.__anext__()
+            except StopAsyncIteration:
+                return
+            except Exception as exc:
+                error = exc
+                raise
+            finally:
+                aclose = getattr(iterator, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+                await self._safe_aemit(
+                    run_id,
+                    started,
+                    started_ms,
+                    "astream_events",
+                    error=error,
+                    streaming=True,
+                )
+
+    async def _astream_events_v3(self, *args: Any, **kwargs: Any) -> Any:
+        if not should_capture_layer("langgraph") or not get_runtime().config.enabled:
+            return await self._graph.astream_events(*args, **kwargs)
+
+        run_id = _new_run_id()
+        started = perf_counter()
+        started_ms = start_time_ms()
+        with get_runtime().capture_context("langgraph", run_id=run_id):
+            try:
+                run = await self._graph.astream_events(*args, **kwargs)
+            except BaseException as exc:
+                await self._safe_aemit(
+                    run_id,
+                    started,
+                    started_ms,
+                    "astream_events",
+                    error=exc,
+                    streaming=True,
+                )
+                raise
+        capture = _CapturedV3Driver(
+            self,
+            run,
+            run_id,
+            started,
+            started_ms,
+        )
+        run._mux.apush = capture.apush
+        run._mux.aclose = capture.aclose_mux
+        run._apump_next = capture.pump
+        run.abort = capture.abort
+        run._mux.bind_apump(capture.pump)
+        return run
 
     def __getattr__(self, item: str) -> Any:
         return getattr(self._graph, item)
