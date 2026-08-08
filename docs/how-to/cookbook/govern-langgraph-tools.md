@@ -792,7 +792,7 @@ table:
 the argument came from.** A framework-injected value gets no special trust and no
 special suspicion: it goes through exactly the projection every other argument
 goes through, and whether it is representable decides the outcome. That is what
-the table above describes, and it is why two of its five rows are governed rather
+the table above describes, and it is why two of its six rows are governed rather
 than refused — which is also why B is the wrong description of the behaviour, even
 though the refusals it asks for are real and the migration path it asks for is
 above.

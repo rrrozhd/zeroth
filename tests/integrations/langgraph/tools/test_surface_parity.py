@@ -1389,6 +1389,12 @@ class InjectedScenario:
             ``InjectedStore`` row needs one, and without it LangGraph refuses the
             call itself -- see
             :func:`test_an_injected_store_without_a_store_is_refused_by_langgraph_first`.
+        install_time_refusal: Whether ``govern_tools`` refuses this row while
+            wrapping the tool, rather than at the call. When it does, that
+            surface's sync and async cells are the same code path -- the driver
+            branch is never reached -- so the row's async coverage on that
+            surface is the install-time regression rather than the matrix. Only
+            the middleware surface decides such a row per call.
     """
 
     label: str
@@ -1398,6 +1404,7 @@ class InjectedScenario:
     state: dict[str, Any] = dataclasses.field(default_factory=dict)
     state_schema: Any = None
     store: bool = False
+    install_time_refusal: bool = False
 
 
 INJECTED_SCENARIOS = (
@@ -1420,6 +1427,7 @@ INJECTED_SCENARIOS = (
         decided=None,
         refusal=UnstableToolIdentityError,
         store=True,
+        install_time_refusal=True,
     ),
     InjectedScenario(
         label="an-injected-tool-runtime-is-not-representable",
@@ -1448,6 +1456,15 @@ Both, for every row. ``ZerothMiddleware`` carries ``wrap_tool_call`` and
 ``awrap_tool_call`` as separate implementations and ``govern_tools`` builds a
 separate async wrapper, so a projection rule proven on one driver is not proven
 on the other.
+
+One qualification, and it is carried as data rather than left to this sentence:
+a row whose refusal happens while the tool is being *wrapped* reaches no driver
+at all on the ``govern_tools`` surface, so that surface's two cells are the same
+code path. :attr:`InjectedScenario.install_time_refusal` marks it, the
+completeness test asserts exactly which row it is, and
+:func:`test_the_wrapper_surface_refuses_an_unstable_annotation_before_any_driver_runs`
+pins the behaviour. The middleware surface still refuses that row per call, so
+its two cells remain distinct and are what the async coverage rests on there.
 """
 
 
@@ -1571,6 +1588,13 @@ def test_the_injected_parity_table_covers_refused_and_representable_shapes() -> 
         UnstableToolIdentityError,
     }
     assert all(scenario.refusal is None for scenario in INJECTED_SCENARIOS if scenario.decided)
+
+    # Exactly one row is refused before a driver is chosen, and which one is not a
+    # detail: it is the single exception to "both drivers, every row", so a second
+    # row acquiring the property silently would widen that claim's exception set.
+    assert [scenario.label for scenario in INJECTED_SCENARIOS if scenario.install_time_refusal] == [
+        "an-injected-store-annotation-instance-has-no-stable-identity"
+    ]
 
 
 @pytest.mark.parametrize("scenario", INJECTED_SCENARIOS, ids=lambda item: item.label)
@@ -1813,7 +1837,10 @@ def test_the_store_rows_are_refused_by_the_mechanisms_documented() -> None:
         store=InMemoryStore(),
     )
 
-    with pytest.raises(ToolGovernanceError, match="not representable as canonical JSON"):
+    # Anchored, and against the whole message: an unanchored substring would still
+    # match if the projection started refusing for some further reason and said so.
+    with pytest.raises(ToolGovernanceError) as refusal:
         agent.invoke({"messages": [HumanMessage("hi")]})
 
+    assert str(refusal.value) == "tool argument value is not representable as canonical JSON"
     assert (client.seen, observed) == ([], [])

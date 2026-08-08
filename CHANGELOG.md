@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.1.2] - 2026-08-08
+
+### Fixed
+
+- Correct three residuals the resolution check found in the previous entry's fixes.
+  The trust-boundary section still said `two of its five rows` after the table
+  grew to six with `ToolRuntime`. The both-drivers claim was corrected in prose but
+  its one exception was still only prose: a row refused while the tool is *wrapped*
+  reaches no driver on the `govern_tools` surface, so that is now carried as data
+  on the scenario and the completeness test asserts exactly which row has it —
+  a second row acquiring the property cannot widen the exception set silently.
+  And the canonical-projection message was asserted with an unanchored substring
+  match, which would still have matched had the projection begun refusing for a
+  further reason and said so; it is now compared against the whole message.
+
 ## [0.18.11.1.1] - 2026-08-08
 
 ### Fixed
