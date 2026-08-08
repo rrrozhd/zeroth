@@ -821,6 +821,14 @@ Option A is rejected on two grounds:
    refused by two different rules, neither of which asks whether the argument was
    injected.
 
+   That equality is asserted rather than merely stated. Two tools with the same
+   declared field, type and value, differing only in whether `ToolNode` injects
+   `user_id` or the model supplies it, are shown to policy identically on both
+   surfaces and both drivers
+   (`test_provenance_does_not_change_what_policy_is_shown`). If governance ever
+   began treating provenance as grounds for exemption, those two would diverge
+   and this paragraph would be wrong with nothing else to catch it.
+
    Be precise about the scope of that claim, because a nearby one is false. The
    *identity* stage does read a field's annotation: when a declared type has no
    JSON schema, `_model_field_material` reprs the field's metadata, which is how

@@ -1844,3 +1844,71 @@ def test_the_store_rows_are_refused_by_the_mechanisms_documented() -> None:
 
     assert str(refusal.value) == "tool argument value is not representable as canonical JSON"
     assert (client.seen, observed) == ([], [])
+
+
+def build_supplied_slice_tool(*, is_async: bool) -> tuple[StructuredTool, list[dict[str, Any]]]:
+    """Build the narrowed-slice tool with the injection annotation *removed*.
+
+    Same name, same declared type, same body -- the only difference is that the
+    model supplies ``user_id`` instead of ``ToolNode`` injecting it. That is the
+    control for :func:`test_provenance_does_not_change_what_policy_is_shown`.
+    """
+    observed: list[dict[str, Any]] = []
+
+    def _run(query: str, user_id: str) -> str:
+        observed.append({"query": query, "user_id": user_id})
+        return BODY_RESULT
+
+    async def _arun(query: str, user_id: str) -> str:
+        observed.append({"query": query, "user_id": user_id})
+        return BODY_RESULT
+
+    return _one_body_tool(_run, _arun, is_async=is_async), observed
+
+
+@pytest.mark.parametrize("is_async", INJECTED_DRIVERS, ids=("sync", "async"))
+@pytest.mark.parametrize("install", (_wrapper_install, _middleware_install), ids=("wrapper", "mw"))
+def test_provenance_does_not_change_what_policy_is_shown(
+    install: Callable[[StructuredTool, Any], dict[str, Any]], is_async: bool
+) -> None:
+    """The adopted trust boundary, as an assertion rather than a paragraph.
+
+    The cookbook records the decision that governance draws its line at whether a
+    value is *representable*, not at where the value came from -- so a framework
+    -injected argument gets no exemption and no extra suspicion. Everything else
+    in this module tests one side of that: injected arguments reaching the
+    projection. This tests the equality the claim actually rests on.
+
+    Two tools with the same declared field, same type, same value, differing only
+    in whether ``ToolNode`` injects ``user_id`` or the model supplies it. Policy
+    must be shown the same arguments either way. If governance ever started
+    treating provenance as a reason to exempt -- which is the option this project
+    considered and rejected -- these two would stop matching, and the paragraph in
+    the cookbook would be wrong with nothing else to catch it.
+    """
+    injected_tool, injected_body = build_state_slice_tool(is_async=is_async)
+    injected_client = ArgumentRecordingClient()
+    injected_agent = create_agent(
+        scripted_model("search", dict(RAW_INJECTED_CALL)),
+        **install(injected_tool, injected_client),
+        state_schema=SliceState,
+    )
+
+    supplied_tool, supplied_body = build_supplied_slice_tool(is_async=is_async)
+    supplied_client = ArgumentRecordingClient()
+    supplied_agent = create_agent(
+        scripted_model("search", {**RAW_INJECTED_CALL, "user_id": "u-1"}),
+        **install(supplied_tool, supplied_client),
+    )
+
+    if is_async:
+        asyncio.run(injected_agent.ainvoke({"messages": [HumanMessage("hi")], "user_id": "u-1"}))
+        asyncio.run(supplied_agent.ainvoke({"messages": [HumanMessage("hi")]}))
+    else:
+        injected_agent.invoke({"messages": [HumanMessage("hi")], "user_id": "u-1"})
+        supplied_agent.invoke({"messages": [HumanMessage("hi")]})
+
+    # The model supplied the field in one and never mentioned it in the other, and
+    # policy was shown the same call regardless.
+    assert injected_client.seen == supplied_client.seen == [{"query": "cats", "user_id": "u-1"}]
+    assert injected_body == supplied_body == [{"query": "cats", "user_id": "u-1"}]

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.11.1.3] - 2026-08-08
+
+### Tests
+
+- Assert the trust boundary itself, which until now was recorded only as prose. The
+  decision rests on the claim that the canonical argument projection grants no
+  exemption on injection *provenance* — but every existing test covered one side
+  of it, injected arguments reaching the projection. This pins the equality the
+  claim actually rests on: two tools with the same declared field, type and value,
+  differing only in whether `ToolNode` injects `user_id` or the model supplies it,
+  are shown to policy identically, on both surfaces and both drivers. Were
+  governance ever to start exempting on provenance — the option this project
+  considered and rejected — those two would diverge with nothing else to catch it.
+
 ## [0.18.11.1.2] - 2026-08-08
 
 ### Fixed
