@@ -100,6 +100,9 @@ def test_typed_fields_promotes_tool_calls_and_memory_interactions() -> None:
                     "tool": {"executable_unit_ref": "eu://x", "alias": "x"},
                     "arguments": {"a": 1},
                     "outcome": {"ok": True},
+                    "operation_key": "op-1",
+                    "operation_state": "completed",
+                    "operation_replay_suppressed": True,
                 }
             ],
             "memory_interactions": [
@@ -118,6 +121,9 @@ def test_typed_fields_promotes_tool_calls_and_memory_interactions() -> None:
 
     assert [type(tc) for tc in tool_calls] == [ToolCallRecord]
     assert tool_calls[0].tool_ref == "eu://x"
+    assert tool_calls[0].operation_key == "op-1"
+    assert tool_calls[0].operation_state == "completed"
+    assert tool_calls[0].operation_replay_suppressed is True
     assert [type(mi) for mi in memory] == [MemoryAccessRecord]
 
 
