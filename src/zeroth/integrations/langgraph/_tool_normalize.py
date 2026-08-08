@@ -293,6 +293,52 @@ def normalize_tool_identity(name: object, material: object = None) -> ToolIdenti
     return ToolIdentity(name=tool_name, fingerprint=fingerprint)
 
 
+def normalize_identity_configuration(value: object) -> tuple[str, ...]:
+    """Return a declared identity-configuration field list, or refuse it.
+
+    **Exactly a ``tuple``, and nothing else.** A declaration is read off a foreign
+    class on every call, so consuming it with ``list(value)`` would execute the
+    delegate's ``__iter__`` -- code running between the decision and the execution
+    it authorizes. A ``tuple`` yields its members without reaching any
+    user-defined hook, and an exact-type gate is the only one a subclass cannot
+    impersonate.
+
+    Sorted and de-duplicated, so two authors declaring the same fields in
+    different orders describe the same tool.
+
+    It lives here rather than beside the rest of the declaration handling because
+    the inventory needs it too, and the inventory is imported eagerly by the
+    package: reaching the declaration module from there would pull
+    ``langchain_core`` -- and with it the OpenTelemetry SDK -- into every plain
+    ``import zeroth.integrations.langgraph``, which is exactly what the lazy tool
+    surface exists to prevent.
+
+    Args:
+        value: The declared value, or ``None`` when nothing is declared.
+
+    Returns:
+        The normalized field names, empty when nothing is declared.
+
+    Raises:
+        UnstableToolIdentityError: If a declaration is present but unusable. A
+            dropped name is a field the identity would silently stop covering.
+    """
+    if value is None:
+        return ()
+    if type(value) is not tuple:
+        raise UnstableToolIdentityError(
+            "a tool's identity configuration must be a tuple of field names"
+        )
+    names: set[str] = set()
+    for item in value:
+        if type(item) is not str or not item.strip():
+            raise UnstableToolIdentityError(
+                "a tool declares an identity configuration field with no usable name"
+            )
+        names.add(item)
+    return tuple(sorted(names))
+
+
 def normalize_contract_ref(value: object) -> str | None:
     """Return the contract a tool is bound to, or ``None`` when none is declared.
 
