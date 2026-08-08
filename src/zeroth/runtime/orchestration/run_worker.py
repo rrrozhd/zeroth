@@ -483,15 +483,18 @@ class RunWorker:
             timeout=self.shutdown_timeout,
         )
 
-        # Release leases for tasks that didn't finish
+        # Release leases for tasks that didn't finish. The drive is stopped
+        # BEFORE the voluntary release: releasing first cleared the fence and
+        # the lease while the drive task was still alive, reopening exactly the
+        # displaced-writer window the fence exists to close (ZER-26/AUD-004).
         for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
             run_id = self._extract_run_id(task)
             if run_id:
                 await self._stop_token_snapshot(run_id)
                 await self._release_to_pending(run_id)
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
 
     def _extract_run_id(self, task: asyncio.Task) -> str | None:
         """Extract run_id from a task name like 'run-abc123' or 'wakeup-abc123'."""

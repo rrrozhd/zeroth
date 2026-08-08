@@ -566,3 +566,101 @@ async def test_a_lease_loss_leaves_a_durable_audit_record(dual_database) -> None
     worker_records = [r for r in records if r.node_id == "__worker__"]
     assert worker_records, "the lease loss must be durably recorded"
     assert worker_records[0].execution_metadata["reason_code"] == "lease_lost"
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_a_displaced_put_leaves_no_checkpoint_or_thread_write(dual_database) -> None:
+    """The fence must roll back ALL of put's writes, not just the runs row.
+
+    put_run writes the thread and the checkpoint before the runs row; in
+    separate transactions a displaced worker overwrote the durable checkpoint
+    state before the fenced save raised. Under a fence all three writes share
+    one transaction, so the rejection leaves the checkpoint exactly as the new
+    owner needs it.
+    """
+    from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+    repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    await manager.claim_pending(DEPLOYMENT, WORKER_A)
+    generation = await manager.current_generation(run_id)
+
+    repo.install_fence(run_id, WORKER_A, generation)
+    try:
+        run = await repo.get(run_id)
+        run.metadata["written_by"] = WORKER_A
+        await repo.put(run)
+        checkpoint_id = run.checkpoint_id
+        assert checkpoint_id is not None
+        before = await repo.get_checkpoint(checkpoint_id)
+        assert before.metadata.get("written_by") == WORKER_A
+
+        # Takeover, then the displaced worker's save must not touch anything.
+        await _expire_lease(dual_database, run_id)
+        assert await manager.claim_pending(DEPLOYMENT, WORKER_B) == run_id
+
+        run.metadata["written_by"] = "displaced"
+        with pytest.raises(FencedRunWriteRejectedError):
+            await repo.put(run)
+    finally:
+        repo.clear_fence(run_id)
+
+    after = await repo.get_checkpoint(checkpoint_id)
+    assert after.metadata.get("written_by") == WORKER_A, (
+        "a fenced-out put must not overwrite the checkpoint"
+    )
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_graceful_shutdown_stops_the_drive_before_releasing(dual_database) -> None:
+    """The voluntary release must not run while the drive task is still alive.
+
+    Releasing first cleared the fence and the lease with the drive still
+    executing — an unfenced displaced-writer window. The release now runs only
+    after the drive task has been cancelled and awaited.
+    """
+    repo = RunRepository(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=60)
+    orchestrator = _StallingOrchestrator()
+
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+        # Short enough that the stalling drive is still alive when the
+        # shutdown reaches its release loop — with the default 30s the drive's
+        # own sleep expires first and the proof stops discriminating.
+        shutdown_timeout=0.5,
+    )
+    run_id = await _pending_run(dual_database)
+
+    drive_states_at_release: list[bool] = []
+    original_release = worker._release_to_pending
+
+    async def _spying_release(target_run_id: str) -> None:
+        drive = worker._active_drives.get(target_run_id)
+        drive_states_at_release.append(drive is None or drive.done())
+        await original_release(target_run_id)
+
+    worker._release_to_pending = _spying_release  # type: ignore[method-assign]
+
+    await worker.start()
+    poll_task = asyncio.create_task(worker.poll_loop())
+    await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
+    await worker.graceful_shutdown()
+    poll_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await poll_task
+
+    assert drive_states_at_release, "shutdown must reach the voluntary release"
+    assert all(drive_states_at_release), (
+        "the release must only run after the drive task is finished"
+    )
+    final = await repo.get(run_id)
+    assert final is not None and final.status is RunStatus.PENDING

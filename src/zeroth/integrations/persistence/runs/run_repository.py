@@ -256,8 +256,13 @@ class _RunThreadStore:
     async def save_thread(self, thread: Thread) -> None:
         """Insert or update a thread record in the database."""
         async with self.database.transaction() as connection:
-            await connection.execute(
-                """
+            await self._save_thread_in_connection(connection, thread)
+
+    async def _save_thread_in_connection(
+        self, connection: AsyncConnection, thread: Thread
+    ) -> None:
+        await connection.execute(
+            """
                 INSERT INTO threads (
                     thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id, status,
                     participating_agent_refs, state_snapshot_refs, checkpoint_refs,
@@ -438,6 +443,9 @@ class _RunThreadStore:
 
     async def put_run(self, run: Run) -> None:
         """Save a run, creating its thread if needed, and write a checkpoint."""
+        if run.run_id in self._fences:
+            await self._put_run_fenced(run)
+            return
         await self._record_thread_run(
             run.thread_id,
             run.run_id,
@@ -449,6 +457,59 @@ class _RunThreadStore:
         await self.write_checkpoint(run)
         run.touch()
         await self.save_run(run)
+
+    async def _put_run_fenced(self, run: Run) -> None:
+        """The fenced save: thread, checkpoint and runs row in ONE transaction.
+
+        The unfenced path writes the thread and the checkpoint in their own
+        transactions before the runs-row save, so a displaced worker used to
+        overwrite durable checkpoint state before the fence raised. Here the
+        fenced runs-row save shares the transaction with the other two writes:
+        a rejection rolls all three back and nothing lands.
+        """
+        fence = self._fences[run.run_id]
+        checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
+        run.checkpoint_id = checkpoint_id
+        run.touch()
+        snapshot = run.model_dump(mode="json")
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
+                "SELECT * FROM threads WHERE thread_id = ?", (run.thread_id,)
+            )
+            thread = (
+                Thread(
+                    thread_id=run.thread_id,
+                    graph_version_ref=run.graph_version_ref,
+                    deployment_ref=run.deployment_ref,
+                    tenant_id=run.tenant_id,
+                    workspace_id=run.workspace_id,
+                    status=ThreadStatus.ACTIVE,
+                )
+                if row is None
+                else row_to_thread(row)
+            )
+            if row is not None and (
+                thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id
+            ):
+                raise ValueError("thread identity mismatch")
+            thread.run_ids = _merge(thread.run_ids, [run.run_id])
+            thread.last_run_id = run.run_id
+            # Same ordering rule as _next_checkpoint_order: the order is the
+            # count of checkpoints BEFORE this one joins the list.
+            checkpoint_order = len(thread.checkpoint_refs)
+            thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
+            thread.updated_at = utc_now()
+            await self._save_thread_in_connection(connection, thread)
+            await self.checkpoints.write_row_in_connection(
+                connection,
+                checkpoint_id=checkpoint_id,
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                checkpoint_order=checkpoint_order,
+                state_json=to_json_value(snapshot),
+                created_at=run.updated_at.isoformat(),
+            )
+            await self._save_run_in_connection(connection, run, fence)
 
     async def _ensure_thread(self, thread_id: str) -> Thread:
         """Load a thread by ID, raising KeyError if it doesn't exist."""
