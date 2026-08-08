@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from zeroth.contracts.graph import OperationIdentity
 from zeroth.runtime.runs.protocols import CheckpointStore, RunReader, RunWriter
 
 
@@ -49,8 +50,15 @@ class ExecutableUnitRunner(Protocol):
         payload: Any,
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> Any:
-        """Run a unit by its manifest ref string."""
+        """Run a unit by its manifest ref string.
+
+        ``operation_identity`` names the logical side-effecting operation. It is
+        declared here by exact name because the executor offers optional kwargs
+        by signature inspection -- a runner that does not declare it silently
+        never receives it, which is precisely how it went missing before.
+        """
         ...
 
     async def run_binding(
@@ -59,6 +67,7 @@ class ExecutableUnitRunner(Protocol):
         payload: Any,
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> Any:
         """Run an executable unit from a binding directly."""
         ...
@@ -71,6 +80,7 @@ class ExecutableUnitRunner(Protocol):
         *,
         timeout_seconds: int | None = None,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> Any:
         """Run inline source authored in a graph node, binding it on demand."""
         ...

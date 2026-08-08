@@ -54,6 +54,7 @@ from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.config.settings import get_settings
 from zeroth.platform.dispatch import LeaseManager
+from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.observability.queue_gauge import QueueDepthGauge
 from zeroth.platform.observability.tracing import configure_tracing
@@ -154,12 +155,19 @@ async def bootstrap_service(
     contract_registry = deployment_service.contract_registry
     resolved_agent_runners = dict(agent_runners or {})
     resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner()
+    metrics_collector = MetricsCollector()
+    # ZER-26: the durable receipt store is what turns the runtime's at-least-once
+    # boundary into a recognisable repeat. Constructed here so live executions get
+    # replay suppression and operation metrics -- the dispatch path is a
+    # pass-through whenever this is absent.
+    operation_store = SideEffectOperationStore(database, metrics_collector=metrics_collector)
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,
         executable_unit_runner=resolved_executable_unit_runner,
         audit_repository=audit_repository,
         approval_service=approval_service,
+        operation_store=operation_store,
     ).use_token_snapshot_store(run_repository)
     resolved_auth_config = auth_config or ServiceAuthConfig.from_env()
     authenticator = ServiceAuthenticator(
@@ -177,7 +185,6 @@ async def bootstrap_service(
     )
     rate_limiter = TokenBucketRateLimiter(database)
     quota_enforcer = QuotaEnforcer(database)
-    metrics_collector = MetricsCollector()
     queue_gauge = QueueDepthGauge(
         run_repository=run_repository,
         deployment_ref=deployment.deployment_ref,

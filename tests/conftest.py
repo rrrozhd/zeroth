@@ -32,8 +32,8 @@ os.environ.setdefault(
     tempfile.mkdtemp(prefix="zeroth-artifacts-test-"),
 )
 
-from zeroth.service.bootstrap.migrations import run_migrations  # noqa: E402
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase  # noqa: E402
+from zeroth.service.bootstrap.migrations import run_migrations  # noqa: E402
 
 
 @pytest.fixture
@@ -71,6 +71,38 @@ def _docker_available() -> bool:
 requires_docker = pytest.mark.skipif(not _docker_available(), reason="Docker not available")
 
 
+_CLEANUP_TABLES = (
+    "node_audits",
+    "approvals",
+    "runs",
+    "threads",
+    "run_checkpoints",
+    "graph_versions",
+    "contract_versions",
+    "deployment_versions",
+    "side_effect_operations",
+)
+
+
+async def _truncate_present(conn, tables: tuple[str, ...]) -> None:
+    """Truncate only the tables that exist on this connection.
+
+    Migration tests deliberately leave the schema at an older revision, so a
+    table introduced by a later revision may legitimately be absent. Postgres
+    has no ``TRUNCATE ... IF EXISTS``, and one missing table would abort the
+    whole teardown transaction -- so the set is intersected with reality first.
+    """
+    rows = await (
+        await conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+    ).fetchall()
+    present = {row[0] for row in rows}
+    for table in tables:
+        if table in present:
+            await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+
+
 @pytest.fixture(scope="session")
 def postgres_container():
     """Session-scoped Postgres container for integration tests."""
@@ -99,17 +131,7 @@ async def postgres_database(postgres_container):
 
     conn = await psycopg.AsyncConnection.connect(dsn)
     async with conn, conn.transaction():
-        for table in [
-            "node_audits",
-            "approvals",
-            "runs",
-            "threads",
-            "run_checkpoints",
-            "graph_versions",
-            "contract_versions",
-            "deployment_versions",
-        ]:
-            await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+        await _truncate_present(conn, _CLEANUP_TABLES)
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
@@ -137,17 +159,7 @@ async def dual_database(request, tmp_path, postgres_container):
 
         conn = await psycopg.AsyncConnection.connect(dsn)
         async with conn, conn.transaction():
-            for table in [
-                "node_audits",
-                "approvals",
-                "runs",
-                "threads",
-                "run_checkpoints",
-                "graph_versions",
-                "contract_versions",
-                "deployment_versions",
-            ]:
-                await conn.execute(f"TRUNCATE TABLE {table} CASCADE")
+            await _truncate_present(conn, _CLEANUP_TABLES)
 
 
 @pytest.fixture(scope="session")

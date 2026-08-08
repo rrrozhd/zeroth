@@ -18,10 +18,278 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.10] - 2026-08-07
+
+### Fixed
+
+- Route agent-invoked executable tools through the durable side-effect operation
+  guard, so recovery replays return the stored receipt instead of applying the
+  effect again. Preserve the operation outcome on both raw and typed tool-call
+  audit records.
+
+## [0.18.9.1] - 2026-08-07
+
+Formatter pass over the extracted thread-save helper (indentation only).
+
+## [0.18.9] - 2026-08-07
+
+A fenced put_run performs its thread, checkpoint and runs-row writes in one transaction so a rejection rolls back all three; graceful shutdown stops the drive before the voluntary release; a reused provider call id with different arguments mints a distinct operation key (ZER26-AUD-004, ZER26-AUD-007).
+
+## [0.18.8.5.1] - 2026-08-07
+
+Formatter pass over the restructured run-store save (indentation only).
+
+## [0.18.8.5] - 2026-08-07
+
+Run-state saves are fenced on lease ownership inside the upsert itself, installed by the worker for every leased drive; fencing rejections and lease losses leave durable audit records (ZER26-AUD-004, ZER26-AUD-008).
+
+## [0.18.8.4] - 2026-08-07
+
+The at-least-once marker survives promotion to the typed ToolCallRecord and rides the MCP failure path; OpenAPI snapshot gains the two additive optional fields (ZER26-AUD-006).
+
+## [0.18.8.3] - 2026-08-07
+
+With a provider tool-call id present, the id alone keys the operation; the process-local ordinal is key material only when no id exists, so a non-first replay after recovery is recognised (ZER26-AUD-007).
+
+## [0.18.8.2] - 2026-08-07
+
+A reconciled re-execution is audited COMPLETED, and timeout operation facts reach the durable audit record via both failure recorders (ZER26-AUD-008).
+
+## [0.18.8.1] - 2026-08-07
+
+Replaying claim decrypts the stored receipt, and operations_deleted survives the cleanup-manifest round trip (ZER26-AUD-010).
+
+## [0.18.8] - 2026-08-07
+
+Suppress re-execution when a competing reconciler settled the operation COMPLETED while the local outcome lookup returned nothing; the stored receipt is replayed instead (ZER26-AUD-002).
+
+## [0.18.7.1] - 2026-08-07
+
+Formatter pass over two files the final gate flagged (capture_vocabulary, operations); no behaviour change.
+
+## [0.18.7] - 2026-08-07
+
+### Fixed
+
+- Record a side-effect operation's terminal state in the node audit. The record
+  was built from the claim, so every successful effect was filed as perpetually
+  IN_FLIGHT.
+- Carry a timeout's operation facts on the raised exception; re-raising
+  previously discarded the audit for the one outcome whose record matters most.
+- Stop recording reconciliation exhaustion as a failed execution before pausing
+  the run. Doing both stated two contradictory things about one node.
+
+## [0.18.6] - 2026-08-07
+
+### Fixed
+
+- Mark MCP tool calls as outside the side-effect guarantee. MCP tools are not
+  graph nodes, so they never reach `RuntimeToolExecutor` and carry no operation
+  identity, replay suppression, or reconciliation. Their audit records now say
+  so explicitly, and the delivery-guarantee documentation states the limit
+  rather than implying the guarantee is universal.
+
+### Documentation
+
+- Correct the audit-record description to the flat, individually-typed keys the
+  capture boundary actually persists.
+
+## [0.18.5.1] - 2026-08-07
+
+### Fixed
+
+- Run the lease-loss and worker-cancellation proofs against Postgres as well as
+  SQLite. The two backends resolve contention by different mechanisms, so one
+  passing never implied the other.
+
+## [0.18.5] - 2026-08-07
+
+### Fixed
+
+- Encrypt side-effect receipts at rest wherever the database exposes an
+  encrypted field, matching how run checkpoints are protected, and include
+  `side_effect_operations` in run erasure. The receipts previously stored the
+  target's own response to a side effect as plaintext that erasing a run could
+  not reach.
+
+## [0.18.4.1] - 2026-08-07
+
+### Fixed
+
+- Key an agent tool call's operation identity by the provider's tool-call id
+  rather than a process-local ordinal. The counter restarted whenever the
+  executor was rebuilt, so after recovery a different first call to the same
+  target inherited the previous call's key and could be wrongly suppressed.
+
+## [0.18.4] - 2026-08-07
+
+### Fixed
+
+- Make both lease claim paths genuine compare-and-set. The SQLite verify
+  re-read checked only the worker id, so two claimers sharing one id both
+  reported success, and orphan reclaim updated rows without rechecking that
+  they were still expired.
+- Skip the side-effect guard for executable units whose manifest declares
+  `side_effect = False`, so read-only units keep their previous behaviour.
+  Unknown declarations stay guarded.
+
+## [0.18.3.3] - 2026-08-07
+
+### Fixed
+
+- Give an ambiguous operation a settle path to a confirmed failure. With
+  `fail()` refusing to demote AMBIGUOUS and reconciliation able to resolve only
+  to COMPLETED, an operation the target confirmed had not happened could wedge
+  as ambiguous permanently.
+- Route the fork-lineage exception path through the resumable pause; it
+  intercepts before the root handler and still failed runs terminally.
+- Replace a conditional race assertion with a deterministic one that exercises
+  the disputed transition on every run.
+
+## [0.18.3.2] - 2026-08-07
+
+### Fixed
+
+- Allowlist and quote the columns `commit_fenced` may write. The previous
+  denylist matched exact lowercase names and interpolated raw input into SQL,
+  so a differently-cased or quoted name bypassed the fence entirely.
+- Route the token-engine execution path through the same resumable pause as the
+  legacy driver; the default path still failed runs terminally.
+- Stop a later failure report from overwriting an ambiguous outcome, which
+  asserted the effect had not happened and discarded its reconciliation work.
+
+## [0.18.3.1] - 2026-08-07
+
+### Fixed
+
+- Refuse to write lease columns through `commit_fenced`; a fenced write that
+  could re-grant its own lease makes the fence decorative.
+- Emit the operation audit fields on the sandboxed executable-unit path, which
+  previously carried them only on the native path.
+
+## [0.18.3] - 2026-08-07
+
+### Fixed
+
+- Pause a run resumably when an ambiguous side effect exhausts its
+  reconciliation budget, instead of failing it terminally. FAILED asserts the
+  effect did not happen, which is precisely what nobody knows; the run now
+  enters WAITING_INTERRUPT so the durable reconciliation work can settle out of
+  band and the run continue.
+
+## [0.18.2.2] - 2026-08-07
+
+### Fixed
+
+- Report a concurrently failed operation as FAILED rather than AMBIGUOUS when a
+  claim races a settle, so a confirmed outcome is not dressed up as uncertainty.
+- Strengthen three proofs the third contextual check found under-assertive: the
+  capture test now drives the real AuditCapturePolicy (with a negative control
+  for the nested shape), and the retry test asserts the operation actually
+  settles instead of passing against the bug it was written for.
+
+## [0.18.2.1] - 2026-08-07
+
+### Fixed
+
+- Route a reconciliation retry through the same completion/failure checkpoint
+  as a first execution, so a successful retry settles the operation instead of
+  remaining ambiguous.
+- Guard the IN_FLIGHT to AMBIGUOUS claim transition on its observed state, so a
+  concurrently completed operation is not demoted and its receipt lost.
+- Register the side-effect operation fields in the audit capture vocabulary as
+  flat, typed keys; as a nested block they were dropped before persistence.
+
+## [0.18.2] - 2026-08-07
+
+### Fixed
+
+- Consult the reconciliation path before re-executing an ambiguous operation,
+  and make the attempt budget a real stop: an exhausted operation is refused
+  rather than re-executed, since the runtime still cannot tell whether the
+  effect landed.
+- Make claim, complete and reconciliation genuine compare-and-set using guarded
+  `UPDATE ... RETURNING` and `INSERT ... ON CONFLICT DO NOTHING RETURNING`,
+  so concurrent callers cannot both be authorised to apply one side effect.
+
+## [0.18.1.1] - 2026-08-07
+
+### Fixed
+
+- Declare and consume `operation_identity` on the `ExecutableUnitRunner`
+  protocol and the shipped runner, so the identity reaches the production
+  execution seam instead of being silently dropped by capability sniffing.
+  It is recorded as flat audit fields on both the native and sandboxed paths.
+
+## [0.18.1] - 2026-08-07
+
+### Fixed
+
+- Wire the side-effect receipt store into `bootstrap_service`, so live
+  executions actually get replay suppression, reconciliation state, and
+  operation metrics instead of the store existing only in tests.
+- `complete()` now reports whether *this* call stored the result. It compared
+  the stored receipt to the supplied one, so re-reporting an identical result
+  wrongly answered that it had stored it.
+
+## [0.18.0.1] - 2026-08-07
+
+### Fixed
+
+- Apply the formatter to the two modules the final gate flagged.
+
+## [0.18] - 2026-08-07
+
+### Added
+
+- Document the runtime's delivery guarantee at the side-effect boundary,
+  including the residual at-least-once case for integrations that support
+  neither an idempotency key nor an outcome query.
+
+## [0.17.0.7] - 2026-08-07
+
+### Added
+
+- Consult the side-effect receipt store on the executable-unit dispatch path:
+  a completed operation is replayed from its stored receipt instead of applying
+  the effect again, a timeout becomes ambiguous reconciliation work rather than
+  a confirmed failure, and the outcome is recorded in the node's audit record.
+- Count first execution, replay suppression, ambiguity, reconciliation success
+  and failure, and lease-fencing rejection as distinct metrics.
+
+## [0.17.0.6] - 2026-08-07
+
+### Added
+
+- Thread `OperationIdentity` through all three executable-unit invocation
+  paths (manifest ref, inline source, and agent mid-loop tool calls) as an
+  explicit parameter, so integrations consume it without parsing run metadata.
+  Each tool call in an agent turn receives its own call ordinal.
+
+## [0.17.0.5] - 2026-08-07
+
+### Added
+
+- Add `side_effect_operations`: a durable receipt per logical side-effecting
+  operation, distinguishing not-started, in-flight, completed, failed, and
+  ambiguous outcomes, with convergent duplicate reports and a bounded
+  reconciliation path for ambiguous ones.
+- Add lease generations. Claiming and reclaiming a run advance the generation,
+  renewal is qualified by it, and `commit_fenced` rejects a write from a
+  superseded generation.
+
+### Fixed
+
+- Losing a lease now stops the displaced worker's execution instead of only
+  logging it, and the worker no longer marks the new owner's run as failed.
+
 ## [0.17.0.4] - 2026-08-07
 
 ### Added
 
+- Introduce `OperationIdentity`, a stable logical-operation identity for
+  side-effecting work, derived so that transport retries, token retries, and
+  recovered workers reproduce the same key while distinct operations do not.
 - Govern LangGraph `astream_events`, `batch`, and `abatch` through the same
   callback, gateway, hook, correlation, and cost-capture path as the existing
   governed entrypoints.

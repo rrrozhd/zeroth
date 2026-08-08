@@ -4624,6 +4624,10 @@ export interface components {
          *
          *     Captures which tool was called, what arguments were passed in,
          *     what the tool returned, and whether it produced an error.
+         *
+         *     The ``operation_*`` fields carry the durable receipt outcome for guarded
+         *     executable tools. MCP calls populate only the support and residual-risk
+         *     marker because they bypass the operation boundary entirely.
          */
         ToolCallRecord: {
             /** Alias */
@@ -4634,6 +4638,24 @@ export interface components {
             };
             /** Error */
             error?: string | null;
+            /** Operation First Execution */
+            operation_first_execution?: boolean | null;
+            /** Operation Key */
+            operation_key?: string | null;
+            /** Operation Reconciliation Exhausted */
+            operation_reconciliation_exhausted?: boolean | null;
+            /** Operation Reconciliation Required */
+            operation_reconciliation_required?: boolean | null;
+            /** Operation Replay Suppressed */
+            operation_replay_suppressed?: boolean | null;
+            /** Operation Residual Duplicate Risk */
+            operation_residual_duplicate_risk?: boolean | null;
+            /** Operation State */
+            operation_state?: string | null;
+            /** Operation Support */
+            operation_support?: string | null;
+            /** Operation Target Ref */
+            operation_target_ref?: string | null;
             /** Outcome */
             outcome?: {
                 [key: string]: unknown;

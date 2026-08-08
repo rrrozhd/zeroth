@@ -4988,7 +4988,7 @@
       },
       "ToolCallRecord": {
         "additionalProperties": false,
-        "description": "A record of a single tool call made during a node execution.\n\nCaptures which tool was called, what arguments were passed in,\nwhat the tool returned, and whether it produced an error.",
+        "description": "A record of a single tool call made during a node execution.\n\nCaptures which tool was called, what arguments were passed in,\nwhat the tool returned, and whether it produced an error.\n\nThe ``operation_*`` fields carry the durable receipt outcome for guarded\nexecutable tools. MCP calls populate only the support and residual-risk\nmarker because they bypass the operation boundary entirely.",
         "properties": {
           "alias": {
             "title": "Alias",
@@ -5009,6 +5009,105 @@
               }
             ],
             "title": "Error"
+          },
+          "operation_first_execution": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation First Execution"
+          },
+          "operation_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Key"
+          },
+          "operation_reconciliation_exhausted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Reconciliation Exhausted"
+          },
+          "operation_reconciliation_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Reconciliation Required"
+          },
+          "operation_replay_suppressed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Replay Suppressed"
+          },
+          "operation_residual_duplicate_risk": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Residual Duplicate Risk"
+          },
+          "operation_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation State"
+          },
+          "operation_support": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Support"
+          },
+          "operation_target_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Target Ref"
           },
           "outcome": {
             "anyOf": [

@@ -146,6 +146,7 @@ nav:
     - Approvals: concepts/approvals.md
     - Audit: concepts/audit.md
     - Guardrails: concepts/guardrails.md
+    - Delivery guarantees: concepts/delivery-guarantees.md
     - Identity: concepts/identity.md
     - Secrets: concepts/secrets.md
     - Dispatch: concepts/dispatch.md

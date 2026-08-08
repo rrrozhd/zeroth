@@ -18,9 +18,10 @@ same instance serves the sequential drive loop and every fan-out branch.
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,8 +32,15 @@ from zeroth.contracts.graph import (
     ExecutableUnitNode,
     Graph,
     Node,
+    OperationIdentity,
     RetrievalNode,
     SubgraphNode,
+    operation_identity,
+)
+from zeroth.platform.dispatch.operations import (
+    OperationClaim,
+    OperationState,
+    SideEffectOperationStore,
 )
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents import AgentRunner
@@ -150,6 +158,41 @@ def substitute_binding_key(
     return _KEY_PLACEHOLDER_RE.sub(_replace, key)
 
 
+class SideEffectReconciliationExhaustedError(NodeDispatcherError):
+    """Raised when an ambiguous operation has spent its reconciliation budget.
+
+    Refusing is deliberate. The alternative -- re-executing anyway -- risks
+    applying the effect a second time on an integration that cannot dedupe,
+    which is the one outcome worse than stalling and asking a human.
+    """
+
+
+def _operation_audit_fields(
+    identity: OperationIdentity,
+    claim: OperationClaim,
+) -> dict[str, Any]:
+    """Flatten one operation's outcome into audit fields.
+
+    First execution, replay suppression and ambiguity are recorded as distinct
+    facts rather than one "retried" flag, and the residual duplicate risk is
+    carried through so an at-least-once integration stays visible in the record
+    instead of being implied away.
+    """
+    return {
+        "operation_key": identity.operation_key,
+        "operation_target_ref": identity.target_ref,
+        "operation_support": identity.support.value,
+        "operation_state": claim.state.value.lower(),
+        "operation_first_execution": claim.first_execution,
+        "operation_replay_suppressed": (
+            not claim.first_execution and claim.state is OperationState.COMPLETED
+        ),
+        "operation_reconciliation_required": claim.reconciliation_required,
+        "operation_reconciliation_exhausted": claim.reconciliation_exhausted,
+        "operation_residual_duplicate_risk": claim.residual_duplicate_risk,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class NodeDispatcher:
     """Resolves node types and runs them with their governed wiring applied."""
@@ -168,11 +211,222 @@ class NodeDispatcher:
     template_registry: Any = None
     template_renderer: Any = None
     context_window_enabled: bool = True
+    # Optional: without it, side-effecting dispatch behaves exactly as before.
+    operation_store: SideEffectOperationStore | None = None
+    # Optional callback asking a target what a prior operation did. Absent means
+    # the integration cannot be queried -- the residual at-least-once case.
+    operation_outcome_lookup: Callable[[OperationIdentity], Awaitable[str | None]] | None = None
 
     def _enforcement_context_for(self, run: Run, node_id: str) -> dict[str, Any]:
         if self.policy_gate is None:
             return {}
         return self.policy_gate.enforcement_context_for(run, node_id)
+
+    def _operation_identity_for(
+        self,
+        run: Run,
+        target_ref: str,
+        *,
+        call_ordinal: int = 0,
+    ) -> OperationIdentity:
+        """Derive the logical-operation identity for one side-effecting call.
+
+        The dispatcher is the one place that legitimately reads run state, so it
+        resolves the identity here and hands it on explicitly. Everything below
+        this line receives it as a parameter and never reaches back into
+        ``run.metadata`` -- that indirection is what made the identity invisible
+        to integrations before.
+
+        Runs driven outside the token engine carry no dispatch record; they fall
+        back to the run id, which still yields one stable key per (run, target,
+        call) triple.
+        """
+        dispatch = run.metadata.get("token_dispatch")
+        if not isinstance(dispatch, Mapping):
+            dispatch = {}
+        return operation_identity(
+            run_id=run.run_id,
+            dispatch_id=str(dispatch.get("dispatch_id") or run.run_id),
+            idempotency_key=str(dispatch.get("idempotency_key") or run.run_id),
+            attempt=int(dispatch.get("attempt") or 0),
+            target_ref=target_ref,
+            call_ordinal=call_ordinal,
+        )
+
+    def _is_side_effect_free(self, node: ExecutableUnitNode) -> bool:
+        """Whether this unit declared that it has no side effects.
+
+        Fail-safe by design: an inline unit has no manifest, an unregistered ref
+        cannot be inspected, and a runner that does not expose the probe tells us
+        nothing -- all of those are treated as side-effecting. Only an explicit
+        ``side_effect = False`` on a registered manifest skips the guard.
+        """
+        if node.executable_unit.inline_source is not None:
+            return False
+        probe = getattr(self.executable_unit_runner, "declares_side_effect", None)
+        if probe is None:
+            return False
+        try:
+            declared = probe(node.executable_unit.manifest_ref)
+        except Exception:  # noqa: BLE001 - an unreadable manifest is "unknown"
+            return False
+        return declared is False
+
+    async def _guarded_side_effect(
+        self,
+        identity: OperationIdentity,
+        invoke: Callable[[], Awaitable[Any]],
+    ) -> tuple[Any, dict[str, Any]]:
+        """Run one side-effecting invocation under its durable operation record.
+
+        Returns ``(result, audit_fields)``, with ``result`` None when the call was
+        suppressed because a previous attempt is known to have succeeded.
+
+        Without a store wired this is a pass-through, so deployments that have
+        not opted in keep their existing behaviour exactly (R9).
+
+        A timeout is deliberately *not* treated as a failure: it is the one
+        outcome where the effect may well have landed, so it becomes AMBIGUOUS
+        and leaves durable reconciliation work behind.
+        """
+        store = self.operation_store
+        if store is None:
+            return await invoke(), {}
+
+        claim = await store.claim(
+            identity.operation_key,
+            run_id=identity.run_id,
+            dispatch_id=identity.dispatch_id,
+            idempotency_key=identity.idempotency_key,
+            target_ref=identity.target_ref,
+            attempt=identity.attempt,
+            support=identity.support.value,
+        )
+        audit = _operation_audit_fields(identity, claim)
+        if not claim.first_execution:
+            if claim.state is OperationState.COMPLETED:
+                audit["replayed_output"] = json.loads(claim.receipt or "{}")
+                return None, audit
+            return await self._resolve_ambiguous(identity, claim, invoke, audit)
+
+        result = await self._invoke_checkpointed(identity, invoke)
+        # The audit was built from the *claim*, when the operation was still
+        # IN_FLIGHT. Leaving it there records every successful side effect as
+        # perpetually in flight, so the terminal state is written back.
+        audit["operation_state"] = OperationState.COMPLETED.value.lower()
+        return result, audit
+
+    async def _invoke_checkpointed(
+        self,
+        identity: OperationIdentity,
+        invoke: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """Perform the effect and record its outcome durably.
+
+        Both the first execution and a reconciliation retry go through here. A
+        retry that bypassed this left a *successful* re-execution still marked
+        AMBIGUOUS, so the very next attempt would reconcile it all over again.
+
+        A timeout is deliberately not folded into the failure branch: it is the
+        one outcome where the effect may well have landed.
+        """
+        store = self.operation_store
+        assert store is not None  # only reached from the guarded path
+        try:
+            result = await invoke()
+        except TimeoutError as error:
+            await store.mark_ambiguous(identity.operation_key, reason=str(error) or "timeout")
+            # Carry the operation facts on the exception: re-raising discards the
+            # audit dict this method never returns, and a timeout is exactly the
+            # outcome whose record matters most.
+            error.operation_audit = {  # type: ignore[attr-defined]
+                "operation_key": identity.operation_key,
+                "operation_state": OperationState.AMBIGUOUS.value.lower(),
+                "operation_residual_duplicate_risk": not identity.dedupe_supported,
+            }
+            raise
+        except Exception as error:
+            await store.fail(identity.operation_key, error=str(error))
+            error.operation_audit = {  # type: ignore[attr-defined]
+                "operation_key": identity.operation_key,
+                "operation_state": OperationState.FAILED.value.lower(),
+            }
+            raise
+        await store.complete(
+            identity.operation_key,
+            receipt=json.dumps(result.output_data, default=str, sort_keys=True),
+        )
+        return result
+
+    async def _resolve_ambiguous(
+        self,
+        identity: OperationIdentity,
+        claim: OperationClaim,
+        invoke: Callable[[], Awaitable[Any]],
+        audit: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any]]:
+        """Consult the reconciliation path before considering re-execution.
+
+        Blind re-execution is what this whole subsystem exists to avoid, so the
+        outcome lookup runs *first*. The budget is a real stop: once it is spent
+        the operation is refused rather than re-executed, because the runtime
+        still does not know whether the effect landed and guessing would be the
+        one failure mode worse than stalling.
+        """
+        store = self.operation_store
+        assert store is not None  # only reached from the guarded path
+        if claim.reconciliation_exhausted:
+            audit["operation_reconciliation_exhausted"] = True
+            raise SideEffectReconciliationExhaustedError(
+                f"operation {identity.operation_key} is ambiguous and its "
+                "reconciliation budget is spent; re-executing could apply the "
+                "effect twice"
+            )
+
+        receipt: str | None = None
+        error: str | None = None
+        if self.operation_outcome_lookup is not None:
+            try:
+                receipt = await self.operation_outcome_lookup(identity)
+            except Exception as exc:  # noqa: BLE001 - a failed lookup is data
+                error = f"outcome lookup failed: {exc}"
+        else:
+            # No lookup means the integration cannot be asked what happened.
+            # That is exactly the residual at-least-once case, recorded rather
+            # than implied away.
+            error = "integration exposes no outcome lookup"
+
+        state = await store.record_reconciliation(
+            identity.operation_key,
+            resolved=receipt is not None,
+            receipt=receipt,
+            error=error,
+        )
+        audit["operation_state"] = state.value.lower()
+        if state is OperationState.COMPLETED:
+            # COMPLETED is COMPLETED no matter who discovered it. When a
+            # competing reconciler settled the record while the local lookup
+            # came back empty, the local receipt is None -- but re-executing a
+            # confirmed effect is exactly the double-apply this path exists to
+            # prevent, so the stored receipt is fetched rather than guessed.
+            if receipt is None:
+                stored = await store.get(identity.operation_key)
+                receipt = None if stored is None else stored.get("receipt")
+            audit["operation_replay_suppressed"] = True
+            audit["replayed_output"] = json.loads(receipt or "{}")
+            return None, audit
+
+        # Unresolved and still within budget: re-execution is permitted, and the
+        # record already says whether a duplicate is genuinely possible. It goes
+        # through the same checkpoint as a first execution, so a successful
+        # retry settles the operation instead of staying AMBIGUOUS forever.
+        result = await self._invoke_checkpointed(identity, invoke)
+        # The audit was stamped with the reconciliation verdict — AMBIGUOUS when
+        # nothing could be asked. The checkpoint just settled the operation, so
+        # leaving that stamp would durably record "still unknown" about a known
+        # success.
+        audit["operation_state"] = OperationState.COMPLETED.value.lower()
+        return result, audit
 
     def _effective_capabilities_for(self, run: Run, node_id: str) -> Any:
         if self.policy_gate is None:
@@ -413,7 +667,15 @@ class NodeDispatcher:
                 and original_tool_executor is None
                 and getattr(node.agent, "tool_bindings", None)
             ):
-                runner.tool_executor = self.tool_executor.build(graph, enforcement_context)
+                runner.tool_executor = self.tool_executor.build(
+                    graph,
+                    enforcement_context,
+                    operation_identity_factory=lambda target_ref, ordinal: (
+                        self._operation_identity_for(run, target_ref, call_ordinal=ordinal)
+                    ),
+                    operation_guard=self._guarded_side_effect,
+                    side_effect_free=self._is_side_effect_free,
+                )
 
             # Budget and capability enforcement are dispatch- and tenant-local.
             runner_context = dict(enforcement_context)
@@ -501,19 +763,38 @@ class NodeDispatcher:
             is None
         ):
             self.executable_unit_runner.secret_resolver = self.secret_resolver
-        if node.executable_unit.inline_source is not None:
-            result = await self.tool_executor.run_inline(
-                node,
-                input_payload,
-                enforcement_context=enforcement_context,
-            )
-        else:
-            result = await self.tool_executor.run_unit(
+        inline = node.executable_unit.inline_source is not None
+        target_ref = f"node://{node.node_id}" if inline else node.executable_unit.manifest_ref
+        identity = self._operation_identity_for(run, target_ref)
+
+        async def _invoke() -> Any:
+            if inline:
+                return await self.tool_executor.run_inline(
+                    node,
+                    input_payload,
+                    enforcement_context=enforcement_context,
+                    operation_identity=identity,
+                )
+            return await self.tool_executor.run_unit(
                 node.executable_unit.manifest_ref,
                 input_payload,
                 enforcement_context=enforcement_context,
+                operation_identity=identity,
             )
+
+        if self._is_side_effect_free(node):
+            # R9: a unit that declares no side effect keeps its previous
+            # behaviour exactly -- no operation record, no suppression.
+            result = await _invoke()
+            return result.output_data, dict(result.audit_record)
+
+        result, operation_audit = await self._guarded_side_effect(identity, _invoke)
+        if result is None:
+            # The operation was suppressed as a replay; the stored receipt is the
+            # answer, so the effect is not applied a second time.
+            return operation_audit.pop("replayed_output", {}), operation_audit
         audit_record = dict(result.audit_record)
+        audit_record.update(operation_audit)
         if enforcement_context:
             # The nested context is kept for the content-capture posture; the
             # flattened fields are what survive the metadata-only default.

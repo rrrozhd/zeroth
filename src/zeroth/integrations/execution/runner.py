@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from zeroth.contracts.graph import OperationIdentity
 from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.policy import Capability, apply_secret_policy
 from zeroth.integrations.execution.adapters import PythonRuntimeAdapter
@@ -167,6 +168,22 @@ class ExecutableUnitRegistry:
         return dict(self._bindings)
 
 
+def _operation_audit(identity: OperationIdentity | None) -> dict[str, Any]:
+    """Flat audit fields naming the logical operation this run belongs to.
+
+    Flat by necessity: the audit capture boundary keeps an allowlisted,
+    per-key-typed projection, so a nested dict would be dropped before it is
+    ever persisted.
+    """
+    if identity is None:
+        return {}
+    return {
+        "operation_key": identity.operation_key,
+        "operation_target_ref": identity.target_ref,
+        "operation_support": identity.support.value,
+    }
+
+
 class ExecutableUnitRunner:
     """The main class that actually runs executable units.
 
@@ -197,13 +214,28 @@ class ExecutableUnitRunner:
         payload: BaseModel | Mapping[str, Any],
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> ExecutableUnitRunResult:
         """Run an executable unit by looking it up in the registry by ref string."""
         return await self.run_binding(
             self.registry.get(manifest_ref),
             payload,
+            operation_identity=operation_identity,
             enforcement_context=enforcement_context,
         )
+
+    def declares_side_effect(self, manifest_ref: str) -> bool | None:
+        """Whether the registered manifest declares that it has side effects.
+
+        ``None`` means "unknown" -- an unregistered ref, or an inline unit whose
+        source travels in the graph and has no manifest at all. Callers treat
+        unknown as side-effecting: guarding a read-only unit merely writes a
+        receipt nobody needs, whereas skipping the guard on a real side effect
+        is the correctness hole this whole subsystem exists to close.
+        """
+        if not self.registry.has(manifest_ref):
+            return None
+        return bool(self.registry.get(manifest_ref).manifest.side_effect)
 
     async def run(
         self,
@@ -211,12 +243,14 @@ class ExecutableUnitRunner:
         payload: BaseModel | Mapping[str, Any],
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> ExecutableUnitRunResult:
         """Shortcut for run_manifest_ref. Run a unit by its ref string."""
         return await self.run_manifest_ref(
             manifest_ref,
             payload,
             enforcement_context=enforcement_context,
+            operation_identity=operation_identity,
         )
 
     async def run_binding(
@@ -225,6 +259,7 @@ class ExecutableUnitRunner:
         payload: BaseModel | Mapping[str, Any],
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> ExecutableUnitRunResult:
         """Run an executable unit from a binding directly.
 
@@ -243,16 +278,21 @@ class ExecutableUnitRunner:
                 input_data=input_data,
                 output_data=output_model.model_dump(mode="json"),
                 audit_record={
+                    **_operation_audit(operation_identity),
                     "manifest_ref": binding.manifest_ref,
                     "runtime": manifest.runtime.value,
                     "execution_mode": manifest.onboarding_mode.value,
                     "sandboxed": False,
+                    # Flat, like every other key here: the audit capture
+                    # boundary drops nested dicts it has no declared kind for.
+                    **_operation_audit(operation_identity),
                 },
             )
 
         return await self._run_subprocess_unit(
             binding,
             validated_input,
+            operation_identity=operation_identity,
             enforcement_context=enforcement_context,
         )
 
@@ -264,6 +304,7 @@ class ExecutableUnitRunner:
         *,
         timeout_seconds: int | None = None,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> ExecutableUnitRunResult:
         """Run inline source authored in a graph node, binding it on demand.
 
@@ -281,6 +322,7 @@ class ExecutableUnitRunner:
             build_inline_binding(unit_id, source, timeout_seconds=timeout_seconds),
             payload,
             enforcement_context=enforcement_context,
+            operation_identity=operation_identity,
         )
 
     def _admit_manifest(self, binding: ExecutableUnitBinding) -> None:
@@ -344,6 +386,7 @@ class ExecutableUnitRunner:
         validated_input: BaseModel,
         *,
         enforcement_context: Mapping[str, Any] | None = None,
+        operation_identity: OperationIdentity | None = None,
     ) -> ExecutableUnitRunResult:
         """Run a command or project unit as a sandboxed subprocess.
 
@@ -458,6 +501,7 @@ class ExecutableUnitRunner:
                     "sandboxed": True,
                     "backend": sandbox_result.backend,
                     "enforcement": dict(enforcement),
+                    **_operation_audit(operation_identity),
                 },
             )
 

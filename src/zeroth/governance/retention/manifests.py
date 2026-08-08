@@ -80,6 +80,7 @@ def build_cleanup_manifest(
         database_result=DatabaseErasureOutcome(
             audits_erased=result.audits_erased,
             checkpoints_deleted=result.checkpoints_deleted,
+            operations_deleted=result.operations_deleted,
             run_redacted=result.run_redacted,
         ),
         operations=operations,
@@ -124,6 +125,7 @@ def result_from_manifest(
         reason=manifest.reason,
         audits_erased=database.audits_erased,
         checkpoints_deleted=database.checkpoints_deleted,
+        operations_deleted=database.operations_deleted,
         run_redacted=database.run_redacted,
         artifacts_deleted=artifact_deleted,
         econ_events_deleted=econ_deleted,

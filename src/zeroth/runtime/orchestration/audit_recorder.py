@@ -130,6 +130,13 @@ class RuntimeAuditRecorder:
             tool = tc.get("tool")
             tool = tool if isinstance(tool, Mapping) else {}
             error = tc.get("error")
+            # ZER-26/AUD-006: the at-least-once marker must survive promotion —
+            # the typed columns are the queryable durable record, and dropping
+            # the marker there made every MCP call read as though the operation
+            # guarantee applied. None stays None: an unmarked call must not
+            # grow a marker.
+            support = tc.get("operation_support")
+            residual_risk = tc.get("operation_residual_duplicate_risk")
             try:
                 tool_calls.append(
                     ToolCallRecord(
@@ -138,6 +145,43 @@ class RuntimeAuditRecorder:
                         arguments=_as_dict(tc.get("arguments")) or {},
                         outcome=_as_dict(tc.get("outcome")),
                         error=error if error is None else str(error),
+                        operation_key=(
+                            None if tc.get("operation_key") is None else str(tc["operation_key"])
+                        ),
+                        operation_target_ref=(
+                            None
+                            if tc.get("operation_target_ref") is None
+                            else str(tc["operation_target_ref"])
+                        ),
+                        operation_support=None if support is None else str(support),
+                        operation_state=(
+                            None
+                            if tc.get("operation_state") is None
+                            else str(tc["operation_state"])
+                        ),
+                        operation_first_execution=(
+                            None
+                            if tc.get("operation_first_execution") is None
+                            else bool(tc["operation_first_execution"])
+                        ),
+                        operation_replay_suppressed=(
+                            None
+                            if tc.get("operation_replay_suppressed") is None
+                            else bool(tc["operation_replay_suppressed"])
+                        ),
+                        operation_reconciliation_required=(
+                            None
+                            if tc.get("operation_reconciliation_required") is None
+                            else bool(tc["operation_reconciliation_required"])
+                        ),
+                        operation_reconciliation_exhausted=(
+                            None
+                            if tc.get("operation_reconciliation_exhausted") is None
+                            else bool(tc["operation_reconciliation_exhausted"])
+                        ),
+                        operation_residual_duplicate_risk=(
+                            None if residual_risk is None else bool(residual_risk)
+                        ),
                     )
                 )
             except Exception as exc:
@@ -260,6 +304,13 @@ class RuntimeAuditRecorder:
         audit_record: dict[str, Any] = (
             dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
+        # ZER-26/AUD-008: a timed-out side effect attaches its operation facts
+        # as ``operation_audit`` — the state is AMBIGUOUS and the effect may
+        # have landed. Merging (not replacing) keeps the rejection/bare-error
+        # classification while making the operation state durable.
+        operation_audit = getattr(error, "operation_audit", None)
+        if isinstance(operation_audit, Mapping):
+            audit_record.update(operation_audit)
         audit_refs = list(run.audit_refs)
         audit_ref = f"audit:{len(audit_refs) + 1}"
         audit_refs.append(audit_ref)
@@ -369,6 +420,11 @@ class RuntimeAuditRecorder:
         audit_record: dict[str, Any] = (
             dict(carried_audit) if is_rejection else bare_error_audit_record(error)
         )
+        # Same ZER-26/AUD-008 merge as the non-branch path: a branch can run a
+        # side-effect node, and its timeout facts must not be lost either.
+        operation_audit = getattr(error, "operation_audit", None)
+        if isinstance(operation_audit, Mapping):
+            audit_record.update(operation_audit)
         audit_record["branch_id"] = ctx.branch_id
         audit_record["branch_index"] = ctx.branch_index
         audit_seq = len(ctx.audit_refs) + 1

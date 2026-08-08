@@ -38,6 +38,7 @@ from zeroth.integrations.persistence.runs.serialization import (
     row_to_thread,
 )
 from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.json import to_json_value
@@ -123,16 +124,51 @@ class _RunThreadStore:
 
     database: AsyncDatabase
     checkpoints: CheckpointRowStore = field(init=False)
+    # ZER-26/AUD-004: per-run write fences. While a fence is installed for a
+    # run id, every save of that run's row carries the lease predicate, so a
+    # displaced worker's write is refused *inside* the statement rather than by
+    # a check that races it.
+    _fences: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         """Bind the ``run_checkpoints`` adapter to the same database."""
         self.checkpoints = CheckpointRowStore(self.database)
 
+    def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
+        """Fence every subsequent save of this run on (worker_id, generation)."""
+        self._fences[run_id] = (worker_id, generation)
+
+    def clear_fence(self, run_id: str) -> None:
+        """Remove the write fence for a run, restoring unfenced saves."""
+        self._fences.pop(run_id, None)
+
     async def save_run(self, run: Run) -> None:
-        """Insert or update a run record in the database."""
+        """Insert or update a run record in the database.
+
+        When a fence is installed for this run, the upsert's UPDATE arm carries
+        ``WHERE lease_worker_id = ? AND lease_generation = ?`` and the statement
+        returns the written row — no row back means ownership moved and the
+        write was refused, which raises :class:`FencedRunWriteRejectedError`. A
+        fresh insert cannot conflict with a displaced owner, so the fence only
+        gates the update arm.
+        """
+        fence = self._fences.get(run.run_id)
         async with self.database.transaction() as connection:
-            await connection.execute(
-                """
+            await self._save_run_in_connection(connection, run, fence)
+
+    async def _save_run_in_connection(
+        self,
+        connection: AsyncConnection,
+        run: Run,
+        fence: tuple[str, int] | None,
+    ) -> None:
+        fence_predicate = ""
+        fence_params: tuple[object, ...] = ()
+        if fence is not None:
+            fence_predicate = "WHERE runs.lease_worker_id = ? AND runs.lease_generation = ?"
+            fence_params = fence
+        row = await connection.fetch_one(
+            f"""
                 INSERT INTO runs (
                     run_id, checkpoint_id, parent_checkpoint_id, epoch, workflow_name,
                     status, current_step, completed_steps, artifacts, channels,
@@ -176,46 +212,55 @@ class _RunThreadStore:
                     audit_refs = excluded.audit_refs,
                     final_output = excluded.final_output,
                     failure_state = excluded.failure_state
+                {fence_predicate}
+                RETURNING run_id
                 """,
-                (
-                    run.run_id,
-                    run.checkpoint_id,
-                    run.parent_checkpoint_id,
-                    run.epoch,
-                    run.workflow_name,
-                    run.status.value,
-                    run.current_step,
-                    to_json_value(run.completed_steps),
-                    to_json_value(run.artifacts),
-                    to_json_value(run.channels),
-                    _dump_model(run.pending_approval),
-                    run.pending_interrupt_id,
-                    run.started_at.isoformat(),
-                    run.updated_at.isoformat(),
-                    run.error,
-                    to_json_value(run.metadata),
-                    run.graph_version_ref,
-                    run.deployment_ref,
-                    run.tenant_id,
-                    run.workspace_id,
-                    _dump_model(run.submitted_by),
-                    run.thread_id,
-                    to_json_value(run.current_node_ids),
-                    to_json_value(run.pending_node_ids),
-                    _dump_list(run.execution_history),
-                    to_json_value(run.node_visit_counts),
-                    _dump_list(run.condition_results),
-                    to_json_value(run.audit_refs),
-                    _dump_model(run.final_output),
-                    _dump_model(run.failure_state),
-                ),
+            (
+                run.run_id,
+                run.checkpoint_id,
+                run.parent_checkpoint_id,
+                run.epoch,
+                run.workflow_name,
+                run.status.value,
+                run.current_step,
+                to_json_value(run.completed_steps),
+                to_json_value(run.artifacts),
+                to_json_value(run.channels),
+                _dump_model(run.pending_approval),
+                run.pending_interrupt_id,
+                run.started_at.isoformat(),
+                run.updated_at.isoformat(),
+                run.error,
+                to_json_value(run.metadata),
+                run.graph_version_ref,
+                run.deployment_ref,
+                run.tenant_id,
+                run.workspace_id,
+                _dump_model(run.submitted_by),
+                run.thread_id,
+                to_json_value(run.current_node_ids),
+                to_json_value(run.pending_node_ids),
+                _dump_list(run.execution_history),
+                to_json_value(run.node_visit_counts),
+                _dump_list(run.condition_results),
+                to_json_value(run.audit_refs),
+                _dump_model(run.final_output),
+                _dump_model(run.failure_state),
             )
+            + fence_params,
+        )
+        if fence is not None and row is None:
+            worker_id, generation = fence
+            raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
 
     async def save_thread(self, thread: Thread) -> None:
         """Insert or update a thread record in the database."""
         async with self.database.transaction() as connection:
-            await connection.execute(
-                """
+            await self._save_thread_in_connection(connection, thread)
+
+    async def _save_thread_in_connection(self, connection: AsyncConnection, thread: Thread) -> None:
+        await connection.execute(
+            """
                 INSERT INTO threads (
                     thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id, status,
                     participating_agent_refs, state_snapshot_refs, checkpoint_refs,
@@ -237,24 +282,24 @@ class _RunThreadStore:
                     last_run_id = excluded.last_run_id,
                     updated_at = excluded.updated_at
                 """,
-                (
-                    thread.thread_id,
-                    thread.graph_version_ref,
-                    thread.deployment_ref,
-                    thread.tenant_id,
-                    thread.workspace_id,
-                    thread.status.value,
-                    to_json_value(thread.participating_agent_refs),
-                    to_json_value(thread.state_snapshot_refs),
-                    to_json_value(thread.checkpoint_refs),
-                    _dump_list(thread.memory_bindings),
-                    to_json_value(thread.run_ids),
-                    thread.active_run_id,
-                    thread.last_run_id,
-                    thread.created_at.isoformat(),
-                    thread.updated_at.isoformat(),
-                ),
-            )
+            (
+                thread.thread_id,
+                thread.graph_version_ref,
+                thread.deployment_ref,
+                thread.tenant_id,
+                thread.workspace_id,
+                thread.status.value,
+                to_json_value(thread.participating_agent_refs),
+                to_json_value(thread.state_snapshot_refs),
+                to_json_value(thread.checkpoint_refs),
+                _dump_list(thread.memory_bindings),
+                to_json_value(thread.run_ids),
+                thread.active_run_id,
+                thread.last_run_id,
+                thread.created_at.isoformat(),
+                thread.updated_at.isoformat(),
+            ),
+        )
 
     async def get_run(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
         """Load a run from the database by its ID, or return None if not found.
@@ -396,6 +441,9 @@ class _RunThreadStore:
 
     async def put_run(self, run: Run) -> None:
         """Save a run, creating its thread if needed, and write a checkpoint."""
+        if run.run_id in self._fences:
+            await self._put_run_fenced(run)
+            return
         await self._record_thread_run(
             run.thread_id,
             run.run_id,
@@ -407,6 +455,59 @@ class _RunThreadStore:
         await self.write_checkpoint(run)
         run.touch()
         await self.save_run(run)
+
+    async def _put_run_fenced(self, run: Run) -> None:
+        """The fenced save: thread, checkpoint and runs row in ONE transaction.
+
+        The unfenced path writes the thread and the checkpoint in their own
+        transactions before the runs-row save, so a displaced worker used to
+        overwrite durable checkpoint state before the fence raised. Here the
+        fenced runs-row save shares the transaction with the other two writes:
+        a rejection rolls all three back and nothing lands.
+        """
+        fence = self._fences[run.run_id]
+        checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
+        run.checkpoint_id = checkpoint_id
+        run.touch()
+        snapshot = run.model_dump(mode="json")
+        async with self.database.transaction() as connection:
+            row = await connection.fetch_one(
+                "SELECT * FROM threads WHERE thread_id = ?", (run.thread_id,)
+            )
+            thread = (
+                Thread(
+                    thread_id=run.thread_id,
+                    graph_version_ref=run.graph_version_ref,
+                    deployment_ref=run.deployment_ref,
+                    tenant_id=run.tenant_id,
+                    workspace_id=run.workspace_id,
+                    status=ThreadStatus.ACTIVE,
+                )
+                if row is None
+                else row_to_thread(row)
+            )
+            if row is not None and (
+                thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id
+            ):
+                raise ValueError("thread identity mismatch")
+            thread.run_ids = _merge(thread.run_ids, [run.run_id])
+            thread.last_run_id = run.run_id
+            # Same ordering rule as _next_checkpoint_order: the order is the
+            # count of checkpoints BEFORE this one joins the list.
+            checkpoint_order = len(thread.checkpoint_refs)
+            thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
+            thread.updated_at = utc_now()
+            await self._save_thread_in_connection(connection, thread)
+            await self.checkpoints.write_row_in_connection(
+                connection,
+                checkpoint_id=checkpoint_id,
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                checkpoint_order=checkpoint_order,
+                state_json=to_json_value(snapshot),
+                created_at=run.updated_at.isoformat(),
+            )
+            await self._save_run_in_connection(connection, run, fence)
 
     async def _ensure_thread(self, thread_id: str) -> Thread:
         """Load a thread by ID, raising KeyError if it doesn't exist."""
@@ -566,6 +667,20 @@ class RunRepository:
         """Save (insert or update) a run, including its checkpoint and thread."""
         await self._store.put_run(run)
         return await self.get(run.run_id)
+
+    def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
+        """ZER-26/AUD-004: fence this run's saves on (worker_id, generation).
+
+        While installed, every save of the run's row — the worker's own status
+        transitions and the orchestrator's drive-time writes alike, since both
+        share this repository — is refused in-statement once lease ownership
+        moves, raising :class:`FencedRunWriteRejectedError`.
+        """
+        self._store.install_fence(run_id, worker_id, generation)
+
+    def clear_fence(self, run_id: str) -> None:
+        """Remove the write fence installed for a run."""
+        self._store.clear_fence(run_id)
 
     async def get(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
         """Load a run by its ID, or return None if not found.
