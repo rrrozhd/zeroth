@@ -10,8 +10,10 @@ agent-invoked unit is sandboxed exactly like a directly dispatched one.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import itertools
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -139,14 +141,21 @@ class RuntimeToolExecutor:
             # suppressed as a duplicate. Wrongly suppressing real work is worse
             # than missing a suppression, so distinctness wins here.
             #
-            # When an id exists it is the WHOLE distinguishing suffix: mixing
-            # the counter back in re-broke recovery from the other side — the
-            # same call replayed at a different position minted a different
-            # key, so a genuine replay of a non-first call was not suppressed.
-            # The counter is key material only for executors that pass no id,
-            # and it is not consumed otherwise, so mixed streams stay stable.
+            # When an id exists it distinguishes calls together with the
+            # ARGUMENT digest: mixing the counter back in re-broke recovery
+            # (the same call replayed at a different position minted a
+            # different key), while the id alone trusted providers never to
+            # reuse one — a reused id on a different call would inherit the
+            # earlier call's key and be wrongly suppressed. Identical
+            # arguments under a reused id are indistinguishable from a retry,
+            # which is exactly when suppression is correct. The counter is key
+            # material only for executors that pass no id, and it is not
+            # consumed otherwise, so mixed streams stay stable.
             if tool_call_id:
-                keyed_ref = f"{target_ref}#{tool_call_id}"
+                args_digest = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, default=str).encode()
+                ).hexdigest()[:16]
+                keyed_ref = f"{target_ref}#{tool_call_id}#{args_digest}"
                 ordinal = 0
             else:
                 keyed_ref = target_ref

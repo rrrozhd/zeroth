@@ -541,6 +541,62 @@ def test_a_non_first_replay_after_recovery_is_still_recognised() -> None:
     assert len(set(before_crash)) == 3, "distinct calls must still be distinct"
 
 
+def test_a_reused_call_id_with_different_arguments_stays_distinct() -> None:
+    """ZER26-AUD-007: the provider contract does not promise unique call ids.
+
+    A provider that reuses an id across two same-target calls with different
+    arguments is describing two different logical operations; keying by the id
+    alone gave the second call the first call's key, so real work was wrongly
+    suppressed. The argument digest splits them — while a reused id with
+    IDENTICAL arguments is indistinguishable from a retry, which is exactly
+    when suppression is correct.
+    """
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    node = ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://send-email",
+            execution_mode="wrapped_command",
+        ),
+    )
+    graph = _GraphOf(node)
+
+    def _factory(target_ref: str, ordinal: int):
+        return operation_identity(
+            run_id="run_1",
+            dispatch_id="dsp_abc",
+            idempotency_key="idem_abc",
+            attempt=0,
+            target_ref=target_ref,
+            call_ordinal=ordinal,
+        )
+
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    def _key_for(call_id, arguments):
+        runner = _RecordingRunner()
+        execute = _executor(runner).build(graph, {}, operation_identity_factory=_factory)
+        asyncio.run(execute(_Binding(), arguments, call_id))
+        return runner.calls[0]["operation_identity"].operation_key
+
+    first = _key_for("call_reused", {"to": "a@example.com"})
+    reused_different = _key_for("call_reused", {"to": "b@example.com"})
+    reused_identical = _key_for("call_reused", {"to": "a@example.com"})
+
+    assert first != reused_different, (
+        "a reused id with different arguments is a different logical operation"
+    )
+    assert first == reused_identical, "a reused id with identical arguments is a retry"
+
+
 def test_an_mcp_tool_call_is_marked_as_outside_the_guarantee() -> None:
     """MCP calls bypass the side-effect boundary, so the record must say so.
 
