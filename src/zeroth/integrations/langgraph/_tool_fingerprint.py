@@ -322,6 +322,142 @@ def _literal_material(value: Any, depth: int) -> Any:
     raise _refuse("this tool's code carries a constant that cannot be fingerprinted")
 
 
+def _configuration_sequence(kind: str, value: Any, depth: int) -> Any:
+    """Project an ordered configuration container element by element."""
+    return [kind, [_configuration_material(item, depth + 1) for item in value]]
+
+
+def _configuration_tuple(value: Any, depth: int) -> Any:
+    """Project a ``tuple`` of configuration, tagged so it is not a ``list``."""
+    return _configuration_sequence("tuple", value, depth)
+
+
+def _configuration_list(value: Any, depth: int) -> Any:
+    """Project a ``list`` of configuration, tagged so it is not a ``tuple``."""
+    return _configuration_sequence("list", value, depth)
+
+
+def _configuration_members(kind: str, value: Any, depth: int) -> Any:
+    """Project an unordered configuration container as sorted serialized members.
+
+    Sorted for the reason :func:`_literal_frozenset` sorts: a ``set`` of strings
+    iterates in an order ``PYTHONHASHSEED`` randomizes per process, and an
+    identity that followed it would not match the one the next process derives.
+    """
+    return [kind, sorted(_serialize(_configuration_material(item, depth + 1)) for item in value)]
+
+
+def _configuration_set(value: Any, depth: int) -> Any:
+    """Project a ``set`` of configuration."""
+    return _configuration_members("set", value, depth)
+
+
+def _configuration_frozenset(value: Any, depth: int) -> Any:
+    """Project a ``frozenset`` of configuration."""
+    return _configuration_members("frozenset", value, depth)
+
+
+def _configuration_dict(value: Any, depth: int) -> Any:
+    """Project a mapping of configuration, refusing a key that is not exactly ``str``.
+
+    Iterated through ``items()`` and never keyed back into, so a stored key's
+    ``__hash__`` / ``__eq__`` never runs -- the rule :func:`_mapping_material`
+    follows, for the same reason.
+    """
+    material: dict[str, Any] = {}
+    for key, item in value.items():
+        if type(key) is not str:
+            raise _refuse("this tool declares configuration keyed by something other than str")
+        material[key] = _configuration_material(item, depth + 1)
+    return ["dict", material]
+
+
+_CONFIGURATION_HANDLERS: tuple[tuple[type, Callable[[Any, int], Any]], ...] = (
+    (str, _literal_text),
+    (bytes, _literal_bytes),
+    (bool, _literal_scalar),
+    (int, _literal_scalar),
+    (float, _literal_scalar),
+    (complex, _literal_scalar),
+    (type(None), _literal_scalar),
+    (type(...), _literal_scalar),
+    (tuple, _configuration_tuple),
+    (list, _configuration_list),
+    (set, _configuration_set),
+    (frozenset, _configuration_frozenset),
+    (dict, _configuration_dict),
+)
+"""Every shape declared configuration may take, paired with how to project it.
+
+Wider than :data:`_LITERAL_HANDLERS` because configuration is *data* a person
+wrote -- a header mapping, a list of permitted hosts -- where a code object's
+constants can only ever be the handful of types the compiler emits. Scanned with
+``is`` for the reason that table is: a metaclass cannot make a hostile class
+answer as ``dict``.
+
+Deliberately narrower than :func:`_bound_material`, which falls back to a type
+name. Nothing here falls back: see :func:`configuration_digest`.
+"""
+
+
+def _configuration_material(value: Any, depth: int) -> Any:
+    """Project one declared configuration value, or refuse it.
+
+    Raises:
+        UnstableToolIdentityError: If the value is of a type the projection
+            cannot describe, or the structure is nested past the bound.
+    """
+    _guard_depth(depth)
+    for candidate, handler in _CONFIGURATION_HANDLERS:
+        if type(value) is candidate:
+            return handler(value, depth)
+    raise _refuse("this tool declares configuration that cannot be fingerprinted")
+
+
+def configuration_digest(values: Mapping[str, Mapping[str, Any]]) -> str:
+    """Return the digest of the configuration a tool declared as identity-bearing.
+
+    The declared *names* are digested alongside their values, so a substituted
+    tool cannot reach a declaring original's fingerprint by dropping the
+    declaration, nor by declaring a different field that happens to hold the same
+    value.
+
+    **Every carrier of a name is digested, not one of them.** A declared name can
+    be answered by an instance attribute and by the free variable of each body
+    the tool exposes, and those are different values rather than different
+    spellings of one. Digesting them all is what keeps the recorded identity a
+    statement about whatever the framework goes on to call -- see
+    :func:`~zeroth.integrations.langgraph._tool_configuration.configuration_values`.
+
+    **This projection has no fall-back.** :func:`_bound_material` degrades an
+    unprojectable value to its type name, which is right for a client object a
+    tool merely closes over -- nobody claimed it decides identity. A declared
+    field is the opposite claim, and a type name does not decide anything, so an
+    unprojectable declared value refuses the tool.
+
+    Args:
+        values: The declared configuration: field name, then carrier, then value.
+
+    Returns:
+        The hex SHA-256 digest of the canonical configuration material.
+
+    Raises:
+        UnstableToolIdentityError: If any declared value cannot be projected.
+    """
+    return _digest(
+        {
+            "declared": sorted(values),
+            "values": {
+                name: {
+                    carrier: _configuration_material(value, 0)
+                    for carrier, value in carriers.items()
+                }
+                for name, carriers in values.items()
+            },
+        }
+    )
+
+
 def _code_material(code: Any, depth: int) -> dict[str, Any]:
     """Project a code object onto everything about it that decides what it does.
 
@@ -747,6 +883,7 @@ def tool_slots_digest(tool: object, slots: Mapping[str, Any]) -> str:
 
 __all__ = [
     "callable_implementation_digest",
+    "configuration_digest",
     "schema_digest",
     "tool_implementation_digest",
     "tool_slots_digest",

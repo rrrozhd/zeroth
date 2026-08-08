@@ -29,6 +29,10 @@ from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
+from zeroth.integrations.langgraph._tool_configuration import (
+    configuration_fingerprint,
+    declared_configuration_names,
+)
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
     UnknownSideEffectPolicy,
@@ -130,9 +134,16 @@ class GovernedToolBinding:
         side_effect: How this tool is described in an inventory, defaulting to
             unknown -- which the default policy denies.
         contract_ref: The contract this tool is described as bound to, when a
-            caller declared one.
+            caller declared one. Complementary to ``identity_configuration``
+            rather than replaced by it: a contract is resolved per call from the
+            caller's seam, while declared configuration is read off the tool
+            itself and is already inside ``identity.fingerprint``.
         capability_refs: Capabilities every call through this binding requires.
         requires_approval: Whether every call through this binding requires approval.
+        identity_configuration: The field names this tool declared as
+            identity-bearing configuration, empty when it declared none. Reported
+            so an operator can see *that* a tool pinned its configuration; what
+            actually gates is the fingerprint those fields are digested into.
         coverage: What this wrapping can support.
             ``govern_tools`` never sets it to
             :attr:`~zeroth.integrations.langgraph._tool_types.InventoryCoverage.COMPLETE`,
@@ -145,6 +156,7 @@ class GovernedToolBinding:
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
     coverage: InventoryCoverage = InventoryCoverage.PARTIAL
+    identity_configuration: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +175,7 @@ class _ToolFacts:
     description: str
     args_schema: Any
     material: Mapping[str, Any]
+    configuration_names: tuple[str, ...] = ()
     snapshot: ToolSnapshot | None = None
     body: Any = None
     state_cells: tuple[Any, ...] = ()
@@ -1404,6 +1417,67 @@ def _signature_argument_names(target: object) -> list[str]:
     return sorted(name for name in parameters if type(name) is str)
 
 
+def _refuse_configuration_drift(plan: Any, facts: _ToolFacts) -> None:
+    """Refuse when declared configuration moved between authorization and execution.
+
+    **The identity check is not the last word, because it is not the last thing
+    that runs.** ``_governed_action`` derives and compares identity, and only then
+    does the metadata resolver, the decision client, the audit sink and the
+    approval seam get their turn -- every one of them caller-supplied code, every
+    one of them holding a reference to the tool. A resolver that sets
+    ``tool.endpoint = evil`` after the comparison has the policy decide about one
+    endpoint and the body call another, which is precisely the substitution a
+    declaration exists to catch.
+
+    Declared configuration cannot be frozen the way a body is: the body reads
+    ``self.endpoint`` itself, and this module does not get to rewrite what it
+    reads. So the guarantee is the achievable one -- re-derive at the last moment
+    this module controls, immediately before the frozen body is entered. That is
+    where :func:`~zeroth.integrations.langgraph._tool_execution.refuse_state_cell_escalation`
+    already stands, for the same reason.
+
+    Args:
+        plan: The wrapper's pinned plan, for the live target.
+        facts: The pinned facts carrying the digest authorization was granted on.
+
+    Raises:
+        UnstableToolIdentityError: If the declared configuration is no longer the
+            one the decision was made about.
+    """
+    expected = facts.material.get("configuration")
+    if expected is None:
+        return
+    target = plan.target
+    bodies = facts.snapshot.bodies if facts.snapshot is not None else {"target": target}
+    if configuration_fingerprint(target, bodies) != expected:
+        raise UnstableToolIdentityError(
+            "this tool's declared configuration changed after the call was authorized"
+        )
+
+
+def _identity_material(base: dict[str, Any], configuration: str | None) -> dict[str, Any]:
+    """Fold a declared-configuration digest into identity material, or leave it out.
+
+    **Absent, not null.** A tool that declares nothing produces exactly the
+    material it produced before this key existed, so every fingerprint recorded
+    by an earlier version still matches. The omission costs nothing in strength:
+    a substituted tool cannot reach a *declaring* original's fingerprint by
+    dropping the declaration, because that original's material carries a key the
+    substitute's does not.
+
+    Args:
+        base: The identity material every tool carries.
+        configuration: The declared-configuration digest, or ``None`` for a tool
+            that declared none.
+
+    Returns:
+        The material the identity is derived from.
+    """
+    if configuration is None:
+        return base
+    return {**base, "configuration": configuration}
+
+
 def _describe_base_tool(tool: Any) -> _ToolFacts:
     """Read a ``BaseTool``'s identity: its surface, its whole schema, and its body.
 
@@ -1434,13 +1508,17 @@ def _describe_base_tool(tool: Any) -> _ToolFacts:
         name=snapshot.name,
         description=description,
         args_schema=args_schema,
-        material={
-            "surface": _BASE_TOOL_SURFACE,
-            "description": description,
-            "arguments": _schema_argument_names(args_schema),
-            "schema": schema_digest(args_schema),
-            "implementation": tool_slots_digest(tool, snapshot.bodies),
-        },
+        material=_identity_material(
+            {
+                "surface": _BASE_TOOL_SURFACE,
+                "description": description,
+                "arguments": _schema_argument_names(args_schema),
+                "schema": schema_digest(args_schema),
+                "implementation": tool_slots_digest(tool, snapshot.bodies),
+            },
+            configuration_fingerprint(tool, snapshot.bodies),
+        ),
+        configuration_names=declared_configuration_names(tool, snapshot.bodies),
         snapshot=snapshot,
     )
 
@@ -1481,13 +1559,17 @@ def _describe_callable(target: Any) -> _ToolFacts:
         name=name,
         description=description,
         args_schema=args_schema,
-        material={
-            "surface": _CALLABLE_SURFACE,
-            "description": description,
-            "arguments": arguments,
-            "schema": schema_digest(args_schema),
-            "implementation": callable_implementation_digest(body),
-        },
+        material=_identity_material(
+            {
+                "surface": _CALLABLE_SURFACE,
+                "description": description,
+                "arguments": arguments,
+                "schema": schema_digest(args_schema),
+                "implementation": callable_implementation_digest(body),
+            },
+            configuration_fingerprint(target, {"target": target}),
+        ),
+        configuration_names=declared_configuration_names(target, {"target": target}),
         body=body,
         state_cells=guarded.state_cells,
     )
@@ -1530,7 +1612,9 @@ def _pin(
     """
     identity = normalize_tool_identity(facts.name, facts.material)
     if seams is None:
-        return GovernedToolBinding(identity=identity)
+        return GovernedToolBinding(
+            identity=identity, identity_configuration=facts.configuration_names
+        )
     side_effect = _resolved(seams.side_effect, target)
     contract = _resolved(seams.contract_ref, target)
     capabilities = _resolved(seams.capability_refs, target)
@@ -1541,6 +1625,7 @@ def _pin(
         contract_ref=normalize_contract_ref(contract),
         capability_refs=normalize_capability_refs(() if capabilities is None else capabilities),
         requires_approval=normalize_requires_approval(False if approval is None else approval),
+        identity_configuration=facts.configuration_names,
     )
 
 
@@ -1825,13 +1910,17 @@ def _callable_facts(plan: _CallablePlan) -> _ToolFacts:
         name=metadata.name,
         description=metadata.description,
         args_schema=None,
-        material={
-            "surface": _CALLABLE_SURFACE,
-            "description": metadata.description,
-            "arguments": list(metadata.arguments),
-            "schema": metadata.schema,
-            "implementation": callable_implementation_digest(body),
-        },
+        material=_identity_material(
+            {
+                "surface": _CALLABLE_SURFACE,
+                "description": metadata.description,
+                "arguments": list(metadata.arguments),
+                "schema": metadata.schema,
+                "implementation": callable_implementation_digest(body),
+            },
+            configuration_fingerprint(plan.target, {"target": plan.target}),
+        ),
+        configuration_names=declared_configuration_names(plan.target, {"target": plan.target}),
         body=body,
         state_cells=state_cells,
     )
@@ -2205,15 +2294,20 @@ class GovernedTool(BaseTool):
             edited_call = _validated_base_tool_edit(plan, action, edited, body)
             return edited_call.arguments
 
+        def execute() -> Any:
+            _refuse_configuration_drift(plan, facts)
+            return execute_snapshot(facts.snapshot, call.args, call.kwargs)
+
         def execute_edited(_arguments: Mapping[str, Any]) -> Any:
             if edited_call is None:
                 raise ToolGovernanceError("edited tool arguments were not prepared")
+            _refuse_configuration_drift(plan, facts)
             return execute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
 
         return guard_tool_call(
             action,
             context,
-            lambda: execute_snapshot(facts.snapshot, call.args, call.kwargs),
+            execute,
             invoke_with_arguments=execute_edited,
             prepare_edited_arguments=prepare_edited,
             **_enforcement_seams(plan),
@@ -2239,6 +2333,7 @@ class GovernedTool(BaseTool):
         edited_call: _EffectiveCall | None = None
 
         async def execute() -> Any:
+            _refuse_configuration_drift(plan, facts)
             return await aexecute_snapshot(facts.snapshot, call.args, call.kwargs)
 
         def prepare_edited(edited: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -2249,6 +2344,7 @@ class GovernedTool(BaseTool):
         async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
             if edited_call is None:
                 raise ToolGovernanceError("edited tool arguments were not prepared")
+            _refuse_configuration_drift(plan, facts)
             return await aexecute_snapshot(facts.snapshot, edited_call.args, edited_call.kwargs)
 
         return await aguard_tool_call(
@@ -2300,6 +2396,7 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
     edited_call: _EffectiveCall | None = None
 
     def execute() -> Any:
+        _refuse_configuration_drift(plan, facts)
         refuse_state_cell_escalation(facts.state_cells)
         return body(*call.args, **call.kwargs)
 
@@ -2311,6 +2408,7 @@ def _sync_callable_call(token: object, args: tuple[Any, ...], kwargs: Mapping[st
     def execute_edited(_arguments: Mapping[str, Any]) -> Any:
         if edited_call is None:
             raise ToolGovernanceError("edited callable arguments were not prepared")
+        _refuse_configuration_drift(plan, facts)
         refuse_state_cell_escalation(facts.state_cells)
         return body(*edited_call.args, **edited_call.kwargs)
 
@@ -2334,6 +2432,7 @@ async def _async_callable_call(
     edited_call: _EffectiveCall | None = None
 
     async def execute() -> Any:
+        _refuse_configuration_drift(plan, facts)
         refuse_state_cell_escalation(facts.state_cells)
         return await facts.body(*call.args, **call.kwargs)
 
@@ -2345,6 +2444,7 @@ async def _async_callable_call(
     async def execute_edited(_arguments: Mapping[str, Any]) -> Any:
         if edited_call is None:
             raise ToolGovernanceError("edited callable arguments were not prepared")
+        _refuse_configuration_drift(plan, facts)
         refuse_state_cell_escalation(facts.state_cells)
         return await facts.body(*edited_call.args, **edited_call.kwargs)
 

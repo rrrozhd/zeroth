@@ -621,6 +621,14 @@ def _frozen_function(target: Any, depth: int, collector: _StateCellCollector) ->
     *names* a code object reads, never their values -- and rebinding them would
     hand every tool a frozen copy of its own module.
 
+    The attributes are taken with ``dict.items(...)`` rather than
+    ``target.__dict__.items()``: a function's ``__dict__`` may be replaced with a
+    ``dict`` subclass, and asking it for its own entries would run the delegate's
+    code inside the freeze whose whole purpose is that the delegate no longer
+    chooses anything, and each key is gated on ``type(key) is str`` before the
+    membership test, because testing a hostile ``str`` subclass against the
+    disowned set runs its ``__hash__``.
+
     ``__signature__`` and ``__wrapped__`` are deliberately **not** carried across;
     see :data:`_DISOWNING_ATTRIBUTES`. The rebuilt function's parameters are
     whatever its frozen ``__code__``, ``__defaults__`` and ``__kwdefaults__`` say
@@ -655,7 +663,11 @@ def _frozen_function(target: Any, depth: int, collector: _StateCellCollector) ->
     rebuilt.__doc__ = target.__doc__
     rebuilt.__module__ = target.__module__
     rebuilt.__dict__.update(
-        {key: value for key, value in target.__dict__.items() if key not in _DISOWNING_ATTRIBUTES}
+        {
+            key: value
+            for key, value in dict.items(target.__dict__)
+            if type(key) is str and key not in _DISOWNING_ATTRIBUTES
+        }
     )
     return rebuilt
 

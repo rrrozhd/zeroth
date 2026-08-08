@@ -187,6 +187,11 @@ class ToolInventoryEntry:
         contract_ref: The contract the tool is bound to, when one is declared.
         capability_refs: Capabilities the tool requires.
         requires_approval: Whether this tool explicitly requires approval.
+        identity_configuration: The field names the tool declared as
+            identity-bearing configuration, empty when it declared none. The
+            values are already inside ``identity.fingerprint``, which is what
+            gates; these names are recorded so a reviewer can see which fields a
+            reviewed tool pinned rather than having to infer it from a digest.
     """
 
     identity: ToolIdentity
@@ -194,10 +199,12 @@ class ToolInventoryEntry:
     contract_ref: str | None = None
     capability_refs: Sequence[str] = ()
     requires_approval: bool = False
+    identity_configuration: Sequence[str] = ()
 
     def __post_init__(self) -> None:
-        """Snapshot capability references with the rest of the entry."""
+        """Snapshot capability and declaration references with the rest of the entry."""
         object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
+        object.__setattr__(self, "identity_configuration", tuple(self.identity_configuration))
 
 
 @dataclass(frozen=True, slots=True)

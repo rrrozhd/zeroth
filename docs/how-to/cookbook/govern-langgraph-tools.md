@@ -405,6 +405,99 @@ silently and produced two decisions and two audit records for one physical
 execution. Pinned by `test_an_already_governed_tool_is_refused_by_the_middleware_too`
 and `test_an_already_governed_tool_is_refused_by_govern_tools`.
 
+### Declare instance configuration as part of a tool's identity
+
+Identity is re-derived on every call from the tool's *implementation* — a
+canonical projection of the `_run`/`_arun` (or `func`/`coroutine`) code object —
+together with its declared name, description and argument schema. Configuration
+bound onto the instance is **not** in that by default, so undeclared, these two
+are identity-identical and a policy that authorized the first authorizes the
+second:
+
+```python
+class HttpTool(BaseTool):
+    endpoint: str
+    def _run(self, path: str) -> str: ...
+
+HttpTool(endpoint="https://good.example")   # same fingerprint
+HttpTool(endpoint="https://evil.example")   # as this one
+```
+
+**Declare the field and they stop colliding.** A tool says which of its fields
+decide its identity; those fields are then read off the instance and digested by
+value on every call:
+
+```python
+from typing import ClassVar
+
+class HttpTool(BaseTool):
+    zeroth_identity_configuration: ClassVar[tuple[str, ...]] = ("endpoint",)
+
+    name: str = "fetch"
+    description: str = "fetch a path."
+    endpoint: str
+
+    def _run(self, path: str) -> str: ...
+
+HttpTool(endpoint="https://good.example")   # now a different fingerprint
+HttpTool(endpoint="https://evil.example")   # from this one
+```
+
+Configuration captured in a closure is declared with `identity_configuration`,
+which names the body's free variables:
+
+```python
+from zeroth.integrations.langgraph import identity_configuration
+
+def make_fetcher(endpoint: str):
+    @identity_configuration("endpoint")
+    def fetch(path: str) -> str:
+        return client.get(f"{endpoint}/{path}").text
+    return fetch
+```
+
+That works for a bare governed callable and for `StructuredTool.from_function`
+alike: a declared name is resolved against the tool's own **instance attribute**
+and against the **free variables of every implementation slot** it exposes, so the
+carrier follows the name rather than the tool's kind. Every carrier that holds the
+name is digested — not the first one — because a tool whose sync body closes over
+one endpoint and whose async body closes over another is two different tools, and
+recording only the first would let `ainvoke` run an endpoint no policy saw. A
+declared name that no carrier answers raises `UnstableToolIdentityError`: a
+declaration that governs nothing is an error, not a warning.
+
+**A declaration names fields; it never asserts a digest.** The declared names are
+digested alongside the values they select, so a substituted tool cannot reach a
+declaring original's fingerprint by dropping the declaration, by renaming a
+field, or by declaring some other field that happens to hold the same value.
+
+**Declared values fail closed.** A field the author declared must be canonically
+projectable — strings, numbers, bytes, `None`, and containers of those
+(`tuple`/`list`/`set`/`frozenset`/`dict` with `str` keys). A declared field
+holding an HTTP client or any other opaque object raises
+`UnstableToolIdentityError` rather than silently degrading to a type name, which
+would be a declaration that pins nothing.
+
+**Reconfiguring a governed tool is now a detected substitution.** The declared
+fields are re-read on every call, so mutating one after the tool was wrapped
+refuses the next call rather than running it under the authorization the previous
+configuration was granted. They are re-read once more immediately before the body
+runs, which closes the window in which your own `side_effect` / `contract_ref`
+resolvers, decision client, audit sink and approval seam execute — all of them
+hold the tool, and all of them run after the identity comparison.
+
+**What the declaration reaches.** The digest is inside `identity.fingerprint`, so
+`match_tool_inventory` reports a reconfigured tool as a substitution with no
+change to how an inventory is recorded or compared. The names themselves are
+reported on the binding as `zeroth_binding.identity_configuration`, so an
+operator can see *that* a tool pinned its configuration — what gates is the
+fingerprint, not the list.
+
+**`contract_ref` is complementary, not replaced.** A contract is resolved per
+call from the caller's seam and describes what the tool is bound to; declared
+configuration is read off the tool itself and is already part of its identity.
+Use `contract_ref` when the operator, not the tool author, owns the value.
+
 ## What this does not claim
 
 **Middleware-only integration still cannot claim cumulative graph enforcement.**
@@ -466,51 +559,26 @@ An unusable declaration fails at construction rather than at report time: a
 non-`BaseTool` entry, an unusable name, or two tools sharing one name all raise
 `UnstableToolIdentityError` from `ZerothMiddleware(...)`.
 
-### Tool identity covers code, not instance configuration
+### Identity covers declared configuration, not all bound state
 
-**A reconfigured instance is not a detected substitution.** Identity is re-derived
-on every call from the tool's *implementation* — a canonical projection of the
-`_run`/`_arun` (or `func`/`coroutine`) code object — together with its declared
-name, description and argument schema. The instance's own configuration is not in
-it.
+**A tool that declares nothing keeps a code-only identity.** Configuration is
+governed when the tool [declares
+it](#declare-instance-configuration-as-part-of-a-tools-identity); undeclared
+fields are not in the fingerprint, so two instances differing only in an
+undeclared endpoint remain identity-identical.
 
-So these two are identity-identical, and a policy that authorized the first will
-authorize the second:
-
-```python
-class HttpTool(BaseTool):
-    endpoint: str
-    def _run(self, path: str) -> str: ...
-
-HttpTool(endpoint="https://good.example")   # same fingerprint
-HttpTool(endpoint="https://evil.example")   # as this one
-```
-
-The same holds for configuration captured in a closure: `make_tool(config_a)` and
-`make_tool(config_b)` share an identity, because `_run` is read off `type(tool)`
-and both closure cells and instance attributes reduce to type names.
-
-**The trade-off is forced, not an oversight.** Because identity is re-derived and
-compared on *every* call, digesting mutable bound state would make a tool that
+That default is forced rather than an oversight. Identity is re-derived and
+compared on *every* call, so digesting all bound state would make a tool that
 counts its own invocations or caches an HTTP client refuse its own second call as
 a substitution of its first — fail-closed on correct code, on every long-running
 agent. Pinned by
 `test_a_tool_that_carries_state_keeps_its_identity_across_hundreds_of_calls`.
 
-**What to do when configuration is what needs governing.** Put it somewhere the
-policy actually sees:
-
-- Pass it as a tool *argument*. Arguments are canonicalized into the action and
-  decided per call, so an endpoint or a file root arrives at your client.
-- Pin it in `contract_ref`, which is recorded in the reviewed inventory binding
-  and must resolve to the same value before every action.
-- Give each configuration its own tool with its own implementation, so the
-  fingerprints genuinely differ.
-
-Do **not** rely on the fingerprint to notice that an endpoint, a credential or a
-file root changed. Closing this properly requires configuration to become part of
-the declared surface — a per-tool identity declaration — which is a new public API
-contract rather than a fix to the projection, and is tracked as its own issue.
+So the fingerprint does not notice that an endpoint, a credential or a file root
+changed **unless that field was declared**. For configuration nobody wants in the
+fingerprint, two mitigations remain: pass it as a tool *argument*, so it is
+canonicalized into the action and decided per call, or give each configuration
+its own implementation.
 
 ## Compatibility matrix
 

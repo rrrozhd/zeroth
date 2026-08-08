@@ -146,6 +146,7 @@ _LAZY_EXPORTS = {
     "LangGraphGatewayError": "zeroth.integrations.langgraph._gateway_client",
     "govern_tools": "zeroth.integrations.langgraph._tool_wrappers",
     "GovernedTool": "zeroth.integrations.langgraph._tool_wrappers",
+    "identity_configuration": "zeroth.integrations.langgraph._tool_configuration",
     "ZerothMiddleware": "zeroth.integrations.langgraph._middleware",
 }
 """Names resolved on first access because importing their module imports OpenTelemetry.
@@ -186,6 +187,7 @@ __all__ = [
     "GovernedGraph",
     "govern_tools",
     "GovernedTool",
+    "identity_configuration",
     "ZerothMiddleware",
     "RunStartContext",
     "OnRunStart",
