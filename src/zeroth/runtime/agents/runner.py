@@ -643,6 +643,9 @@ class AgentRunner:
                         at_least_once=mcp_at_least_once,
                         outcome=result if isinstance(result, Mapping) else {"value": result},
                     )
+                    operation_audit = getattr(result, "operation_audit", None)
+                    if isinstance(operation_audit, Mapping):
+                        audit.update(operation_audit)
                     content = json.dumps(result, ensure_ascii=False, sort_keys=True)
                     if self.config.tool_output_safety.enabled:
                         sanitized = self.tool_output_sanitizer.sanitize(
@@ -674,6 +677,9 @@ class AgentRunner:
                         error=str(exc),
                         at_least_once=mcp_at_least_once,
                     )
+                    operation_audit = getattr(exc, "operation_audit", None)
+                    if isinstance(operation_audit, Mapping):
+                        audit.update(operation_audit)
                     error_content = str(exc)
                     if self.config.tool_output_safety.enabled:
                         sanitized = self.tool_output_sanitizer.sanitize(

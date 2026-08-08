@@ -36,11 +36,9 @@ class ToolCallRecord(BaseModel):
     Captures which tool was called, what arguments were passed in,
     what the tool returned, and whether it produced an error.
 
-    ``operation_support`` / ``operation_residual_duplicate_risk`` carry the
-    ZER-26 side-effect boundary marker for calls that bypass it entirely
-    (today, MCP tools). ``None`` means the call went through the guarded
-    executor — the negative control matters: an unmarked record must stay
-    unmarked, or the marker means nothing.
+    The ``operation_*`` fields carry the durable receipt outcome for guarded
+    executable tools. MCP calls populate only the support and residual-risk
+    marker because they bypass the operation boundary entirely.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -50,7 +48,14 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     outcome: dict[str, Any] | None = None
     error: str | None = None
+    operation_key: str | None = None
+    operation_target_ref: str | None = None
     operation_support: str | None = None
+    operation_state: str | None = None
+    operation_first_execution: bool | None = None
+    operation_replay_suppressed: bool | None = None
+    operation_reconciliation_required: bool | None = None
+    operation_reconciliation_exhausted: bool | None = None
     operation_residual_duplicate_risk: bool | None = None
 
 
@@ -63,7 +68,18 @@ ToolCallRecord.__signature__ = inspect.signature(ToolCallRecord).replace(
     parameters=[
         parameter
         for name, parameter in _tool_call_record_parameters.items()
-        if name not in {"operation_support", "operation_residual_duplicate_risk"}
+        if name
+        not in {
+            "operation_key",
+            "operation_target_ref",
+            "operation_support",
+            "operation_state",
+            "operation_first_execution",
+            "operation_replay_suppressed",
+            "operation_reconciliation_required",
+            "operation_reconciliation_exhausted",
+            "operation_residual_duplicate_risk",
+        }
     ]
 )
 

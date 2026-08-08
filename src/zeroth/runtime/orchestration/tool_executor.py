@@ -14,7 +14,7 @@ import hashlib
 import inspect
 import itertools
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +38,14 @@ def node_by_id(graph: Graph, node_id: str) -> Node:
         if node.node_id == node_id:
             return node
     raise KeyError(node_id)
+
+
+class OperationAwareToolOutput(dict[str, Any]):
+    """Tool output carrying the durable operation facts for agent-call audit."""
+
+    def __init__(self, output: Mapping[str, Any], operation_audit: Mapping[str, Any]) -> None:
+        super().__init__(output)
+        self.operation_audit = dict(operation_audit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +105,12 @@ class RuntimeToolExecutor:
         graph: Graph,
         enforcement_context: Mapping[str, Any] | None = None,
         operation_identity_factory: Callable[[str, int], OperationIdentity] | None = None,
+        operation_guard: Callable[
+            [OperationIdentity, Callable[[], Awaitable[Any]]],
+            Awaitable[tuple[Any, dict[str, Any]]],
+        ]
+        | None = None,
+        side_effect_free: Callable[[ExecutableUnitNode], bool] | None = None,
     ) -> Any:
         """Build the executor that runs an agent's attached tool nodes.
 
@@ -165,20 +179,35 @@ class RuntimeToolExecutor:
                 if operation_identity_factory is None
                 else operation_identity_factory(keyed_ref, ordinal)
             )
-            if inline:
-                result = await self.run_inline(
-                    target,
-                    payload,
-                    enforcement_context=context,
-                    operation_identity=identity,
-                )
-            else:
-                result = await self.run_unit(
+
+            async def invoke() -> Any:
+                if inline:
+                    return await self.run_inline(
+                        target,
+                        payload,
+                        enforcement_context=context,
+                        operation_identity=identity,
+                    )
+                return await self.run_unit(
                     target.executable_unit.manifest_ref,
                     payload,
                     enforcement_context=context,
                     operation_identity=identity,
                 )
-            return result.output_data
+
+            guarded = (
+                identity is not None
+                and operation_guard is not None
+                and not (side_effect_free is not None and side_effect_free(target))
+            )
+            if not guarded:
+                return (await invoke()).output_data
+
+            result, operation_audit = await operation_guard(identity, invoke)
+            if result is None:
+                output = operation_audit.pop("replayed_output", {})
+            else:
+                output = result.output_data
+            return OperationAwareToolOutput(output, operation_audit)
 
         return execute
