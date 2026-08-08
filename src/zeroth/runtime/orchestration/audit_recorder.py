@@ -145,7 +145,40 @@ class RuntimeAuditRecorder:
                         arguments=_as_dict(tc.get("arguments")) or {},
                         outcome=_as_dict(tc.get("outcome")),
                         error=error if error is None else str(error),
+                        operation_key=(
+                            None if tc.get("operation_key") is None else str(tc["operation_key"])
+                        ),
+                        operation_target_ref=(
+                            None
+                            if tc.get("operation_target_ref") is None
+                            else str(tc["operation_target_ref"])
+                        ),
                         operation_support=None if support is None else str(support),
+                        operation_state=(
+                            None
+                            if tc.get("operation_state") is None
+                            else str(tc["operation_state"])
+                        ),
+                        operation_first_execution=(
+                            None
+                            if tc.get("operation_first_execution") is None
+                            else bool(tc["operation_first_execution"])
+                        ),
+                        operation_replay_suppressed=(
+                            None
+                            if tc.get("operation_replay_suppressed") is None
+                            else bool(tc["operation_replay_suppressed"])
+                        ),
+                        operation_reconciliation_required=(
+                            None
+                            if tc.get("operation_reconciliation_required") is None
+                            else bool(tc["operation_reconciliation_required"])
+                        ),
+                        operation_reconciliation_exhausted=(
+                            None
+                            if tc.get("operation_reconciliation_exhausted") is None
+                            else bool(tc["operation_reconciliation_exhausted"])
+                        ),
                         operation_residual_duplicate_risk=(
                             None if residual_risk is None else bool(residual_risk)
                         ),

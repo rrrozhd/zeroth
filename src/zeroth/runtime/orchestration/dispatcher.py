@@ -673,6 +673,8 @@ class NodeDispatcher:
                     operation_identity_factory=lambda target_ref, ordinal: (
                         self._operation_identity_for(run, target_ref, call_ordinal=ordinal)
                     ),
+                    operation_guard=self._guarded_side_effect,
+                    side_effect_free=self._is_side_effect_free,
                 )
 
             # Budget and capability enforcement are dispatch- and tenant-local.

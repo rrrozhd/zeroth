@@ -324,8 +324,9 @@ class _CountingRunner:
     def __init__(self) -> None:
         self.applications = 0
 
-    async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
-                  operation_identity=None):
+    async def run(
+        self, manifest_ref, input_payload, *, enforcement_context=None, operation_identity=None
+    ):
         self.applications += 1
         return _RunResult({"charged": True, "applications": self.applications})
 
@@ -381,9 +382,7 @@ def _run_with_dispatch(dispatch_id: str = "dsp-1"):
 
 @requires_docker
 class TestSideEffectSuppressionEndToEnd:
-    async def test_crash_after_success_does_not_apply_the_effect_twice(
-        self, dual_database
-    ) -> None:
+    async def test_crash_after_success_does_not_apply_the_effect_twice(self, dual_database) -> None:
         """The acceptance criterion, exercised through the real dispatch path.
 
         The first dispatch succeeds and its receipt is stored. The second stands
@@ -401,6 +400,49 @@ class TestSideEffectSuppressionEndToEnd:
         assert first_output == {"charged": True, "applications": 1}
         assert second_output == first_output
         assert second_audit["operation_replay_suppressed"] is True
+
+    async def test_agent_tool_replay_uses_the_same_durable_guard(self, dual_database) -> None:
+        """An attached executable tool is suppressed just like a graph-step unit.
+
+        Rebuilding or re-entering an agent turn can replay the provider's tool
+        call.  The tool-call id and arguments reproduce the operation identity;
+        the second invocation must return the stored receipt without applying
+        the external effect again.
+        """
+        from zeroth.contracts.graph import Graph
+
+        store = SideEffectOperationStore(dual_database)
+        runner = _CountingRunner()
+        dispatcher = _dispatcher(store, runner)
+        run = _run_with_dispatch()
+        graph = Graph(
+            graph_id="agent-tool-replay",
+            name="agent-tool-replay",
+            nodes=[_charge_node()],
+            edges=[],
+        )
+
+        class _Binding:
+            alias = "charge_card"
+            executable_unit_ref = "node://charge"
+
+        execute = dispatcher.tool_executor.build(
+            graph,
+            {},
+            operation_identity_factory=lambda target_ref, ordinal: (
+                dispatcher._operation_identity_for(run, target_ref, call_ordinal=ordinal)
+            ),
+            operation_guard=dispatcher._guarded_side_effect,
+            side_effect_free=dispatcher._is_side_effect_free,
+        )
+
+        first = await execute(_Binding(), {"amount": 10}, "call-charge-1")
+        replay = await execute(_Binding(), {"amount": 10}, "call-charge-1")
+
+        assert runner.applications == 1
+        assert dict(first) == {"charged": True, "applications": 1}
+        assert dict(replay) == dict(first)
+        assert replay.operation_audit["operation_replay_suppressed"] is True
 
     async def test_a_different_logical_operation_is_not_suppressed(self, dual_database) -> None:
         """The positive control: suppression must not swallow genuine new work."""
@@ -429,8 +471,14 @@ class TestSideEffectSuppressionEndToEnd:
         """A timeout is the one outcome where the effect may still have landed."""
 
         class _TimingOutRunner:
-            async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
-                          operation_identity=None):
+            async def run(
+                self,
+                manifest_ref,
+                input_payload,
+                *,
+                enforcement_context=None,
+                operation_identity=None,
+            ):
                 raise TimeoutError("no receipt within deadline")
 
         store = SideEffectOperationStore(dual_database)
@@ -448,8 +496,14 @@ class TestSideEffectSuppressionEndToEnd:
         """A refusal the integration actually reported is not ambiguous."""
 
         class _FailingRunner:
-            async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
-                          operation_identity=None):
+            async def run(
+                self,
+                manifest_ref,
+                input_payload,
+                *,
+                enforcement_context=None,
+                operation_identity=None,
+            ):
                 raise RuntimeError("card declined")
 
         store = SideEffectOperationStore(dual_database)
@@ -861,9 +915,7 @@ class TestClaimVersusSettleRaces:
         # Whichever order the two landed in, the claim must not authorise work.
         assert claim.first_execution is False
 
-    async def test_a_failure_never_overwrites_an_ambiguous_outcome(
-        self, dual_database
-    ) -> None:
+    async def test_a_failure_never_overwrites_an_ambiguous_outcome(self, dual_database) -> None:
         """Ambiguity outranks a later failure report.
 
         Found by racing a claim against a fail(): the claim moved the row to
@@ -928,9 +980,7 @@ class TestClaimVersusSettleRaces:
         retry = await _claim(store, attempt=2)
         assert retry.first_execution is True
 
-    async def test_a_confirmed_failure_still_cannot_undo_a_completion(
-        self, dual_database
-    ) -> None:
+    async def test_a_confirmed_failure_still_cannot_undo_a_completion(self, dual_database) -> None:
         """The new settle path must not become a way to erase a known success."""
         store = SideEffectOperationStore(dual_database)
         await _claim(store)
@@ -974,9 +1024,7 @@ class TestClaimVersusSettleRaces:
 class TestExhaustionPausesRatherThanFails:
     """An exhausted ambiguous operation must not be reported as a failure."""
 
-    async def test_pausing_persists_a_resumable_waiting_interrupt_run(
-        self, dual_database
-    ) -> None:
+    async def test_pausing_persists_a_resumable_waiting_interrupt_run(self, dual_database) -> None:
         """FAILED asserts the effect did not happen. Nobody knows that.
 
         AUD-002 flagged that exhaustion raised into the driver's generic catch,
@@ -1022,9 +1070,7 @@ class TestExhaustionPausesRatherThanFails:
         assert reloaded.status is RunStatus.WAITING_INTERRUPT, "the pause must be durable"
         assert _Driver.emitted == ["run.waiting_interrupt"]
 
-    async def test_the_dispatch_handler_routes_exhaustion_to_the_pause(
-        self, dual_database
-    ) -> None:
+    async def test_the_dispatch_handler_routes_exhaustion_to_the_pause(self, dual_database) -> None:
         """The terminal-vs-resumable decision, exercised rather than read.
 
         Both outcomes go through one handler, so this drives it twice: an
@@ -1066,9 +1112,7 @@ class TestExhaustionPausesRatherThanFails:
             refresh_artifact_ttls = staticmethod(lambda run: None)
 
         async def _settle(exc):
-            run = await repo.create(
-                Run(graph_version_ref="g:v1", deployment_ref="dep-settle")
-            )
+            run = await repo.create(Run(graph_version_ref="g:v1", deployment_ref="dep-settle"))
             driver = _Driver()
 
             async def _noop_ttls(run):
@@ -1096,9 +1140,7 @@ class TestExhaustionPausesRatherThanFails:
 class TestSideEffectFreeUnitsAreNotGuarded:
     """R9/AUD-011: a unit declaring no side effect keeps its prior behaviour."""
 
-    async def test_a_declared_side_effect_free_unit_is_re_executed(
-        self, dual_database
-    ) -> None:
+    async def test_a_declared_side_effect_free_unit_is_re_executed(self, dual_database) -> None:
         """No record, no suppression — the unguarded path, as before.
 
         Before this, enabling the store guarded *every* executable unit, so a
@@ -1114,9 +1156,7 @@ class TestSideEffectFreeUnitsAreNotGuarded:
         await _dispatch_once(dispatcher, _run_with_dispatch())
 
         assert runner.applications == 2, "a read-only unit must not be suppressed"
-        identity = dispatcher._operation_identity_for(
-            _run_with_dispatch(), "unit://charge-card"
-        )
+        identity = dispatcher._operation_identity_for(_run_with_dispatch(), "unit://charge-card")
         assert await store.get(identity.operation_key) is None, (
             "no operation record should be written for a side-effect-free unit"
         )
@@ -1251,9 +1291,7 @@ class TestReceiptPrivacy:
 class TestTerminalOperationAudit:
     """AUD-008: the audit must record the outcome, not the moment of claiming."""
 
-    async def test_a_completed_operation_is_not_recorded_as_in_flight(
-        self, dual_database
-    ) -> None:
+    async def test_a_completed_operation_is_not_recorded_as_in_flight(self, dual_database) -> None:
         """The audit was built from the claim and never updated.
 
         Every successful side effect was therefore filed as perpetually
@@ -1280,8 +1318,14 @@ class TestTerminalOperationAudit:
         """
 
         class _TimingOutRunner:
-            async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
-                          operation_identity=None):
+            async def run(
+                self,
+                manifest_ref,
+                input_payload,
+                *,
+                enforcement_context=None,
+                operation_identity=None,
+            ):
                 raise TimeoutError("no receipt within deadline")
 
         store = SideEffectOperationStore(dual_database)
@@ -1295,9 +1339,7 @@ class TestTerminalOperationAudit:
         assert carried["operation_state"] == "ambiguous"
         assert carried["operation_residual_duplicate_risk"] is True
 
-    async def test_a_reconciled_re_execution_settles_the_audit_state(
-        self, dual_database
-    ) -> None:
+    async def test_a_reconciled_re_execution_settles_the_audit_state(self, dual_database) -> None:
         """A successful retry must be audited COMPLETED, not frozen at ambiguous.
 
         The reconciliation branch stamped the audit with the state

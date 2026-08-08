@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document the canonical eight-domain backend layout and LangGraph extras, and
   restore current platform concepts to the docs navigation.
 
+## [0.18.10] - 2026-08-07
+
+### Fixed
+
+- Route agent-invoked executable tools through the durable side-effect operation
+  guard, so recovery replays return the stored receipt instead of applying the
+  effect again. Preserve the operation outcome on both raw and typed tool-call
+  audit records.
+
 ## [0.18.9.1] - 2026-08-07
 
 Formatter pass over the extracted thread-save helper (indentation only).
