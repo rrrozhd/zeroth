@@ -59,26 +59,54 @@ class CheckpointRowStore:
     ) -> None:
         """Insert or replace one checkpoint row, encrypting the state at rest."""
         async with self.database.transaction() as connection:
-            await connection.execute(
-                """
-                INSERT INTO run_checkpoints (
-                    checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(checkpoint_id) DO UPDATE SET
-                    run_id = excluded.run_id,
-                    thread_id = excluded.thread_id,
-                    checkpoint_order = excluded.checkpoint_order,
-                    state_json = excluded.state_json
-                """,
-                (
-                    checkpoint_id,
-                    run_id,
-                    thread_id,
-                    checkpoint_order,
-                    self.encrypt_state_json(state_json),
-                    created_at,
-                ),
+            await self.write_row_in_connection(
+                connection,
+                checkpoint_id=checkpoint_id,
+                run_id=run_id,
+                thread_id=thread_id,
+                checkpoint_order=checkpoint_order,
+                state_json=state_json,
+                created_at=created_at,
             )
+
+    async def write_row_in_connection(
+        self,
+        connection: object,
+        *,
+        checkpoint_id: str,
+        run_id: str,
+        thread_id: str,
+        checkpoint_order: int,
+        state_json: str,
+        created_at: str,
+    ) -> None:
+        """The write_row body on a caller-owned connection.
+
+        ZER-26/AUD-004: a fenced ``put_run`` performs the thread, checkpoint and
+        runs-row writes in one transaction so a fence rejection rolls back all
+        three — a displaced worker previously overwrote the checkpoint row
+        before the fenced save raised.
+        """
+        await connection.execute(  # type: ignore[attr-defined]
+            """
+            INSERT INTO run_checkpoints (
+                checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(checkpoint_id) DO UPDATE SET
+                run_id = excluded.run_id,
+                thread_id = excluded.thread_id,
+                checkpoint_order = excluded.checkpoint_order,
+                state_json = excluded.state_json
+            """,
+            (
+                checkpoint_id,
+                run_id,
+                thread_id,
+                checkpoint_order,
+                self.encrypt_state_json(state_json),
+                created_at,
+            ),
+        )
 
     async def get(self, checkpoint_id: str) -> Run | None:
         """Load a previously saved checkpoint by its ID."""
