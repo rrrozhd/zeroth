@@ -341,6 +341,80 @@ def test_duplicate_secret_validation_redacts_structured_diagnostics_and_keeps_va
     assert valid.authenticate_headers({"X-API-Key": sentinel}).subject == "usable-subject"
 
 
+def _assert_secret_absent_from_exception_chain(error: BaseException, sentinel: str) -> None:
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        diagnostics: list[object] = [str(current), repr(current)]
+        if isinstance(current, ValidationError):
+            diagnostics.extend((current.errors(), current.json()))
+        for diagnostic in diagnostics:
+            assert sentinel not in str(diagnostic)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+
+
+@pytest.mark.parametrize(
+    "api_keys",
+    [
+        lambda sentinel: [
+            {
+                "credential_id": "first",
+                "secret": sentinel,
+                "subject": "first",
+                "roles": [ServiceRole.OPERATOR],
+            },
+            {
+                "credential_id": "second",
+                "secret": sentinel,
+                "subject": "second",
+                "roles": [ServiceRole.OPERATOR],
+            },
+        ],
+        lambda sentinel: [
+            {
+                "credential_id": "malformed",
+                "secret": {"value": sentinel},
+                "subject": "subject",
+                "roles": [ServiceRole.OPERATOR],
+            }
+        ],
+        lambda sentinel: [
+            {
+                "credential_id": "extra",
+                "secret": "valid-secret",
+                "client_secret": sentinel,
+                "subject": "subject",
+                "roles": [ServiceRole.OPERATOR],
+            }
+        ],
+    ],
+)
+def test_config_validation_never_retains_sensitive_input_in_exception_chain(api_keys) -> None:
+    sentinel = "SENTINEL_RAW_CONFIG_SECRET"
+    parsed_api_keys = api_keys(sentinel)
+    loaders = (
+        lambda: ServiceAuthConfig(api_keys=parsed_api_keys),
+        lambda: ServiceAuthConfig.model_validate({"api_keys": parsed_api_keys}),
+        lambda: ServiceAuthConfig.from_env(
+            {"ZEROTH_SERVICE_API_KEYS_JSON": json.dumps(parsed_api_keys)}
+        ),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+        assert excinfo.value.__context__ is None
+        assert excinfo.value.__cause__ is None
+        _assert_secret_absent_from_exception_chain(excinfo.value, sentinel)
+
+
 @pytest.mark.parametrize("credential_id", ["", "   "])
 def test_service_auth_config_rejects_empty_or_whitespace_static_credential_ids(
     credential_id: str,

@@ -69,31 +69,16 @@ def _identifier_snapshot(identifiers: Iterable[str]) -> frozenset[str]:
     return frozenset(values)
 
 
-def _redact_config_input(value: Any) -> Any:
-    """Recursively redact secrets before a configuration error is surfaced."""
-    if isinstance(value, Mapping):
-        return {
-            key: (
-                "**********"
-                if isinstance(key, str) and key.lower() in {"secret", "token", "authorization"}
-                else _redact_config_input(item)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return type(value)(_redact_config_input(item) for item in value)
-    if isinstance(value, BaseModel):
-        return _redact_config_input(value.model_dump(mode="python"))
-    return value
-
-
 def _redacted_config_validation_error(error: ValidationError, *, title: str) -> ValidationError:
-    """Return equivalent Pydantic diagnostics whose ``input`` has no secrets."""
+    """Return equivalent Pydantic diagnostics with no retained raw config input."""
     details = []
     for detail in error.errors():
         safe_detail = dict(detail)
-        if "input" in safe_detail:
-            safe_detail["input"] = _redact_config_input(safe_detail["input"])
+        safe_detail["input"] = "[redacted]"
+        if safe_detail["type"] == "value_error":
+            safe_detail["ctx"] = {"error": ValueError("invalid configuration")}
+        else:
+            safe_detail.pop("ctx", None)
         details.append(safe_detail)
     return ValidationError.from_exception_data(title, details)
 
@@ -146,10 +131,13 @@ class StaticApiKeyCredential(BaseModel):
     workspace_id: str | None = None
 
     def __init__(self, /, **data: Any) -> None:
+        redacted_error: ValidationError | None = None
         try:
             super().__init__(**data)
         except ValidationError as exc:
-            raise _redacted_config_validation_error(exc, title="StaticApiKeyCredential") from None
+            redacted_error = _redacted_config_validation_error(exc, title="StaticApiKeyCredential")
+        if redacted_error is not None:
+            raise redacted_error
 
     @field_validator("credential_id")
     @classmethod
@@ -188,10 +176,13 @@ class ServiceAuthConfig(BaseModel):
     revoked_credential_ids: frozenset[str] = Field(default_factory=frozenset)
 
     def __init__(self, /, **data: Any) -> None:
+        redacted_error: ValidationError | None = None
         try:
             super().__init__(**data)
         except ValidationError as exc:
-            raise _redacted_config_validation_error(exc, title="ServiceAuthConfig") from None
+            redacted_error = _redacted_config_validation_error(exc, title="ServiceAuthConfig")
+        if redacted_error is not None:
+            raise redacted_error
 
     @field_validator("revoked_credential_ids", mode="before")
     @classmethod
