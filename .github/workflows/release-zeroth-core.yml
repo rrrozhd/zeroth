@@ -177,7 +177,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Tolerant on purpose. `if: always()` only keeps the JOB alive; a
+      # download that hard-fails because an upstream gate never uploaded would
+      # still skip the verdict, which is exactly the run that needs one. A
+      # record that never arrives is reported as `missing`, which blocks.
       - name: Collect every gate record
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: gate-*
@@ -185,6 +190,7 @@ jobs:
           merge-multiple: true
 
       - name: Download the full candidate identity
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: candidate-identity-full
@@ -245,7 +251,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install from TestPyPI (retry loop for indexing lag) and run example
+      # The identity must be on disk before anything is compared against it.
+      - name: Download the full candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity-full
+          path: release/evidence
+
+      - name: Install the published artifact and run the example
         shell: bash
         run: |
           set -euo pipefail
@@ -254,41 +267,36 @@ jobs:
           python -m venv /tmp/testpypi-venv
           source /tmp/testpypi-venv/bin/activate
           pip install --upgrade pip
-          # Retry loop — TestPyPI indexing can lag ~30-60s after publish (pitfall #4)
-          INSTALLED=0
+          mkdir -p release/evidence
+          # Fetch the primary distributions from TestPyPI as the SOLE index.
+          # `--extra-index-url` gives indexes no priority -- pip collects every
+          # candidate and picks the best -- so resolving the primary dist across
+          # both could install an existing same-version artifact from PyPI and
+          # exercise a different build than the one just published.
+          # Retry: TestPyPI indexing can lag ~30-60s after publish.
+          DOWNLOADED=0
           for i in 1 2 3 4 5; do
-            if pip install \
+            if pip download --no-deps --dest /tmp/rc-dist \
                 --index-url https://test.pypi.org/simple/ \
-                --extra-index-url https://pypi.org/simple/ \
                 "zeroth-core==${VERSION}" "zeroth-console==${VERSION}"; then
-              INSTALLED=1
+              DOWNLOADED=1
               break
             fi
-            echo "TestPyPI install attempt ${i} failed; sleeping 15s..."
+            echo "TestPyPI download attempt ${i} failed; sleeping 15s..."
             sleep 15
           done
-          if [ "${INSTALLED}" -ne 1 ]; then
-            echo "::error::TestPyPI install failed after 5 attempts"
+          if [ "${DOWNLOADED}" -ne 1 ]; then
+            echo "::error::TestPyPI download failed after 5 attempts"
             exit 1
           fi
-          mkdir -p release/evidence
-          # `--extra-index-url` gives no index priority: pip considers every
-          # candidate and picks the "best" one, so an existing same-version
-          # artifact on PyPI could be what actually got installed. Fetch the
-          # distribution from TestPyPI alone and hash it, so the evidence names
-          # the bytes that were accepted rather than just a version string.
-          pip download --no-deps --dest /tmp/rc-dist \
-            --index-url https://test.pypi.org/simple/ "zeroth-core==${VERSION}"
           {
-            echo "index: https://test.pypi.org/simple/ (sole index for the primary dist)"
+            echo "index: https://test.pypi.org/simple/ (sole index for the primary dists)"
             echo "requested-version: ${VERSION}"
-            echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
-            echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
             for dist in /tmp/rc-dist/*; do
               echo "accepted-artifact: $(basename "${dist}") sha256:$(shasum -a 256 "${dist}" | cut -d' ' -f1)"
             done
           } > release/evidence/remote-acceptance-log.txt
-          # The digests must be the ones this run built and identified.
+          # Refuse to go further unless those bytes are this candidate's.
           python - <<'PY' || { echo "::error::published artifact is not the candidate"; exit 1; }
           import json, pathlib, re
           identity = json.loads(
@@ -297,9 +305,17 @@ jobs:
           expected = set(identity["package"]["artifacts"].values())
           log = pathlib.Path("release/evidence/remote-acceptance-log.txt").read_text()
           accepted = set(re.findall(r"accepted-artifact: \S+ (sha256:[0-9a-f]{64})", log))
-          assert accepted and accepted <= expected, f"{accepted} not among {expected}"
-          print("published artifact matches the candidate:", sorted(accepted))
+          assert accepted, "no artifact was downloaded"
+          unknown = accepted - expected
+          assert not unknown, f"published artifact {unknown} is not among this candidate's {expected}"
+          print("published artifacts match the candidate:", sorted(accepted))
           PY
+          # Install exactly those verified files; PyPI serves dependencies only.
+          pip install /tmp/rc-dist/* --extra-index-url https://pypi.org/simple/
+          {
+            echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
+            echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
+          } >> release/evidence/remote-acceptance-log.txt
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             echo "OPENAI_API_KEY present — running examples/00_hello.py end-to-end"
             python examples/00_hello.py 2>&1 | tee -a release/evidence/remote-acceptance-log.txt
@@ -309,12 +325,6 @@ jobs:
             echo "example: skipped, no OPENAI_API_KEY" >> release/evidence/remote-acceptance-log.txt
             echo "EXAMPLE_STATUS=failed" >> "${GITHUB_ENV}"
           fi
-
-      - name: Download the full candidate identity
-        uses: actions/download-artifact@v4
-        with:
-          name: candidate-identity-full
-          path: release/evidence
 
       - name: Record the remote-acceptance gate
         shell: bash
@@ -360,7 +370,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Tolerant on purpose. `if: always()` only keeps the JOB alive; a
+      # download that hard-fails because an upstream gate never uploaded would
+      # still skip the verdict, which is exactly the run that needs one. A
+      # record that never arrives is reported as `missing`, which blocks.
       - name: Collect every gate record
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: gate-*
@@ -368,6 +383,7 @@ jobs:
           merge-multiple: true
 
       - name: Download the full candidate identity
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: candidate-identity-full

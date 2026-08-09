@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1.2] - 2026-08-08
+
+### Fixed
+
+- The remote-acceptance job read the candidate identity in an earlier step than the one
+  that downloads it, so every release would have failed at that line. The identity is
+  downloaded first, and the published distributions are now *installed* from the verified
+  TestPyPI files rather than merely hashed alongside a two-index install — so the gate
+  binds the bytes that were actually exercised, not just bytes that exist.
+- The evidence gates tolerate a producer that never uploaded. `if: always()` keeps the job
+  alive but a hard-failing download still skipped the verdict, which is precisely the run
+  that needs one; missing records are now reported as `missing`, which blocks.
+
 ## [0.19.1.1] - 2026-08-08
 
 ### Fixed
