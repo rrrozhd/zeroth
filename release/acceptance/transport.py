@@ -16,6 +16,8 @@ from websockets.exceptions import WebSocketException
 
 from .config import ResolvedAcceptanceConfig
 
+_CORRELATION_HEADER = "X-Correlation-ID"
+
 
 class TransportError(RuntimeError):
     """A target response violated the bounded acceptance transport contract."""
@@ -28,6 +30,7 @@ class HttpObservation:
     status_code: int
     body: Any
     correlation_id: str | None
+    sent_correlation_id: str | None = None
 
 
 def redact(value: Any, secrets: Mapping[str, SecretStr]) -> Any:
@@ -64,6 +67,7 @@ class AcceptanceTransport:
         self.config = config
         self._websocket_connect = websocket_connect
         self._max_response_bytes = max_response_bytes
+        self._correlation_sequence = 0
         self._client = httpx.AsyncClient(
             timeout=config.timeout_seconds,
             follow_redirects=False,
@@ -84,11 +88,25 @@ class AcceptanceTransport:
         scheme = {"http": "ws", "https": "wss"}[base.scheme] if websocket else base.scheme
         return urlunsplit((scheme, base.netloc, parsed.path, parsed.query, ""))
 
-    def _headers(self, role: str | None) -> list[tuple[str, str]]:
+    def _next_correlation_id(self) -> str:
+        """Mint an id this invocation owns, so propagation is checkable.
+
+        Asserting that *some* correlation header came back proves only that the
+        deployment sets one. Sending an id we chose and requiring the same id in the
+        response is what shows the request was correlated rather than relabelled.
+        """
+        self._correlation_sequence += 1
+        return f"{self.config.namespace}-corr-{self._correlation_sequence}"
+
+    def _headers(
+        self, role: str | None, correlation_id: str | None = None
+    ) -> list[tuple[str, str]]:
         headers = [
             ("X-Acceptance-Tenant", self.config.tenant_id),
             ("X-Acceptance-Namespace", self.config.namespace),
         ]
+        if correlation_id is not None:
+            headers.append((_CORRELATION_HEADER, correlation_id))
         if role is None:
             return headers
         try:
@@ -106,10 +124,11 @@ class AcceptanceTransport:
         json_body: Any | None = None,
     ) -> HttpObservation:
         """Issue one bounded request and return a sanitized observation."""
+        correlation_id = self._next_correlation_id()
         request = self._client.build_request(
             method,
             self._url(path),
-            headers=self._headers(role),
+            headers=self._headers(role, correlation_id),
             json=json_body,
         )
         try:
@@ -142,7 +161,8 @@ class AcceptanceTransport:
         return HttpObservation(
             status_code=response.status_code,
             body=redact(body, self.config.credentials),
-            correlation_id=response.headers.get("X-Correlation-ID"),
+            correlation_id=response.headers.get(_CORRELATION_HEADER),
+            sent_correlation_id=correlation_id,
         )
 
     async def websocket_events(
@@ -161,7 +181,7 @@ class AcceptanceTransport:
             async with asyncio.timeout(self.config.timeout_seconds):
                 async with self._websocket_connect(
                     self._url(path, websocket=True),
-                    additional_headers=self._headers(role),
+                    additional_headers=self._headers(role, self._next_correlation_id()),
                     max_size=self._max_response_bytes,
                 ) as socket:
                     await socket.send(json.dumps(payload, separators=(",", ":")))

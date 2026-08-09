@@ -184,8 +184,15 @@ class AcceptanceRunner:
             _subset(self._format(step.expected_json), response.body)
         if step.count_path is not None:
             self._assert_count(step, response.body, path)
-        if step.require_correlation and not response.correlation_id:
-            raise AssertionError(f"{path} omitted X-Correlation-ID")
+        if step.require_correlation:
+            sent = getattr(response, "sent_correlation_id", None)
+            if not response.correlation_id:
+                raise AssertionError(f"{path} omitted X-Correlation-ID")
+            if sent is not None and response.correlation_id != sent:
+                raise AssertionError(
+                    f"{path} answered correlation {response.correlation_id!r} for a request "
+                    f"sent as {sent!r}; the id was not propagated"
+                )
         self._apply_captures(step, response.body, path)
         return StepObservation(
             protocol="http",

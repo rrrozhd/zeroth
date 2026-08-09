@@ -114,7 +114,9 @@ def _fixture_app() -> FastAPI:
         route = f"/{path}"
         role = request.headers.get("X-API-Key")
         namespace = request.headers.get("X-Acceptance-Namespace", "")
-        correlation = {"X-Correlation-ID": f"corr-{path.replace('/', '-')}"}
+        # Echo the caller's id, as a correlated deployment does; inventing one here
+        # would relabel the request rather than correlate it.
+        correlation = {"X-Correlation-ID": request.headers.get("X-Correlation-ID", "")}
 
         if route == "/health/ready":
             if getattr(app.state, "draining", False):

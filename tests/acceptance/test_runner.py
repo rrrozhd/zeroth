@@ -467,3 +467,25 @@ async def test_stream_ordering_holds_numbered_streams_to_their_numbers(
     else:
         assert result.status is ScenarioStatus.FAILED
         assert expected in result.detail
+
+
+@pytest.mark.asyncio
+async def test_correlation_must_be_propagated_not_merely_present(tmp_path: Path) -> None:
+    """A relabelling target is not a correlated one."""
+    config = _config(tmp_path)
+
+    class Relabelling:
+        async def request(self, role, method, path, *, json_body=None):
+            return HttpObservation(200, {}, "an-id-of-its-own", sent_correlation_id="ours-1")
+
+        async def websocket_events(self, *args, **kwargs):
+            return []
+
+    runner = AcceptanceRunner(config, AcceptanceContract.model_validate(_contract()), Relabelling())
+    step = AcceptanceStep.model_validate(
+        _step("/gateway/allow", method="POST", require_correlation=True)
+    )
+    result = await runner._scenario("gateway_http", [step])
+
+    assert result.status is ScenarioStatus.FAILED
+    assert "not propagated" in result.detail
