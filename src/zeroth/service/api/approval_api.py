@@ -137,8 +137,11 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
 
         if was_pending and _run_is_waiting_for_approval(run):
             # When the durable worker is active, hand off to it via schedule_continuation,
-            # then wait for it to complete (up to 5 s) so callers get a terminal status.
-            # Otherwise fall back to the synchronous inline path.
+            # then wait up to ~5 s for it to finish. That wait is BEST EFFORT: if the
+            # budget expires the run is returned as-is, so the response may still carry
+            # PENDING/RUNNING. Callers that need a terminal state must poll the run --
+            # assuming otherwise is what made the approval API tests flaky under load
+            # (ZER-21). Without a worker, fall back to the synchronous inline path.
             has_worker = getattr(bootstrap, "worker", None) is not None
             try:
                 if has_worker:
