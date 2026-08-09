@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import fnmatch
+import asyncio
 import base64
+import fnmatch
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any
 import pytest
 
 from zeroth.platform.artifacts.errors import ArtifactNotFoundError, ArtifactStorageError
+from zeroth.platform.artifacts.models import generate_artifact_key
 from zeroth.platform.artifacts.store import FilesystemArtifactStore, RedisArtifactStore
 from zeroth.platform.artifacts.tenant_scoped import (
     TenantScopedArtifactStore,
@@ -89,6 +91,23 @@ class _MemoryRedis:
         for key in tuple(self.values):
             if fnmatch.fnmatchcase(key, match):
                 yield key.encode()
+
+
+class _ContendedMemoryRedis(_MemoryRedis):
+    """Hold two NX receipt writes so competing operations observe no receipt."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._receipt_writers = 0
+        self._release_receipts = asyncio.Event()
+
+    async def set(self, key: str, value: object, *, nx: bool = False) -> bool:
+        if nx and ":erasure-receipt:" in key:
+            self._receipt_writers += 1
+            if self._receipt_writers == 2:
+                self._release_receipts.set()
+            await self._release_receipts.wait()
+        return await super().set(key, value, nx=nx)
 
 
 def _filesystem_store(path: Path) -> FilesystemArtifactStore:
@@ -298,6 +317,17 @@ async def test_slash_bearing_run_cleanup_uses_explicit_framing(
 
 
 @pytest.mark.asyncio()
+async def test_production_generated_slash_run_key_cleans_up(tmp_path: Path) -> None:
+    wrapper = TenantScopedArtifactStore(_filesystem_store(tmp_path), tenant_id="tenant")
+    key = generate_artifact_key("slash/run", "node")
+    reference = await wrapper.store(key, b"payload", "text/plain")
+
+    assert await wrapper.cleanup_run("slash/run", idempotency_key="cleanup") == 1
+    assert not await wrapper.exists(key)
+    assert reference.key == key
+
+
+@pytest.mark.asyncio()
 async def test_redis_cleanup_counts_data_key_ending_meta() -> None:
     values: dict[str, bytes] = {}
     backend, _ = _redis_store(values)
@@ -332,3 +362,32 @@ async def test_redis_cleanup_receipt_replay_and_target_misuse() -> None:
     assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
     with pytest.raises(ArtifactStorageError, match="reused for another operation"):
         await backend.cleanup_run("other", idempotency_key="cleanup")
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("competitor", ["different-target", "different-operation"])
+async def test_redis_competing_receipt_has_one_binding_winner(competitor: str) -> None:
+    client = _ContendedMemoryRedis()
+    backend = RedisArtifactStore("", prefix="shared", client=client)
+    await backend.store("run/a", b"a", "text/plain")
+    await backend.store("run/b", b"b", "text/plain")
+    first = backend.delete("run/a", idempotency_key="contended")
+    second = (
+        backend.delete("run/b", idempotency_key="contended")
+        if competitor == "different-target"
+        else backend.cleanup_run("run", idempotency_key="contended")
+    )
+
+    results = await asyncio.gather(first, second, return_exceptions=True)
+
+    winners = [index for index, result in enumerate(results) if not isinstance(result, Exception)]
+    losers = [result for result in results if isinstance(result, Exception)]
+    assert len(winners) == len(losers) == 1
+    assert isinstance(losers[0], ArtifactStorageError)
+    assert str(losers[0]) == "idempotency key reused for another operation"
+    if winners[0] == 0:
+        assert await backend.delete("run/a", idempotency_key="contended") is True
+    elif competitor == "different-target":
+        assert await backend.delete("run/b", idempotency_key="contended") is True
+    else:
+        assert await backend.cleanup_run("run", idempotency_key="contended") == results[1]

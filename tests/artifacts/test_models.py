@@ -140,6 +140,18 @@ class TestGenerateArtifactKey:
         keys = {generate_artifact_key("run-1", "node-1") for _ in range(100)}
         assert len(keys) == 100
 
+    def test_slash_bearing_run_uses_unambiguous_frame(self) -> None:
+        key = generate_artifact_key("slash/run", "node")
+
+        assert key.startswith("zeroth-run-v1/")
+        assert "slash/run" not in key
+
+    def test_reserved_marker_run_uses_unambiguous_frame(self) -> None:
+        key = generate_artifact_key("zeroth-run-v1", "node")
+
+        assert key.startswith("zeroth-run-v1/")
+        assert len(key.split("/")) == 4
+
 
 class TestArtifactStoreSettings:
     """Tests for ArtifactStoreSettings configuration model."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from uuid import uuid4
 
@@ -44,6 +45,11 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         await tenant_a.store(key, b"A", "application/octet-stream")
         await tenant_a.store(owner_only_key, b"owner-only", "application/octet-stream")
         await tenant_b.store(key, b"B", "application/octet-stream")
+        await tenant_a.store("receipt-run/a", b"a", "application/octet-stream")
+        await tenant_a.store("receipt-run/b", b"b", "application/octet-stream")
+        assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
+        await tenant_a.store("cleanup-restart/a", b"cleanup", "application/octet-stream")
+        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 2
         assert await tenant_a.retrieve(key) == b"A"
         assert await tenant_b.retrieve(key) == b"B"
     finally:
@@ -69,9 +75,7 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         assert await tenant_b.delete(owner_only_key, idempotency_key="foreign-delete") is False
         assert await tenant_a.retrieve(owner_only_key) == b"owner-only"
 
-        await tenant_a.store("receipt-run/a", b"a", "application/octet-stream")
-        await tenant_a.store("receipt-run/b", b"b", "application/octet-stream")
-        assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
+        # Receipt bindings survive client and wrapper reconstruction.
         assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
         with pytest.raises(ArtifactStorageError, match="reused for another operation") as misuse:
             await tenant_a.delete("receipt-run/b", idempotency_key="bound-receipt")
@@ -79,6 +83,40 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("receipt-run", idempotency_key="bound-receipt")
         assert await tenant_a.retrieve("receipt-run/b") == b"b"
+        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 2
+        with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+            await tenant_a.cleanup_run("other-cleanup", idempotency_key="cleanup-receipt")
+
+        # Two independent real clients compete for one receipt binding.
+        tenant_a_peer = TenantScopedArtifactStore(
+            RedisArtifactStore("", prefix=prefix, client=reconnected_b),
+            tenant_id="tenant-a",
+            workspace_id=None,
+        )
+        await tenant_a.store("concurrent/a", b"a", "application/octet-stream")
+        await tenant_a.store("concurrent/b", b"b", "application/octet-stream")
+        competing = await asyncio.gather(
+            tenant_a.delete("concurrent/a", idempotency_key="concurrent-receipt"),
+            tenant_a_peer.cleanup_run("concurrent", idempotency_key="concurrent-receipt"),
+            return_exceptions=True,
+        )
+        winners = [
+            index for index, result in enumerate(competing) if not isinstance(result, Exception)
+        ]
+        losers = [result for result in competing if isinstance(result, Exception)]
+        assert len(winners) == len(losers) == 1
+        assert isinstance(losers[0], ArtifactStorageError)
+        assert str(losers[0]) == "idempotency key reused for another operation"
+        if winners[0] == 0:
+            assert (
+                await tenant_a.delete("concurrent/a", idempotency_key="concurrent-receipt") is True
+            )
+            assert await tenant_a.retrieve("concurrent/b") == b"b"
+        else:
+            assert (
+                await tenant_a_peer.cleanup_run("concurrent", idempotency_key="concurrent-receipt")
+                == competing[1]
+            )
 
         assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2
         assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2

@@ -157,7 +157,7 @@ class RedisArtifactStore:
         key and metadata key are written in a single pipeline transaction.
 
         Args:
-            key: Artifact key in {run_id}/{node_id}/{uuid} format.
+            key: Logical artifact key in a cleanup-compatible grammar.
             data: Binary artifact payload.
             content_type: MIME type of the artifact.
             ttl: Time-to-live in seconds. None means no expiration.
@@ -502,7 +502,7 @@ class FilesystemArtifactStore:
         traversal and payload against size limits.
 
         Args:
-            key: Artifact key in {run_id}/{node_id}/{uuid} format.
+            key: Logical artifact key in a cleanup-compatible grammar.
             data: Binary artifact payload.
             content_type: MIME type of the artifact.
             ttl: Time-to-live in seconds. None means no expiration.

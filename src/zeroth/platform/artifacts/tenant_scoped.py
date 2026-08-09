@@ -12,11 +12,16 @@ from zeroth.platform.artifacts.errors import (
     ArtifactStorageError,
     ArtifactTTLError,
 )
-from zeroth.platform.artifacts.models import ArtifactReference
+from zeroth.platform.artifacts.models import (
+    ArtifactReference,
+    parse_framed_artifact_key,
+)
+from zeroth.platform.artifacts.models import (
+    frame_artifact_key as _frame_artifact_key,
+)
 from zeroth.platform.artifacts.store import ArtifactStore
 
 _SCOPE_DOMAIN = b"zeroth-artifact-scope-v1\0"
-_FRAMED_KEY_MARKER = "zeroth-run-v1"
 
 
 def _without_nul(value: str, *, name: str) -> str:
@@ -33,29 +38,12 @@ def _encode_segment(segment: str) -> str:
     return f"{len(raw)}-{encoded}"
 
 
-def _validate_encoded_segment(value: str) -> str:
-    """Validate and return one canonical length-prefixed base64url segment."""
-    length_text, separator, encoded = value.partition("-")
-    if not separator or not length_text.isascii() or not length_text.isdecimal():
-        raise ArtifactStorageError("Malformed framed artifact key")
-    try:
-        padding = "=" * (-len(encoded) % 4)
-        raw = base64.b64decode(encoded + padding, altchars=b"-_", validate=True)
-        decoded = raw.decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        raise ArtifactStorageError("Malformed framed artifact key") from None
-    if len(raw) != int(length_text) or _encode_segment(decoded) != value:
-        raise ArtifactStorageError("Malformed framed artifact key")
-    return value
-
-
 def frame_artifact_key(run_id: str, remainder: str) -> str:
     """Frame a slash-bearing run ID without making its key boundary ambiguous."""
-    run_id = _without_nul(run_id, name="run_id")
-    remainder = _without_nul(remainder, name="artifact key remainder")
-    if not run_id or not remainder:
-        raise ArtifactStorageError("Framed artifact key parts must not be empty")
-    return f"{_FRAMED_KEY_MARKER}/{_encode_segment(run_id)}/{remainder}"
+    try:
+        return _frame_artifact_key(run_id, remainder)
+    except ValueError as exc:
+        raise ArtifactStorageError(str(exc)) from None
 
 
 class TenantScopedArtifactStore:
@@ -89,12 +77,15 @@ class TenantScopedArtifactStore:
     def _object_key(self, logical_key: str) -> str:
         logical_key = _without_nul(logical_key, name="artifact key")
         segments = logical_key.split("/")
-        if segments[0] == _FRAMED_KEY_MARKER:
-            if len(segments) < 3:
-                raise ArtifactStorageError("Malformed framed artifact key")
-            owner = _validate_encoded_segment(segments[1])
+        try:
+            framed = parse_framed_artifact_key(logical_key)
+        except ValueError:
+            raise ArtifactStorageError("Malformed framed artifact key") from None
+        if framed is not None:
+            run_id, remainder_text = framed
+            owner = _encode_segment(run_id)
             framing = _encode_segment("framed")
-            remainder = segments[2:]
+            remainder = remainder_text.split("/")
         else:
             owner = _encode_segment(segments[0])
             framing = _encode_segment("legacy")

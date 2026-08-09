@@ -24,6 +24,7 @@ from zeroth.governance.retention import (
     RetentionErasureService,
     RetentionPolicyRepository,
 )
+from zeroth.platform.artifacts.models import artifact_key_owner
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
@@ -77,7 +78,7 @@ class FakeArtifactStore:
         if idempotency_key in self._receipts:
             return int(self._receipts[idempotency_key])
         self.cleanup_calls.append(run_id)
-        removed = [k for k in self.blobs if k.startswith(f"{run_id}/")]
+        removed = [k for k in self.blobs if artifact_key_owner(k) == run_id]
         for key in removed:
             del self.blobs[key]
         self._receipts[idempotency_key] = len(removed)

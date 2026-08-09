@@ -189,6 +189,26 @@ def test_an_artifact_reference_keeps_only_its_key_never_the_fields_around_it() -
     assert captured.execution_metadata[CAPTURE_METADATA_KEY][ARTIFACT_KEYS_FIELD] == [ARTIFACT_KEY]
 
 
+def test_generated_artifact_for_slash_bearing_run_is_retained() -> None:
+    from zeroth.platform.artifacts.models import generate_artifact_key
+
+    run_id = "slash/run"
+    key = generate_artifact_key(run_id, NODE_ID)
+    captured = _captured(
+        run_id=run_id,
+        output_snapshot={
+            "artifact": {
+                "store": "filesystem",
+                "key": key,
+                "content_type": "application/octet-stream",
+                "size": 3,
+            }
+        },
+    )
+
+    assert captured.execution_metadata[CAPTURE_METADATA_KEY][ARTIFACT_KEYS_FIELD] == [key]
+
+
 def test_an_artifact_key_a_producer_merely_prefixed_is_not_retained() -> None:
     # The prefix check a producer satisfies by prefixing its own string: the key
     # has to match the whole minted grammar, run id and node id and uuid4 hex.

@@ -17,9 +17,10 @@ verbatim. A ``{run_id}/`` prefix check was the only gate on the key itself, whic
 a producer satisfies by prefixing its own string. What survives now is a list of
 key *strings*, each parsed against the complete grammar
 :func:`~zeroth.platform.artifacts.models.generate_artifact_key` mints --
-``{run_id}/{node_id}/{uuid4hex}`` -- with ``run_id`` compared against the
-record's own identity rather than against the payload. Every optional field is
-discarded, because erasure addresses a blob by key and needs nothing else.
+the legacy ``{run_id}/{node_id}/{uuid4hex}`` or explicit framed v1 grammar --
+with the parsed ``run_id`` compared against the record's own identity rather
+than against the payload. Every optional field is discarded, because erasure
+addresses a blob by key and needs nothing else.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from typing import Any
 
 from zeroth.governance.audit.capture_projection import MAX_DEPTH
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.platform.artifacts.models import parse_generated_artifact_key
 
 # Where the capture boundary files the keys it kept, inside its own marker.
 ARTIFACT_KEYS_FIELD = "artifact_keys"
@@ -66,15 +68,15 @@ def _is_owned_artifact_key(key: Any, *, run_id: str) -> bool:
 
     Returns:
         ``True`` only for an exact ``str`` of the complete
-        ``{run_id}/{node_id}/{uuid4hex}`` grammar. A prefix match is not enough:
+        generated legacy or framed-v1 grammar. A prefix match is not enough:
         ``run-1/anything-a-producer-wanted-to-file`` shares the prefix.
     """
     if type(key) is not str:
         return False
-    parts = key.split("/")
-    if len(parts) != 3:
+    parsed = parse_generated_artifact_key(key)
+    if parsed is None:
         return False
-    owner, node_id, suffix = parts
+    owner, node_id, suffix = parsed
     return (
         owner == run_id
         and _SAFE_NODE_ID.match(node_id) is not None
