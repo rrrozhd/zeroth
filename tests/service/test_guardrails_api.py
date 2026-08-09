@@ -112,12 +112,12 @@ async def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
     assert "quota" in r2.json()["detail"].lower()
 
 
-def _guardrail_run(tenant_id: str) -> Run:
+def _guardrail_run(tenant_id: str, deployment_ref: str = "same-logical-deployment") -> Run:
     return Run(
         run_id=f"run-{tenant_id}",
         thread_id=f"thread-{tenant_id}",
         graph_version_ref="graph:v1",
-        deployment_ref="same-logical-deployment",
+        deployment_ref=deployment_ref,
         tenant_id=tenant_id,
         submitted_by=ActorIdentity(subject="same-subject", auth_method=AuthMethod.API_KEY),
     )
@@ -168,3 +168,52 @@ async def test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant(
     await _check_guardrails(bootstrap, tenant_b)
 
     assert exhausted.value.status_code == 503
+
+
+async def test_run_api_token_bucket_identity_resists_delimiter_collision(sqlite_db) -> None:
+    bootstrap = SimpleNamespace(
+        guardrail_config=SimpleNamespace(
+            backpressure_queue_depth=100,
+            rate_limit_capacity=1.0,
+            rate_limit_refill_rate=0.0,
+            quota_daily_limit=None,
+        ),
+        run_repository=RunRepository(sqlite_db),
+        rate_limiter=TokenBucketRateLimiter(sqlite_db),
+    )
+    first = _guardrail_run("alpha:deployment:shared", "tail")
+    collision = _guardrail_run("alpha", "shared:deployment:tail")
+
+    await _check_guardrails(bootstrap, first)
+    await _check_guardrails(bootstrap, collision)
+    with pytest.raises(HTTPException) as first_exhausted:
+        await _check_guardrails(bootstrap, first)
+    with pytest.raises(HTTPException) as collision_exhausted:
+        await _check_guardrails(bootstrap, collision)
+
+    assert first_exhausted.value.status_code == collision_exhausted.value.status_code == 429
+
+
+async def test_run_api_quota_identity_resists_delimiter_collision(sqlite_db) -> None:
+    bootstrap = SimpleNamespace(
+        guardrail_config=SimpleNamespace(
+            backpressure_queue_depth=100,
+            rate_limit_capacity=100.0,
+            rate_limit_refill_rate=0.0,
+            quota_daily_limit=1,
+        ),
+        run_repository=RunRepository(sqlite_db),
+        rate_limiter=None,
+        quota_enforcer=QuotaEnforcer(sqlite_db),
+    )
+    first = _guardrail_run("alpha:deployment:shared", "tail")
+    collision = _guardrail_run("alpha", "shared:deployment:tail")
+
+    await _check_guardrails(bootstrap, first)
+    await _check_guardrails(bootstrap, collision)
+    with pytest.raises(HTTPException) as first_exhausted:
+        await _check_guardrails(bootstrap, first)
+    with pytest.raises(HTTPException) as collision_exhausted:
+        await _check_guardrails(bootstrap, collision)
+
+    assert first_exhausted.value.status_code == collision_exhausted.value.status_code == 503

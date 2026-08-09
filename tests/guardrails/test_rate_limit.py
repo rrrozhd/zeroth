@@ -7,9 +7,25 @@ import time
 from datetime import UTC, datetime
 
 import zeroth.governance.guardrails.rate_limit as rate_limit
-from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.governance.guardrails.rate_limit import (
+    QuotaEnforcer,
+    TokenBucketRateLimiter,
+    guardrail_identity_key,
+)
 
 BUCKET = "tenant:default:deployment:test"
+
+
+def test_guardrail_identity_is_canonical_opaque_and_null_unicode_safe() -> None:
+    base = dict(tenant_id="租户", deployment_ref="部署:一", subject="用户")
+    absent = guardrail_identity_key("token-bucket", workspace_id=None, **base)
+    literal = guardrail_identity_key("token-bucket", workspace_id="None", **base)
+    repeated = guardrail_identity_key("token-bucket", workspace_id=None, **base)
+    other_domain = guardrail_identity_key("daily-quota", workspace_id=None, **base)
+
+    assert absent == repeated
+    assert len({absent, literal, other_domain}) == 3
+    assert all(value not in absent for value in base.values())
 
 
 async def test_rate_limit_consumes_platform_clock(sqlite_db, monkeypatch) -> None:

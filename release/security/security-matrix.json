@@ -153,6 +153,9 @@
       "test_nodes": [
         "tests/service/test_guardrails_api.py::test_run_api_token_bucket_key_isolates_same_subject_and_deployment_by_tenant",
         "tests/service/test_guardrails_api.py::test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant",
+        "tests/service/test_guardrails_api.py::test_run_api_token_bucket_identity_resists_delimiter_collision",
+        "tests/service/test_guardrails_api.py::test_run_api_quota_identity_resists_delimiter_collision",
+        "tests/guardrails/test_rate_limit.py::test_guardrail_identity_is_canonical_opaque_and_null_unicode_safe",
         "tests/guardrails/test_rate_limit.py::test_token_bucket_concurrent_consume_never_exceeds_capacity",
         "tests/guardrails/test_rate_limit.py::test_quota_concurrent_increment_never_exceeds_limit"
       ]
