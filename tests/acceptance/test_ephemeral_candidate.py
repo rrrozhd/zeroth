@@ -115,7 +115,23 @@ async def test_an_approval_gated_node_runs_zero_times_then_exactly_once(
         assert resolved.status_code == 200
 
         completed = await _wait_for_status(client, run_id, "succeeded")
-        assert completed["terminal_output"] == {"value": 9}
+        # The gated node emits a real artifact, so the terminal output carries its
+        # reference rather than the bare value.
+        assert completed["terminal_output"]["value"] == 9
+        reference = completed["terminal_output"]["artifact"]
+        assert reference and reference["key"].startswith(candidate.tenant_id)
+
+        # And the bytes come back through the product's own retrieval route.
+        fetched = await client.get(
+            f"/v1/artifacts/{reference['key']}", headers=_headers("operator")
+        )
+        assert fetched.status_code == 200
+        assert fetched.content == b"acceptance artifact"
+
+        missing = await client.get(
+            "/v1/artifacts/some-other-tenant-artifact", headers=_headers("operator")
+        )
+        assert missing.status_code == 404
         assert await _finish_node_executions(client, run_id) == 1
         assert candidate.finish_runner.call_count == 1
 

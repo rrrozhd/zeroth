@@ -22,12 +22,14 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import uvicorn
+from pydantic import BaseModel
 
 from tests.service.helpers import (
     TEST_API_KEYS,
-    CountingFinishRunner,
     approval_resume_graph,
     deploy_service,
     scoped_auth_config,
@@ -40,10 +42,62 @@ from zeroth.service.bootstrap.migrations import run_migrations
 
 APPROVAL_NODE = "approval-step"
 FINISH_NODE = "finish-step"
+ARTIFACT_CONTRACT = "contract://acceptance-artifact-output"
 DEPLOYMENT_REF = "acceptance-candidate"
 TENANT_ID = "acceptance-ephemeral-leg"
 _START_DEADLINE_SECONDS = 20.0
 _STOP_DEADLINE_SECONDS = 20.0
+
+
+class ArtifactCarryingPayload(BaseModel):
+    """Output contract wide enough to carry an artifact reference.
+
+    The shared `RunInputPayload` declares no `model_config`, so pydantic's default
+    `extra="ignore"` applies and an artifact emitted alongside `value` is dropped
+    during contract validation — before the driver could externalise it. A scenario
+    written against the narrow contract would assert on an artifact the run never
+    kept, so the candidate registers a wider one rather than widening the shared
+    helper the service suite depends on.
+    """
+
+    value: int
+    artifact: dict[str, Any] | None = None
+
+
+@dataclass
+class ArtifactEmittingRunner:
+    """Emit a real artifact from the approval-gated node, and count executions."""
+
+    artifact_store: Any = None
+    namespace: str = ""
+    call_count: int = 0
+
+    async def run(
+        self,
+        input_payload: Any,
+        *,
+        thread_id: str | None = None,
+        runtime_context: dict[str, Any] | None = None,
+    ) -> SimpleNamespace:
+        self.call_count += 1
+        artifact: dict[str, Any] | None = None
+        if self.artifact_store is not None:
+            payload = b"acceptance artifact"
+            key = f"{self.namespace}-artifact"
+            stored = await self.artifact_store.store(
+                key, payload, content_type="application/octet-stream"
+            )
+            reference = stored if isinstance(stored, dict) else None
+            artifact = reference or {
+                "store": "filesystem",
+                "key": key,
+                "content_type": "application/octet-stream",
+                "size": len(payload),
+            }
+        return SimpleNamespace(
+            output_data={"value": int(input_payload["value"]) + 1, "artifact": artifact},
+            audit_record={"thread_id": thread_id, "runtime_context": dict(runtime_context or {})},
+        )
 
 
 class CandidateError(RuntimeError):
@@ -75,7 +129,7 @@ class EphemeralCandidate:
         # A fresh counter per boot. The durable evidence is the audit record the
         # deployment itself publishes, not this process-local number; the counter
         # exists so an in-process test can cross-check what the API reports.
-        self.finish_runner = CountingFinishRunner()
+        self.finish_runner = ArtifactEmittingRunner()
         self._previous_redis_mode: str | None = None
 
     @property
@@ -105,14 +159,30 @@ class EphemeralCandidate:
         try:
             await deploy_service(
                 database,
-                approval_resume_graph(graph_id="acceptance-approval-graph"),
+                self._graph(),
                 deployment_ref=self.deployment_ref,
+                extra_contract_models={ARTIFACT_CONTRACT: ArtifactCarryingPayload},
                 auth_config=self._auth_config(),
                 tenant_id=self.tenant_id,
             )
         finally:
             await database.close()
         self._bind()
+
+    def _graph(self):
+        """The shared approval graph, with the gated node able to emit an artifact.
+
+        `approval_resume_graph` is used by the service suite, so it is copied rather
+        than widened: only this candidate's finish node points at the wider contract.
+        """
+        graph = approval_resume_graph(graph_id="acceptance-approval-graph")
+        nodes = [
+            node.model_copy(update={"output_contract_ref": ARTIFACT_CONTRACT})
+            if node.node_id == FINISH_NODE
+            else node
+            for node in graph.nodes
+        ]
+        return graph.model_copy(update={"nodes": nodes})
 
     def _bind(self) -> None:
         """Bind the candidate's origin, keeping the same port across restarts.
@@ -147,12 +217,18 @@ class EphemeralCandidate:
 
     async def _build_app(self):
         database = AsyncSQLiteDatabase(path=str(self._db_path))
-        return await bootstrap_app(
+        app = await bootstrap_app(
             database,
             deployment_ref=self.deployment_ref,
             agent_runners={FINISH_NODE: self.finish_runner},
             auth_config=self._auth_config(),
         )
+        # The store only exists once the service is built, so hand the runner the live
+        # one. An artifact written anywhere else would not be retrievable through the
+        # API the scenario reads it back from.
+        self.finish_runner.artifact_store = getattr(app.state.bootstrap, "artifact_store", None)
+        self.finish_runner.namespace = self.tenant_id
+        return app
 
     async def serve(self) -> None:
         """Start the application and return only once it is accepting requests."""
@@ -203,7 +279,7 @@ class EphemeralCandidate:
         await self.stop()
         # A restart that reuses the live counter would let post-restart evidence be
         # satisfied by pre-restart in-process state.
-        self.finish_runner = CountingFinishRunner()
+        self.finish_runner = ArtifactEmittingRunner()
         await self.serve()
 
     async def shutdown(self) -> None:
