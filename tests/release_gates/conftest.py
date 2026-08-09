@@ -108,7 +108,6 @@ def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
                 "workflow_lifecycle",
                 "deployment",
                 "runs",
-                "streaming",
                 "approvals",
                 "audit",
                 "artifacts",

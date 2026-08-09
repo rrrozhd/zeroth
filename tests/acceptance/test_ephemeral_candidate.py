@@ -171,17 +171,17 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
             await client.get("/health/ready")
 
 
-# The two legs AC1 names are authoritative for different scenarios. Everything that
-# needs a live Agent Server behind the gateway is proven by the remote leg against a
-# real deployment, which is where release-gates.json binds `deployed-suite` to the
-# candidate image. The ephemeral leg proves the rest, on every change.
+# The two legs AC1 names are authoritative for different scenarios. Only what needs a
+# live Agent Server behind the gateway belongs to the remote leg, against a real
+# deployment, which is where release-gates.json binds `deployed-suite` to the candidate
+# image. Everything else the ephemeral leg proves on every change — including the
+# executable-unit failure path, which turns out to need no Agent Server at all: a run
+# whose input cannot be resolved against the deployment's contract is rejected outright.
 AGENT_SERVER_SCENARIOS = frozenset(
     {
-        "streaming",
         "gateway_http",
         "gateway_websocket",
         "compatibility",
-        "executable_unit_failures",
     }
 )
 

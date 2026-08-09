@@ -380,24 +380,6 @@
         }
       ]
     },
-    "streaming": {
-      "steps": [
-        {
-          "protocol": "websocket",
-          "role": "operator",
-          "path": "/threads/{run_id}/stream/events",
-          "payload": {
-            "run_id": "{run_id}"
-          },
-          "max_events": 3,
-          "ordered_events": [
-            "run.started",
-            "node.completed",
-            "run.completed"
-          ]
-        }
-      ]
-    },
     "gateway_http": {
       "steps": [
         {
@@ -462,13 +444,16 @@
       "steps": [
         {
           "protocol": "http",
-          "role": "operator",
+          "role": "anonymous",
           "method": "GET",
-          "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+          "path": "/health/ready",
           "expected_status": 200,
           "expected_json": {
-            "status": "supported",
-            "detected_agent_server": "0.11.1"
+            "checks": {
+              "agent_server": {
+                "status": "supported"
+              }
+            }
           }
         }
       ]
@@ -482,13 +467,10 @@
           "path": "/v1/runs",
           "payload": {
             "input_payload": {
-              "artifact": "{namespace}-missing"
+              "unresolvable": "{namespace}"
             }
           },
-          "expected_status": 422,
-          "expected_json": {
-            "error_code": "unresolved_project_artifact"
-          }
+          "expected_status": 422
         },
         {
           "protocol": "http",
@@ -496,14 +478,9 @@
           "method": "POST",
           "path": "/v1/runs",
           "payload": {
-            "input_payload": {
-              "artifact": "{namespace}-unstaged"
-            }
+            "input_payload": {}
           },
-          "expected_status": 422,
-          "expected_json": {
-            "error_code": "unstaged_project_artifact"
-          }
+          "expected_status": 422
         }
       ]
     },

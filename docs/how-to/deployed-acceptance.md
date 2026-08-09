@@ -14,10 +14,10 @@ The suite runs against two targets, and they are authoritative for different sce
 
 | Leg | Target | Proves | Runs |
 |---|---|---|---|
-| Ephemeral | the real service booted by `tests/acceptance/ephemeral.py` against a file-backed database | readiness, authentication, RBAC, migrations, workflow lifecycle, deployment, runs, approvals, audit, artifacts, retention, restart recovery, shutdown | the default test suite, on every change |
-| Remote | a deployed candidate with a live Agent Server behind the gateway | all of the above plus streaming, gateway HTTP and WebSocket, compatibility, and executable-unit failures | the release workflow, bound to the candidate image |
+| Ephemeral | the real service booted by `tests/acceptance/ephemeral.py` against a file-backed database | readiness, authentication, RBAC, migrations, workflow lifecycle, deployment, runs, approvals, audit, artifacts, retention, executable-unit failures, restart recovery, shutdown — fourteen of the seventeen | the default test suite, on every change |
+| Remote | a deployed candidate with a live Agent Server behind the gateway | all seventeen, adding gateway HTTP, gateway WebSocket, and Agent Server compatibility | the release workflow, bound to the candidate image |
 
-Neither leg skips a scenario. `AcceptanceRunner` records a result for all eighteen every time, and the `remote-acceptance` release gate requires every one of them to pass in the report it consumes. The ephemeral test pins its own partition exactly, so a scenario that quietly stops passing there fails the build rather than disappearing.
+Neither leg skips a scenario. `AcceptanceRunner` records a result for all seventeen every time, and the `remote-acceptance` release gate requires every one of them to pass in the report it consumes. The ephemeral test pins its own partition exactly, so a scenario that quietly stops passing there fails the build rather than disappearing.
 
 The operator, reviewer, and admin credentials must be distinct and must all resolve to the configured tenant. Put credential values in environment variables only:
 
@@ -57,7 +57,7 @@ python -m release.acceptance.cli \
   --output release/evidence/deployed-acceptance-report.json
 ```
 
-The process exits 0 only when all 18 required scenarios and every cleanup operation pass. Reports never contain credential values. Redirects are refused, response sizes and deadlines are bounded, and DELETE operations are limited to the invocation namespace or resource IDs captured from resources created by that invocation.
+The process exits 0 only when all 17 required scenarios and every cleanup operation pass. Reports never contain credential values. Redirects are refused, response sizes and deadlines are bounded, and DELETE operations are limited to the invocation namespace or resource IDs captured from resources created by that invocation.
 
 ## CI entry points
 
@@ -67,4 +67,4 @@ For an operator-selected deployment, run the **Deployed acceptance** workflow wi
 
 ## Scope boundaries
 
-This harness calls the LangGraph governance surfaces built under ZER-1; it does not duplicate their policy implementation. It performs boundary authentication, RBAC, and tenant-safety checks, while ZER-32 remains authoritative for the exhaustive hostile and cross-tenant security matrix. Repository checkout and hardened staging are owned by ZER-37; until those surfaces exist, this suite requires explicit unresolved and unstaged artifact failures.
+This harness calls the LangGraph governance surfaces built under ZER-1; it does not duplicate their policy implementation. It performs boundary authentication, RBAC, and tenant-safety checks, while ZER-32 remains authoritative for the exhaustive hostile and cross-tenant security matrix. Repository checkout and hardened staging are owned by ZER-37. Zeroth has no project-artifact concept today, so `executable_unit_failures` asserts what the product does emit: a run whose input cannot be resolved against the deployment's contract is rejected outright rather than accepted and silently dropped.

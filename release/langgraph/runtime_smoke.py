@@ -106,8 +106,7 @@ def _spdx_digest(path: Path, reference: str) -> str:
     roots = [
         package
         for package in value.get("packages", [])
-        if package.get("name") == reference
-        and package.get("primaryPackagePurpose") == "CONTAINER"
+        if package.get("name") == reference and package.get("primaryPackagePurpose") == "CONTAINER"
     ]
     if len(roots) != 1 or not str(roots[0].get("versionInfo", "")).startswith("sha256:"):
         raise RuntimeError("SBOM does not identify the built image digest")
@@ -129,9 +128,7 @@ def _file_digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def resolved_image_evidence(
-    references: list[str], *, sbom: Path, artifact: Path
-) -> dict[str, Any]:
+def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path) -> dict[str, Any]:
     """Record immutable image and exported-artifact digests."""
     images = []
     for index, reference in enumerate(references):
@@ -187,7 +184,7 @@ def installed_package_evidence(
         text=True,
     )
     packages = json.loads(result.stdout)
-    labels = (_inspect_image(image).get("Config", {}).get("Labels") or {})
+    labels = _inspect_image(image).get("Config", {}).get("Labels") or {}
     selected_labels = {name: labels.get(name) for name in LABEL_KEYS}
     if packages != _expected_packages(compatibility):
         raise RuntimeError("installed image packages do not match compatibility evidence")

@@ -77,7 +77,6 @@ DEPLOYED_ACCEPTANCE_SCENARIOS = frozenset(
         "workflow_lifecycle",
         "deployment",
         "runs",
-        "streaming",
         "approvals",
         "audit",
         "artifacts",

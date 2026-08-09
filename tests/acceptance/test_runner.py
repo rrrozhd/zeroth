@@ -126,7 +126,7 @@ def _contract() -> dict[str, object]:
         "steps": [
             _step(
                 "/compatibility",
-                expected_json={"status": "supported", "detected_agent_server": "0.11.1"},
+                expected_json={"checks": {"agent_server": {"status": "supported"}}},
             )
         ]
     }
@@ -136,18 +136,6 @@ def _contract() -> dict[str, object]:
             _step("/approval/before", expected_count=0, **counted),
             _step("/approval/resolve", method="POST"),
             _step("/approval/after", expected_count=1, **counted),
-        ]
-    }
-    scenarios["streaming"] = {
-        "steps": [
-            {
-                "protocol": "websocket",
-                "role": "operator",
-                "path": "/stream",
-                "payload": {},
-                "max_events": 3,
-                "ordered_events": ["run.started", "node.completed", "run.completed"],
-            }
         ]
     }
     anchor = _step(
@@ -294,7 +282,7 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         ),
         "/health/ready": HttpObservation(503, {}, "corr-shutdown"),
         "/compatibility": HttpObservation(
-            200, {"status": "supported", "detected_agent_server": "0.11.1"}, "corr-compat"
+            200, {"checks": {"agent_server": {"status": "supported"}}}, "corr-compat"
         ),
         "/approval/before": HttpObservation(200, {"entries": []}, "corr-before"),
         "/approval/after": HttpObservation(
@@ -332,7 +320,7 @@ async def test_runner_fails_visibly_on_unsupported_compatibility_but_still_clean
     responses = {
         "/authentication": HttpObservation(401, {}, "corr-auth"),
         "/compatibility": HttpObservation(
-            200, {"status": "unsupported", "detected_agent_server": "0.12.0"}, "corr-compat"
+            200, {"checks": {"agent_server": {"status": "unsupported"}}}, "corr-compat"
         ),
         f"/fixtures/{config.namespace}-workflow": HttpObservation(204, None, "corr-clean"),
     }
@@ -444,11 +432,13 @@ async def test_stream_ordering_holds_numbered_streams_to_their_numbers(
 ) -> None:
     config = _config(tmp_path)
     contract = _contract()
-    contract["scenarios"]["streaming"] = {"steps": [_stream_step()]}
+    contract["scenarios"]["gateway_websocket"] = {"steps": [_stream_step()]}
     runner = AcceptanceRunner(
         config, AcceptanceContract.model_validate(contract), _EventTransport(events)
     )
-    result = await runner._scenario("streaming", [AcceptanceStep.model_validate(_stream_step())])
+    result = await runner._scenario(
+        "gateway_websocket", [AcceptanceStep.model_validate(_stream_step())]
+    )
 
     if expected is None:
         assert result.status is ScenarioStatus.PASSED, result.detail

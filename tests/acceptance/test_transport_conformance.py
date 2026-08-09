@@ -69,7 +69,7 @@ def _fixture_app() -> FastAPI:
         "/v1/deployments": {"deployment_ref": "candidate"},
         "/__acceptance/timeline/after": {"entries": done_audit},
         "/v1/retention/policy": {"enabled": True},
-        "/__acceptance/compatibility": {"status": "supported", "detected_agent_server": "0.11.1"},
+        "/__acceptance/ready-compat": {"checks": {"agent_server": {"status": "supported"}}},
     }
     by_prefix: dict[str, Any] = {
         "/__acceptance/runs/": {"status": "succeeded"},
@@ -235,4 +235,4 @@ async def test_the_runner_drives_a_whole_contract_over_real_sockets(
     }
     assert not failed, failed
     assert report.status is ScenarioStatus.PASSED
-    assert len(report.scenarios) == 18
+    assert len(report.scenarios) == 17

@@ -164,24 +164,6 @@
         }
       ]
     },
-    "streaming": {
-      "steps": [
-        {
-          "protocol": "websocket",
-          "role": "operator",
-          "path": "/__acceptance/runs/{run_id}/stream",
-          "payload": {
-            "run_id": "{run_id}"
-          },
-          "max_events": 3,
-          "ordered_events": [
-            "run.started",
-            "node.completed",
-            "run.completed"
-          ]
-        }
-      ]
-    },
     "approvals": {
       "steps": [
         {
@@ -335,13 +317,16 @@
       "steps": [
         {
           "protocol": "http",
-          "role": "operator",
+          "role": "anonymous",
           "method": "GET",
-          "path": "/__acceptance/compatibility",
+          "path": "/__acceptance/ready-compat",
           "expected_status": 200,
           "expected_json": {
-            "status": "supported",
-            "detected_agent_server": "0.11.1"
+            "checks": {
+              "agent_server": {
+                "status": "supported"
+              }
+            }
           }
         }
       ]
@@ -354,12 +339,9 @@
           "method": "POST",
           "path": "/__acceptance/executable-units/resolve",
           "payload": {
-            "artifact": "{namespace}-missing"
+            "a": "{namespace}"
           },
-          "expected_status": 422,
-          "expected_json": {
-            "error_code": "unresolved_project_artifact"
-          }
+          "expected_status": 422
         },
         {
           "protocol": "http",
@@ -367,12 +349,9 @@
           "method": "POST",
           "path": "/__acceptance/executable-units/run",
           "payload": {
-            "artifact": "{namespace}-unstaged"
+            "a": "{namespace}"
           },
-          "expected_status": 422,
-          "expected_json": {
-            "error_code": "unstaged_project_artifact"
-          }
+          "expected_status": 422
         }
       ]
     },

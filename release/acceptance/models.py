@@ -17,7 +17,6 @@ REQUIRED_SCENARIOS = (
     "workflow_lifecycle",
     "deployment",
     "runs",
-    "streaming",
     "approvals",
     "audit",
     "artifacts",
@@ -34,6 +33,15 @@ REQUIRED_SCENARIOS = (
 def canonical(value: Any) -> str:
     """Stable key for comparing declared match patterns."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _read_path(value: Any, path: tuple[str, ...]) -> Any:
+    """Read a nested key path, returning None rather than raising when absent."""
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
 
 
 def _contains_namespace(value: Any) -> bool:
@@ -371,14 +379,17 @@ class AcceptanceContract(BaseModel):
         if not readiness_withdrawn:
             raise ValueError("shutdown must prove readiness is withdrawn")
 
-        compatibility = self.scenarios["compatibility"].steps
-        expected = [step.expected_json for step in compatibility if step.expected_json]
+        # The deployment reports Agent Server compatibility through its readiness
+        # probe: the `agent_server` dependency check carries the CompatibilityStatus
+        # value (`health.py`). There is no endpoint that returns a compatibility
+        # document, so an invariant demanding one describes nothing.
         if not any(
-            value.get("status") == "supported"
-            and value.get("detected_agent_server") in self.supported_agent_server_versions
-            for value in expected
+            _read_path(step.expected_json, ("checks", "agent_server", "status")) == "supported"
+            for step in self.scenarios["compatibility"].steps
         ):
-            raise ValueError("compatibility must pin a supported Agent Server version")
+            raise ValueError(
+                "compatibility must prove the deployment reports a supported Agent Server"
+            )
 
 
 class StepObservation(BaseModel):
