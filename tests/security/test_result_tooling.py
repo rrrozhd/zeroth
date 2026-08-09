@@ -16,6 +16,11 @@ from release.security.matrix import main, verify_coverage, verify_outcomes
 MATRIX = Path(__file__).parent / "fixtures" / "valid-matrix.json"
 
 
+@pytest.fixture(autouse=True)
+def _explicit_fixture_matrix_mode(monkeypatch):
+    monkeypatch.setenv("ZEROTH_SECURITY_MATRIX_FIXTURE_MODE", "1")
+
+
 def _outcomes(path: Path, records: list[dict[str, object]]) -> Path:
     path.write_text(json.dumps({"schema_version": 1, "records": records}), encoding="utf-8")
     return path

@@ -21,6 +21,7 @@ from release.security.matrix import (
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "valid-matrix.json"
+PRODUCTION = Path(__file__).parents[2] / "release" / "security" / "security-matrix.json"
 
 
 def _write_matrix(tmp_path: Path, mutate) -> Path:
@@ -31,8 +32,50 @@ def _write_matrix(tmp_path: Path, mutate) -> Path:
     return path
 
 
+def _write_production_matrix(tmp_path: Path, mutate) -> Path:
+    matrix = json.loads(PRODUCTION.read_text(encoding="utf-8"))
+    mutate(matrix)
+    path = tmp_path / "production-matrix.json"
+    path.write_text(json.dumps(matrix), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("mutate", "path"),
+    [
+        (lambda matrix: matrix["claims"].pop("attacks"), "claims.attacks"),
+        (
+            lambda matrix: matrix["claims"]["operations"].__setitem__(
+                "read", "tests/security/test_missing.py::test_stale"
+            ),
+            "claims.operations.read",
+        ),
+        (
+            lambda matrix: matrix["claims"]["operations"].__setitem__(
+                "write", matrix["claims"]["operations"]["read"]
+            ),
+            "claims.operations.write",
+        ),
+        (
+            lambda matrix: matrix["claims"]["operations"].__setitem__("unknown", "node"),
+            "claims.operations.unknown",
+        ),
+        (
+            lambda matrix: matrix["claims"]["operations"].__setitem__(
+                "read", "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
+            ),
+            "claims.operations.read",
+        ),
+    ],
+)
+def test_production_semantic_claim_mutations_fail_closed(tmp_path: Path, mutate, path: str) -> None:
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(_write_production_matrix(tmp_path, mutate))
+    assert raised.value.path == path
+
+
 def test_fixture_models_the_exact_ticket_vocabulary() -> None:
-    matrix = load_matrix(FIXTURE)
+    matrix = load_matrix(FIXTURE, fixture_mode=True)
 
     assert frozenset(matrix.protected_surfaces) == PROTECTED_SURFACES
     assert frozenset(matrix.operations) == OPERATIONS
@@ -44,28 +87,34 @@ def test_fixture_models_the_exact_ticket_vocabulary() -> None:
 
 
 def test_fixture_behavioral_binding() -> None:
-    matrix = load_matrix(FIXTURE)
+    matrix = load_matrix(FIXTURE, fixture_mode=True)
     case = next(case for case in matrix.cases if case.id == "fixture-workflow-read")
 
     assert case.coverage == "behavioral"
     assert case.tiers == ("pr-critical", "release-candidate")
-    assert case.test_nodes == ("tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",)
+    assert case.test_nodes == (
+        "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+    )
     assert matrix.coverage_report()["behavioral"] == (case.id,)
 
 
 def test_fixture_refusal_binding() -> None:
-    matrix = load_matrix(FIXTURE)
+    matrix = load_matrix(FIXTURE, fixture_mode=True)
     case = next(case for case in matrix.cases if case.id == "fixture-revoked-access-refusal")
 
     assert case.coverage == "absent-fail-closed"
     assert case.tiers == ("release-candidate",)
-    assert case.test_nodes == ("tests/security/test_matrix_contract.py::test_fixture_refusal_binding",)
-    assert case.refusal_test == "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    assert case.test_nodes == (
+        "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+    )
+    assert (
+        case.refusal_test == "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    )
     assert matrix.coverage_report()["absent-fail-closed"] == (case.id,)
 
 
 def test_absence_proofs_are_reported_separately_from_behavioral_coverage() -> None:
-    report = load_matrix(FIXTURE).coverage_report()
+    report = load_matrix(FIXTURE, fixture_mode=True).coverage_report()
 
     assert report["behavioral"] == ("fixture-workflow-read",)
     assert report["absent-fail-closed"] == ("fixture-revoked-access-refusal",)
@@ -78,7 +127,7 @@ def test_matrix_requires_both_ticket_tiers(tmp_path: Path) -> None:
     )
 
     with pytest.raises(MatrixError) as raised:
-        load_matrix(path)
+        load_matrix(path, fixture_mode=True)
 
     assert raised.value.path == "cases"
 
@@ -87,7 +136,7 @@ def test_schema_version_must_be_the_integer_version_one(tmp_path: Path) -> None:
     path = _write_matrix(tmp_path, lambda matrix: matrix.__setitem__("schema_version", True))
 
     with pytest.raises(MatrixError) as raised:
-        load_matrix(path)
+        load_matrix(path, fixture_mode=True)
 
     assert raised.value.path == "schema_version"
 
@@ -119,7 +168,7 @@ def test_invalid_utf8_matrix_fails_closed(tmp_path: Path) -> None:
     path.write_bytes(b"\xff")
 
     with pytest.raises(MatrixError) as raised:
-        load_matrix(path)
+        load_matrix(path, fixture_mode=True)
 
     assert raised.value.path == "$"
 
@@ -132,7 +181,7 @@ def test_duplicate_raw_json_keys_are_rejected(tmp_path: Path) -> None:
     path.write_text(content, encoding="utf-8")
 
     with pytest.raises(MatrixError) as raised:
-        load_matrix(path)
+        load_matrix(path, fixture_mode=True)
 
     assert raised.value.path == "schema_version"
 
@@ -141,9 +190,15 @@ def test_duplicate_raw_json_keys_are_rejected(tmp_path: Path) -> None:
     ("mutate", "path"),
     [
         (lambda matrix: matrix["protected_surfaces"].pop(), "protected_surfaces"),
-        (lambda matrix: matrix["cases"][1].__setitem__("coverage", "behavioral"), "cases[1].coverage"),
+        (
+            lambda matrix: matrix["cases"][1].__setitem__("coverage", "behavioral"),
+            "cases[1].coverage",
+        ),
         (lambda matrix: matrix["cases"][0].__setitem__("tiers", ["pr-critical"]), "cases[0].tiers"),
-        (lambda matrix: matrix["cases"][1].__setitem__("id", "fixture-workflow-read"), "cases[1].id"),
+        (
+            lambda matrix: matrix["cases"][1].__setitem__("id", "fixture-workflow-read"),
+            "cases[1].id",
+        ),
     ],
     ids=("missing-required-surface", "absence-bound-as-behavioral", "pr-only", "duplicate-id"),
 )
@@ -157,19 +212,20 @@ def test_mutations_fail_with_a_stable_diagnostic_path(tmp_path: Path, mutate, pa
 def test_unknown_fields_and_invalid_or_duplicate_test_bindings_are_rejected(tmp_path: Path) -> None:
     unknown = _write_matrix(tmp_path, lambda matrix: matrix.__setitem__("unreviewed", True))
     with pytest.raises(MatrixError, match="^unreviewed: unknown field$"):
-        load_matrix(unknown)
+        load_matrix(unknown, fixture_mode=True)
 
     empty = _write_matrix(tmp_path, lambda matrix: matrix["cases"][0].__setitem__("test_nodes", []))
     with pytest.raises(MatrixError) as raised:
-        load_matrix(empty)
+        load_matrix(empty, fixture_mode=True)
     assert raised.value.path == "cases[0].test_nodes"
 
     duplicate = _write_matrix(
         tmp_path,
         lambda matrix: matrix["cases"][1].__setitem__(
-            "test_nodes", ["tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"]
+            "test_nodes",
+            ["tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"],
         ),
     )
     with pytest.raises(MatrixError) as raised:
-        load_matrix(duplicate)
+        load_matrix(duplicate, fixture_mode=True)
     assert raised.value.path == "cases[1].test_nodes[0]"

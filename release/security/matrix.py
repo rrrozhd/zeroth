@@ -71,6 +71,7 @@ _MATRIX_KEYS = frozenset(
         "attacks",
         "observable_output_surfaces",
         "hostile_fixtures",
+        "claims",
         "cases",
     }
 )
@@ -117,6 +118,7 @@ class Matrix:
     attacks: tuple[str, ...]
     observable_output_surfaces: tuple[str, ...]
     hostile_fixtures: tuple[str, ...]
+    claims: dict[str, dict[str, str]]
     cases: tuple[MatrixCase, ...]
 
     def coverage_report(self) -> dict[str, tuple[str, ...]]:
@@ -218,8 +220,50 @@ def _case(value: Any, index: int, seen_ids: set[str], bound_nodes: set[str]) -> 
     return MatrixCase(identifier, tuple(tiers), coverage, test_nodes, refusal_test)
 
 
-def load_matrix(path: Path) -> Matrix:
+def _claims(
+    value: Any,
+    *,
+    vocabularies: dict[str, tuple[str, ...]],
+    bound_nodes: set[str],
+    fixture_mode: bool,
+) -> dict[str, dict[str, str]]:
+    path = "claims"
+    if not isinstance(value, dict):
+        raise MatrixError(path, "must be an object")
+    _reject_unknown_fields(value, frozenset(vocabularies), path)
+    result: dict[str, dict[str, str]] = {}
+    forbidden = (
+        "tests/security/test_matrix_contract.py::",
+        "tests/security/test_result_tooling.py::",
+    )
+    for dimension, vocabulary in vocabularies.items():
+        mapping = value[dimension]
+        dimension_path = f"{path}.{dimension}"
+        if not isinstance(mapping, dict):
+            raise MatrixError(dimension_path, "must be an object")
+        _reject_unknown_fields(mapping, frozenset(vocabulary), dimension_path)
+        seen_nodes: set[str] = set()
+        parsed: dict[str, str] = {}
+        for claim_value in vocabulary:
+            node = mapping[claim_value]
+            claim_path = f"{dimension_path}.{claim_value}"
+            if not isinstance(node, str) or not node:
+                raise MatrixError(claim_path, "must be a non-empty bound node ID")
+            if not fixture_mode and node not in bound_nodes:
+                raise MatrixError(claim_path, "references an unbound test node")
+            if not fixture_mode and node in seen_nodes:
+                raise MatrixError(claim_path, "duplicates a node claim within this dimension")
+            if not fixture_mode and node.startswith(forbidden):
+                raise MatrixError(claim_path, "production claims may not use schema/tooling nodes")
+            seen_nodes.add(node)
+            parsed[claim_value] = node
+        result[dimension] = parsed
+    return result
+
+
+def load_matrix(path: Path, *, fixture_mode: bool = False) -> Matrix:
     """Load ``path`` or reject it before it can weaken a release gate."""
+    fixture_mode = fixture_mode or os.environ.get("ZEROTH_SECURITY_MATRIX_FIXTURE_MODE") == "1"
     try:
         value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_StrictObject)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -252,7 +296,13 @@ def load_matrix(path: Path) -> Matrix:
     represented_tiers = {tier for case in cases for tier in case.tiers}
     if represented_tiers != TIERS:
         raise MatrixError("cases", "must include both pr-critical and release-candidate coverage")
-    return Matrix(cases=cases, **vocabularies)
+    claims = _claims(
+        value["claims"],
+        vocabularies=vocabularies,
+        bound_nodes=bound_nodes,
+        fixture_mode=fixture_mode,
+    )
+    return Matrix(cases=cases, claims=claims, **vocabularies)
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
