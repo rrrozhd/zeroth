@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19] - 2026-08-08
+
+### Added
+
+- An ordered, fail-closed release-gate substrate under `release/gates`. A manifest
+  enumerates the seven gate families — source, package, LangGraph, untrusted-code,
+  deployment smoke, remote acceptance and promotion — together with the evidence each
+  one must produce and the identity facets it must bind. Validation reports exactly the
+  five rejection reasons the gate contract names (missing, stale, partial, mismatched,
+  failed), one per gate, and renders a human-readable verdict for the operator who has
+  to sign the release off.
+
+### Fixed
+
+- Release evidence now binds to the candidate under release instead of validating
+  itself. `release/langgraph/release_evidence.py` checks its manifest against
+  `CURRENT_RELEASE`, a hand-edited source constant; once the project version moved past
+  it, `harness.py validate` kept exiting 0 while describing a release that was no longer
+  being built. Candidate identity is measured instead — commit, package artifact
+  digests, image digest, configuration and compatibility — so evidence produced for a
+  different commit or a different build is rejected rather than accepted, and a test
+  keeps version literals out of the gate substrate so the drift cannot come back.
+
 ## [0.18.11.1.3] - 2026-08-08
 
 ### Tests
