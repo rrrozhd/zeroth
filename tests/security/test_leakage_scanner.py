@@ -11,6 +11,7 @@ from urllib.parse import quote, quote_plus
 
 import pytest
 
+from release.security import scan as scan_module
 from release.security.scan import CredentialLeakScanner, scan_paths
 
 
@@ -111,20 +112,18 @@ def test_scanner_detects_uppercase_hex_and_lowercase_percent_escapes() -> None:
 @pytest.mark.parametrize(
     ("rule", "encoded"),
     [
-        ("canary:hex", "41622B2f4364"),
-        ("canary:url", "Ab%2b%2FCd"),
-        ("canary:json", r"Ab+\/Cd"),
+        ("canary:hex", "41622B2f43642139"),
+        ("canary:url", "Ab%2b%2FCd%219"),
+        ("canary:json", r"Ab+\/Cd!9"),
     ],
 )
 def test_representation_aware_matching_and_surface_safety(rule: str, encoded: str) -> None:
-    canary = "Ab+/Cd"
+    canary = "Ab+/Cd!9"
     scanner = CredentialLeakScanner([canary])
 
     findings = scanner.scan(encoded, surface=f"surface-{encoded}")
 
-    assert [(item.rule, item.fingerprint) for item in findings] == [
-        (rule, _fingerprint(canary))
-    ]
+    assert [(item.rule, item.fingerprint) for item in findings] == [(rule, _fingerprint(canary))]
     assert encoded not in findings[0].surface
     assert findings[0].surface.startswith("surface:sha256:")
 
@@ -138,6 +137,83 @@ def test_scan_paths_detects_binary_value_split_across_read_chunks(tmp_path: Path
 
     assert [item.rule for item in findings] == ["canary:exact"]
     assert findings[0].surface == "evidence.bin"
+
+
+@pytest.mark.parametrize(
+    ("rule", "canary", "encoded"),
+    [
+        ("canary:url", "secret-73", "%73%65%63%72%65%74%2D%37%33"),
+        ("canary:url", "secret-73", "sec%72et%2d73"),
+        ("canary:json", "café-token", r"caf\u00E9-token"),
+        ("canary:json", "café-token", r"caf\u00e9-token"),
+        ("canary:json", "token-😀", r"token-\uD83D\uDE00"),
+    ],
+)
+def test_semantic_encoding_normalization(rule: str, canary: str, encoded: str) -> None:
+    findings = CredentialLeakScanner([canary]).scan(encoded, surface=f"label-{encoded}")
+
+    assert [(item.rule, item.fingerprint) for item in findings] == [(rule, _fingerprint(canary))]
+    assert encoded not in findings[0].surface
+
+
+@pytest.mark.parametrize("malformed", [b"%", b"%GG", b"\\u12", b"\\uZZZZ", b"\xff%2"])
+def test_malformed_encodings_do_not_crash(malformed: bytes) -> None:
+    assert CredentialLeakScanner([CANARY]).scan(malformed, surface="malformed") == []
+
+
+def test_semantic_encoding_split_across_file_chunks(tmp_path: Path) -> None:
+    canary = "café-token"
+    encoded = rb"caf\u00E9-token"
+    target = tmp_path / "evidence.bin"
+    target.write_bytes(b"x" * 65_532 + encoded)
+
+    findings = scan_paths(tmp_path, [target], canaries=[canary])
+
+    assert [item.rule for item in findings] == ["canary:json"]
+
+
+@pytest.mark.parametrize("canary", ["short", "aaaaaaaa", b"1234567", b"abcd" * 5000])
+def test_weak_canaries_are_rejected_without_echoing_them(canary: str | bytes) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        CredentialLeakScanner([canary])
+
+    rendered = str(excinfo.value)
+    value = canary.decode() if isinstance(canary, bytes) else canary
+    assert value not in rendered
+
+
+def test_cli_weak_canary_is_a_structured_error_report(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "result.txt").write_text("safe")
+    output = tmp_path / "scan.json"
+
+    completed = _run_module_cli(tmp_path, "evidence", "--output", "scan.json", canary="short")
+
+    assert completed.returncode == 2
+    assert completed.stdout == completed.stderr == ""
+    assert json.loads(output.read_text())["status"] == "error"
+    assert "short" not in output.read_text()
+
+
+@pytest.mark.parametrize(
+    ("token", "detected"),
+    [
+        ("ghp_" + "A" * 36, True),
+        ("xghp_" + "A" * 36, False),
+        ("ghp_" + "A" * 37, False),
+        ("github_pat_" + "A" * 82, True),
+        ("github_pat_" + "A" * 255, True),
+        ("github_pat_" + "A" * 256, False),
+        ("xgithub_pat_" + "A" * 82, False),
+    ],
+)
+def test_github_token_patterns_require_declared_lengths_and_boundaries(
+    token: str, detected: bool
+) -> None:
+    findings = CredentialLeakScanner([]).scan(token, surface="token")
+
+    assert bool(findings) is detected
 
 
 @pytest.mark.parametrize("target_location", ["inside", "outside"])
@@ -213,9 +289,7 @@ def test_scan_paths_rejects_parent_components_in_supplied_root(tmp_path: Path) -
 def test_findings_are_deduplicated_and_deterministically_sorted() -> None:
     scanner = CredentialLeakScanner(["z-secret", "a-secret"])
 
-    findings = scanner.scan(
-        {"z": ["z-secret", "z-secret"], "a": "a-secret"}, surface="surface"
-    )
+    findings = scanner.scan({"z": ["z-secret", "z-secret"], "a": "a-secret"}, surface="surface")
 
     assert findings == scanner.scan(
         {"a": "a-secret", "z": ["z-secret", "z-secret"]}, surface="surface"
@@ -224,9 +298,7 @@ def test_findings_are_deduplicated_and_deterministically_sorted() -> None:
 
 
 def test_secret_bearing_surface_label_is_fingerprinted_not_echoed() -> None:
-    findings = CredentialLeakScanner([CANARY]).scan(
-        CANARY, surface=f"api-response-{CANARY}"
-    )
+    findings = CredentialLeakScanner([CANARY]).scan(CANARY, surface=f"api-response-{CANARY}")
 
     diagnostic = json.dumps(findings[0].as_dict())
     assert CANARY not in findings[0].surface
@@ -290,23 +362,21 @@ def test_cli_does_not_echo_secret_bearing_file_name(tmp_path: Path) -> None:
 
     assert completed.returncode == 1
     assert file_canary not in completed.stdout
-    assert json.loads(completed.stdout)["findings"][0]["surface"].startswith(
-        "surface:sha256:"
-    )
+    assert json.loads(completed.stdout)["findings"][0]["surface"].startswith("surface:sha256:")
 
 
 @pytest.mark.parametrize(
     ("rule", "encoded"),
     [
-        ("canary:hex", "41622B2f4364"),
-        ("canary:url", "Ab%2b%2FCd"),
-        ("canary:json", r"Ab+\/Cd"),
+        ("canary:hex", "41622B2f43642139"),
+        ("canary:url", "Ab%2b%2FCd%219"),
+        ("canary:json", r"Ab+\/Cd!9"),
     ],
 )
 def test_cli_does_not_echo_encoded_secret_in_path_components(
     tmp_path: Path, rule: str, encoded: str
 ) -> None:
-    canary = "Ab+/Cd"
+    canary = "Ab+/Cd!9"
     target = tmp_path / f"evidence-{encoded}"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(encoded)
@@ -447,9 +517,7 @@ def test_module_cli_rejects_output_outside_root_without_writing_it(tmp_path: Pat
     evidence.mkdir()
     outside = tmp_path.parent / f"outside-{tmp_path.name}.json"
 
-    completed = _run_module_cli(
-        tmp_path, "evidence", "--output", str(outside)
-    )
+    completed = _run_module_cli(tmp_path, "evidence", "--output", str(outside))
 
     assert completed.returncode == 2
     assert completed.stderr == ""
@@ -520,3 +588,132 @@ def test_module_cli_rejects_parent_components_in_root_before_writing(tmp_path: P
     assert completed.returncode == 2
     assert completed.stderr == ""
     assert not (root / "security-scan.json").exists()
+
+
+@pytest.mark.parametrize("_iteration", range(10))
+def test_input_parent_swap_cannot_redirect_scan_outside_root(
+    tmp_path: Path, monkeypatch, _iteration: int
+) -> None:
+    root = tmp_path / "root"
+    evidence = root / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "result.txt").write_text("safe")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "result.txt").write_text(CANARY)
+    original_open = os.open
+    swapped = False
+
+    def _swap_before_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if not swapped and path == "evidence":
+            swapped = True
+            evidence.rename(root / "detached")
+            evidence.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(scan_module.os, "open", _swap_before_open)
+
+    with pytest.raises(ValueError) as excinfo:
+        scan_paths(root, [Path("evidence")], canaries=[CANARY])
+
+    assert CANARY not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("mutation", ["delete", "directory"])
+def test_concurrent_input_mutation_is_a_structured_safe_report(
+    tmp_path: Path, monkeypatch, capsys, mutation: str
+) -> None:
+    root = tmp_path / "root"
+    evidence = root / "evidence"
+    evidence.mkdir(parents=True)
+    target = evidence / f"secret-{CANARY.encode().hex()}"
+    target.write_text("safe")
+    reports = root / "reports"
+    reports.mkdir()
+    original_open = scan_module._open_child_descriptor
+    deleted = False
+
+    def _delete_before_open(parent_fd: int, name: str, *, directory: bool) -> int:
+        nonlocal deleted
+        if not deleted and name == target.name:
+            deleted = True
+            target.unlink()
+            if mutation == "directory":
+                target.mkdir()
+        return original_open(parent_fd, name, directory=directory)
+
+    monkeypatch.setattr(scan_module, "_open_child_descriptor", _delete_before_open)
+
+    exit_code = scan_module.main(["--root", str(root), "evidence", "--output", "reports/scan.json"])
+
+    captured = capsys.readouterr()
+    report = (reports / "scan.json").read_text()
+    assert exit_code == 2
+    assert captured.out == captured.err == ""
+    assert json.loads(report)["status"] == "error"
+    assert CANARY not in report
+    assert CANARY.encode().hex() not in report
+
+
+@pytest.mark.parametrize("_iteration", range(10))
+def test_output_parent_swap_cannot_redirect_atomic_report(
+    tmp_path: Path, monkeypatch, capsys, _iteration: int
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "result.txt").write_text("safe")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original_create = scan_module._create_temp_descriptor
+    swapped = False
+
+    def _swap_before_temp(target):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            reports.rename(tmp_path / "detached-reports")
+            reports.symlink_to(outside, target_is_directory=True)
+        return original_create(target)
+
+    monkeypatch.setattr(scan_module, "_create_temp_descriptor", _swap_before_temp)
+
+    exit_code = scan_module.main(
+        ["--root", str(tmp_path), "evidence", "--output", "reports/scan.json"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == ""
+    assert not (outside / "scan.json").exists()
+
+
+def test_output_cleanup_failure_never_masks_primary_error_or_leaks(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "result.txt").write_text("safe")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+
+    def _replace_failure(*_args, **_kwargs):
+        raise OSError(f"replace failed at {CANARY}")
+
+    def _cleanup_failure(*_args, **_kwargs):
+        raise OSError(f"cleanup failed at {CANARY}")
+
+    monkeypatch.setattr(scan_module.os, "replace", _replace_failure)
+    monkeypatch.setattr(scan_module.os, "unlink", _cleanup_failure)
+
+    exit_code = scan_module.main(
+        ["--root", str(tmp_path), "evidence", "--output", "reports/scan.json"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == ""
+    assert "Traceback" not in captured.out
+    assert CANARY not in captured.out
