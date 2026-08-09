@@ -56,3 +56,39 @@ async def test_execute_argv_has_exactly_one_network_flag(monkeypatch, network_ac
     assert "--cpus" in cmd
     assert "--memory" in cmd
     assert "--pids-limit" in cmd
+
+
+async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeypatch) -> None:
+    captured: dict[str, list[str]] = {}
+
+    async def _fake_exec(*cmd, **_kwargs):
+        captured["cmd"] = list(cmd)
+        return _FakeProc()
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", AsyncMock(return_value=(b"", b"")))
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        _fake_exec,
+    )
+
+    await executor.execute(
+        SidecarExecuteRequest(
+            execution_id="hardened",
+            image="python:3.12",
+            command=["python", "-c", "pass"],
+            network_access=False,
+        )
+    )
+
+    cmd = captured["cmd"]
+    assert "--read-only" in cmd
+    assert cmd[cmd.index("--cap-drop") + 1] == "ALL"
+    assert cmd[cmd.index("--security-opt") + 1] == "no-new-privileges"
+    assert cmd[cmd.index("--tmpfs") + 1] == "/tmp"
+    assert "-v" not in cmd
+    assert "--volume" not in cmd
+    assert "--mount" not in cmd
+    assert [token for token in cmd if token.startswith("--network")] == [
+        "--network=zeroth-sandbox-hardened"
+    ]

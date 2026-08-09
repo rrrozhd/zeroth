@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from zeroth.integrations.execution.constraints import ResourceConstraints, build_docker_resource_flags
+from zeroth.integrations.execution.constraints import (
+    ResourceConstraints,
+    build_docker_resource_flags,
+)
 from zeroth.integrations.execution.sandbox import (
     DockerSandboxConfig,
     SandboxBackendMode,
@@ -29,6 +32,32 @@ def test_strict_mode_raises_when_docker_unavailable() -> None:
     )
 
     with pytest.raises(SandboxBackendUnavailableError):
+        manager.run(["echo", "hello"])
+
+
+def test_strict_mode_refuses_disabled_docker_hardening() -> None:
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            docker=DockerSandboxConfig(hardened=False),
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        ),
+        container_inspector=lambda _name: True,
+    )
+
+    with pytest.raises(SandboxPolicyViolationError, match="hardening"):
+        manager.run(["echo", "hello"])
+
+
+def test_strict_sidecar_mode_refuses_missing_client() -> None:
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.SIDECAR,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        )
+    )
+
+    with pytest.raises(SandboxBackendUnavailableError, match="sidecar client"):
         manager.run(["echo", "hello"])
 
 
@@ -185,7 +214,5 @@ def test_docker_hardening_flags_disabled_and_user_override() -> None:
     from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
 
     assert _docker_hardening_flags(DockerSandboxConfig(hardened=False)) == []
-    flags = _docker_hardening_flags(
-        DockerSandboxConfig(hardened=False, run_as_user="65534:65534")
-    )
+    flags = _docker_hardening_flags(DockerSandboxConfig(hardened=False, run_as_user="65534:65534"))
     assert flags == ["--user", "65534:65534"]

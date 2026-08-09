@@ -60,6 +60,51 @@ print(json.dumps({
     assert not Path(result.workdir).exists()
 
 
+def test_sandbox_manager_denies_ambient_environment_when_allowlist_is_omitted() -> None:
+    manager = SandboxManager(base_env={"GITHUB_TOKEN": "github_pat_must-not-leak"})
+
+    result = manager.run([sys.executable, "-c", "import os; print(os.getenv('GITHUB_TOKEN'))"])
+
+    assert result.stdout.strip() == "None"
+    assert result.environment == {}
+
+
+@pytest.mark.parametrize("working_directory", ["../escape", "nested/../../escape"])
+def test_sandbox_manager_rejects_parent_traversal_workdirs(working_directory: str) -> None:
+    manager = SandboxManager(base_env={})
+
+    with pytest.raises(ValueError, match="contained"):
+        manager.run([sys.executable, "-c", "pass"], working_directory=working_directory)
+
+
+def test_sandbox_manager_rejects_symlink_escape_workdir(tmp_path: Path, monkeypatch) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+
+    class _ControlledTemporaryDirectory:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def __enter__(self) -> str:
+            return str(root)
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "zeroth.integrations.execution.sandbox.tempfile.TemporaryDirectory",
+        _ControlledTemporaryDirectory,
+    )
+
+    with pytest.raises(ValueError, match="contained"):
+        SandboxManager(base_env={}).run(
+            [sys.executable, "-c", "pass"], working_directory="escape/job"
+        )
+
+
 def test_sandbox_manager_times_out_and_raises(tmp_path: Path) -> None:
     script = tmp_path / "sleep.py"
     script.write_text(

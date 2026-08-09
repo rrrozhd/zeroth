@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Any
 
 from zeroth.integrations.execution.constraints import (
     ResourceConstraints,
     build_docker_resource_flags,
 )
+from zeroth.integrations.execution.sandbox import build_docker_hardening_flags
 from zeroth.integrations.sandbox.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,
@@ -32,14 +34,27 @@ class SidecarExecutor:
     captures output, and tears down the network on completion.
     """
 
-    def __init__(self, *, docker_binary: str = "docker") -> None:
+    def __init__(self, *, docker_binary: str = "docker", max_output_bytes: int = 1_048_576) -> None:
+        if max_output_bytes < 0:
+            raise ValueError("max_output_bytes must be non-negative")
         self._docker_binary = docker_binary
+        self._max_output_bytes = max_output_bytes
         self._executions: dict[str, SidecarExecuteResponse] = {}
+        self._active_processes: dict[str, asyncio.subprocess.Process] = {}
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._cancelled: set[str] = set()
 
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
+        execution_task = asyncio.current_task()
+        if execution_task is not None:
+            self._active_tasks[request.execution_id] = execution_task
+        self._executions[request.execution_id] = SidecarExecuteResponse(
+            execution_id=request.execution_id,
+            status="running",
+        )
 
         # Build resource constraints for the CPU/memory/pids flags ONLY. The
         # network dimension is deliberately left None (audit B11): this executor
@@ -77,6 +92,7 @@ class SidecarExecutor:
                 self._docker_binary,
                 "run",
                 "--rm",
+                *build_docker_hardening_flags(),
                 f"--network={network_name}",
                 *resource_flags,
                 *env_flags,
@@ -95,9 +111,15 @@ class SidecarExecutor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                self._active_processes[request.execution_id] = proc
                 stdin_bytes = request.input_text.encode() if request.input_text else None
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(input=stdin_bytes),
+                (
+                    stdout_bytes,
+                    stderr_bytes,
+                    stdout_truncated,
+                    stderr_truncated,
+                ) = await asyncio.wait_for(
+                    self._communicate_bounded(proc, stdin_bytes),
                     timeout=request.timeout_seconds,
                 )
                 returncode = proc.returncode
@@ -111,34 +133,37 @@ class SidecarExecutor:
                     pass
                 stdout_bytes = b""
                 stderr_bytes = b"Execution timed out"
+                stdout_truncated = False
+                stderr_truncated = False
                 returncode = -1
 
             duration = time.perf_counter() - started_at
             status = "completed" if returncode == 0 else "failed"
             if timed_out:
                 status = "failed"
+            if request.execution_id in self._cancelled:
+                status = "cancelled"
+
+            stdout = stdout_bytes.decode(errors="replace")
+            stderr = stderr_bytes.decode(errors="replace")
 
             response = SidecarExecuteResponse(
                 execution_id=request.execution_id,
                 status=status,
                 returncode=returncode,
-                stdout=(
-                    stdout_bytes.decode(errors="replace")
-                    if isinstance(stdout_bytes, bytes)
-                    else (stdout_bytes or "")
-                ),
-                stderr=(
-                    stderr_bytes.decode(errors="replace")
-                    if isinstance(stderr_bytes, bytes)
-                    else (stderr_bytes or "")
-                ),
+                stdout=stdout,
+                stderr=stderr,
                 duration_seconds=duration,
                 timed_out=timed_out,
+                stdout_truncated=stdout_truncated,
+                stderr_truncated=stderr_truncated,
             )
             self._executions[request.execution_id] = response
+            self._cancelled.discard(request.execution_id)
             return response
 
         finally:
+            self._active_processes.pop(request.execution_id, None)
             # Step 4: Cleanup network
             try:
                 await self._run_cmd(
@@ -149,6 +174,8 @@ class SidecarExecutor:
                 )
             except Exception:  # noqa: BLE001
                 logger.warning("Failed to remove network %s", network_name)
+            if self._active_tasks.get(request.execution_id) is execution_task:
+                self._active_tasks.pop(request.execution_id, None)
 
     async def get_status(self, execution_id: str) -> SidecarStatusResponse | None:
         """Return the status of a previously submitted execution."""
@@ -163,11 +190,22 @@ class SidecarExecutor:
             stderr=response.stderr,
             duration_seconds=response.duration_seconds,
             timed_out=response.timed_out,
+            stdout_truncated=response.stdout_truncated,
+            stderr_truncated=response.stderr_truncated,
         )
 
     async def cancel(self, execution_id: str) -> None:
-        """Cancel a running execution (best-effort)."""
+        """Stop an active execution and persist an observable cancelled status."""
+        process = self._active_processes.get(execution_id)
         response = self._executions.get(execution_id)
+        if process is None and response is None:
+            return
+        if process is None and response is not None and response.status != "running":
+            return
+        self._cancelled.add(execution_id)
+        if process is not None and process.returncode is None:
+            process.kill()
+            await process.wait()
         if response is not None:
             self._executions[execution_id] = SidecarExecuteResponse(
                 execution_id=execution_id,
@@ -177,7 +215,61 @@ class SidecarExecutor:
                 stderr=response.stderr,
                 duration_seconds=response.duration_seconds,
                 timed_out=response.timed_out,
+                stdout_truncated=response.stdout_truncated,
+                stderr_truncated=response.stderr_truncated,
             )
+        execution_task = self._active_tasks.get(execution_id)
+        if execution_task is not None and execution_task is not asyncio.current_task():
+            await asyncio.shield(execution_task)
+
+    async def _communicate_bounded(
+        self,
+        process: asyncio.subprocess.Process,
+        stdin_bytes: bytes | None,
+    ) -> tuple[bytes, bytes, bool, bool]:
+        """Drain both output streams while retaining at most the configured cap."""
+        stdout_stream = getattr(process, "stdout", None)
+        stderr_stream = getattr(process, "stderr", None)
+        if not hasattr(stdout_stream, "read") or not hasattr(stderr_stream, "read"):
+            stdout, stderr = await process.communicate(input=stdin_bytes)
+            stdout_raw = stdout.encode() if isinstance(stdout, str) else (stdout or b"")
+            stderr_raw = stderr.encode() if isinstance(stderr, str) else (stderr or b"")
+            return (
+                stdout_raw[: self._max_output_bytes],
+                stderr_raw[: self._max_output_bytes],
+                len(stdout_raw) > self._max_output_bytes,
+                len(stderr_raw) > self._max_output_bytes,
+            )
+
+        if stdin_bytes is not None and process.stdin is not None:
+            process.stdin.write(stdin_bytes)
+            await process.stdin.drain()
+            process.stdin.close()
+
+        stdout_task = asyncio.create_task(self._read_bounded(stdout_stream))
+        stderr_task = asyncio.create_task(self._read_bounded(stderr_stream))
+        try:
+            await process.wait()
+            (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
+                stdout_task, stderr_task
+            )
+        except BaseException:
+            stdout_task.cancel()
+            stderr_task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            raise
+        return stdout, stderr, stdout_truncated, stderr_truncated
+
+    async def _read_bounded(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
+        retained = bytearray()
+        truncated = False
+        while chunk := await stream.read(65_536):
+            remaining = self._max_output_bytes - len(retained)
+            if remaining > 0:
+                retained.extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                truncated = True
+        return bytes(retained), truncated
 
     async def check_health(self) -> bool:
         """Verify Docker daemon is reachable."""

@@ -9,8 +9,9 @@ management, and output extraction.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents.tooling.python_tool import PythonHandler
 
 _DEFAULT_ALLOWED_ENV_KEYS = ("PATH", "PYTHONPATH", "HOME", "TMPDIR", "TMP", "TEMP")
+ProjectMaterializer = Callable[[ProjectUnitManifest, Path], None | Awaitable[None]]
 
 
 class ExecutableUnitError(RuntimeError):
@@ -200,12 +202,14 @@ class ExecutableUnitRunner:
         python_adapter: PythonRuntimeAdapter | None = None,
         secret_resolver: SecretResolver | None = None,
         admission_controller: AdmissionController | None = None,
+        project_materializer: ProjectMaterializer | None = None,
     ) -> None:
         self.registry = registry or ExecutableUnitRegistry()
         self.sandbox_manager = sandbox_manager or SandboxManager()
         self.python_adapter = python_adapter or PythonRuntimeAdapter()
         self.secret_resolver = secret_resolver
         self.admission_controller = admission_controller
+        self.project_materializer = project_materializer
         self._built_cache_keys: set[str] = set()
 
     async def run_manifest_ref(
@@ -394,6 +398,11 @@ class ExecutableUnitRunner:
         extracts and validates the output, and returns the result.
         """
         manifest = binding.manifest
+        project_materializer = self.project_materializer
+        if isinstance(manifest, ProjectUnitManifest) and project_materializer is None:
+            raise ExecutableUnitExecutionError(
+                "project execution requires an injected trusted project materializer"
+            )
         enforcement = dict(enforcement_context or {})
         manifest_env, secret_env_keys = await self._manifest_environment(manifest)
         secret_filtered_env = self._apply_allowed_secrets(
@@ -423,6 +432,12 @@ class ExecutableUnitRunner:
         with tempfile.TemporaryDirectory(prefix="zeroth-eu-") as tempdir:
             sandbox_root = Path(tempdir)
             cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
+            if isinstance(manifest, ProjectUnitManifest):
+                assert project_materializer is not None
+                materialized = project_materializer(manifest, cwd)
+                if inspect.isawaitable(materialized):
+                    await materialized
+                cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
             if isinstance(manifest, InlineUnitManifest):
                 # Inline units carry their code with them — materialize it as
                 # the entry file the manifest's run command expects.
@@ -453,6 +468,7 @@ class ExecutableUnitRunner:
                     sandbox_root=sandbox_root,
                     relative_cwd=cwd.relative_to(sandbox_root),
                     base_env=overlay_env,
+                    allowed_env_keys=binding.allowed_env_keys,
                     build_cache_key=build_cache_key,
                     timeout_seconds=timeout_seconds,
                     resource_constraints=resource_constraints,
@@ -516,6 +532,12 @@ class ExecutableUnitRunner:
                     "run_config.working_directory must be relative to the sandbox root"
                 )
             cwd = sandbox_root / relative
+        try:
+            cwd.resolve(strict=False).relative_to(sandbox_root.resolve())
+        except ValueError as exc:
+            raise ExecutableUnitExecutionError(
+                "run_config.working_directory must be contained by the sandbox root"
+            ) from exc
         cwd.mkdir(parents=True, exist_ok=True)
         return cwd
 
@@ -527,6 +549,7 @@ class ExecutableUnitRunner:
         sandbox_root: Path,
         relative_cwd: Path,
         base_env: dict[str, str],
+        allowed_env_keys: Sequence[str],
         build_cache_key: str,
         timeout_seconds: float | None,
         resource_constraints: ResourceConstraints | None,
@@ -542,7 +565,7 @@ class ExecutableUnitRunner:
             cwd=cwd,
             sandbox_root=sandbox_root,
             relative_cwd=relative_cwd,
-            allowed_env_keys=None,
+            allowed_env_keys=allowed_env_keys,
             overlay_env=build_env,
             timeout_seconds=timeout_seconds,
             resource_constraints=resource_constraints,
@@ -780,4 +803,5 @@ __all__ = [
     "ExecutableUnitRegistry",
     "ExecutableUnitRunResult",
     "ExecutableUnitRunner",
+    "ProjectMaterializer",
 ]

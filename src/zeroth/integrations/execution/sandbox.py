@@ -96,9 +96,9 @@ def build_sandbox_environment(
     adds any overlay variables on top. This prevents leaking sensitive
     environment variables into sandboxed processes.
     """
-    source = dict(base_env or os.environ)
+    source = dict(os.environ if base_env is None else base_env)
     environment: dict[str, str] = {}
-    allowed = set(source) if allowed_env_keys is None else {key for key in allowed_env_keys}
+    allowed = set() if allowed_env_keys is None else {key for key in allowed_env_keys}
     for key in allowed:
         if key in source:
             environment[key] = str(source[key])
@@ -150,9 +150,11 @@ class SandboxStrictnessMode(StrEnum):
     STRICT = "strict"
 
 
-def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
-    """Container-hardening flags applied to every sandbox `docker run`."""
-    if not docker.hardened:
+def build_docker_hardening_flags(
+    *, hardened: bool = True, run_as_user: str | None = None
+) -> list[str]:
+    """Build the shared fail-closed hardening flags for untrusted containers."""
+    if not hardened:
         flags: list[str] = []
     else:
         flags = [
@@ -164,9 +166,17 @@ def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
             "--tmpfs",
             "/tmp",
         ]
-    if docker.run_as_user:
-        flags.extend(["--user", docker.run_as_user])
+    if run_as_user:
+        flags.extend(["--user", run_as_user])
     return flags
+
+
+def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
+    """Container-hardening flags applied to every sandbox `docker run`."""
+    return build_docker_hardening_flags(
+        hardened=docker.hardened,
+        run_as_user=docker.run_as_user,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +221,8 @@ class SandboxExecutionResult:
     cache_key: str | None = None
     backend: str = SandboxBackendMode.LOCAL.value
     container_name: str | None = None
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class SandboxTimeoutError(TimeoutError):
@@ -320,7 +332,7 @@ class SandboxManager:
         container_inspector: Callable[[str], bool] | None = None,
         sidecar_client: Any | None = None,
     ) -> None:
-        self._base_env = dict(base_env or os.environ)
+        self._base_env = dict(os.environ if base_env is None else base_env)
         self._cache_manager = cache_manager or EnvironmentCacheManager()
         self._config = config or SandboxConfig()
         self._command_runner = command_runner or subprocess.run
@@ -413,6 +425,10 @@ class SandboxManager:
             sandbox_root = Path(tempdir)
             relative_cwd = self._resolve_relative_workdir(working_directory)
             host_cwd = sandbox_root if relative_cwd is None else sandbox_root / relative_cwd
+            try:
+                host_cwd.resolve(strict=False).relative_to(sandbox_root.resolve())
+            except ValueError as exc:
+                raise ValueError("working_directory must be contained by the sandbox root") from exc
             host_cwd.mkdir(parents=True, exist_ok=True)
             backend = self._resolve_backend(resource_constraints)
             if backend is SandboxBackendMode.SIDECAR:
@@ -449,6 +465,12 @@ class SandboxManager:
         """Decide which backend to use based on config and Docker availability."""
         configured = self._config.backend
         strictness = self._config.strictness_mode
+        if (
+            strictness is SandboxStrictnessMode.STRICT
+            and configured is not SandboxBackendMode.LOCAL
+            and not self._config.docker.hardened
+        ):
+            raise SandboxPolicyViolationError("strict sandbox mode requires container hardening")
         if configured is SandboxBackendMode.SIDECAR:
             if self._sidecar_client is None:
                 raise SandboxBackendUnavailableError("sidecar client not configured")
@@ -510,6 +532,8 @@ class SandboxManager:
         relative_cwd = Path(working_directory)
         if relative_cwd.is_absolute():
             raise ValueError("working_directory must be relative to the sandbox root")
+        if ".." in relative_cwd.parts:
+            raise ValueError("working_directory must be contained by the sandbox root")
         return relative_cwd
 
     def _run_locally(
@@ -685,6 +709,8 @@ class SandboxManager:
             duration_seconds=response.duration_seconds,
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.SIDECAR.value,
+            stdout_truncated=response.stdout_truncated,
+            stderr_truncated=response.stderr_truncated,
         )
 
     def _docker_image_for(self, container_name: str) -> str:
@@ -809,6 +835,7 @@ __all__ = [
     "SandboxPolicyViolationError",
     "SandboxStrictnessMode",
     "SandboxTimeoutError",
+    "build_docker_hardening_flags",
     "build_sandbox_environment",
     "compute_environment_cache_key",
     "docker_container_running",
