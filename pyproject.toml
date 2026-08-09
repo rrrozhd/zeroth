@@ -146,9 +146,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # Namespace layout (PEP 420): src/zeroth has no __init__.py; hatchling packs
 # everything under src/zeroth/ (zeroth/runtime/, zeroth/econ/plane/, …) into the wheel.
-# The absorbed Regulus trees now live under src/zeroth, so a single package root
-# suffices. Re-verify wheel contents after the absorption (see 28-RESEARCH.md pitfall #2).
-packages = ["src/zeroth"]
+# Ship the runtime plus release tooling that pytest must import before collection.
+# Re-verify wheel contents after packaging changes (see 28-RESEARCH.md pitfall #2).
+packages = ["src/zeroth", "release"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -183,6 +183,7 @@ asyncio_mode = "auto"
 addopts = "-m 'not live and not langgraph_conformance'"
 markers = [
     "live: marks tests requiring live API keys (deselect with '-m not live')",
+    "security_rc: mandatory distributed security release-candidate evidence",
     "legacy_engine: explicit compatibility gates for sequential_join_enabled=False",
     "postgres: marks tests exercising PostgreSQL-specific coordination",
     "langgraph_conformance: pinned Agent Server compatibility release gate",

@@ -61,6 +61,8 @@ class RunWorker:
     orchestrator: RuntimeOrchestrator
     graph: Graph
     lease_manager: LeaseManager
+    tenant_id: str | None = None
+    workspace_id: str | None = None
     max_concurrency: int = 8
     poll_interval: float = 0.5
     worker_id: str = field(default_factory=_new_worker_id)
@@ -83,6 +85,12 @@ class RunWorker:
             else None
         )
 
+    def _lease_scope(self) -> dict[str, object]:
+        """Return the trusted deployment scope when this worker has one."""
+        if self.tenant_id is None:
+            return {}
+        return {"tenant_id": self.tenant_id, "workspace_id": self.workspace_id}
+
     # ---------------------------------------------------------------------------
     # Public lifecycle
     # ---------------------------------------------------------------------------
@@ -96,7 +104,11 @@ class RunWorker:
             self.deployment_ref,
             self.max_concurrency,
         )
-        orphans = await self.lease_manager.claim_orphaned(self.deployment_ref, self.worker_id)
+        orphans = await self.lease_manager.claim_orphaned(
+            self.deployment_ref,
+            self.worker_id,
+            **self._lease_scope(),
+        )
         for run_id in orphans:
             logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
             task = asyncio.create_task(
@@ -112,7 +124,11 @@ class RunWorker:
             try:
                 await self._semaphore.acquire()
                 slot_reserved = True
-                run_id = await self.lease_manager.claim_pending(self.deployment_ref, self.worker_id)
+                run_id = await self.lease_manager.claim_pending(
+                    self.deployment_ref,
+                    self.worker_id,
+                    **self._lease_scope(),
+                )
                 if run_id is not None:
                     task = asyncio.create_task(
                         self._execute_leased_run(
@@ -442,7 +458,11 @@ class RunWorker:
         try:
             await self._semaphore.acquire()
             slot_reserved = True
-            claimed_id = await self.lease_manager.claim_pending(self.deployment_ref, self.worker_id)
+            claimed_id = await self.lease_manager.claim_pending(
+                self.deployment_ref,
+                self.worker_id,
+                **self._lease_scope(),
+            )
             if claimed_id is not None:
                 task = asyncio.create_task(
                     self._execute_leased_run(

@@ -14,7 +14,7 @@ from zeroth.platform.artifacts.store import RedisArtifactStore
 from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
 
-@pytest.mark.live
+@pytest.mark.security_rc
 @pytest.mark.asyncio
 async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None:
     """Two real clients and reconstructed wrappers retain physical isolation."""

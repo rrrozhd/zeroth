@@ -183,13 +183,15 @@ class AuditRepository:
             )
         return await self.get(record.audit_id)
 
-    async def get(self, audit_id: str) -> NodeAuditRecord | None:
-        """Look up a single audit record by its ID. Returns None if not found."""
+    async def get(self, audit_id: str, *, tenant_id: str | None = None) -> NodeAuditRecord | None:
+        """Look up one audit record, optionally constrained by tenant in SQL."""
+        sql = "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?"
+        params: tuple[str, ...] = (audit_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (audit_id, tenant_id)
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?",
-                (audit_id,),
-            )
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return self._hydrate(row)

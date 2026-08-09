@@ -199,6 +199,8 @@ async def bootstrap_service(
             orchestrator=orchestrator,
             graph=graph,
             lease_manager=lease_manager,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
             max_concurrency=resolved_guardrail_config.max_concurrency,
             dead_letter_manager=dead_letter_manager,
             metrics_collector=metrics_collector,

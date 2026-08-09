@@ -87,13 +87,15 @@ class ApprovalRepository:
             )
         return await self.get(record.approval_id)
 
-    async def get(self, approval_id: str) -> ApprovalRecord | None:
-        """Look up a single approval record by its ID. Returns None if not found."""
+    async def get(self, approval_id: str, *, tenant_id: str | None = None) -> ApprovalRecord | None:
+        """Look up one approval, optionally constrained by tenant in SQL."""
+        sql = "SELECT record_json FROM approvals WHERE approval_id = ?"
+        params = (approval_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (approval_id, tenant_id)
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT record_json FROM approvals WHERE approval_id = ?",
-                (approval_id,),
-            )
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
@@ -104,6 +106,7 @@ class ApprovalRepository:
         run_id: str | None = None,
         thread_id: str | None = None,
         deployment_ref: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return all approval records that are still waiting for a decision.
 
@@ -116,6 +119,7 @@ class ApprovalRepository:
             ("run_id", run_id),
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
+            ("tenant_id", tenant_id),
         ):
             if value is None:
                 continue
@@ -136,6 +140,7 @@ class ApprovalRepository:
         run_id: str | None = None,
         thread_id: str | None = None,
         deployment_ref: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return approval records, optionally filtered by run, thread, or deployment."""
         clauses: list[str] = []
@@ -144,6 +149,7 @@ class ApprovalRepository:
             ("run_id", run_id),
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
+            ("tenant_id", tenant_id),
         ):
             if value is None:
                 continue

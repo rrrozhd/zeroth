@@ -412,10 +412,15 @@ class ExecutableUnitRunner:
         )
         environment = None
         if hasattr(self.sandbox_manager, "prepare_environment"):
+            cache_identity = {
+                "manifest": manifest.cache_identity_fields,
+                "tenant_id": enforcement.get("tenant_id"),
+                "workspace_id": enforcement.get("workspace_id"),
+            }
             environment = self.sandbox_manager.prepare_environment(
                 allowed_env_keys=binding.allowed_env_keys,
                 overlay=secret_filtered_env,
-                cache_identity=manifest.cache_identity_fields,
+                cache_identity=cache_identity,
                 runtime=manifest.runtime.value,
                 runtime_version=str(manifest.version),
                 dependency_manifest=[

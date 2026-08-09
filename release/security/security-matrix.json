@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "protected_surfaces": ["workflows", "deployments", "runs", "threads", "artifacts", "audit", "approvals", "connectors", "manifests", "repository-installations", "checkouts", "caches", "rate-limit-buckets", "execution-results"],
+  "operations": ["read", "write", "execute", "enumerate", "approve", "retrieve", "delete"],
+  "persistence_boundaries": ["SQL", "Redis", "artifact-store", "LangGraph-checkpointer", "workers", "restarts"],
+  "attacks": ["forged-tenant-claims", "identifier-guessing", "replay", "concurrency", "stale-credentials", "revoked-access"],
+  "observable_output_surfaces": ["workload-environment", "logs", "errors", "artifacts", "audit-payloads", "other-tenant"],
+  "hostile_fixtures": ["traversal", "symlinks", "host-mounts", "network", "process-abuse", "resource-abuse", "output-abuse", "timeout", "cancellation"],
+  "cases": [
+    {
+      "id": "workflows-read-write-enumerate-delete-sql-404",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_graph_foreign_tenant_is_404_across_studio_api"]
+    },
+    {
+      "id": "deployments-read-enumerate-create-collision-sql",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_deployment_repository_is_tenant_scoped"]
+    },
+    {
+      "id": "runs-execute-read-result-guessing-404",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/service/test_tenant_isolation.py::test_cross_tenant_run_read_returns_not_found_and_audits_denial",
+        "tests/service/test_tenant_isolation.py::test_cross_tenant_permission_routes_hide_every_deployment_surface"
+      ]
+    },
+    {
+      "id": "runs-same-id-concurrency-and-replay-sql",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/integrations/persistence/runs/test_run_repository.py::test_create_rejects_foreign_tenant_same_id_without_overwriting_owner",
+        "tests/integrations/persistence/runs/test_run_repository.py::test_racing_tenants_get_exactly_one_same_run_id_winner"
+      ]
+    },
+    {
+      "id": "threads-read-list-attach-resolve-sql",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_get_hides_foreign_thread_like_unknown",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_create_rejects_foreign_same_thread_id_without_overwriting_owner",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_list_excludes_other_tenant_and_workspace",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_hides_foreign_thread_like_unknown",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_active_run_helpers_hide_foreign_thread"
+      ]
+    },
+    {
+      "id": "artifacts-read-write-retrieve-delete-filesystem-restart",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/artifacts/test_tenant_scoped_store.py::test_shared_backend_isolates_full_artifact_lifecycle[filesystem]",
+        "tests/artifacts/test_tenant_scoped_store.py::test_restart_keeps_filesystem_scope_and_missing_errors_logical",
+        "tests/service/test_tenant_isolation.py::test_foreign_tenant_artifact_retrieval_is_hidden_before_store_lookup"
+      ]
+    },
+    {
+      "id": "audit-enumerate-retrieve-sql",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/service/test_cross_tenant_leak_matrix.py::test_audit_query_is_tenant_scoped",
+        "tests/security/test_surface_isolation.py::test_audit_retrieve_foreign_id_matches_unknown"
+      ]
+    },
+    {
+      "id": "approvals-enumerate-retrieve-resolve-replay",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_surface_isolation.py::test_approval_enumerate_and_retrieve_are_tenant_scoped",
+        "tests/service/test_tenant_isolation.py::test_cross_tenant_approval_resolution_is_hidden",
+        "tests/service/test_approval_api.py::test_approval_api_duplicate_resolution_is_idempotent"
+      ]
+    },
+    {
+      "id": "connectors-enumerate-write-delete-sql",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_connector_config_repository_is_tenant_scoped"]
+    },
+    {
+      "id": "manifests-enumerate-404",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/service/test_tenant_isolation.py::test_cross_tenant_permission_only_manifest_read_is_hidden_and_audited"]
+    },
+    {
+      "id": "memory-same-key-read-write-enumerate",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/memory/test_tenant_scoped_connector.py::test_write_as_a_not_readable_as_b[shared-redis_kv-raw1]",
+        "tests/memory/test_tenant_scoped_connector.py::test_search_is_tenant_isolated[redis_thread-raw2]"
+      ]
+    },
+    {
+      "id": "cache-same-manifest-enforced-tenant-identity",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/test_surface_isolation.py::test_cache_same_manifest_isolated_by_enforced_tenant_identity"]
+    },
+    {
+      "id": "rate-limit-and-quota-same-subject-concurrency",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_surface_isolation.py::test_rate_limit_same_subject_isolated_by_tenant_key",
+        "tests/security/test_surface_isolation.py::test_quota_same_subject_isolated_by_tenant_key",
+        "tests/guardrails/test_rate_limit.py::test_token_bucket_concurrent_consume_never_exceeds_capacity",
+        "tests/guardrails/test_rate_limit.py::test_quota_concurrent_increment_never_exceeds_limit"
+      ]
+    },
+    {
+      "id": "checkpointer-read-identifier-guessing",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/test_persistence_isolation.py::test_checkpoint_guessing_is_hidden_by_owning_run_tenant"]
+    },
+    {
+      "id": "restarts-workers-and-execution-results",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_persistence_isolation.py::test_sqlite_repository_reconstruction_preserves_scope_predicates",
+        "tests/security/test_persistence_isolation.py::test_execution_result_guessing_stays_hidden_after_restart",
+        "tests/security/test_persistence_isolation.py::test_worker_claims_only_its_tenant_pending_runs",
+        "tests/security/test_persistence_isolation.py::test_restarted_dispatch_worker_executes_only_its_deployment_tenant"
+      ]
+    },
+    {
+      "id": "verified-claims-stale-revoked-and-replayed-credentials",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_credentials.py::test_static_key_is_rejected_immediately_after_registry_snapshot_replacement",
+        "tests/security/test_credentials.py::test_signed_jwt_jti_and_fingerprint_identifiers_are_revocable_without_storing_token",
+        "tests/security/test_credentials.py::test_snapshot_replacement_waits_for_an_inflight_old_snapshot_decision",
+        "tests/security/test_credentials.py::test_whitespace_jti_uses_the_verified_token_fingerprint_for_revocation",
+        "tests/service/test_bearer_auth.py::test_runs_rejects_bearer_token_with_wrong_signature",
+        "tests/service/test_bearer_auth.py::test_unverified_platform_admin_claim_is_rejected"
+      ]
+    },
+    {
+      "id": "credential-canary-observable-surface-scan",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/test_observable_surfaces.py::test_credential_canary_is_absent_from_every_observable_surface"]
+    },
+    {
+      "id": "hostile-traversal-symlink-host-mount-network-resource",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/execution_units/test_runner.py::test_runner_rejects_symlink_escape_workdir",
+        "tests/sandbox_sidecar/test_executor_argv.py::test_execute_argv_applies_shared_hardening_without_host_mounts",
+        "tests/execution_units/test_sandbox_hardening.py::test_strict_docker_denies_network_unless_explicitly_authorized[None-none]",
+        "tests/execution_units/test_sandbox_hardening.py::test_run_in_docker_applies_resource_constraint_flags"
+      ]
+    },
+    {
+      "id": "hostile-process-output-timeout-cancellation",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_hostile_workloads.py::test_sidecar_bounds_stdout_and_stderr_with_truncation_metadata",
+        "tests/security/test_hostile_workloads.py::test_sidecar_timeout_kills_and_waits_for_child",
+        "tests/security/test_hostile_workloads.py::test_sidecar_cancel_stops_active_child_persists_status_and_cleans_network",
+        "tests/security/test_hostile_workloads.py::test_duplicate_active_execution_id_is_rejected_before_side_effects"
+      ]
+    },
+    {
+      "id": "postgres-sql-predicates-race-and-pool-restart",
+      "tiers": ["release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_predicates_race_and_pool_restart"]
+    },
+    {
+      "id": "redis-memory-kv-thread-reconnect",
+      "tiers": ["release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/distributed/test_redis_memory_isolation.py::test_security_rc_memory_same_key_isolated_after_client_reconnect[redis-kv]",
+        "tests/security/distributed/test_redis_memory_isolation.py::test_security_rc_memory_same_key_isolated_after_client_reconnect[redis-thread]"
+      ]
+    },
+    {
+      "id": "redis-artifact-reconnect",
+      "tiers": ["release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/distributed/test_redis_artifact_isolation.py::test_security_rc_redis_artifact_isolation_survives_reconnect"]
+    },
+    {
+      "id": "absent-repository-installations-and-checkouts",
+      "tiers": ["release-candidate"],
+      "coverage": "absent-fail-closed",
+      "test_nodes": [
+        "tests/security/test_absent_repository_ingress.py::test_complete_public_openapi_inventory_matches_reviewed_snapshot",
+        "tests/security/test_absent_repository_ingress.py::test_project_manifest_refuses_before_build_without_trusted_materializer"
+      ],
+      "refusal_test": "tests/security/test_absent_repository_ingress.py::test_project_manifest_refuses_before_build_without_trusted_materializer"
+    }
+  ]
+}

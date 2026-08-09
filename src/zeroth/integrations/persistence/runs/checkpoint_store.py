@@ -108,13 +108,18 @@ class CheckpointRowStore:
             ),
         )
 
-    async def get(self, checkpoint_id: str) -> Run | None:
-        """Load a previously saved checkpoint by its ID."""
+    async def get(self, checkpoint_id: str, *, tenant_id: str | None = None) -> Run | None:
+        """Load a checkpoint, optionally requiring its owning run's tenant."""
+        sql = "SELECT c.state_json FROM run_checkpoints c"
+        params: tuple[str, ...] = (checkpoint_id,)
+        if tenant_id is not None:
+            sql += " JOIN runs r ON r.run_id = c.run_id"
+        sql += " WHERE c.checkpoint_id = ?"
+        if tenant_id is not None:
+            sql += " AND r.tenant_id = ?"
+            params = (checkpoint_id, tenant_id)
         async with self.database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT state_json FROM run_checkpoints WHERE checkpoint_id = ?",
-                (checkpoint_id,),
-            )
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         state_json = self.decrypt_state_json(row["state_json"])

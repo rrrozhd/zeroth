@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+import tempfile
+from argparse import ArgumentParser
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +125,12 @@ class Matrix:
             kind: tuple(case.id for case in self.cases if case.coverage == kind)
             for kind in sorted(_COVERAGE_KINDS)
         }
+
+    def nodes(self, tier: str) -> tuple[str, ...]:
+        """Return reviewed node IDs for ``tier`` in matrix order."""
+        if tier not in TIERS:
+            raise MatrixError("tier", f"unknown tier: {tier}")
+        return tuple(node for case in self.cases if tier in case.tiers for node in case.test_nodes)
 
 
 def _reject_unknown_fields(value: dict[str, Any], expected: frozenset[str], path: str) -> None:
@@ -243,3 +253,164 @@ def load_matrix(path: Path) -> Matrix:
     if represented_tiers != TIERS:
         raise MatrixError("cases", "must include both pr-critical and release-candidate coverage")
     return Matrix(cases=cases, **vocabularies)
+
+
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    """Replace ``path`` with deterministic JSON without exposing partial evidence."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _load_outcomes(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise MatrixError("outcomes", f"evidence is unreadable: {error}") from error
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise MatrixError("outcomes.schema_version", "must equal 1")
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise MatrixError("outcomes.records", "must be a list")
+    required = {"nodeid", "phase", "outcome", "skip", "wasxfail"}
+    for index, record in enumerate(records):
+        if not isinstance(record, dict) or set(record) != required:
+            raise MatrixError(f"outcomes.records[{index}]", "must contain canonical report fields")
+        if not isinstance(record["nodeid"], str) or not record["nodeid"]:
+            raise MatrixError(f"outcomes.records[{index}].nodeid", "must be non-empty")
+        if record["phase"] not in {"setup", "call", "teardown"}:
+            raise MatrixError(f"outcomes.records[{index}].phase", "unknown phase")
+        if record["outcome"] not in {"passed", "failed", "skipped"}:
+            raise MatrixError(f"outcomes.records[{index}].outcome", "unknown outcome")
+        if record["skip"] is not None and not isinstance(record["skip"], str):
+            raise MatrixError(f"outcomes.records[{index}].skip", "must be null or a string")
+        if record["wasxfail"] is not None and not isinstance(record["wasxfail"], str):
+            raise MatrixError(f"outcomes.records[{index}].wasxfail", "must be null or a string")
+    return records
+
+
+def verify_coverage(matrix_path: Path, tier: str, outcomes_path: Path, output: Path) -> int:
+    """Check bindings independently of whether individual tests passed."""
+    matrix = load_matrix(matrix_path)
+    expected = set(matrix.nodes(tier))
+    records = _load_outcomes(outcomes_path)
+    phases: Counter[tuple[str, str]] = Counter(
+        (record["nodeid"], record["phase"]) for record in records
+    )
+    observed = {nodeid for nodeid, _ in phases}
+    duplicate_phases = sorted(
+        f"{nodeid}::{phase}" for (nodeid, phase), count in phases.items() if count != 1
+    )
+    missing = sorted(expected - observed)
+    unbound = sorted(observed - expected)
+    status = "passed" if not (missing or unbound or duplicate_phases) else "failed"
+    _atomic_json(
+        output,
+        {
+            "schema_version": 1,
+            "kind": "coverage",
+            "tier": tier,
+            "status": status,
+            "expected_nodes": sorted(expected),
+            "observed_nodes": sorted(observed),
+            "missing_nodes": missing,
+            "unbound_nodes": unbound,
+            "duplicate_phases": duplicate_phases,
+        },
+    )
+    return 0 if status == "passed" else 1
+
+
+def verify_outcomes(matrix_path: Path, tier: str, outcomes_path: Path, output: Path) -> int:
+    """Reject incomplete, skipped, failed, xfailed, or xpassed bound nodes."""
+    matrix = load_matrix(matrix_path)
+    expected = matrix.nodes(tier)
+    records = _load_outcomes(outcomes_path)
+    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for record in records:
+        grouped.setdefault(record["nodeid"], {}).setdefault(record["phase"], []).append(record)
+    failures: list[dict[str, str]] = []
+    for nodeid in expected:
+        phases = grouped.get(nodeid, {})
+        for phase in ("setup", "call", "teardown"):
+            reports = phases.get(phase, [])
+            if len(reports) != 1:
+                failures.append(
+                    {"nodeid": nodeid, "phase": phase, "reason": "incomplete-or-duplicate"}
+                )
+                continue
+            report = reports[0]
+            if report["wasxfail"] is not None:
+                reason = "xfail-or-xpass"
+            elif report["outcome"] != "passed":
+                reason = str(report["outcome"])
+            elif report["skip"] is not None:
+                reason = "skip"
+            else:
+                continue
+            failures.append({"nodeid": nodeid, "phase": phase, "reason": reason})
+    status = "failed" if failures else "passed"
+    _atomic_json(
+        output,
+        {
+            "schema_version": 1,
+            "kind": "outcomes",
+            "tier": tier,
+            "status": status,
+            "failures": failures,
+        },
+    )
+    return 1 if failures else 0
+
+
+def _parser() -> ArgumentParser:
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--matrix",
+        type=Path,
+        default=Path("release/security/security-matrix.json"),
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    nodes = commands.add_parser("nodes")
+    nodes.add_argument("--tier", choices=sorted(TIERS), required=True)
+    nodes.add_argument("--format", choices=("lines", "nul"), default="lines")
+    for name in ("verify-coverage", "verify-outcomes"):
+        verify = commands.add_parser(name)
+        verify.add_argument("--tier", choices=sorted(TIERS), required=True)
+        verify.add_argument("--outcomes", type=Path, required=True)
+        verify.add_argument("--output", type=Path, required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run fail-closed matrix enumeration or evidence verification."""
+    args = _parser().parse_args(argv)
+    try:
+        if args.command == "nodes":
+            nodes = load_matrix(args.matrix).nodes(args.tier)
+            separator = b"\0" if args.format == "nul" else b"\n"
+            payload = separator.join(node.encode("utf-8") for node in nodes)
+            if nodes:
+                payload += separator
+            sys.stdout.buffer.write(payload)
+            return 0
+        verifier = verify_coverage if args.command == "verify-coverage" else verify_outcomes
+        return verifier(args.matrix, args.tier, args.outcomes, args.output)
+    except MatrixError as error:
+        print(error, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
