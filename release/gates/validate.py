@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gates.identity import canonical, facet_matches
+from gates.identity import canonical, facet_matches, identity_digest
 from gates.manifest import select_gates
 
 PASSED = "passed"
@@ -67,6 +67,29 @@ EVIDENCE_SHAPES = {
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+DEPLOYED_ACCEPTANCE_SCENARIOS = frozenset(
+    {
+        "readiness",
+        "authentication",
+        "rbac",
+        "migrations",
+        "workflow_lifecycle",
+        "deployment",
+        "runs",
+        "streaming",
+        "approvals",
+        "audit",
+        "artifacts",
+        "retention",
+        "gateway_http",
+        "gateway_websocket",
+        "compatibility",
+        "executable_unit_failures",
+        "restart_recovery",
+        "shutdown",
+    }
+)
 
 
 def _all_digests(values: Any) -> bool:
@@ -278,6 +301,76 @@ def _binding_result(
     return None
 
 
+def _deployed_acceptance_result(
+    gate: dict[str, Any],
+    record: dict[str, Any],
+    candidate: dict[str, Any],
+    root: Path,
+) -> GateResult | None:
+    """Validate the semantic contents of ZER-35's deployment evidence."""
+    if gate["id"] != "remote-acceptance":
+        return None
+    relative = record["kinds"].get("deployment")
+    try:
+        report = json.loads((root / str(relative)).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return GateResult(gate["id"], PARTIAL, f"deployed acceptance report is unreadable: {error}")
+    if not isinstance(report, dict) or report.get("schema_version") != 1:
+        return GateResult(gate["id"], PARTIAL, "deployed acceptance report schema is invalid")
+    if report.get("candidate_digest") != identity_digest(candidate):
+        return GateResult(
+            gate["id"],
+            MISMATCHED,
+            "deployed acceptance candidate digest belongs to a different build",
+        )
+    if canonical(report.get("image_identity")) != canonical(candidate.get("image")):
+        return GateResult(
+            gate["id"],
+            MISMATCHED,
+            "deployed acceptance image identity belongs to a different build",
+        )
+    tenant = report.get("tenant_id")
+    namespace = report.get("namespace")
+    if not isinstance(tenant, str) or not tenant.startswith("acceptance-"):
+        return GateResult(gate["id"], PARTIAL, "report does not name a dedicated acceptance tenant")
+    if not isinstance(namespace, str) or not namespace.startswith(f"{tenant}-"):
+        return GateResult(gate["id"], PARTIAL, "report namespace is not owned by its tenant")
+    scenarios = report.get("scenarios")
+    if not isinstance(scenarios, list):
+        return GateResult(gate["id"], PARTIAL, "report scenarios must be a list")
+    names = {
+        item.get("name") for item in scenarios if isinstance(item, dict) and item.get("name")
+    }
+    if names != DEPLOYED_ACCEPTANCE_SCENARIOS:
+        missing = sorted(DEPLOYED_ACCEPTANCE_SCENARIOS - names)
+        return GateResult(
+            gate["id"],
+            PARTIAL,
+            "report does not contain exactly the required scenarios; "
+            f"missing: {', '.join(missing)}",
+        )
+    failed_scenarios = sorted(
+        str(item.get("name"))
+        for item in scenarios
+        if not isinstance(item, dict) or item.get("status") != PASSED
+    )
+    if failed_scenarios:
+        return GateResult(
+            gate["id"], FAILED, f"deployed scenarios failed: {', '.join(failed_scenarios)}"
+        )
+    cleanup = report.get("cleanup")
+    if not isinstance(cleanup, list) or not cleanup:
+        return GateResult(gate["id"], PARTIAL, "report contains no cleanup evidence")
+    if any(not isinstance(item, dict) or item.get("status") != PASSED for item in cleanup):
+        return GateResult(gate["id"], FAILED, "deployed acceptance cleanup failed")
+    compatibility = report.get("observed_compatibility")
+    if not isinstance(compatibility, dict) or compatibility.get("status") != "supported":
+        return GateResult(gate["id"], FAILED, "Agent Server compatibility is unsupported")
+    if report.get("status") != PASSED:
+        return GateResult(gate["id"], FAILED, f"deployed report status is {report.get('status')!r}")
+    return None
+
+
 def validate_gate(
     gate: dict[str, Any], candidate: dict[str, Any], evidence_root: Path
 ) -> GateResult:
@@ -307,6 +400,10 @@ def validate_gate(
     bound = _binding_result(gate, record["identity"], candidate)
     if bound is not None:
         return bound
+
+    deployed = _deployed_acceptance_result(gate, record, candidate, evidence_root)
+    if deployed is not None:
+        return deployed
 
     if record["status"] != PASSED:
         return GateResult(gate["id"], FAILED, f"record status is {record['status']!r}")

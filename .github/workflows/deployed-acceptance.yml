@@ -1,0 +1,89 @@
+name: Deployed acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: HTTPS URL of the selected acceptance deployment
+        required: true
+        type: string
+      tenant_id:
+        description: Dedicated tenant beginning with acceptance-
+        required: true
+        type: string
+      deployment_ref:
+        description: Deployment reference served by the target
+        required: true
+        type: string
+      release_run_id:
+        description: Release workflow run containing candidate-identity-full
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  deployed-acceptance:
+    runs-on: ubuntu-latest
+    env:
+      ZEROTH_ACCEPTANCE_OPERATOR_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_OPERATOR_KEY }}
+      ZEROTH_ACCEPTANCE_REVIEWER_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_REVIEWER_KEY }}
+      ZEROTH_ACCEPTANCE_ADMIN_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_ADMIN_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install harness dependencies
+        run: pip install . websockets
+      - name: Download the exact candidate identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release/evidence
+          gh run download "${{ inputs.release_run_id }}" --name candidate-identity-full --dir release/evidence
+      - name: Write non-secret target configuration
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          TENANT_ID: ${{ inputs.tenant_id }}
+          DEPLOYMENT_REF: ${{ inputs.deployment_ref }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          pathlib.Path("release/evidence/deployed-acceptance-config.json").write_text(
+              json.dumps({
+                  "schema_version": 1,
+                  "base_url": os.environ["DEPLOYMENT_URL"],
+                  "tenant_id": os.environ["TENANT_ID"],
+                  "deployment_ref": os.environ["DEPLOYMENT_REF"],
+                  "candidate_identity": "release/evidence/candidate-identity-full.json",
+                  "credentials": {
+                      "operator": "ZEROTH_ACCEPTANCE_OPERATOR_KEY",
+                      "reviewer": "ZEROTH_ACCEPTANCE_REVIEWER_KEY",
+                      "admin": "ZEROTH_ACCEPTANCE_ADMIN_KEY"
+                  },
+                  "lifecycle": {
+                      "restart_url": "/__acceptance/restart",
+                      "shutdown_url": "/__acceptance/shutdown"
+                  }
+              }, sort_keys=True), encoding="utf-8")
+          PY
+      - name: Run the complete black-box suite
+        id: acceptance
+        continue-on-error: true
+        run: |
+          python -m release.acceptance.cli \
+            --config release/evidence/deployed-acceptance-config.json \
+            --contract release/acceptance/contracts/fixture-v1.json \
+            --output release/evidence/deployed-acceptance-report.json
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-acceptance-${{ github.run_id }}
+          path: release/evidence/deployed-acceptance-report.json
+      - name: Enforce the verdict
+        if: steps.acceptance.outcome != 'success'
+        run: exit 1
