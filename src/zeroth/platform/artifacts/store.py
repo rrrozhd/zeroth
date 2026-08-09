@@ -81,7 +81,8 @@ class RedisArtifactStore:
     Stores artifact data and metadata as separate Redis keys with optional
     TTL. Run cleanup uses ``KEYS`` inside a Lua script so enumeration, deletion,
     and receipt completion cannot interleave. This blocks the Redis server for
-    the namespace scan and requires a standalone Redis deployment, not Cluster.
+    the namespace scan and requires standalone Redis 7+ (for command ACL
+    preflight), not Redis Cluster.
 
     Args:
         redis_url: Redis connection URL.
@@ -93,6 +94,15 @@ class RedisArtifactStore:
     _ERASURE_SCRIPT = r"""
 local kind = ARGV[1]
 local target = ARGV[2]
+local max_delete_keys = 1000
+
+if type(redis.acl_check_cmd) ~= "function" then
+    return {"unsupported"}
+end
+if not redis.acl_check_cmd("GET", KEYS[1])
+    or not redis.acl_check_cmd("GET", KEYS[2]) then
+    return {"forbidden"}
+end
 
 local function validate_receipt(raw, prior)
     local decoded, receipt = pcall(cjson.decode, raw)
@@ -149,22 +159,47 @@ if prior then
         target = target,
         result = result
     })
+    if not redis.acl_check_cmd("SET", KEYS[1], migrated) then
+        return {"forbidden"}
+    end
     redis.call("SET", KEYS[1], migrated)
     return {"ok", cjson.encode(result)}
 end
 
 if kind == "delete" then
+    local legacy_enabled = ARGV[3] == "1"
+    if not redis.acl_check_cmd("EXISTS", KEYS[3]) then
+        return {"forbidden"}
+    end
+    if legacy_enabled and not redis.acl_check_cmd("EXISTS", KEYS[5]) then
+        return {"forbidden"}
+    end
     local existed = redis.call("EXISTS", KEYS[3]) == 1
-        or redis.call("EXISTS", KEYS[5]) == 1
+    if not existed and legacy_enabled then
+        existed = redis.call("EXISTS", KEYS[5]) == 1
+    end
+    local delete_keys = {KEYS[3], KEYS[4]}
+    if legacy_enabled then
+        table.insert(delete_keys, KEYS[5])
+        table.insert(delete_keys, KEYS[6])
+    end
     local payload = cjson.encode({
         version = 2,
         kind = kind,
         target = target,
         result = existed
     })
-    redis.call("DEL", KEYS[3], KEYS[4], KEYS[5], KEYS[6])
+    if not redis.acl_check_cmd("SET", KEYS[1], payload)
+        or not redis.acl_check_cmd("DEL", unpack(delete_keys)) then
+        return {"forbidden"}
+    end
+    -- Every fallible read, decode, allocation, and permission check is complete.
+    -- SET can fail before deletion; bounded DEL is type-agnostic, frees memory,
+    -- and is deliberately the script's final Redis command.
+    local response = {"ok", cjson.encode(existed)}
     redis.call("SET", KEYS[1], payload)
-    return {"ok", cjson.encode(existed)}
+    redis.call("DEL", unpack(delete_keys))
+    return response
 end
 
 if kind ~= "cleanup_run" then
@@ -176,27 +211,54 @@ local meta_namespace = ARGV[4]
 local legacy_exact = ARGV[5]
 local new_namespace = ARGV[6]
 local legacy_namespace = ARGV[7]
-local new_keys = redis.call("KEYS", ARGV[8])
-local legacy_keys = redis.call("KEYS", ARGV[9])
+local legacy_enabled = ARGV[8] == "1"
+if not redis.acl_check_cmd("KEYS", ARGV[9]) then
+    return {"forbidden"}
+end
+if legacy_enabled and not redis.acl_check_cmd("KEYS", ARGV[10]) then
+    return {"forbidden"}
+end
+local new_keys = redis.call("KEYS", ARGV[9])
+local legacy_keys = {}
+if legacy_enabled then
+    legacy_keys = redis.call("KEYS", ARGV[10])
+end
+if #new_keys + #legacy_keys > max_delete_keys then
+    return {"too_many"}
+end
 local logical = {}
-local new_delete = {}
-local legacy_delete = {}
+local delete_keys = {}
+local delete_seen = {}
+
+local function add_delete(key)
+    if not delete_seen[key] then
+        delete_seen[key] = true
+        table.insert(delete_keys, key)
+    end
+end
 
 for _, key in ipairs(new_keys) do
     if string.sub(key, 1, string.len(new_exact)) == new_exact then
         local logical_key = string.sub(key, string.len(new_namespace) + 1)
         logical[logical_key] = true
-        table.insert(new_delete, key)
+        add_delete(key)
+        add_delete(meta_namespace .. logical_key)
     end
 end
 for _, key in ipairs(legacy_keys) do
     if string.sub(key, 1, string.len(legacy_exact)) == legacy_exact then
         local logical_key = string.sub(key, string.len(legacy_namespace) + 1)
+        if not redis.acl_check_cmd("EXISTS", key .. ":meta") then
+            return {"forbidden"}
+        end
         if redis.call("EXISTS", key .. ":meta") == 1 then
             logical[logical_key] = true
         end
-        table.insert(legacy_delete, key)
+        add_delete(key)
     end
+end
+if #delete_keys > max_delete_keys then
+    return {"too_many"}
 end
 
 local count = 0
@@ -209,16 +271,22 @@ local payload = cjson.encode({
     target = target,
     result = count
 })
-for _, key in ipairs(new_delete) do
-    local logical_key = string.sub(key, string.len(new_namespace) + 1)
-    redis.call("DEL", key, meta_namespace .. logical_key)
+if not redis.acl_check_cmd("SET", KEYS[1], payload) then
+    return {"forbidden"}
 end
-for _, key in ipairs(legacy_delete) do
-    redis.call("DEL", key)
+if #delete_keys > 0 and not redis.acl_check_cmd("DEL", unpack(delete_keys)) then
+    return {"forbidden"}
 end
+-- As above, the single bounded DEL is the final Redis command. Redis scripts
+-- prevent another client (including ACL administration) from interleaving.
+local response = {"ok", cjson.encode(count)}
 redis.call("SET", KEYS[1], payload)
-return {"ok", cjson.encode(count)}
+if #delete_keys > 0 then
+    redis.call("DEL", unpack(delete_keys))
+end
+return response
 """
+    _LEGACY_RESERVED_RUN_PREFIXES = ("data:", "meta:", "erasure-receipt:")
 
     def __init__(
         self,
@@ -260,6 +328,10 @@ return {"ok", cjson.encode(count)}
     def _legacy_receipt_key(self, idempotency_key: str) -> str:
         return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
+    def _legacy_key_is_unambiguous(self, key: str) -> bool:
+        owner = key.partition("/")[0]
+        return not owner.startswith(self._LEGACY_RESERVED_RUN_PREFIXES)
+
     @staticmethod
     def _glob_prefix(value: str) -> str:
         """Escape a literal Redis glob prefix before appending a wildcard."""
@@ -283,14 +355,17 @@ return {"ok", cjson.encode(count)}
             self._legacy_receipt_key(idempotency_key),
             *keys,
         ]
-        response = await self._client.eval(
-            self._ERASURE_SCRIPT,
-            len(script_keys),
-            *script_keys,
-            kind,
-            target,
-            *(arguments or []),
-        )
+        try:
+            response = await self._client.eval(
+                self._ERASURE_SCRIPT,
+                len(script_keys),
+                *script_keys,
+                kind,
+                target,
+                *(arguments or []),
+            )
+        except Exception:
+            raise ArtifactStorageError("Redis erasure operation failed") from None
         if not isinstance(response, (list, tuple)) or not response:
             raise ArtifactStorageError("Invalid erasure operation receipt")
         raw_status = response[0]
@@ -299,6 +374,8 @@ return {"ok", cjson.encode(count)}
             raise ArtifactStorageError("idempotency key reused for another operation")
         if status == "legacy":
             raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
+        if status in {"forbidden", "too_many", "unsupported"}:
+            raise ArtifactStorageError("Redis erasure operation failed")
         if status != "ok" or len(response) != 2:
             raise ArtifactStorageError("Invalid erasure operation receipt")
         raw_result = response[1]
@@ -385,7 +462,7 @@ return {"ok", cjson.encode(count)}
         """
         full_key = self._full_key(key)
         data = await self._client.get(full_key)
-        if data is None:
+        if data is None and self._legacy_key_is_unambiguous(key):
             data = await self._client.get(self._legacy_full_key(key))
         if data is None:
             msg = f"Artifact not found: {key}"
@@ -412,6 +489,7 @@ return {"ok", cjson.encode(count)}
             target=key,
             result_type=bool,
             keys=[full_key, meta_key, legacy_full_key, legacy_meta_key],
+            arguments=["1" if self._legacy_key_is_unambiguous(key) else "0"],
         )
         return bool(result)
 
@@ -430,7 +508,7 @@ return {"ok", cjson.encode(count)}
         """
         full_key = self._full_key(key)
         meta_key = self._meta_key(key)
-        if not await self._client.exists(full_key):
+        if not await self._client.exists(full_key) and self._legacy_key_is_unambiguous(key):
             full_key = self._legacy_full_key(key)
             meta_key = self._legacy_meta_key(key)
         if not await self._client.exists(full_key):
@@ -454,9 +532,11 @@ return {"ok", cjson.encode(count)}
             True if the artifact exists in Redis.
         """
         full_key = self._full_key(key)
+        if await self._client.exists(full_key):
+            return True
         return bool(
-            await self._client.exists(full_key)
-            or await self._client.exists(self._legacy_full_key(key))
+            self._legacy_key_is_unambiguous(key)
+            and await self._client.exists(self._legacy_full_key(key))
         )
 
     async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
@@ -464,6 +544,10 @@ return {"ok", cjson.encode(count)}
 
         The Lua script uses ``KEYS`` with escaped exact-prefix patterns. This
         deliberately trades server latency for a race-free cleanup boundary.
+        At most 1,000 physical keys are removed per operation. Historical
+        legacy runs beginning with a current Redis domain prefix are ambiguous
+        and require offline migration; only their current-layout keys are
+        cleaned here.
 
         Args:
             run_id: Run identifier whose artifacts should be cleaned up.
@@ -477,6 +561,7 @@ return {"ok", cjson.encode(count)}
         legacy_namespace = f"{self._prefix}:"
         new_exact = f"{new_namespace}{run_id}/"
         legacy_exact = f"{legacy_namespace}{run_id}/"
+        legacy_enabled = not run_id.startswith(self._LEGACY_RESERVED_RUN_PREFIXES)
         stable_count = await self._run_erasure_script(
             idempotency_key,
             kind="cleanup_run",
@@ -489,6 +574,7 @@ return {"ok", cjson.encode(count)}
                 legacy_exact,
                 new_namespace,
                 legacy_namespace,
+                "1" if legacy_enabled else "0",
                 f"{self._glob_prefix(new_exact)}*",
                 f"{self._glob_prefix(legacy_exact)}*",
             ],

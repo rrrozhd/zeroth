@@ -76,6 +76,17 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         assert await tenant_b.delete(owner_only_key, idempotency_key="foreign-delete") is False
         assert await tenant_a.retrieve(owner_only_key) == b"owner-only"
 
+        # A reachable server-side WRONGTYPE error occurs before any mutation.
+        await tenant_a.store("wrong-type/a", b"survives", "application/octet-stream")
+        wrong_type_receipt = (
+            f"{prefix}:erasure-receipt:v2:{tenant_a._receipt_id('wrong-type-receipt')}"
+        )
+        await reconnected_a.lpush(wrong_type_receipt, b"not-a-string-receipt")
+        with pytest.raises(ArtifactStorageError, match="Redis erasure operation failed"):
+            await tenant_a.delete("wrong-type/a", idempotency_key="wrong-type-receipt")
+        assert await tenant_a.retrieve("wrong-type/a") == b"survives"
+        await reconnected_a.delete(wrong_type_receipt)
+
         # Receipt bindings survive client and wrapper reconstruction.
         script_digest = hashlib.sha1(  # noqa: S324 - Redis requires a SHA-1 script digest
             RedisArtifactStore._ERASURE_SCRIPT.encode()
