@@ -93,7 +93,7 @@ promotion through the same evidence validator as every other gate.
 
 One piece of evidence has no CI producer: the promotion signoff. Before
 promoting to PyPI, a named human records acceptance at
-`release/signoff/<version>.md` — for example `release/signoff/0.19.md` — and
+`release/signoff/<version>.md` — for example `release/signoff/0.20.md` — and
 commits it on the release tag.
 
 The file must contain both:
