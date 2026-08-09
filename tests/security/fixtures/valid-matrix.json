@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "protected_surfaces": ["workflows", "deployments", "runs", "threads", "artifacts", "audit", "approvals", "connectors", "manifests", "repository-installations", "checkouts", "caches", "rate-limit-buckets", "execution-results"],
+  "operations": ["read", "write", "execute", "enumerate", "approve", "retrieve", "delete"],
+  "persistence_boundaries": ["SQL", "Redis", "artifact-store", "LangGraph-checkpointer", "workers", "restarts"],
+  "attacks": ["forged-tenant-claims", "identifier-guessing", "replay", "concurrency", "stale-credentials", "revoked-access"],
+  "observable_output_surfaces": ["workload-environment", "logs", "errors", "artifacts", "audit-payloads", "other-tenant"],
+  "hostile_fixtures": ["traversal", "symlinks", "host-mounts", "network", "process-abuse", "resource-abuse", "output-abuse", "timeout", "cancellation"],
+  "cases": [
+    {
+      "id": "fixture-workflow-read",
+      "tiers": ["pr-critical", "release-candidate"],
+      "coverage": "behavioral",
+      "test_nodes": ["tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"]
+    },
+    {
+      "id": "fixture-revoked-access-refusal",
+      "tiers": ["release-candidate"],
+      "coverage": "absent-fail-closed",
+      "test_nodes": ["tests/security/test_matrix_contract.py::test_fixture_refusal_binding"],
+      "refusal_test": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    }
+  ]
+}
