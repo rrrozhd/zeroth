@@ -33,7 +33,12 @@ def _config(tmp_path: Path):
             "deployment_ref": "dep",
             "candidate_identity": str(identity),
             "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
-            "lifecycle": {"restart_url": "/restart", "shutdown_url": "/shutdown"},
+            "lifecycle": {
+                "restart_url": "/restart",
+                "shutdown_url": "/shutdown",
+                "restart_status": 200,
+                "shutdown_status": 200,
+            },
         }
     ).resolve({"OP": "op", "REV": "rev", "ADM": "adm"}, run_id="01234567")
 
@@ -136,7 +141,7 @@ def _contract() -> dict[str, object]:
             _step(
                 "/anchors/before", expected_json={"run": True, "approval": True, "artifact": True}
             ),
-            _step("{restart_url}", method="POST"),
+            {"protocol": "lifecycle", "role": "admin", "operation": "restart"},
             _step(
                 "/anchors/after", expected_json={"run": True, "approval": True, "artifact": True}
             ),
@@ -144,7 +149,7 @@ def _contract() -> dict[str, object]:
     }
     scenarios["shutdown"] = {
         "steps": [
-            _step("{shutdown_url}", method="POST"),
+            {"protocol": "lifecycle", "role": "admin", "operation": "shutdown"},
             _step("/health/ready", expected_status=503),
         ]
     }
@@ -177,8 +182,8 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
         AcceptanceContract.model_validate(weak_approval)
 
     no_restart = _contract()
-    no_restart["scenarios"]["restart_recovery"]["steps"][1]["path"] = "/pretend"
-    with pytest.raises(ValidationError, match="restart_url"):
+    no_restart["scenarios"]["restart_recovery"]["steps"][1] = _step("/pretend", method="POST")
+    with pytest.raises(ValidationError, match="restart lifecycle operation"):
         AcceptanceContract.model_validate(no_restart)
 
     no_identity = _contract()
@@ -283,8 +288,10 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
     assert report.namespace == config.namespace
     assert all(result.status is ScenarioStatus.PASSED for result in report.scenarios)
     assert report.cleanup[0].status is ScenarioStatus.PASSED
-    assert ("operator", "POST", "/restart") in transport.requested
-    assert ("operator", "POST", "/shutdown") in transport.requested
+    # Lifecycle is a platform operation, so it authenticates as admin regardless of
+    # which role the surrounding scenario's probes use.
+    assert ("admin", "POST", "/restart") in transport.requested
+    assert ("admin", "POST", "/shutdown") in transport.requested
 
 
 @pytest.mark.asyncio

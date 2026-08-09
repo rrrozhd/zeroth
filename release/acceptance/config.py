@@ -26,6 +26,8 @@ class LifecycleConfig(BaseModel):
 
     restart_url: str
     shutdown_url: str
+    restart_status: int = Field(default=202, ge=200, le=299)
+    shutdown_status: int = Field(default=202, ge=200, le=299)
 
     @field_validator("restart_url", "shutdown_url")
     @classmethod
@@ -47,9 +49,10 @@ class AcceptanceConfig(BaseModel):
     deployment_ref: str = Field(min_length=1)
     candidate_identity: Path
     credentials: dict[str, str]
-    lifecycle: LifecycleConfig
+    lifecycle: LifecycleConfig | None = None
     timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     poll_deadline_seconds: float = Field(default=60.0, gt=0, le=600)
+    poll_interval_seconds: float = Field(default=0.1, gt=0, le=10)
 
     @field_validator("base_url")
     @classmethod
@@ -127,6 +130,7 @@ class AcceptanceConfig(BaseModel):
             lifecycle=self.lifecycle,
             timeout_seconds=self.timeout_seconds,
             poll_deadline_seconds=self.poll_deadline_seconds,
+            poll_interval_seconds=self.poll_interval_seconds,
             namespace=f"{self.tenant_id}-{identifier}",
             candidate_identity=candidate,
             candidate_digest=identity_digest(candidate),
@@ -142,9 +146,10 @@ class ResolvedAcceptanceConfig(BaseModel):
     base_url: str
     tenant_id: str
     deployment_ref: str
-    lifecycle: LifecycleConfig
+    lifecycle: LifecycleConfig | None
     timeout_seconds: float
     poll_deadline_seconds: float
+    poll_interval_seconds: float
     namespace: str
     candidate_identity: dict[str, Any]
     candidate_digest: str

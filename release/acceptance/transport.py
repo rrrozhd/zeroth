@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from pydantic import SecretStr
 from websockets.asyncio.client import connect as websocket_connect_default
+from websockets.exceptions import WebSocketException
 
 from .config import ResolvedAcceptanceConfig
 
@@ -133,6 +134,11 @@ class AcceptanceTransport:
                     await response.aclose()
         except TimeoutError as error:
             raise TransportError("HTTP acceptance deadline exceeded") from error
+        except httpx.HTTPError as error:
+            # A candidate that is restarting refuses connections. Surfacing that as the
+            # transport's own error type lets a polled step retry it instead of dying
+            # on the first refusal.
+            raise TransportError(f"HTTP acceptance transport failed: {error}") from error
         return HttpObservation(
             status_code=response.status_code,
             body=redact(body, self.config.credentials),
@@ -173,4 +179,6 @@ class AcceptanceTransport:
                             break
         except TimeoutError as error:
             raise TransportError("WebSocket acceptance deadline exceeded") from error
+        except (OSError, WebSocketException) as error:
+            raise TransportError(f"WebSocket acceptance transport failed: {error}") from error
         return events

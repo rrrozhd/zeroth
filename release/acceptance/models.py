@@ -58,9 +58,9 @@ class AcceptanceStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    protocol: Literal["http", "websocket"]
+    protocol: Literal["http", "websocket", "lifecycle"]
     role: Literal["anonymous", "operator", "reviewer", "admin"]
-    path: str
+    path: str = ""
     method: Literal["GET", "POST", "PUT", "DELETE"] | None = None
     payload: Any | None = None
     expected_status: int | None = None
@@ -71,19 +71,81 @@ class AcceptanceStep(BaseModel):
     max_events: int | None = None
     ordered_events: list[str] = Field(default_factory=list)
     resource_id: str | None = None
+    operation: Literal["restart", "shutdown"] | None = None
+    poll: bool = False
+    count_path: str | None = None
+    count_where: dict[str, Any] = Field(default_factory=dict)
+    expected_count: int | None = None
 
     @model_validator(mode="after")
     def _protocol_shape(self) -> AcceptanceStep:
+        if self.protocol == "lifecycle":
+            return self._lifecycle_shape()
+        if self.operation is not None:
+            raise ValueError("only lifecycle steps declare an operation")
+        if not self.path.startswith("/"):
+            raise ValueError("protocol steps require an origin-relative path")
+        self._transport_shape()
+        self._counting_shape()
+        return self._capture_shape()
+
+    def _transport_shape(self) -> None:
         if self.protocol == "http":
             if self.method is None or self.expected_status is None:
                 raise ValueError("HTTP steps require method and expected_status")
             if self.max_events is not None or self.ordered_events:
                 raise ValueError("HTTP steps cannot declare WebSocket assertions")
-        else:
-            if self.method is not None or self.expected_status is not None:
-                raise ValueError("WebSocket steps cannot declare HTTP assertions")
-            if self.max_events is None or not self.ordered_events:
-                raise ValueError("WebSocket steps require max_events and ordered_events")
+            return
+        if self.method is not None or self.expected_status is not None:
+            raise ValueError("WebSocket steps cannot declare HTTP assertions")
+        if self.max_events is None or not self.ordered_events:
+            raise ValueError("WebSocket steps require max_events and ordered_events")
+        if self.poll:
+            raise ValueError("WebSocket steps cannot be polled")
+
+    def _counting_shape(self) -> None:
+        if (self.count_path is None) != (self.expected_count is None):
+            raise ValueError("counting steps require both count_path and expected_count")
+        if self.count_path is None:
+            if self.count_where:
+                raise ValueError("count_where requires count_path")
+            return
+        if self.protocol != "http":
+            raise ValueError("only HTTP steps can count response collections")
+        if self.expected_count is not None and self.expected_count < 0:
+            raise ValueError("expected_count cannot be negative")
+
+    def _lifecycle_shape(self) -> AcceptanceStep:
+        """A lifecycle step names a platform operation, never an application route.
+
+        Restarting or draining a deployed candidate is something the platform does to
+        the process. Modelling it as an application endpoint would require the product
+        to ship a route that restarts itself, which is both a governance liability and
+        untestable against a candidate that is genuinely down.
+        """
+        if self.operation is None:
+            raise ValueError("lifecycle steps require an operation")
+        disallowed = (
+            self.path
+            or self.method is not None
+            or self.expected_status is not None
+            or self.expected_json
+            or self.payload is not None
+            or self.capture
+            or self.owned_capture
+            or self.max_events is not None
+            or self.ordered_events
+            or self.resource_id is not None
+            or self.require_correlation
+            or self.poll
+        )
+        if disallowed:
+            raise ValueError("lifecycle steps declare only a role and an operation")
+        if self.role != "admin":
+            raise ValueError("lifecycle steps require the admin role")
+        return self
+
+    def _capture_shape(self) -> AcceptanceStep:
         if self.method == "DELETE" and self.resource_id is None:
             raise ValueError("DELETE steps require a namespace-owned resource_id")
         if self.method == "DELETE" and self.owned_capture:
@@ -213,8 +275,8 @@ class AcceptanceContract(BaseModel):
             )
 
         restart = self.scenarios["restart_recovery"].steps
-        if not any(step.path == "{restart_url}" and step.method == "POST" for step in restart):
-            raise ValueError("restart_recovery must invoke {restart_url}")
+        if not any(step.operation == "restart" for step in restart):
+            raise ValueError("restart_recovery must invoke the restart lifecycle operation")
         anchors = {"run": True, "approval": True, "artifact": True}
         if sum(step.expected_json == anchors for step in restart) < 2:
             raise ValueError(
@@ -222,8 +284,8 @@ class AcceptanceContract(BaseModel):
             )
 
         shutdown = self.scenarios["shutdown"].steps
-        if not any(step.path == "{shutdown_url}" and step.method == "POST" for step in shutdown):
-            raise ValueError("shutdown must invoke {shutdown_url}")
+        if not any(step.operation == "shutdown" for step in shutdown):
+            raise ValueError("shutdown must invoke the shutdown lifecycle operation")
         readiness_withdrawn = any(
             step.path == "/health/ready" and step.expected_status == 503 for step in shutdown
         )
@@ -246,7 +308,7 @@ class StepObservation(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    protocol: Literal["http", "websocket"]
+    protocol: Literal["http", "websocket", "lifecycle"]
     path: str
     status_code: int | None = None
     correlation_id: str | None = None

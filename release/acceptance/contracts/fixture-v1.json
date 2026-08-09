@@ -82,14 +82,14 @@
     "restart_recovery": {
       "steps": [
         {"protocol":"http","role":"reviewer","method":"GET","path":"/__acceptance/durability/{run_id}/before","expected_status":200,"expected_json":{"run":true,"approval":true,"artifact":true}},
-        {"protocol":"http","role":"admin","method":"POST","path":"{restart_url}","expected_status":202},
+        {"protocol":"lifecycle","role":"admin","operation":"restart"},
         {"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expected_status":200,"expected_json":{"checks":{"database":{"status":"ok"}}}},
         {"protocol":"http","role":"reviewer","method":"GET","path":"/__acceptance/durability/{run_id}/after","expected_status":200,"expected_json":{"run":true,"approval":true,"artifact":true}}
       ]
     },
     "shutdown": {
       "steps": [
-        {"protocol":"http","role":"admin","method":"POST","path":"{shutdown_url}","expected_status":202,"expected_json":{"draining":true}},
+        {"protocol":"lifecycle","role":"admin","operation":"shutdown"},
         {"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expected_status":503,"expected_json":{"status":"draining"}}
       ]
     }

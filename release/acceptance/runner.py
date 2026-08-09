@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from .config import ResolvedAcceptanceConfig
+from .lifecycle import HttpLifecycleController, LifecycleController
 from .models import (
     REQUIRED_SCENARIOS,
     AcceptanceContract,
@@ -15,6 +17,7 @@ from .models import (
     ScenarioStatus,
     StepObservation,
 )
+from .transport import TransportError
 
 
 class AcceptanceTransportLike(Protocol):
@@ -63,17 +66,21 @@ class AcceptanceRunner:
         config: ResolvedAcceptanceConfig,
         contract: AcceptanceContract,
         transport: AcceptanceTransportLike,
+        lifecycle: LifecycleController | None = None,
     ) -> None:
         self.config = config
         self.contract = contract
         self.transport = transport
+        if lifecycle is None:
+            if config.lifecycle is None:
+                raise ValueError("a lifecycle controller or lifecycle endpoints are required")
+            lifecycle = HttpLifecycleController(transport, config.lifecycle)
+        self.lifecycle = lifecycle
         self._context: dict[str, Any] = {
             "namespace": config.namespace,
             "tenant_id": config.tenant_id,
             "deployment_ref": config.deployment_ref,
             "candidate_digest": config.candidate_digest,
-            "restart_url": config.lifecycle.restart_url,
-            "shutdown_url": config.lifecycle.shutdown_url,
         }
         self._observed_compatibility: dict[str, Any] | None = None
         self._owned_resources: set[str] = set()
@@ -90,46 +97,113 @@ class AcceptanceRunner:
             return [self._format(item) for item in value]
         return value
 
+    def _assert_count(self, step: AcceptanceStep, body: Any, path: str) -> None:
+        """Assert how many records in a response collection match a pattern.
+
+        Side-effect claims need a count, not a flag. "The approval-gated node ran zero
+        times, then exactly once" is only checkable black-box by counting the records
+        the deployment itself published for that node.
+        """
+        collection = _read(body, str(step.count_path))
+        if not isinstance(collection, list):
+            raise AssertionError(f"{path}.{step.count_path} is not a collection")
+        pattern = self._format(step.count_where)
+        matched = 0
+        for item in collection:
+            try:
+                _subset(pattern, item)
+            except AssertionError:
+                continue
+            matched += 1
+        if matched != step.expected_count:
+            raise AssertionError(
+                f"{path}.{step.count_path} matching {pattern!r} expected "
+                f"{step.expected_count} record(s), got {matched}"
+            )
+
     async def _step(self, step: AcceptanceStep) -> StepObservation:
+        """Run one step, retrying only those the contract marks as eventually true.
+
+        A deployed run settles asynchronously, so a single GET proves nothing about a
+        terminal status. Polling is opt-in per step and bounded by the configured
+        deadline, and the last failure is what surfaces when the deadline passes — a
+        bare timeout would hide which assertion never became true.
+        """
+        if not step.poll:
+            return await self._execute_step(step)
+        deadline = asyncio.get_running_loop().time() + self.config.poll_deadline_seconds
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return await self._execute_step(step)
+            except (AssertionError, TransportError) as error:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError(
+                        f"{error} (still false after {attempts} attempt(s) in "
+                        f"{self.config.poll_deadline_seconds:g}s)"
+                    ) from error
+            await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _execute_step(self, step: AcceptanceStep) -> StepObservation:
+        if step.protocol == "lifecycle":
+            return await self._execute_lifecycle(step)
         path = self._format(step.path)
         if step.method == "DELETE":
             resource_id = self._format(step.resource_id)
             if resource_id not in self._owned_resources:
                 self.config.require_owned(resource_id)
         if step.protocol == "http":
-            role = None if step.role == "anonymous" else step.role
-            response = await self.transport.request(
-                role,
-                step.method or "GET",
-                path,
-                json_body=self._format(step.payload),
-            )
-            if response.status_code != step.expected_status:
-                raise AssertionError(
-                    f"{path} expected HTTP {step.expected_status}, got {response.status_code}: "
-                    f"{response.body!r}"
-                )
-            if step.expected_json:
-                _subset(self._format(step.expected_json), response.body)
-            if step.require_correlation and not response.correlation_id:
-                raise AssertionError(f"{path} omitted X-Correlation-ID")
-            for name, dotted_path in step.capture.items():
-                self._context[name] = _read(response.body, dotted_path)
-            for name, dotted_path in step.owned_capture.items():
-                owned = _read(response.body, dotted_path)
-                if not isinstance(owned, str) or not owned:
-                    raise AssertionError(f"owned capture {name!r} is not a resource identifier")
-                self._context[name] = owned
-                self._owned_resources.add(owned)
-            if path.endswith("compatibility") and isinstance(response.body, dict):
-                self._observed_compatibility = response.body
-            return StepObservation(
-                protocol="http",
-                path=path,
-                status_code=response.status_code,
-                correlation_id=response.correlation_id,
-            )
+            return await self._execute_http(step, path)
+        return await self._execute_websocket(step, path)
 
+    async def _execute_lifecycle(self, step: AcceptanceStep) -> StepObservation:
+        if step.operation == "restart":
+            await self.lifecycle.restart()
+        else:
+            await self.lifecycle.shutdown()
+        return StepObservation(protocol="lifecycle", path=step.operation or "")
+
+    async def _execute_http(self, step: AcceptanceStep, path: str) -> StepObservation:
+        role = None if step.role == "anonymous" else step.role
+        response = await self.transport.request(
+            role,
+            step.method or "GET",
+            path,
+            json_body=self._format(step.payload),
+        )
+        if response.status_code != step.expected_status:
+            raise AssertionError(
+                f"{path} expected HTTP {step.expected_status}, got {response.status_code}: "
+                f"{response.body!r}"
+            )
+        if step.expected_json:
+            _subset(self._format(step.expected_json), response.body)
+        if step.count_path is not None:
+            self._assert_count(step, response.body, path)
+        if step.require_correlation and not response.correlation_id:
+            raise AssertionError(f"{path} omitted X-Correlation-ID")
+        self._apply_captures(step, response.body, path)
+        return StepObservation(
+            protocol="http",
+            path=path,
+            status_code=response.status_code,
+            correlation_id=response.correlation_id,
+        )
+
+    def _apply_captures(self, step: AcceptanceStep, body: Any, path: str) -> None:
+        for name, dotted_path in step.capture.items():
+            self._context[name] = _read(body, dotted_path)
+        for name, dotted_path in step.owned_capture.items():
+            owned = _read(body, dotted_path)
+            if not isinstance(owned, str) or not owned:
+                raise AssertionError(f"owned capture {name!r} is not a resource identifier")
+            self._context[name] = owned
+            self._owned_resources.add(owned)
+        if path.endswith("compatibility") and isinstance(body, dict):
+            self._observed_compatibility = body
+
+    async def _execute_websocket(self, step: AcceptanceStep, path: str) -> StepObservation:
         events = await self.transport.websocket_events(
             step.role,
             path,

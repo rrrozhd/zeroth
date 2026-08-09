@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21] - 2026-08-09
+
+### Added
+
+- Deployed black-box acceptance runs the exact candidate through a versioned contract:
+  bounded polling for asynchronously settling state, counted side-effect assertions, and
+  platform lifecycle (restart, drain) as an operation the harness enacts rather than a
+  route the product must serve.
+
 ## [0.20] - 2026-08-09
 
 ### Added
