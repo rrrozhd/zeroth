@@ -71,6 +71,7 @@ class AcceptanceRunner:
             "namespace": config.namespace,
             "tenant_id": config.tenant_id,
             "deployment_ref": config.deployment_ref,
+            "candidate_digest": config.candidate_digest,
             "restart_url": config.lifecycle.restart_url,
             "shutdown_url": config.lifecycle.shutdown_url,
         }

@@ -82,6 +82,24 @@ def test_remote_report_failure_or_cleanup_failure_blocks_gate(
     assert "cleanup" in result.reason
 
 
+def test_remote_report_rejects_extra_or_malformed_scenarios_without_crashing(
+    manifest, candidate, evidence
+) -> None:
+    from gates.validate import validate_gate
+
+    gate = next(item for item in manifest["gates"] if item["id"] == "remote-acceptance")
+    record = json.loads((evidence / gate["record"]).read_text(encoding="utf-8"))
+    report_path = evidence / record["kinds"]["deployment"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["scenarios"].append("not-a-scenario")
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = validate_gate(gate, candidate, evidence)
+
+    assert result.status == "partial"
+    assert "exactly the required scenarios" in result.reason
+
+
 def test_release_candidate_runs_suite_and_records_its_report() -> None:
     workflow = _workflow(ROOT / ".github/workflows/release-zeroth-core.yml")
     job = workflow["jobs"]["smoke-from-testpypi"]

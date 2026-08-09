@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install harness dependencies
-        run: pip install . websockets
+        run: pip install . 'websockets>=15,<16'
       - name: Download the exact candidate identity
         env:
           GH_TOKEN: ${{ github.token }}

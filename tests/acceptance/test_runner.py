@@ -52,8 +52,57 @@ def _step(path: str, **overrides: object) -> dict[str, object]:
 
 def _contract() -> dict[str, object]:
     scenarios = {name: {"steps": [_step(f"/{name}")]} for name in REQUIRED_SCENARIOS}
+    scenarios["readiness"] = {
+        "steps": [
+            _step("/readiness"),
+            _step(
+                "/identity",
+                expected_json={
+                    "candidate_digest": "{candidate_digest}",
+                    "deployment_ref": "{deployment_ref}",
+                },
+            ),
+        ]
+    }
     scenarios["authentication"] = {
         "steps": [_step("/authentication", role="anonymous", expected_status=401)]
+    }
+    scenarios["rbac"] = {"steps": [_step("/rbac", role="reviewer", expected_status=403)]}
+    scenarios["workflow_lifecycle"] = {
+        "steps": [
+            _step("/workflow/create", method="POST", expected_json={"status": "draft"}),
+            _step("/workflow/read"),
+            _step("/workflow/publish", method="POST", expected_json={"status": "published"}),
+        ]
+    }
+    scenarios["deployment"] = {
+        "steps": [_step("/deployment", expected_json={"deployment_ref": "{deployment_ref}"})]
+    }
+    scenarios["runs"] = {
+        "steps": [
+            _step("/runs", method="POST", expected_status=202),
+            _step("/runs/completed", expected_json={"status": "completed"}),
+        ]
+    }
+    scenarios["retention"] = {"steps": [_step("/retention", expected_json={"enabled": True})]}
+    scenarios["gateway_http"] = {
+        "steps": [
+            _step(f"/gateway/{decision}", expected_json={"decision": decision})
+            for decision in ("allow", "deny", "approval_required", "resumed", "upstream_error")
+        ]
+    }
+    scenarios["gateway_websocket"] = {
+        "steps": [
+            {
+                "protocol": "websocket",
+                "role": "operator",
+                "path": f"/gateway-ws/{event}",
+                "payload": {},
+                "max_events": 1,
+                "ordered_events": [f"gateway.{event}"],
+            }
+            for event in ("completed", "denied", "approval_required", "resumed", "upstream_error")
+        ]
     }
     scenarios["compatibility"] = {
         "steps": [
@@ -93,7 +142,12 @@ def _contract() -> dict[str, object]:
             ),
         ]
     }
-    scenarios["shutdown"] = {"steps": [_step("{shutdown_url}", method="POST")]}
+    scenarios["shutdown"] = {
+        "steps": [
+            _step("{shutdown_url}", method="POST"),
+            _step("/health/ready", expected_status=503),
+        ]
+    }
     return {
         "schema_version": 1,
         "supported_agent_server_versions": ["0.11.1"],
@@ -127,6 +181,35 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
     with pytest.raises(ValidationError, match="restart_url"):
         AcceptanceContract.model_validate(no_restart)
 
+    no_identity = _contract()
+    no_identity["scenarios"]["readiness"]["steps"] = [_step("/readiness")]
+    with pytest.raises(ValidationError, match="candidate identity"):
+        AcceptanceContract.model_validate(no_identity)
+
+    extra = _contract()
+    extra["scenarios"]["optional-looking-skip"] = {"steps": [_step("/ignored")]}
+    with pytest.raises(ValidationError, match="unknown scenarios"):
+        AcceptanceContract.model_validate(extra)
+
+
+def test_contract_cannot_mark_a_read_or_non_namespaced_create_as_cleanup_owned() -> None:
+    read_capture = _contract()
+    read_capture["scenarios"]["artifacts"]["steps"][0]["owned_capture"] = {"foreign_id": "id"}
+    with pytest.raises(ValidationError, match="mutating create"):
+        AcceptanceContract.model_validate(read_capture)
+
+    unsafe_create = _contract()
+    unsafe_create["scenarios"]["artifacts"]["steps"] = [
+        _step(
+            "/artifacts",
+            method="POST",
+            payload={"name": "not-namespaced"},
+            owned_capture={"foreign_id": "id"},
+        )
+    ]
+    with pytest.raises(ValidationError, match="namespace"):
+        AcceptanceContract.model_validate(unsafe_create)
+
 
 class FakeTransport:
     def __init__(self, responses: dict[str, HttpObservation]) -> None:
@@ -138,6 +221,8 @@ class FakeTransport:
         return self.responses.get(path, HttpObservation(200, {}, "corr"))
 
     async def websocket_events(self, role, path, payload, *, max_events):
+        if path.startswith("/gateway-ws/"):
+            return [{"event": f"gateway.{path.rsplit('/', 1)[-1]}", "sequence": 1}]
         return [
             {"event": "run.started", "sequence": 1},
             {"event": "node.completed", "sequence": 2},
@@ -151,7 +236,27 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
 ) -> None:
     config = _config(tmp_path)
     responses = {
+        "/identity": HttpObservation(
+            200,
+            {
+                "candidate_digest": config.candidate_digest,
+                "deployment_ref": config.deployment_ref,
+            },
+            "corr-identity",
+        ),
         "/authentication": HttpObservation(401, {"detail": "not authenticated"}, "corr-auth"),
+        "/rbac": HttpObservation(403, {}, "corr-rbac"),
+        "/workflow/create": HttpObservation(200, {"status": "draft"}, "corr-workflow"),
+        "/workflow/publish": HttpObservation(200, {"status": "published"}, "corr-publish"),
+        "/deployment": HttpObservation(200, {"deployment_ref": "dep"}, "corr-deployment"),
+        "/runs": HttpObservation(202, {}, "corr-run"),
+        "/runs/completed": HttpObservation(200, {"status": "completed"}, "corr-run-done"),
+        "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
+        **{
+            f"/gateway/{decision}": HttpObservation(200, {"decision": decision}, "corr-gateway")
+            for decision in ("allow", "deny", "approval_required", "resumed", "upstream_error")
+        },
+        "/health/ready": HttpObservation(503, {}, "corr-shutdown"),
         "/compatibility": HttpObservation(
             200, {"status": "supported", "detected_agent_server": "0.11.1"}, "corr-compat"
         ),
@@ -222,3 +327,27 @@ async def test_cleanup_refuses_a_contract_resource_outside_the_invocation_namesp
     assert report.cleanup[0].status is ScenarioStatus.FAILED
     assert "outside acceptance namespace" in report.cleanup[0].detail
     assert report.status is ScenarioStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_owned_capture_refuses_server_identifier_outside_namespace(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    contract = _contract()
+    contract["scenarios"]["artifacts"]["steps"] = [
+        _step(
+            "/create",
+            method="POST",
+            payload={"name": "{namespace}-artifact"},
+            expected_json={"name": "{namespace}-artifact"},
+            owned_capture={"artifact_id": "id"},
+        )
+    ]
+    transport = FakeTransport({"/create": HttpObservation(200, {"id": "production"}, "corr")})
+
+    report = await AcceptanceRunner(
+        config, AcceptanceContract.model_validate(contract), transport
+    ).run()
+
+    artifact = next(item for item in report.scenarios if item.name == "artifacts")
+    assert artifact.status is ScenarioStatus.FAILED
+    assert "body.name is missing" in artifact.detail

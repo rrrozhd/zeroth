@@ -89,6 +89,15 @@ def test_resolve_requires_every_secret_and_image_identity(tmp_path: Path) -> Non
             }
         )
 
+    with pytest.raises(ValueError, match="credentials must be distinct"):
+        AcceptanceConfig.model_validate(_config(tmp_path)).resolve(
+            {
+                "ZEROTH_ACCEPTANCE_OPERATOR_KEY": "shared-secret",
+                "ZEROTH_ACCEPTANCE_REVIEWER_KEY": "shared-secret",
+                "ZEROTH_ACCEPTANCE_ADMIN_KEY": "admin-secret",
+            }
+        )
+
     identity = json.loads(Path(config.candidate_identity).read_text(encoding="utf-8"))
     del identity["image"]
     Path(config.candidate_identity).write_text(json.dumps(identity), encoding="utf-8")

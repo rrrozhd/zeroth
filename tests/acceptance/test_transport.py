@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -79,6 +80,18 @@ async def test_redirects_and_oversized_responses_fail_closed(tmp_path: Path) -> 
             await client.request("operator", "GET", "/redirect")
         with pytest.raises(TransportError, match="exceeds"):
             await client.request("operator", "GET", "/large")
+
+
+@pytest.mark.asyncio
+async def test_http_request_has_a_total_wall_clock_deadline(tmp_path: Path) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, json={"ok": True})
+
+    config = _resolved(tmp_path).model_copy(update={"timeout_seconds": 0.01})
+    async with AcceptanceTransport(config, http_transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(TransportError, match="HTTP acceptance deadline"):
+            await client.request("operator", "GET", "/slow")
 
 
 def test_redaction_removes_secrets_from_nested_diagnostics() -> None:

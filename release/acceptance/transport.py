@@ -111,23 +111,28 @@ class AcceptanceTransport:
             headers=self._headers(role),
             json=json_body,
         )
-        response = await self._client.send(request, stream=True)
         try:
-            if 300 <= response.status_code < 400:
-                raise TransportError("redirect response refused")
-            body_parts: list[bytes] = []
-            size = 0
-            async for chunk in response.aiter_bytes():
-                size += len(chunk)
-                if size > self._max_response_bytes:
-                    raise TransportError("response exceeds acceptance size limit")
-                body_parts.append(chunk)
-            content = b"".join(body_parts)
-            body: Any = json.loads(content) if content else None
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            body = content.decode("utf-8", errors="replace")
-        finally:
-            await response.aclose()
+            async with asyncio.timeout(self.config.timeout_seconds):
+                response = await self._client.send(request, stream=True)
+                try:
+                    if 300 <= response.status_code < 400:
+                        raise TransportError("redirect response refused")
+                    body_parts: list[bytes] = []
+                    size = 0
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > self._max_response_bytes:
+                            raise TransportError("response exceeds acceptance size limit")
+                        body_parts.append(chunk)
+                    content = b"".join(body_parts)
+                    try:
+                        body: Any = json.loads(content) if content else None
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        body = content.decode("utf-8", errors="replace")
+                finally:
+                    await response.aclose()
+        except TimeoutError as error:
+            raise TransportError("HTTP acceptance deadline exceeded") from error
         return HttpObservation(
             status_code=response.status_code,
             body=redact(body, self.config.credentials),

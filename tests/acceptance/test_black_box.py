@@ -17,6 +17,16 @@ from release.acceptance.config import AcceptanceConfig
 from release.acceptance.models import AcceptanceContract, ScenarioStatus
 from release.acceptance.runner import AcceptanceRunner
 from release.acceptance.transport import AcceptanceTransport
+from release.gates.identity import identity_digest
+
+
+_IDENTITY = {
+    "schema_version": 1,
+    "commit": "a" * 40,
+    "package": {"version": "1", "artifacts": {}},
+    "image": {"candidate": "sha256:" + "b" * 64},
+}
+_CANDIDATE_DIGEST = identity_digest(_IDENTITY)
 
 
 def _fixture_app() -> FastAPI:
@@ -26,11 +36,21 @@ def _fixture_app() -> FastAPI:
     async def websocket_fixture(websocket: WebSocket, path: str) -> None:
         await websocket.accept()
         await websocket.receive_json()
-        names = (
-            ["run.started", "node.completed", "run.completed"]
-            if path.endswith("stream")
-            else ["gateway.admitted", "gateway.forwarded", "gateway.completed"]
-        )
+        if path.endswith("stream"):
+            names = ["run.started", "node.completed", "run.completed"]
+        else:
+            case = path.rsplit("/", 1)[-1]
+            names = {
+                "allow": ["gateway.admitted", "gateway.forwarded", "gateway.completed"],
+                "deny": ["gateway.admitted", "gateway.denied"],
+                "approval": ["gateway.admitted", "gateway.approval_required"],
+                "resume": ["gateway.resumed", "gateway.forwarded", "gateway.completed"],
+                "upstream-failure": [
+                    "gateway.admitted",
+                    "gateway.forwarded",
+                    "gateway.upstream_error",
+                ],
+            }[case]
         for sequence, name in enumerate(names, start=1):
             await websocket.send_json({"event": name, "sequence": sequence})
         await websocket.close()
@@ -41,7 +61,15 @@ def _fixture_app() -> FastAPI:
         role = request.headers.get("X-API-Key")
         correlation = {"X-Correlation-ID": f"corr-{path.replace('/', '-')}"}
         if route == "/health/ready":
+            if getattr(app.state, "draining", False):
+                return JSONResponse({"status": "draining"}, status_code=503)
             return JSONResponse({"checks": {"database": {"status": "ok"}}})
+        if route == "/health":
+            return JSONResponse({"deployment_ref": "candidate"})
+        if route == "/__acceptance/identity":
+            return JSONResponse(
+                {"candidate_digest": _CANDIDATE_DIGEST, "deployment_ref": "candidate"}
+            )
         if route == "/v1/deployments" and role is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
         if route == "/api/studio/v1/workflows" and request.method == "POST":
@@ -52,26 +80,41 @@ def _fixture_app() -> FastAPI:
                 {"id": "server-workflow-id", "name": payload["name"], "status": "draft"},
                 status_code=201,
             )
-        if route == "/api/studio/v1/workflows/server-workflow-id":
+        if route.startswith("/api/studio/v1/workflows/server-workflow-id"):
             if request.method == "DELETE":
                 return Response(status_code=204)
+            if route.endswith("/publish") and request.method == "POST":
+                return JSONResponse({"status": "published"})
             namespace = request.headers["X-Acceptance-Namespace"]
             return JSONResponse({"id": "server-workflow-id", "name": f"{namespace}-workflow"})
         if route == "/__acceptance/migrations":
             return JSONResponse({"current": True})
         if route == "/v1/deployments":
-            return JSONResponse([])
+            return JSONResponse({"deployment_ref": "candidate"})
         if route == "/__acceptance/runs":
             return JSONResponse(
-                {"run_id": "server-run-id", "tenant_id": "acceptance-tenant"},
+                {
+                    "run_id": "server-run-id",
+                    "tenant_id": "acceptance-tenant",
+                    "namespace": request.headers["X-Acceptance-Namespace"],
+                },
                 status_code=202,
                 headers=correlation,
             )
+        if route.startswith("/__acceptance/runs/"):
+            return JSONResponse({"status": "completed"})
         if route == "/__acceptance/approvals/before":
-            return JSONResponse({"approval_id": "server-approval-id", "tool_execution_count": 0})
+            return JSONResponse(
+                {
+                    "approval_id": f"{request.headers['X-Acceptance-Namespace']}-approval",
+                    "tool_execution_count": 0,
+                }
+            )
         if route == "/__acceptance/approvals/after":
             return JSONResponse({"tool_execution_count": 1})
-        if route == "/__acceptance/approvals/server-approval-id/resolve":
+        if route.startswith("/__acceptance/approvals/acceptance-tenant-") and route.endswith(
+            "/resolve"
+        ):
             return JSONResponse({"resolved": True})
         if route.startswith("/__acceptance/audit/"):
             return JSONResponse({"tenant_id": "acceptance-tenant", "causally_ordered": True})
@@ -80,7 +123,16 @@ def _fixture_app() -> FastAPI:
         if route == "/v1/retention/policy":
             return JSONResponse({"enabled": True})
         if route == "/__acceptance/gateway/http":
-            return JSONResponse({"decision": "allow"}, headers=correlation)
+            case = (await request.json())["case"]
+            decisions = {
+                "allow": ("allow", 200),
+                "deny": ("deny", 403),
+                "approval": ("approval_required", 202),
+                "resume": ("resumed", 200),
+                "upstream_failure": ("upstream_error", 502),
+            }
+            decision, status = decisions[case]
+            return JSONResponse({"decision": decision}, status_code=status, headers=correlation)
         if route == "/__acceptance/compatibility":
             return JSONResponse({"status": "supported", "detected_agent_server": "0.11.1"})
         if route == "/__acceptance/executable-units/resolve":
@@ -92,6 +144,7 @@ def _fixture_app() -> FastAPI:
         if route == "/__acceptance/restart":
             return JSONResponse({}, status_code=202)
         if route == "/__acceptance/shutdown":
+            app.state.draining = True
             return JSONResponse({"draining": True}, status_code=202)
         if route.startswith("/__acceptance/fixtures/") and request.method == "DELETE":
             return Response(status_code=204)
@@ -124,7 +177,6 @@ def deployed_fixture() -> Iterator[str]:
         listener.close()
 
 
-@pytest.mark.deployed_acceptance
 @pytest.mark.asyncio
 async def test_complete_contract_over_real_http_and_websocket(
     deployed_fixture: str, tmp_path: Path
@@ -133,10 +185,7 @@ async def test_complete_contract_over_real_http_and_websocket(
     identity_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
-                "commit": "a" * 40,
-                "package": {"version": "1", "artifacts": {}},
-                "image": {"candidate": "sha256:" + "b" * 64},
+                **_IDENTITY,
             }
         ),
         encoding="utf-8",

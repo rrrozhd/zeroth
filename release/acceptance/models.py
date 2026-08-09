@@ -30,6 +30,22 @@ REQUIRED_SCENARIOS = (
 )
 
 
+def _contains_namespace(value: Any) -> bool:
+    if isinstance(value, str):
+        return "{namespace}" in value
+    if isinstance(value, dict):
+        return any(_contains_namespace(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_namespace(item) for item in value)
+    return False
+
+
+def _has_ownership_attestation(expected: dict[str, Any]) -> bool:
+    namespace = expected.get("namespace")
+    name = expected.get("name")
+    return namespace == "{namespace}" or (isinstance(name, str) and name.startswith("{namespace}-"))
+
+
 class ScenarioStatus(StrEnum):
     """Fail-closed status used by scenarios, cleanup, and the whole report."""
 
@@ -72,6 +88,16 @@ class AcceptanceStep(BaseModel):
             raise ValueError("DELETE steps require a namespace-owned resource_id")
         if self.method == "DELETE" and self.owned_capture:
             raise ValueError("DELETE steps cannot declare owned captures")
+        if self.owned_capture:
+            if self.method not in {"POST", "PUT"}:
+                raise ValueError("owned captures require a mutating create step")
+            if not _contains_namespace(self.payload):
+                raise ValueError("owned captures require a payload containing {namespace}")
+            if not _has_ownership_attestation(self.expected_json):
+                raise ValueError(
+                    "owned captures require an explicit namespace or namespaced-name "
+                    "response attestation"
+                )
         return self
 
 
@@ -98,6 +124,83 @@ class AcceptanceContract(BaseModel):
         missing = set(REQUIRED_SCENARIOS) - set(self.scenarios)
         if missing:
             raise ValueError(f"missing required scenarios: {', '.join(sorted(missing))}")
+        unknown = set(self.scenarios) - set(REQUIRED_SCENARIOS)
+        if unknown:
+            raise ValueError(f"unknown scenarios: {', '.join(sorted(unknown))}")
+
+        def require(name: str, predicate: Any, detail: str) -> None:
+            if not any(predicate(step) for step in self.scenarios[name].steps):
+                raise ValueError(f"{name} must {detail}")
+
+        readiness = self.scenarios["readiness"].steps
+        if not any(
+            step.expected_json.get("candidate_digest") == "{candidate_digest}"
+            and step.expected_json.get("deployment_ref") == "{deployment_ref}"
+            for step in readiness
+        ):
+            raise ValueError("readiness must prove candidate identity and deployment_ref")
+
+        require(
+            "authentication",
+            lambda step: step.role == "anonymous" and step.expected_status == 401,
+            "reject an anonymous request",
+        )
+        require(
+            "rbac",
+            lambda step: step.role == "reviewer" and step.expected_status == 403,
+            "prove a role-specific denial",
+        )
+        for method, status in (("POST", "draft"), ("GET", None), ("POST", "published")):
+            require(
+                "workflow_lifecycle",
+                lambda step, method=method, status=status: (
+                    step.method == method
+                    and (status is None or step.expected_json.get("status") == status)
+                ),
+                f"include {method} lifecycle evidence",
+            )
+        require(
+            "deployment",
+            lambda step: step.expected_json.get("deployment_ref") == "{deployment_ref}",
+            "prove the serving deployment reference",
+        )
+        require(
+            "runs",
+            lambda step: step.method == "POST" and step.expected_status == 202,
+            "submit a run",
+        )
+        require(
+            "runs",
+            lambda step: step.method == "GET" and step.expected_json.get("status") == "completed",
+            "observe run completion",
+        )
+        require(
+            "retention",
+            lambda step: step.expected_json.get("enabled") is True,
+            "prove retention enforcement",
+        )
+        http_decisions = {
+            step.expected_json.get("decision") for step in self.scenarios["gateway_http"].steps
+        }
+        required_decisions = {"allow", "deny", "approval_required", "resumed", "upstream_error"}
+        if http_decisions != required_decisions:
+            raise ValueError("gateway_http must prove allow, deny, approval, resume, and failure")
+        websocket_outcomes = {
+            event
+            for step in self.scenarios["gateway_websocket"].steps
+            for event in step.ordered_events
+        }
+        required_events = {
+            "gateway.completed",
+            "gateway.denied",
+            "gateway.approval_required",
+            "gateway.resumed",
+            "gateway.upstream_error",
+        }
+        if not required_events <= websocket_outcomes:
+            raise ValueError(
+                "gateway_websocket must prove allow, deny, approval, resume, and failure"
+            )
 
         counts = [
             step.expected_json.get("tool_execution_count")
@@ -121,6 +224,11 @@ class AcceptanceContract(BaseModel):
         shutdown = self.scenarios["shutdown"].steps
         if not any(step.path == "{shutdown_url}" and step.method == "POST" for step in shutdown):
             raise ValueError("shutdown must invoke {shutdown_url}")
+        readiness_withdrawn = any(
+            step.path == "/health/ready" and step.expected_status == 503 for step in shutdown
+        )
+        if not readiness_withdrawn:
+            raise ValueError("shutdown must prove readiness is withdrawn")
 
         compatibility = self.scenarios["compatibility"].steps
         expected = [step.expected_json for step in compatibility if step.expected_json]

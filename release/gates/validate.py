@@ -93,8 +93,10 @@ DEPLOYED_ACCEPTANCE_SCENARIOS = frozenset(
 
 
 def _all_digests(values: Any) -> bool:
-    return isinstance(values, dict) and bool(values) and all(
-        isinstance(item, str) and _DIGEST.match(item) for item in values.values()
+    return (
+        isinstance(values, dict)
+        and bool(values)
+        and all(isinstance(item, str) and _DIGEST.match(item) for item in values.values())
     )
 
 
@@ -338,10 +340,10 @@ def _deployed_acceptance_result(
     scenarios = report.get("scenarios")
     if not isinstance(scenarios, list):
         return GateResult(gate["id"], PARTIAL, "report scenarios must be a list")
-    names = {
-        item.get("name") for item in scenarios if isinstance(item, dict) and item.get("name")
-    }
-    if names != DEPLOYED_ACCEPTANCE_SCENARIOS:
+    names = {item.get("name") for item in scenarios if isinstance(item, dict) and item.get("name")}
+    if len(scenarios) != len(DEPLOYED_ACCEPTANCE_SCENARIOS) or names != (
+        DEPLOYED_ACCEPTANCE_SCENARIOS
+    ):
         missing = sorted(DEPLOYED_ACCEPTANCE_SCENARIOS - names)
         return GateResult(
             gate["id"],

@@ -100,6 +100,8 @@ class AcceptanceConfig(BaseModel):
             if not value:
                 raise ValueError(f"required credential environment variable {reference} is unset")
             secrets[role] = SecretStr(value)
+        if len({secret.get_secret_value() for secret in secrets.values()}) != len(secrets):
+            raise ValueError("operator, reviewer, and admin credentials must be distinct")
         try:
             candidate = json.loads(self.candidate_identity.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:

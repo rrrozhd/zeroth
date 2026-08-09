@@ -318,6 +318,7 @@ jobs:
           PY
           # Install exactly those verified files; PyPI serves dependencies only.
           pip install /tmp/rc-dist/* --extra-index-url https://pypi.org/simple/
+          pip install 'websockets>=15,<16'
           {
             echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
             echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
