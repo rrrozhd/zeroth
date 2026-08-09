@@ -59,7 +59,8 @@ def test_fixture_refusal_binding() -> None:
 
     assert case.coverage == "absent-fail-closed"
     assert case.tiers == ("release-candidate",)
-    assert case.refusal_test in case.test_nodes
+    assert case.test_nodes == ("tests/security/test_matrix_contract.py::test_fixture_refusal_binding",)
+    assert case.refusal_test == "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
     assert matrix.coverage_report()["absent-fail-closed"] == (case.id,)
 
 
@@ -84,6 +85,51 @@ def test_matrix_requires_both_ticket_tiers(tmp_path: Path) -> None:
 
 def test_schema_version_must_be_the_integer_version_one(tmp_path: Path) -> None:
     path = _write_matrix(tmp_path, lambda matrix: matrix.__setitem__("schema_version", True))
+
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(path)
+
+    assert raised.value.path == "schema_version"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "path"),
+    [
+        (lambda matrix: matrix["cases"][0].__setitem__("coverage", []), "cases[0].coverage"),
+        (lambda matrix: matrix["cases"][0].__setitem__("tiers", [[]]), "cases[0].tiers"),
+        (lambda matrix: matrix["cases"][1].pop("refusal_test"), "cases[1].refusal_test"),
+        (
+            lambda matrix: matrix["cases"][1].__setitem__(
+                "refusal_test", "tests/security/test_matrix_contract.py::other_refusal"
+            ),
+            "cases[1].refusal_test",
+        ),
+    ],
+    ids=("coverage-list", "tier-list", "missing-refusal", "mismatched-refusal"),
+)
+def test_malformed_case_values_fail_with_stable_paths(tmp_path: Path, mutate, path: str) -> None:
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(_write_matrix(tmp_path, mutate))
+
+    assert raised.value.path == path
+
+
+def test_invalid_utf8_matrix_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "invalid-utf8.json"
+    path.write_bytes(b"\xff")
+
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(path)
+
+    assert raised.value.path == "$"
+
+
+def test_duplicate_raw_json_keys_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate-key.json"
+    content = FIXTURE.read_text(encoding="utf-8").replace(
+        '"schema_version": 1,', '"schema_version": 1, "schema_version": 1,', 1
+    )
+    path.write_text(content, encoding="utf-8")
 
     with pytest.raises(MatrixError) as raised:
         load_matrix(path)

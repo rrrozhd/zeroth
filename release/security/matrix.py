@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,15 @@ class MatrixError(ValueError):
         super().__init__(f"{path}: {message}")
 
 
+class _StrictObject(dict[str, Any]):
+    """A JSON object that retains duplicate keys for schema validation."""
+
+    def __init__(self, pairs: list[tuple[str, Any]]) -> None:
+        counts = Counter(key for key, _ in pairs)
+        self.duplicate_keys = tuple(key for key, _ in pairs if counts[key] > 1)
+        super().__init__(pairs)
+
+
 @dataclass(frozen=True)
 class MatrixCase:
     """One executable security assertion and the tiers it protects."""
@@ -114,6 +124,9 @@ class Matrix:
 
 
 def _reject_unknown_fields(value: dict[str, Any], expected: frozenset[str], path: str) -> None:
+    for key in dict.fromkeys(getattr(value, "duplicate_keys", ())):
+        location = f"{path}.{key}" if path else key
+        raise MatrixError(location, "duplicate field")
     for key in sorted(set(value) - expected):
         location = f"{path}.{key}" if path else key
         raise MatrixError(location, "unknown field")
@@ -159,7 +172,7 @@ def _case(value: Any, index: int, seen_ids: set[str], bound_nodes: set[str]) -> 
     if not isinstance(value, dict):
         raise MatrixError(path, "must be an object")
     coverage = value.get("coverage")
-    if coverage not in _COVERAGE_KINDS:
+    if not isinstance(coverage, str) or coverage not in _COVERAGE_KINDS:
         raise MatrixError(f"{path}.coverage", "must be behavioral or absent-fail-closed")
     if coverage == "behavioral" and "refusal_test" in value:
         raise MatrixError(f"{path}.coverage", "absence proofs cannot be behavioral")
@@ -175,7 +188,11 @@ def _case(value: Any, index: int, seen_ids: set[str], bound_nodes: set[str]) -> 
         raise MatrixError(f"{path}.id", "duplicates a case ID")
     seen_ids.add(identifier)
     tiers = value["tiers"]
-    if not isinstance(tiers, list) or not tiers or any(tier not in TIERS for tier in tiers):
+    if (
+        not isinstance(tiers, list)
+        or not tiers
+        or any(not isinstance(tier, str) or tier not in TIERS for tier in tiers)
+    ):
         raise MatrixError(f"{path}.tiers", "must contain known tiers")
     if len(tiers) != len(set(tiers)):
         raise MatrixError(f"{path}.tiers", "must not contain duplicates")
@@ -194,8 +211,8 @@ def _case(value: Any, index: int, seen_ids: set[str], bound_nodes: set[str]) -> 
 def load_matrix(path: Path) -> Matrix:
     """Load ``path`` or reject it before it can weaken a release gate."""
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_StrictObject)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise MatrixError("$", f"matrix is unreadable: {error}") from error
     if not isinstance(value, dict):
         raise MatrixError("$", "matrix must be an object")
