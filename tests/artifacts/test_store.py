@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import UTC, datetime
@@ -144,7 +145,7 @@ class TestRedisArtifactStore:
         result = await store.retrieve("run1/node1/abc123")
 
         assert result == b"file-contents"
-        mock_redis.get.assert_called_once_with("zeroth:artifact:run1/node1/abc123")
+        mock_redis.get.assert_called_once_with("zeroth:artifact:data:run1/node1/abc123")
 
     @pytest.mark.asyncio()
     async def test_retrieve_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
@@ -247,15 +248,16 @@ class TestRedisArtifactStore:
     @pytest.mark.asyncio()
     async def test_cleanup_run(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """cleanup_run() uses scan_iter with prefix pattern, deletes matching keys."""
-        mock_redis.scan_iter.return_value = self._async_iter(
-            [b"zeroth:artifact:run1/a", b"zeroth:artifact:run1/b"]
-        )
+        mock_redis.scan_iter.side_effect = [
+            self._async_iter([b"zeroth:artifact:data:run1/a", b"zeroth:artifact:data:run1/b"]),
+            self._async_iter([]),
+        ]
         mock_redis.delete.return_value = 1
 
         count = await store.cleanup_run("run1", idempotency_key="cleanup-run1")
 
         assert count == 2
-        mock_redis.scan_iter.assert_called_once()
+        assert mock_redis.scan_iter.call_count == 2
         # Verify the scan pattern contains the run_id
         call_kwargs = mock_redis.scan_iter.call_args
         assert "run1" in str(call_kwargs)
@@ -491,7 +493,7 @@ class TestFilesystemArtifactStore:
         outside.mkdir()
         (tmp_path / "run1").symlink_to(outside, target_is_directory=True)
 
-        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
             await store.store("run1/node1/key", b"evil", "text/plain")
 
         assert not (outside / "node1" / "key").exists()
@@ -507,7 +509,7 @@ class TestFilesystemArtifactStore:
         meta_path.unlink()
         meta_path.symlink_to(outside)
 
-        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
             await store.retrieve("run1/node1/key")
 
     @pytest.mark.asyncio()
@@ -519,7 +521,7 @@ class TestFilesystemArtifactStore:
         outside.mkdir()
         (tmp_path / ".erasure-receipts").symlink_to(outside, target_is_directory=True)
 
-        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
             await store.delete("run1/node1/key", idempotency_key="delete-key")
 
         assert not (outside / "delete-key.json").exists()
@@ -530,5 +532,53 @@ class TestFilesystemArtifactStore:
     ) -> None:
         (tmp_path / "loop").symlink_to(tmp_path / "loop")
 
-        with pytest.raises(ArtifactStorageError, match="resolve artifact path"):
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
             await store.exists("loop/key")
+
+    @pytest.mark.asyncio()
+    async def test_base_swap_cannot_redirect_any_filesystem_operation(self, tmp_path: Path) -> None:
+        base = tmp_path / "base"
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        store = FilesystemArtifactStore(base)
+        await store.store("run/node/key", b"inside", "text/plain", ttl=60)
+        original = tmp_path / "original-base"
+        base.rename(original)
+        base.symlink_to(outside, target_is_directory=True)
+
+        assert await store.retrieve("run/node/key") == b"inside"
+        assert await store.refresh_ttl("run/node/key", 120)
+        assert await store.delete("run/node/key", idempotency_key="delete") is True
+        await store.store("other/node/key", b"new", "text/plain")
+
+        assert not list(outside.rglob("*"))
+        assert (original / "other" / "node" / "key").read_bytes() == b"new"
+        assert (original / ".erasure-receipts" / "delete.json").exists()
+
+    @pytest.mark.asyncio()
+    async def test_filesystem_receipt_competition_has_one_binding_winner(
+        self, tmp_path: Path
+    ) -> None:
+        first = FilesystemArtifactStore(tmp_path)
+        second = FilesystemArtifactStore(tmp_path)
+        await first.store("run/a", b"a", "text/plain")
+        await first.store("run/b", b"b", "text/plain")
+
+        results = await asyncio.gather(
+            first.delete("run/a", idempotency_key="contended"),
+            second.cleanup_run("run", idempotency_key="contended"),
+            return_exceptions=True,
+        )
+
+        winners = [
+            index for index, result in enumerate(results) if not isinstance(result, Exception)
+        ]
+        losers = [result for result in results if isinstance(result, Exception)]
+        assert len(winners) == len(losers) == 1
+        assert isinstance(losers[0], ArtifactStorageError)
+        assert str(losers[0]) == "idempotency key reused for another operation"
+        restarted = FilesystemArtifactStore(tmp_path)
+        if winners[0] == 0:
+            assert await restarted.delete("run/a", idempotency_key="contended") is True
+        else:
+            assert await restarted.cleanup_run("run", idempotency_key="contended") == results[1]

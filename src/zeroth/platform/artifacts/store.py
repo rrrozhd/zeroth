@@ -9,10 +9,14 @@ and cleaning up run artifacts.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hashlib
 import json
-import shutil
+import os
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from secrets import token_hex
 from typing import Any, Protocol
 
 from zeroth.platform.artifacts.errors import (
@@ -21,6 +25,11 @@ from zeroth.platform.artifacts.errors import (
     ArtifactTTLError,
 )
 from zeroth.platform.artifacts.models import ArtifactReference
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised only on unsupported platforms
+    fcntl = None  # type: ignore[assignment]
 
 
 class ArtifactStore(Protocol):
@@ -100,20 +109,29 @@ class RedisArtifactStore:
 
     def _full_key(self, key: str) -> str:
         """Build the full Redis key with prefix."""
-        return f"{self._prefix}:{key}"
+        return f"{self._prefix}:data:{key}"
 
     def _meta_key(self, key: str) -> str:
         """Build the metadata Redis key with prefix."""
+        return f"{self._prefix}:meta:{key}"
+
+    def _legacy_full_key(self, key: str) -> str:
+        return f"{self._prefix}:{key}"
+
+    def _legacy_meta_key(self, key: str) -> str:
         return f"{self._prefix}:{key}:meta"
 
     def _receipt_key(self, idempotency_key: str) -> str:
         """Build the Redis key for an erasure-operation replay receipt."""
+        return f"{self._prefix}:erasure-receipt:v2:{idempotency_key}"
+
+    def _legacy_receipt_key(self, idempotency_key: str) -> str:
         return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
     @staticmethod
     def _receipt_payload(*, kind: str, target: str, result: bool | int) -> str:
         return json.dumps(
-            {"kind": kind, "target": target, "result": result},
+            {"version": 2, "kind": kind, "target": target, "result": result},
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -132,6 +150,7 @@ class RedisArtifactStore:
             raise ArtifactStorageError("Invalid erasure operation receipt") from None
         if (
             not isinstance(receipt, dict)
+            or receipt.get("version") != 2
             or receipt.get("kind") != kind
             or receipt.get("target") != target
         ):
@@ -217,6 +236,8 @@ class RedisArtifactStore:
         full_key = self._full_key(key)
         data = await self._client.get(full_key)
         if data is None:
+            data = await self._client.get(self._legacy_full_key(key))
+        if data is None:
             msg = f"Artifact not found: {key}"
             raise ArtifactNotFoundError(msg)
         return data
@@ -233,8 +254,12 @@ class RedisArtifactStore:
         """
         full_key = self._full_key(key)
         meta_key = self._meta_key(key)
+        legacy_full_key = self._legacy_full_key(key)
+        legacy_meta_key = self._legacy_meta_key(key)
         receipt_key = self._receipt_key(idempotency_key)
         receipt = await self._client.get(receipt_key)
+        if receipt is None and await self._client.get(self._legacy_receipt_key(idempotency_key)):
+            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
         if receipt is not None:
             result = self._receipt_result(
                 receipt,
@@ -245,10 +270,14 @@ class RedisArtifactStore:
             async with self._client.pipeline(transaction=True) as pipe:
                 pipe.delete(full_key)
                 pipe.delete(meta_key)
+                pipe.delete(legacy_full_key)
+                pipe.delete(legacy_meta_key)
                 await pipe.execute()
             return bool(result)
 
-        existed = bool(await self._client.exists(full_key))
+        existed = bool(
+            await self._client.exists(full_key) or await self._client.exists(legacy_full_key)
+        )
         await self._client.set(
             receipt_key,
             self._receipt_payload(kind="delete", target=key, result=existed),
@@ -271,6 +300,8 @@ class RedisArtifactStore:
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.delete(full_key)
             pipe.delete(meta_key)
+            pipe.delete(legacy_full_key)
+            pipe.delete(legacy_meta_key)
             await pipe.execute()
 
         return stable_result
@@ -289,11 +320,14 @@ class RedisArtifactStore:
             ArtifactTTLError: If the artifact does not exist.
         """
         full_key = self._full_key(key)
+        meta_key = self._meta_key(key)
+        if not await self._client.exists(full_key):
+            full_key = self._legacy_full_key(key)
+            meta_key = self._legacy_meta_key(key)
         if not await self._client.exists(full_key):
             msg = f"Cannot refresh TTL for missing artifact: {key}"
             raise ArtifactTTLError(msg)
 
-        meta_key = self._meta_key(key)
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.expire(full_key, ttl)
             pipe.expire(meta_key, ttl)
@@ -311,7 +345,10 @@ class RedisArtifactStore:
             True if the artifact exists in Redis.
         """
         full_key = self._full_key(key)
-        return bool(await self._client.exists(full_key))
+        return bool(
+            await self._client.exists(full_key)
+            or await self._client.exists(self._legacy_full_key(key))
+        )
 
     async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
         """Remove all artifacts for a run using scan_iter.
@@ -323,11 +360,14 @@ class RedisArtifactStore:
             idempotency_key: Stable operation identifier used for replay receipts.
 
         Returns:
-            Count of deleted keys.
+            Count of deleted logical artifacts.
         """
-        pattern = f"{self._prefix}:{run_id}/*"
+        pattern = f"{self._prefix}:data:{run_id}/*"
+        legacy_pattern = f"{self._prefix}:{run_id}/*"
         receipt_key = self._receipt_key(idempotency_key)
         receipt = await self._client.get(receipt_key)
+        if receipt is None and await self._client.get(self._legacy_receipt_key(idempotency_key)):
+            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
         if receipt is not None:
             stable_count = int(
                 self._receipt_result(
@@ -338,8 +378,22 @@ class RedisArtifactStore:
                 )
             )
         redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
+        legacy_keys = [key async for key in self._client.scan_iter(match=legacy_pattern, count=100)]
         if receipt is None:
-            count = len(redis_keys)
+
+            def _text(redis_key: str | bytes) -> str:
+                return redis_key.decode() if isinstance(redis_key, bytes) else redis_key
+
+            new_prefix = f"{self._prefix}:data:"
+            legacy_prefix = f"{self._prefix}:"
+            logical_keys = {_text(key).removeprefix(new_prefix) for key in redis_keys}
+            legacy_text = {_text(key) for key in legacy_keys}
+            logical_keys.update(
+                key.removeprefix(legacy_prefix)
+                for key in legacy_text
+                if f"{key}:meta" in legacy_text
+            )
+            count = len(logical_keys)
             await self._client.set(
                 receipt_key,
                 self._receipt_payload(kind="cleanup_run", target=run_id, result=count),
@@ -359,6 +413,12 @@ class RedisArtifactStore:
                 )
             )
         for redis_key in redis_keys:
+            await self._client.delete(redis_key)
+            redis_key_text = redis_key.decode() if isinstance(redis_key, bytes) else redis_key
+            await self._client.delete(
+                redis_key_text.replace(f"{self._prefix}:data:", f"{self._prefix}:meta:", 1)
+            )
+        for redis_key in legacy_keys:
             await self._client.delete(redis_key)
         return stable_count
 
@@ -383,8 +443,30 @@ class FilesystemArtifactStore:
         max_size: int = 104857600,
     ) -> None:
         self._base_dir = Path(base_dir)
+        required_dir_fd = {os.open, os.mkdir, os.stat, os.unlink, os.rmdir}
+        if (
+            fcntl is None
+            or not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY"))
+            or not required_dir_fd.issubset(os.supports_dir_fd)
+        ):
+            raise ArtifactStorageError("Descriptor-safe artifact storage is unsupported")
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._base_fd = os.open(
+                self._base_dir,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError:
+            raise ArtifactStorageError("Unable to safely open artifact base") from None
         self._default_ttl = default_ttl
         self._max_size = max_size
+
+    def __del__(self) -> None:
+        base_fd = getattr(self, "_base_fd", None)
+        if base_fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(base_fd)
+            self._base_fd = None
 
     def _validate_key(self, key: str) -> None:
         """Reject keys that cannot be safely resolved below the artifact base.
@@ -401,74 +483,215 @@ class FilesystemArtifactStore:
         if not key or "\x00" in key or Path(key).is_absolute():
             raise ArtifactStorageError("Rejected unsafe artifact key")
 
-    def _contained_path(self, relative_path: str) -> Path:
-        """Resolve a path and reject existing symlinks that leave the base."""
-        try:
-            base = self._base_dir.resolve()
-            candidate = (base / relative_path).resolve()
-        except (OSError, RuntimeError):
-            raise ArtifactStorageError("Unable to safely resolve artifact path") from None
-        try:
-            candidate.relative_to(base)
-        except ValueError:
-            raise ArtifactStorageError("Resolved path escapes artifact base") from None
-        return candidate
-
-    def _file_path(self, key: str) -> Path:
-        """Resolve the filesystem path for an artifact key."""
+    def _key_parts(self, key: str) -> list[str]:
         self._validate_key(key)
-        return self._contained_path(key)
+        parts = key.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ArtifactStorageError("Rejected unsafe artifact key")
+        return parts
 
-    def _meta_path(self, key: str) -> Path:
-        """Resolve the filesystem path for an artifact's sidecar metadata."""
-        self._validate_key(key)
-        return self._contained_path(f"{key}.meta.json")
+    def _open_parent_fd(self, key: str, *, create: bool) -> tuple[int, str]:
+        parts = self._key_parts(key)
+        current = os.dup(self._base_fd)
+        try:
+            for component in parts[:-1]:
+                try:
+                    next_fd = os.open(
+                        component,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=current,
+                    )
+                except FileNotFoundError:
+                    if not create:
+                        raise
+                    with contextlib.suppress(FileExistsError):
+                        os.mkdir(component, mode=0o700, dir_fd=current)
+                    next_fd = os.open(
+                        component,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=current,
+                    )
+                os.close(current)
+                current = next_fd
+            return current, parts[-1]
+        except (OSError, RuntimeError) as exc:
+            os.close(current)
+            if isinstance(exc, FileNotFoundError):
+                raise
+            raise ArtifactStorageError("Unsafe artifact directory chain") from None
 
-    def _receipt_path(self, idempotency_key: str) -> Path:
-        """Resolve the filesystem path for an erasure-operation replay receipt."""
+    @staticmethod
+    def _read_fd(fd: int) -> bytes:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+
+    def _read_bytes_at(self, key: str) -> bytes:
+        try:
+            parent_fd, leaf = self._open_parent_fd(key, create=False)
+        except FileNotFoundError:
+            raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
+        try:
+            fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            try:
+                return self._read_fd(fd)
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
+        except OSError:
+            raise ArtifactStorageError("Unsafe artifact file") from None
+        finally:
+            os.close(parent_fd)
+
+    def _write_bytes_at(self, key: str, data: bytes) -> None:
+        parent_fd, leaf = self._open_parent_fd(key, create=True)
+        try:
+            fd = os.open(
+                leaf,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            try:
+                view = memoryview(data)
+                while view:
+                    written = os.write(fd, view)
+                    view = view[written:]
+            finally:
+                os.close(fd)
+        except OSError:
+            raise ArtifactStorageError("Unsafe artifact file") from None
+        finally:
+            os.close(parent_fd)
+
+    def _exists_at(self, key: str) -> bool:
+        try:
+            parent_fd, leaf = self._open_parent_fd(key, create=False)
+        except FileNotFoundError:
+            return False
+        try:
+            stat_result = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(stat_result.st_mode):
+                raise ArtifactStorageError("Unsafe artifact file")
+            return True
+        except FileNotFoundError:
+            return False
+        except OSError:
+            raise ArtifactStorageError("Unsafe artifact file") from None
+        finally:
+            os.close(parent_fd)
+
+    def _receipt_name(self, idempotency_key: str) -> str:
         self._validate_key(idempotency_key)
-        return self._contained_path(f".erasure-receipts/{idempotency_key}.json")
+        if "/" in idempotency_key:
+            raise ArtifactStorageError("Rejected unsafe idempotency key")
+        return f"{idempotency_key}.json"
+
+    @contextlib.contextmanager
+    def _receipt_lock(self, idempotency_key: str):
+        self._receipt_name(idempotency_key)
+        lock_name = hashlib.sha256(idempotency_key.encode()).hexdigest() + ".lock"
+        lock_dir_fd, _ = self._open_parent_fd(".erasure-locks/placeholder", create=True)
+        try:
+            for attempt in range(3):
+                try:
+                    lock_fd = os.open(
+                        lock_name,
+                        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=lock_dir_fd,
+                    )
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                    break
+                except FileNotFoundError:
+                    if attempt == 2:
+                        raise ArtifactStorageError("Unable to lock erasure receipt") from None
+                    os.close(lock_dir_fd)
+                    lock_dir_fd, _ = self._open_parent_fd(".erasure-locks/placeholder", create=True)
+                except OSError:
+                    raise ArtifactStorageError("Unable to lock erasure receipt") from None
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+        finally:
+            os.close(lock_dir_fd)
 
     def _write_receipt(self, idempotency_key: str, payload: dict[str, Any]) -> None:
         """Persist a replay receipt atomically (temp file + rename)."""
-        path = self._receipt_path(idempotency_key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path = self._receipt_path(idempotency_key)
-        temporary = path.with_suffix(".tmp")
-        self._contained_path(str(temporary.relative_to(self._base_dir.resolve())))
-        temporary.write_text(json.dumps(payload, sort_keys=True))
-        temporary.replace(path)
+        receipt_name = self._receipt_name(idempotency_key)
+        receipt_dir_fd, _ = self._open_parent_fd(".erasure-receipts/placeholder", create=True)
+        temporary = f".{hashlib.sha256(idempotency_key.encode()).hexdigest()}.{token_hex(8)}.tmp"
+        try:
+            fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=receipt_dir_fd,
+            )
+            try:
+                payload_bytes = json.dumps(payload, sort_keys=True).encode()
+                view = memoryview(payload_bytes)
+                while view:
+                    written = os.write(fd, view)
+                    view = view[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.replace(
+                temporary,
+                receipt_name,
+                src_dir_fd=receipt_dir_fd,
+                dst_dir_fd=receipt_dir_fd,
+            )
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary, dir_fd=receipt_dir_fd)
+            raise ArtifactStorageError("Unable to safely write erasure receipt") from None
+        finally:
+            os.close(receipt_dir_fd)
 
     def _read_receipt(self, idempotency_key: str) -> dict[str, Any] | None:
         """Load a stored replay receipt, or None when the operation is new."""
-        path = self._receipt_path(idempotency_key)
-        return json.loads(path.read_text()) if path.exists() else None
+        receipt_name = self._receipt_name(idempotency_key)
+        try:
+            receipt_dir_fd, _ = self._open_parent_fd(".erasure-receipts/placeholder", create=False)
+        except FileNotFoundError:
+            return None
+        try:
+            try:
+                fd = os.open(receipt_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=receipt_dir_fd)
+            except FileNotFoundError:
+                return None
+            try:
+                return json.loads(self._read_fd(fd))
+            finally:
+                os.close(fd)
+        except (OSError, ValueError):
+            raise ArtifactStorageError("Unable to safely read erasure receipt") from None
+        finally:
+            os.close(receipt_dir_fd)
 
     def _write_file(self, key: str, data: bytes, meta: dict[str, Any]) -> None:
         """Synchronous file write for use with asyncio.to_thread."""
-        file_path = self._file_path(key)
-        meta_path = self._meta_path(key)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path = self._file_path(key)
-        meta_path = self._meta_path(key)
-        file_path.write_bytes(data)
-        meta_path.write_text(json.dumps(meta))
+        self._write_bytes_at(key, data)
+        self._write_bytes_at(f"{key}.meta.json", json.dumps(meta).encode())
 
     def _read_file(self, key: str) -> bytes:
         """Synchronous file read for use with asyncio.to_thread."""
-        file_path = self._file_path(key)
-        if not file_path.exists():
-            msg = f"Artifact not found: {key}"
-            raise ArtifactNotFoundError(msg)
-        return file_path.read_bytes()
+        return self._read_bytes_at(key)
 
     def _read_meta(self, key: str) -> dict[str, Any]:
         """Synchronous metadata read for use with asyncio.to_thread."""
-        meta_path = self._meta_path(key)
-        if not meta_path.exists():
-            msg = f"Artifact metadata not found: {key}"
-            raise ArtifactNotFoundError(msg)
-        return json.loads(meta_path.read_text())
+        try:
+            return json.loads(self._read_bytes_at(f"{key}.meta.json"))
+        except ArtifactNotFoundError:
+            raise ArtifactNotFoundError(f"Artifact metadata not found: {key}") from None
 
     def _is_expired(self, meta: dict[str, Any]) -> bool:
         """Check if an artifact has expired based on its sidecar metadata."""
@@ -480,14 +703,60 @@ class FilesystemArtifactStore:
 
     def _delete_files(self, key: str) -> bool:
         """Synchronous file deletion for use with asyncio.to_thread."""
-        file_path = self._file_path(key)
-        meta_path = self._meta_path(key)
-        existed = file_path.exists()
-        if file_path.exists():
-            file_path.unlink()
-        if meta_path.exists():
-            meta_path.unlink()
+        existed = self._exists_at(key)
+        for target in (key, f"{key}.meta.json"):
+            try:
+                parent_fd, leaf = self._open_parent_fd(target, create=False)
+            except FileNotFoundError:
+                continue
+            try:
+                os.unlink(leaf, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                raise ArtifactStorageError("Unable to safely delete artifact") from None
+            finally:
+                os.close(parent_fd)
         return existed
+
+    def _count_artifacts_fd(self, directory_fd: int) -> int:
+        count = 0
+        for name in os.listdir(directory_fd):
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+                try:
+                    count += self._count_artifacts_fd(child_fd)
+                finally:
+                    os.close(child_fd)
+            elif stat.S_ISREG(info.st_mode):
+                count += int(not name.endswith(".meta.json"))
+            else:
+                raise ArtifactStorageError("Unsafe entry in artifact tree")
+        return count
+
+    def _remove_tree_fd(self, directory_fd: int) -> None:
+        for name in os.listdir(directory_fd):
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+                try:
+                    self._remove_tree_fd(child_fd)
+                finally:
+                    os.close(child_fd)
+                os.rmdir(name, dir_fd=directory_fd)
+            elif stat.S_ISREG(info.st_mode):
+                os.unlink(name, dir_fd=directory_fd)
+            else:
+                raise ArtifactStorageError("Unsafe entry in artifact tree")
 
     async def store(
         self,
@@ -586,19 +855,20 @@ class FilesystemArtifactStore:
 
         def _delete() -> bool:
             """Synchronous idempotent delete for use with asyncio.to_thread."""
-            receipt = self._read_receipt(idempotency_key)
-            if receipt is None:
-                result = self._file_path(key).exists()
-                self._write_receipt(
-                    idempotency_key,
-                    {"kind": "delete", "target": key, "result": result},
-                )
-            else:
-                if receipt.get("kind") != "delete" or receipt.get("target") != key:
-                    raise ArtifactStorageError("idempotency key reused for another operation")
-                result = bool(receipt["result"])
-            self._delete_files(key)
-            return result
+            with self._receipt_lock(idempotency_key):
+                receipt = self._read_receipt(idempotency_key)
+                if receipt is None:
+                    result = self._exists_at(key)
+                    self._write_receipt(
+                        idempotency_key,
+                        {"kind": "delete", "target": key, "result": result},
+                    )
+                else:
+                    if receipt.get("kind") != "delete" or receipt.get("target") != key:
+                        raise ArtifactStorageError("idempotency key reused for another operation")
+                    result = bool(receipt["result"])
+                self._delete_files(key)
+                return result
 
         return await asyncio.to_thread(_delete)
 
@@ -618,18 +888,18 @@ class FilesystemArtifactStore:
             ArtifactTTLError: If the artifact does not exist.
         """
         self._validate_key(key)
-        meta_path = self._meta_path(key)
 
         def _refresh() -> bool:
             """Synchronous sidecar TTL rewrite for use with asyncio.to_thread."""
-            if not meta_path.exists():
+            try:
+                meta = self._read_meta(key)
+            except ArtifactNotFoundError:
                 msg = f"Cannot refresh TTL for missing artifact: {key}"
-                raise ArtifactTTLError(msg)
-            meta = json.loads(meta_path.read_text())
+                raise ArtifactTTLError(msg) from None
             now = datetime.now(UTC)
             meta["ttl_seconds"] = ttl
             meta["expires_at"] = (now + timedelta(seconds=ttl)).isoformat()
-            meta_path.write_text(json.dumps(meta))
+            self._write_bytes_at(f"{key}.meta.json", json.dumps(meta).encode())
             return True
 
         return await asyncio.to_thread(_refresh)
@@ -647,13 +917,12 @@ class FilesystemArtifactStore:
 
         def _check() -> bool:
             """Synchronous existence + expiry check for use with asyncio.to_thread."""
-            file_path = self._file_path(key)
-            if not file_path.exists():
+            if not self._exists_at(key):
                 return False
-            meta_path = self._meta_path(key)
-            if not meta_path.exists():
+            try:
+                meta = self._read_meta(key)
+            except ArtifactNotFoundError:
                 return False
-            meta = json.loads(meta_path.read_text())
             return not self._is_expired(meta)
 
         return await asyncio.to_thread(_check)
@@ -671,29 +940,56 @@ class FilesystemArtifactStore:
 
         def _cleanup() -> int:
             """Synchronous idempotent run-tree removal for use with asyncio.to_thread."""
-            self._validate_key(run_id)
-            run_dir = self._file_path(run_id)
-            receipt = self._read_receipt(idempotency_key)
-            if receipt is None:
-                count = (
-                    sum(
-                        1
-                        for f in run_dir.rglob("*")
-                        if f.is_file() and not f.name.endswith(".meta.json")
+            with self._receipt_lock(idempotency_key):
+                receipt = self._read_receipt(idempotency_key)
+                if receipt is not None:
+                    if receipt.get("kind") != "cleanup_run" or receipt.get("target") != run_id:
+                        raise ArtifactStorageError("idempotency key reused for another operation")
+                    count = int(receipt["result"])
+                try:
+                    parent_fd, leaf = self._open_parent_fd(run_id, create=False)
+                except FileNotFoundError:
+                    parent_fd = None
+                    leaf = ""
+                if receipt is None:
+                    count = 0
+                    if parent_fd is not None:
+                        try:
+                            run_fd = os.open(
+                                leaf,
+                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                dir_fd=parent_fd,
+                            )
+                            try:
+                                count = self._count_artifacts_fd(run_fd)
+                            finally:
+                                os.close(run_fd)
+                        except FileNotFoundError:
+                            pass
+                        except OSError:
+                            raise ArtifactStorageError("Unsafe artifact run tree") from None
+                    self._write_receipt(
+                        idempotency_key,
+                        {"kind": "cleanup_run", "target": run_id, "result": count},
                     )
-                    if run_dir.exists()
-                    else 0
-                )
-                self._write_receipt(
-                    idempotency_key,
-                    {"kind": "cleanup_run", "target": run_id, "result": count},
-                )
-            else:
-                if receipt.get("kind") != "cleanup_run" or receipt.get("target") != run_id:
-                    raise ArtifactStorageError("idempotency key reused for another operation")
-                count = int(receipt["result"])
-            if run_dir.exists():
-                shutil.rmtree(run_dir)
-            return count
+                if parent_fd is not None:
+                    try:
+                        run_fd = os.open(
+                            leaf,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=parent_fd,
+                        )
+                        try:
+                            self._remove_tree_fd(run_fd)
+                        finally:
+                            os.close(run_fd)
+                        os.rmdir(leaf, dir_fd=parent_fd)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        raise ArtifactStorageError("Unsafe artifact run tree") from None
+                    finally:
+                        os.close(parent_fd)
+                return count
 
         return await asyncio.to_thread(_cleanup)

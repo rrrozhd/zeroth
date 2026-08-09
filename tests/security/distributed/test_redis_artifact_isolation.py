@@ -49,7 +49,7 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         await tenant_a.store("receipt-run/b", b"b", "application/octet-stream")
         assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
         await tenant_a.store("cleanup-restart/a", b"cleanup", "application/octet-stream")
-        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 2
+        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 1
         assert await tenant_a.retrieve(key) == b"A"
         assert await tenant_b.retrieve(key) == b"B"
     finally:
@@ -83,7 +83,7 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("receipt-run", idempotency_key="bound-receipt")
         assert await tenant_a.retrieve("receipt-run/b") == b"b"
-        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 2
+        assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 1
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("other-cleanup", idempotency_key="cleanup-receipt")
 
@@ -118,8 +118,8 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
                 == competing[1]
             )
 
-        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2
-        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2
+        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 1
+        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 1
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("other-run", idempotency_key="cleanup")
         with pytest.raises(ArtifactNotFoundError):

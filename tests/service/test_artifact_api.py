@@ -13,6 +13,7 @@ from tests.service.helpers import (
 )
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
+from zeroth.platform.artifacts.models import generate_artifact_key
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap import bootstrap_app
 
@@ -37,6 +38,19 @@ async def test_get_artifact_returns_stored_bytes(sqlite_db, tmp_path) -> None:
         assert resp.status_code == 200
         assert resp.content == b"hello-artifact"
         assert resp.headers["content-type"] == "application/octet-stream"
+
+
+async def test_get_artifact_accepts_canonical_generated_path_key(sqlite_db, tmp_path) -> None:
+    store = FilesystemArtifactStore(base_dir=str(tmp_path))
+    key = generate_artifact_key("run/path", "node")
+    await store.store(key, b"generated", "application/octet-stream")
+    app = await _build_app(sqlite_db, artifact_store=store)
+
+    with TestClient(app) as client:
+        response = client.get(f"/v1/artifacts/{key}", headers=operator_headers())
+
+    assert response.status_code == 200
+    assert response.content == b"generated"
 
 
 async def test_get_artifact_unknown_key_returns_404(sqlite_db, tmp_path) -> None:
@@ -78,20 +92,21 @@ async def test_deployment_apis_share_backend_without_sharing_artifacts(sqlite_db
         auth_config=auth,
         tenant_id="tenant-b",
     )
-    await service_a.artifact_store.store("shared-key", b"A", "application/octet-stream")
-    await service_b.artifact_store.store("shared-key", b"B", "application/octet-stream")
+    key = generate_artifact_key("shared/run", "node")
+    await service_a.artifact_store.store(key, b"A", "application/octet-stream")
+    await service_b.artifact_store.store(key, b"B", "application/octet-stream")
 
     with (
         TestClient(create_app(service_a)) as client_a,
         TestClient(create_app(service_b)) as client_b,
     ):
         assert (
-            client_a.get("/v1/artifacts/shared-key", headers=api_key_headers("secret-a")).content
+            client_a.get(f"/v1/artifacts/{key}", headers=api_key_headers("secret-a")).content
             == b"A"
         )
         assert (
-            client_b.get("/v1/artifacts/shared-key", headers=api_key_headers("secret-b")).content
+            client_b.get(f"/v1/artifacts/{key}", headers=api_key_headers("secret-b")).content
             == b"B"
         )
-        foreign = client_a.get("/v1/artifacts/shared-key", headers=api_key_headers("secret-b"))
+        foreign = client_a.get(f"/v1/artifacts/{key}", headers=api_key_headers("secret-b"))
         assert foreign.status_code == 404

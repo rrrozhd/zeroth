@@ -151,7 +151,7 @@ async def test_shared_backend_isolates_full_artifact_lifecycle(
     await tenant_a.store("cleanup-run/n1/a", b"a", "text/plain")
     await tenant_a.store("cleanup-run/n2/b", b"b", "text/plain")
     await tenant_b.store("cleanup-run/n1/a", b"foreign", "text/plain")
-    expected_cleanup_count = 2 if backend == "filesystem" else 4
+    expected_cleanup_count = 2
     assert (
         await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup")
         == expected_cleanup_count
@@ -288,7 +288,7 @@ async def test_redis_cleanup_pattern_contains_only_encoded_run() -> None:
     run_id = "run*?[]\\"
     await wrapper.store(f"{run_id}/node/key", b"x", "text/plain")
 
-    assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 2
+    assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 1
     pattern = client.scan_patterns[-1]
     assert run_id not in pattern
     assert "tenant" not in pattern
@@ -310,7 +310,7 @@ async def test_slash_bearing_run_cleanup_uses_explicit_framing(
 
     deleted = await wrapper.cleanup_run("a/b", idempotency_key="nested-cleanup")
 
-    assert deleted == (1 if backend == "filesystem" else 2)
+    assert deleted == 1
     assert not await wrapper.exists(nested_run_key)
     assert await wrapper.retrieve(parent_run_key) == b"parent"
     assert nested_run_key != parent_run_key
@@ -352,7 +352,7 @@ async def test_redis_cleanup_counts_data_key_ending_meta() -> None:
     backend, _ = _redis_store(values)
     await backend.store("run/data:meta", b"payload", "text/plain")
 
-    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
 
 
 @pytest.mark.asyncio()
@@ -377,8 +377,8 @@ async def test_redis_cleanup_receipt_replay_and_target_misuse() -> None:
     backend, _ = _redis_store(values)
     await backend.store("run/a", b"a", "text/plain")
 
-    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
-    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
     with pytest.raises(ArtifactStorageError, match="reused for another operation"):
         await backend.cleanup_run("other", idempotency_key="cleanup")
 
@@ -410,3 +410,31 @@ async def test_redis_competing_receipt_has_one_binding_winner(competitor: str) -
         assert await backend.delete("run/b", idempotency_key="contended") is True
     else:
         assert await backend.cleanup_run("run", idempotency_key="contended") == results[1]
+
+
+@pytest.mark.asyncio()
+async def test_redis_legacy_receipt_blocks_unbound_reexecution() -> None:
+    values: dict[str, bytes] = {
+        "shared:erasure-receipt:legacy": b"1",
+        "shared:data:run/a": b"a",
+        "shared:meta:run/a": b"{}",
+    }
+    backend, _ = _redis_store(values)
+
+    with pytest.raises(ArtifactStorageError, match="Legacy erasure receipt"):
+        await backend.delete("run/a", idempotency_key="legacy")
+    assert await backend.retrieve("run/a") == b"a"
+
+
+@pytest.mark.asyncio()
+async def test_redis_legacy_layout_key_ending_meta_counts_once_after_restart() -> None:
+    values: dict[str, bytes] = {
+        "shared:run/data:meta": b"legacy-payload",
+        "shared:run/data:meta:meta": b"{}",
+    }
+    backend, _ = _redis_store(values)
+    assert await backend.retrieve("run/data:meta") == b"legacy-payload"
+
+    restarted, _ = _redis_store(values)
+    assert await restarted.cleanup_run("run", idempotency_key="cleanup") == 1
+    assert not await restarted.exists("run/data:meta")
