@@ -67,13 +67,36 @@ def candidate() -> dict:
     }
 
 
+#: Evidence bodies that actually look like the kind they claim to be. A fixture
+#: that writes "source junit" into a file called a JUnit report would make the
+#: suite agree that any file is evidence, which is the hole the validator's
+#: shape checks exist to close.
+KIND_BODIES = {
+    "junit": '<?xml version="1.0"?>\n<testsuites><testsuite name="x" tests="1"/></testsuites>\n',
+    "ui": '<?xml version="1.0"?>\n<testsuites><testsuite name="ui" tests="1"/></testsuites>\n',
+    "compatibility": '{"release": "0.19", "resolved": {}}\n',
+    "benchmark": '{"release": "0.19", "passed": true}\n',
+    "sbom": '{"spdxVersion": "SPDX-2.3", "packages": []}\n',
+    "provenance": '{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3"}\n',
+    "security": '{"verified": true}\n',
+    "deployment": "readiness ok\ngateway ok\n",
+    "manual-signoff": "Accepted by an operator.\n",
+}
+
+
+def evidence_body(kind: str) -> str:
+    """Return a body that satisfies the validator's shape check for ``kind``."""
+    return KIND_BODIES.get(kind, f"{kind} evidence\n")
+
+
 def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
     """Write one gate's record, valid unless an override says otherwise."""
     kinds = {}
     for kind in gate["kinds"]:
-        relative = f"release/evidence/{gate['id']}-{kind}.evidence"
+        suffix = "xml" if kind in ("junit", "ui") else "json" if kind in KIND_BODIES else "txt"
+        relative = f"release/evidence/{gate['id']}-{kind}.{suffix}"
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
-        (root / relative).write_text(f"{gate['id']} {kind}\n", encoding="utf-8")
+        (root / relative).write_text(evidence_body(kind), encoding="utf-8")
         kinds[kind] = relative
     record = {
         "schema_version": 1,

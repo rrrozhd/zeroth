@@ -33,7 +33,12 @@
       "description": "The pinned LangChain/LangGraph/Agent Server matrix still conforms and the governed-tool benchmark holds against its recorded baseline.",
       "binds": ["commit", "package", "compatibility"],
       "record": "release/evidence/langgraph.json",
-      "requires": ["conformance", "compatibility-matrix", "benchmark"],
+      "requires": [
+        "conformance",
+        "compatibility-matrix",
+        "compatibility-current",
+        "benchmark"
+      ],
       "kinds": ["compatibility", "benchmark", "junit"],
       "triggers": ["nightly", "release-candidate"]
     },
@@ -112,7 +117,7 @@
     "security": {
       "applicable": true,
       "producer": "ci",
-      "description": "Container and dependency security evidence for the release image."
+      "description": "The cryptographic verification result for the release image's provenance attestation. Scoped deliberately: no vulnerability or dependency scanner runs in this pipeline yet, so this kind claims provenance verification and nothing wider."
     },
     "deployment": {
       "applicable": true,

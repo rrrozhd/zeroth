@@ -74,9 +74,24 @@ for 90 days.
 One piece of evidence has no CI producer: the promotion signoff. Before
 promoting to PyPI, a named human records acceptance at
 `release/signoff/<version>.md` — for example `release/signoff/0.19.md` — and
-commits it on the release tag. Absent that file, the promotion gate reports
-failure and PyPI stays closed. The file should say who accepted the release and
-what they checked.
+commits it on the release tag.
+
+The file must contain both:
+
+- a line beginning `Signed-off-by:` or `Operator:` naming the human, and
+- the candidate identity digest, which the release run prints and which you can
+  reproduce with
+  `python release/gates/cli.py digest --identity release/evidence/candidate-identity-full.json`.
+
+Requiring the digest is what stops a signoff for an earlier build of the same
+version from being accepted for this one — existing is not the same as
+accepting *this* candidate. Absent, unsigned, or wrongly-bound, the promotion
+gate fails and PyPI stays closed.
+
+The evidence manifest — the candidate identity plus the digest of every gate
+record — is sealed and attested with `actions/attest` at the end of the release
+run, so the evidence itself carries a signature rather than only the image it
+describes.
 
 ## Reading a blocked verdict
 

@@ -112,6 +112,54 @@ def test_pypi_promotion_depends_on_the_final_gate_not_only_the_candidate_one():
     assert "evidence-gate" in _ancestors(jobs, "publish-testpypi")
 
 
+@pytest.mark.parametrize(
+    ("promotion_job", "gate_job", "phase"),
+    [
+        ("publish-testpypi", "evidence-gate", "candidate"),
+        ("publish-pypi", "evidence-gate-final", "final"),
+    ],
+)
+def test_the_gate_a_promotion_depends_on_really_runs_the_validator(
+    promotion_job, gate_job, phase
+):
+    """Depending on a job *named* like a gate proves nothing.
+
+    Renaming the command, dropping the phase, or narrowing it with a trigger
+    would leave the dependency-graph assertions green while letting gates fall
+    out of promotion, so assert what the job actually executes.
+    """
+    jobs = _jobs(RELEASE_WORKFLOW)
+    assert gate_job in _ancestors(jobs, promotion_job)
+
+    script = _scripts(RELEASE_WORKFLOW)[gate_job]
+
+    assert "release/gates/cli.py verdict" in script or "release/gates/cli.py validate" in script
+    assert f"--phase {phase}" in script
+    # A trigger filter would narrow the gate set; promotion must see them all.
+    assert "--trigger" not in script
+
+
+def test_the_final_gate_seals_the_evidence_it_validated():
+    script = _scripts(RELEASE_WORKFLOW)["evidence-gate-final"]
+    attests = [
+        step
+        for step in _steps(_jobs(RELEASE_WORKFLOW)["evidence-gate-final"])
+        if str(step.get("uses", "")).startswith("actions/attest")
+    ]
+
+    assert "release/gates/cli.py seal" in script
+    assert attests, "the sealed evidence manifest is never attested"
+    assert "evidence-manifest.json" in str(attests[0]["with"]["subject-path"])
+
+
+def test_the_gate_jobs_publish_a_verdict_even_when_a_producer_failed():
+    """Otherwise the verdict disappears exactly when it is most needed."""
+    jobs = _jobs(RELEASE_WORKFLOW)
+
+    for name in ("evidence-gate", "evidence-gate-final"):
+        assert jobs[name].get("if") == "always()", f"{name} is skipped when a producer fails"
+
+
 def test_every_needs_edge_names_a_job_that_exists():
     for path in (RELEASE_WORKFLOW, GATES_WORKFLOW):
         jobs = _jobs(path)
@@ -269,9 +317,13 @@ def test_every_cited_evidence_file_reaches_the_validating_job(gate_id):
             )
             continue
         committed = (ROOT / candidate_path).exists() and _tracked(candidate_path)
-        assert committed or _is_covered(candidate_path, uploaded), (
-            f"{where} cites {candidate_path}, which is neither committed nor uploaded "
-            f"with the record (uploads: {uploaded})"
+        # A gate emitted inside the validating job never travels as an
+        # artifact: the file is already on that runner. It still has to be
+        # created there rather than assumed to exist.
+        created_here = job_name.startswith("evidence-gate") and candidate_path in script
+        assert committed or created_here or _is_covered(candidate_path, uploaded), (
+            f"{where} cites {candidate_path}, which is neither committed, created in "
+            f"this job, nor uploaded with the record (uploads: {uploaded})"
         )
 
 
