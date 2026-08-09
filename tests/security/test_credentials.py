@@ -459,6 +459,36 @@ def test_invalid_role_enum_is_sanitized_without_losing_enum_guidance() -> None:
         assert "operator" in detail["msg"]
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"custom_roles": {987654321012345678: ["operator"]}},
+        {
+            "bearer": {
+                "issuer": "issuer",
+                "audience": "audience",
+                "jwks": {987654321012345678: "not-a-jwk"},
+            }
+        },
+    ],
+)
+def test_config_validation_redacts_numeric_mapping_keys_from_locations(
+    payload: dict[str, object],
+) -> None:
+    raw_key = "987654321012345678"
+    # JSON object keys are strings, so from_env cannot produce this Pydantic loc shape.
+    loaders = (
+        lambda: ServiceAuthConfig(**payload),
+        lambda: ServiceAuthConfig.model_validate(payload),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+
+        _assert_secret_absent_from_exception_chain(excinfo.value, raw_key)
+
+
 def _config_environment(payload: dict[str, object]) -> dict[str, str]:
     """Serialize a complete auth config payload through its public env API."""
     env_names = {

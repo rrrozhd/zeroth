@@ -35,6 +35,7 @@ _REMOTE_JWKS_CACHE_SECONDS = 300.0
 _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS = 5.0
 _REDACTED_CONFIG_VALUE = "[redacted]"
 _REDACTED_CONFIG_LOCATION = "[redacted-field]"
+_PYDANTIC_MAPPING_KEY_LOCATION_MARKER = "[key]"
 _SAFE_CONFIG_LOCATION_SEGMENTS = frozenset(
     {
         "api_keys",
@@ -125,13 +126,12 @@ def _redacted_config_validation_error(error: ValidationError, *, title: str) -> 
 def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
     """Rebuild one Pydantic error detail using only fixed schema data."""
     error_type = detail["type"]
+    location = tuple(detail.get("loc", ()))
     safe_detail: dict[str, Any] = {
         "type": error_type,
         "loc": tuple(
-            segment
-            if isinstance(segment, int) or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
-            else _REDACTED_CONFIG_LOCATION
-            for segment in detail.get("loc", ())
+            _redacted_config_location_segment(location, index)
+            for index in range(len(location))
         ),
         "input": _REDACTED_CONFIG_VALUE,
     }
@@ -148,6 +148,21 @@ def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
             )
         }
     return safe_detail
+
+
+def _redacted_config_location_segment(location: tuple[Any, ...], index: int) -> str | int:
+    """Preserve schema fields and list indices, never mapping keys from caller input."""
+    segment = location[index]
+    if index + 1 < len(location) and location[index + 1] == _PYDANTIC_MAPPING_KEY_LOCATION_MARKER:
+        return _REDACTED_CONFIG_LOCATION
+    if isinstance(segment, int):
+        return segment
+    if (
+        segment == _PYDANTIC_MAPPING_KEY_LOCATION_MARKER
+        or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+    ):
+        return segment
+    return _REDACTED_CONFIG_LOCATION
 
 
 class CredentialRevocationRegistry:
