@@ -101,7 +101,12 @@ def _contract() -> dict[str, object]:
             ),
         ]
     }
-    scenarios["retention"] = {"steps": [_step("/retention", expected_json={"enabled": True})]}
+    scenarios["retention"] = {
+        "steps": [
+            _step("/retention", expected_json={"enabled": True}),
+            _step("/retention/erase", method="POST", expected_status=409),
+        ]
+    }
     scenarios["gateway_http"] = {
         "steps": [
             _step("/gateway/allow", method="POST", require_correlation=True),
@@ -310,6 +315,7 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
             "corr-run-done",
         ),
         "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
+        "/retention/erase": HttpObservation(409, {"detail": "held"}, "corr-erase"),
         "/gateway/allow": HttpObservation(200, {"forwarded": True}, "corr-gateway"),
         "/gateway/deny": HttpObservation(403, {"code": "zeroth.policy_denied"}, "corr-gateway"),
         "/gateway/upstream-failure": HttpObservation(

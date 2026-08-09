@@ -370,6 +370,43 @@
           "expected_json": {
             "enabled": true
           }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "POST",
+          "path": "/v1/retention/legal-holds",
+          "payload": {
+            "run_id": "{run_id}",
+            "reason": "{namespace} acceptance hold"
+          },
+          "expected_status": 201,
+          "expected_json": {
+            "active": true,
+            "run_id": "{run_id}",
+            "tenant_id": "{tenant_id}"
+          },
+          "owned_capture": {
+            "hold_id": "hold_id"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "POST",
+          "path": "/v1/retention/erasure-requests",
+          "payload": {
+            "run_id": "{run_id}"
+          },
+          "expected_status": 409
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "DELETE",
+          "path": "/v1/retention/legal-holds/{hold_id}",
+          "expected_status": 200,
+          "resource_id": "{hold_id}"
         }
       ]
     },

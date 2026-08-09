@@ -260,6 +260,16 @@
           "expected_json": {
             "enabled": true
           }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "POST",
+          "path": "/__acceptance/retention/erase",
+          "payload": {
+            "run_id": "{namespace}"
+          },
+          "expected_status": 409
         }
       ]
     },

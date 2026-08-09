@@ -96,6 +96,7 @@ def _fixture_app() -> FastAPI:
         ),
         "/__acceptance/executable-units/run": (422, {"error_code": "unstaged_project_artifact"}),
         "/__acceptance/restart": (202, {}),
+        "/__acceptance/retention/erase": (409, {"detail": "held"}),
     }
 
     def _gateway(assistant: str) -> tuple[int, Any]:

@@ -55,8 +55,17 @@ def _contains_namespace(value: Any) -> bool:
 
 
 def _has_ownership_attestation(expected: dict[str, Any]) -> bool:
+    """Whether the response asserts the created resource belongs to this invocation.
+
+    A deployment-asserted `tenant_id` counts alongside a namespaced name. Products
+    assign their own opaque ids, so requiring the identifier itself to be namespaced
+    would refuse every real create; what makes a resource safe to clean up is the
+    deployment saying whose it is.
+    """
     namespace = expected.get("namespace")
     name = expected.get("name")
+    if expected.get("tenant_id") == "{tenant_id}":
+        return True
     return namespace == "{namespace}" or (isinstance(name, str) and name.startswith("{namespace}-"))
 
 
@@ -324,7 +333,14 @@ class AcceptanceContract(BaseModel):
         require(
             "retention",
             lambda step: step.expected_json.get("enabled") is True,
-            "prove retention enforcement",
+            "read the retention policy",
+        )
+        # A flag says retention is configured. A hold that actually refuses an erasure
+        # says it is enforced, which is what R2 asks for.
+        require(
+            "retention",
+            lambda step: step.expected_status == 409,
+            "prove a legal hold refuses erasure",
         )
 
     def _require_gateway_evidence(self) -> None:
