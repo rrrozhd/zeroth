@@ -92,7 +92,6 @@ class CredentialStatusProvider(Protocol):
     """Synchronous source of credential status checked after verification."""
 
     def is_revoked(self, identifier: str) -> bool:
-        """Check one verified identifier against the current snapshot."""
         """Whether a verified credential identifier has been revoked."""
 
 
