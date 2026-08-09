@@ -7,7 +7,11 @@ import pytest
 from pydantic import ValidationError
 
 from release.acceptance.config import AcceptanceConfig
-from release.acceptance.models import REQUIRED_SCENARIOS, AcceptanceContract, ScenarioStatus
+from release.acceptance.models import (
+    REQUIRED_SCENARIOS,
+    AcceptanceContract,
+    ScenarioStatus,
+)
 from release.acceptance.runner import AcceptanceRunner
 from release.acceptance.transport import HttpObservation
 
@@ -33,6 +37,8 @@ def _config(tmp_path: Path):
             "deployment_ref": "dep",
             "candidate_identity": str(identity),
             "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
+            "poll_deadline_seconds": 1,
+            "poll_interval_seconds": 0.01,
             "lifecycle": {
                 "restart_url": "/restart",
                 "shutdown_url": "/shutdown",
@@ -59,14 +65,8 @@ def _contract() -> dict[str, object]:
     scenarios = {name: {"steps": [_step(f"/{name}")]} for name in REQUIRED_SCENARIOS}
     scenarios["readiness"] = {
         "steps": [
-            _step("/readiness"),
-            _step(
-                "/identity",
-                expected_json={
-                    "candidate_digest": "{candidate_digest}",
-                    "deployment_ref": "{deployment_ref}",
-                },
-            ),
+            _step("/readiness", expected_json={"status": "ok"}),
+            _step("/identity", expected_json={"deployment_ref": "{deployment_ref}"}),
         ]
     }
     scenarios["authentication"] = {
@@ -86,7 +86,7 @@ def _contract() -> dict[str, object]:
     scenarios["runs"] = {
         "steps": [
             _step("/runs", method="POST", expected_status=202),
-            _step("/runs/completed", expected_json={"status": "completed"}),
+            _step("/runs/settled", expected_json={"status": "succeeded"}, poll=True),
         ]
     }
     scenarios["retention"] = {"steps": [_step("/retention", expected_json={"enabled": True})]}
@@ -117,11 +117,12 @@ def _contract() -> dict[str, object]:
             )
         ]
     }
+    counted = {"count_path": "entries", "count_where": {"node_id": "finish", "status": "completed"}}
     scenarios["approvals"] = {
         "steps": [
-            _step("/approval/before", expected_json={"tool_execution_count": 0}),
+            _step("/approval/before", expected_count=0, **counted),
             _step("/approval/resolve", method="POST"),
-            _step("/approval/after", expected_json={"tool_execution_count": 1}),
+            _step("/approval/after", expected_count=1, **counted),
         ]
     }
     scenarios["streaming"] = {
@@ -136,15 +137,17 @@ def _contract() -> dict[str, object]:
             }
         ]
     }
+    anchor = _step(
+        "/anchors",
+        count_path="audits",
+        count_where={"node_id": "finish", "status": "completed"},
+        expected_count=1,
+    )
     scenarios["restart_recovery"] = {
         "steps": [
-            _step(
-                "/anchors/before", expected_json={"run": True, "approval": True, "artifact": True}
-            ),
+            dict(anchor),
             {"protocol": "lifecycle", "role": "admin", "operation": "restart"},
-            _step(
-                "/anchors/after", expected_json={"run": True, "approval": True, "artifact": True}
-            ),
+            dict(anchor),
         ]
     }
     scenarios["shutdown"] = {
@@ -175,11 +178,19 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
         AcceptanceContract.model_validate(missing)
 
     weak_approval = _contract()
-    weak_approval["scenarios"]["approvals"]["steps"][-1]["expected_json"] = {
-        "tool_execution_count": 2
-    }
-    with pytest.raises(ValidationError, match="zero times.*exactly once"):
+    weak_approval["scenarios"]["approvals"]["steps"][-1]["expected_count"] = 2
+    with pytest.raises(ValidationError, match="zero executions before approval"):
         AcceptanceContract.model_validate(weak_approval)
+
+    drifting_approval = _contract()
+    drifting_approval["scenarios"]["approvals"]["steps"][-1]["count_where"] = {"node_id": "other"}
+    with pytest.raises(ValidationError, match="same records before and after"):
+        AcceptanceContract.model_validate(drifting_approval)
+
+    weak_restart = _contract()
+    weak_restart["scenarios"]["restart_recovery"]["steps"][-1]["expected_count"] = 7
+    with pytest.raises(ValidationError, match="identical durable fact"):
+        AcceptanceContract.model_validate(weak_restart)
 
     no_restart = _contract()
     no_restart["scenarios"]["restart_recovery"]["steps"][1] = _step("/pretend", method="POST")
@@ -187,8 +198,10 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
         AcceptanceContract.model_validate(no_restart)
 
     no_identity = _contract()
-    no_identity["scenarios"]["readiness"]["steps"] = [_step("/readiness")]
-    with pytest.raises(ValidationError, match="candidate identity"):
+    no_identity["scenarios"]["readiness"]["steps"] = [
+        _step("/readiness", expected_json={"status": "ok"})
+    ]
+    with pytest.raises(ValidationError, match="bind the serving deployment"):
         AcceptanceContract.model_validate(no_identity)
 
     extra = _contract()
@@ -254,8 +267,9 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/workflow/create": HttpObservation(200, {"status": "draft"}, "corr-workflow"),
         "/workflow/publish": HttpObservation(200, {"status": "published"}, "corr-publish"),
         "/deployment": HttpObservation(200, {"deployment_ref": "dep"}, "corr-deployment"),
+        "/readiness": HttpObservation(200, {"status": "ok"}, "corr-ready"),
         "/runs": HttpObservation(202, {}, "corr-run"),
-        "/runs/completed": HttpObservation(200, {"status": "completed"}, "corr-run-done"),
+        "/runs/settled": HttpObservation(200, {"status": "succeeded"}, "corr-run-done"),
         "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
         **{
             f"/gateway/{decision}": HttpObservation(200, {"decision": decision}, "corr-gateway")
@@ -265,13 +279,12 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/compatibility": HttpObservation(
             200, {"status": "supported", "detected_agent_server": "0.11.1"}, "corr-compat"
         ),
-        "/approval/before": HttpObservation(200, {"tool_execution_count": 0}, "corr-before"),
-        "/approval/after": HttpObservation(200, {"tool_execution_count": 1}, "corr-after"),
-        "/anchors/before": HttpObservation(
-            200, {"run": True, "approval": True, "artifact": True}, "corr-anchor-1"
+        "/approval/before": HttpObservation(200, {"entries": []}, "corr-before"),
+        "/approval/after": HttpObservation(
+            200, {"entries": [{"node_id": "finish", "status": "completed"}]}, "corr-after"
         ),
-        "/anchors/after": HttpObservation(
-            200, {"run": True, "approval": True, "artifact": True}, "corr-anchor-2"
+        "/anchors": HttpObservation(
+            200, {"audits": [{"node_id": "finish", "status": "completed"}]}, "corr-anchor"
         ),
         f"/fixtures/{config.namespace}-workflow": HttpObservation(204, None, "corr-clean"),
     }

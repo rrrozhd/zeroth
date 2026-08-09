@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m release.acceptance.cli \
             --config release/evidence/deployed-acceptance-config.json \
-            --contract release/acceptance/contracts/fixture-v1.json \
+            --contract release/acceptance/contracts/zeroth-v1.json \
             --output release/evidence/deployed-acceptance-report.json
       - name: Upload acceptance evidence
         if: always()

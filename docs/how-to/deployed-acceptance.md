@@ -6,7 +6,7 @@ The deployed acceptance harness tests a selected Zeroth deployment from outside 
 
 Use a tenant whose ID begins with `acceptance-`. The harness rejects `default`, production-looking tenant IDs, URL credentials, non-HTTP URLs, missing role credentials, and candidate identities without an immutable image digest before it makes a network request.
 
-The target must provide the native Zeroth APIs used by the suite and the test-only control endpoints declared in `release/acceptance/contracts/fixture-v1.json`. Those control endpoints expose deterministic fixture state and lifecycle authority for migrations, runs, streams, approval counts, audit, artifacts, executable-unit failures, restart, drain, and shutdown. They belong on a dedicated acceptance deployment, not a production deployment. Missing endpoints or unsupported Agent Server versions fail the suite; they are never recorded as skips.
+The target must provide the native Zeroth APIs used by the suite and the test-only control endpoints declared in `release/acceptance/contracts/zeroth-v1.json`. Those control endpoints expose deterministic fixture state and lifecycle authority for migrations, runs, streams, approval counts, audit, artifacts, executable-unit failures, restart, drain, and shutdown. They belong on a dedicated acceptance deployment, not a production deployment. Missing endpoints or unsupported Agent Server versions fail the suite; they are never recorded as skips.
 
 The operator, reviewer, and admin credentials must be distinct and must all resolve to the configured tenant. Put credential values in environment variables only:
 
@@ -42,7 +42,7 @@ Run the harness:
 ```bash
 python -m release.acceptance.cli \
   --config acceptance-config.json \
-  --contract release/acceptance/contracts/fixture-v1.json \
+  --contract release/acceptance/contracts/zeroth-v1.json \
   --output release/evidence/deployed-acceptance-report.json
 ```
 

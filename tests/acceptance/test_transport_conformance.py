@@ -1,3 +1,15 @@
+"""Transport conformance: the runner drives a contract over real HTTP and WebSocket.
+
+The server here is a stand-in and its responses are authored to satisfy the contract,
+so **nothing in this module is evidence about Zeroth**. It exists to exercise the parts
+of the harness a product candidate cannot: real socket framing, WebSocket event
+ordering, captures threaded between steps, and cleanup of owned resources.
+
+Evidence about the product lives in `test_ephemeral_candidate.py`, which runs against
+the real service. Keep that division: the moment a claim about Zeroth is asserted here,
+it is being asserted against responses this file wrote.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +30,6 @@ from release.acceptance.models import AcceptanceContract, ScenarioStatus
 from release.acceptance.runner import AcceptanceRunner
 from release.acceptance.transport import AcceptanceTransport
 from release.gates.identity import identity_digest
-
 
 _IDENTITY = {
     "schema_version": 1,
@@ -63,7 +74,7 @@ def _fixture_app() -> FastAPI:
         if route == "/health/ready":
             if getattr(app.state, "draining", False):
                 return JSONResponse({"status": "draining"}, status_code=503)
-            return JSONResponse({"checks": {"database": {"status": "ok"}}})
+            return JSONResponse({"status": "ok", "checks": {"database": {"status": "ok"}}})
         if route == "/health":
             return JSONResponse({"deployment_ref": "candidate"})
         if route == "/__acceptance/identity":
@@ -102,16 +113,16 @@ def _fixture_app() -> FastAPI:
                 headers=correlation,
             )
         if route.startswith("/__acceptance/runs/"):
-            return JSONResponse({"status": "completed"})
-        if route == "/__acceptance/approvals/before":
+            return JSONResponse({"status": "succeeded"})
+        if route == "/__acceptance/timeline/before":
             return JSONResponse(
                 {
                     "approval_id": f"{request.headers['X-Acceptance-Namespace']}-approval",
-                    "tool_execution_count": 0,
+                    "entries": [],
                 }
             )
-        if route == "/__acceptance/approvals/after":
-            return JSONResponse({"tool_execution_count": 1})
+        if route == "/__acceptance/timeline/after":
+            return JSONResponse({"entries": [{"node_id": "finish-step", "status": "completed"}]})
         if route.startswith("/__acceptance/approvals/acceptance-tenant-") and route.endswith(
             "/resolve"
         ):
@@ -140,7 +151,7 @@ def _fixture_app() -> FastAPI:
         if route == "/__acceptance/executable-units/run":
             return JSONResponse({"error_code": "unstaged_project_artifact"}, status_code=422)
         if route.startswith("/__acceptance/durability/"):
-            return JSONResponse({"run": True, "approval": True, "artifact": True})
+            return JSONResponse({"audits": [{"node_id": "finish-step", "status": "completed"}]})
         if route == "/__acceptance/restart":
             return JSONResponse({}, status_code=202)
         if route == "/__acceptance/shutdown":
@@ -178,7 +189,7 @@ def deployed_fixture() -> Iterator[str]:
 
 
 @pytest.mark.asyncio
-async def test_complete_contract_over_real_http_and_websocket(
+async def test_the_runner_drives_a_whole_contract_over_real_sockets(
     deployed_fixture: str, tmp_path: Path
 ) -> None:
     identity_path = tmp_path / "identity.json"
@@ -205,7 +216,11 @@ async def test_complete_contract_over_real_http_and_websocket(
         }
     ).resolve({"OP": "operator", "REV": "reviewer", "ADM": "admin"}, run_id="01234567")
     contract = AcceptanceContract.model_validate(
-        json.loads(Path("release/acceptance/contracts/fixture-v1.json").read_text(encoding="utf-8"))
+        json.loads(
+            Path("release/acceptance/contracts/transport-conformance-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
     )
 
     async with AcceptanceTransport(config) as transport:

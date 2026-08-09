@@ -20,8 +20,8 @@ def _script(job: dict) -> str:
     return "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
 
 
-def test_fixture_contract_is_complete_and_fail_closed() -> None:
-    path = ROOT / "release/acceptance/contracts/fixture-v1.json"
+def test_product_contract_is_complete_and_fail_closed() -> None:
+    path = ROOT / "release/acceptance/contracts/zeroth-v1.json"
     contract = AcceptanceContract.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
     assert set(contract.scenarios) == set(REQUIRED_SCENARIOS)
@@ -111,7 +111,7 @@ def test_release_candidate_runs_suite_and_records_its_report() -> None:
     assert "secrets.ZEROTH_ACCEPTANCE_REVIEWER_KEY" in str(job["env"])
     assert "secrets.ZEROTH_ACCEPTANCE_ADMIN_KEY" in str(job["env"])
     assert "python -m release.acceptance.cli" in script
-    assert "release/acceptance/contracts/fixture-v1.json" in script
+    assert "release/acceptance/contracts/zeroth-v1.json" in script
     assert '--result "deployed-suite=${DEPLOYED_ACCEPTANCE_STATUS}"' in script
     assert "--kind deployment=release/evidence/deployed-acceptance-report.json" in script
 

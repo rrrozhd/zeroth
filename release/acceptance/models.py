@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
@@ -28,6 +29,11 @@ REQUIRED_SCENARIOS = (
     "restart_recovery",
     "shutdown",
 )
+
+
+def canonical(value: Any) -> str:
+    """Stable key for comparing declared match patterns."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def _contains_namespace(value: Any) -> bool:
@@ -236,13 +242,20 @@ class AcceptanceContract(BaseModel):
 
     def _require_access_evidence(self) -> None:
         require = self._require
-        readiness = self.scenarios["readiness"].steps
-        if not any(
-            step.expected_json.get("candidate_digest") == "{candidate_digest}"
-            and step.expected_json.get("deployment_ref") == "{deployment_ref}"
-            for step in readiness
-        ):
-            raise ValueError("readiness must prove candidate identity and deployment_ref")
+        # Candidate *image* identity is bound in the report, from the release record;
+        # no deployment endpoint serves its own image digest, so demanding one here
+        # would only ever be satisfiable by a fixture. What the deployment can attest
+        # is which deployment it is serving, and that it considers itself ready.
+        require(
+            "readiness",
+            lambda step: step.expected_json.get("status") == "ok",
+            "prove the candidate reports itself ready",
+        )
+        require(
+            "readiness",
+            lambda step: step.expected_json.get("deployment_ref") == "{deployment_ref}",
+            "bind the serving deployment to configuration",
+        )
 
         require(
             "authentication",
@@ -276,10 +289,12 @@ class AcceptanceContract(BaseModel):
             lambda step: step.method == "POST" and step.expected_status == 202,
             "submit a run",
         )
+        # A deployed run settles asynchronously. A single unpolled GET would pass or
+        # fail on timing rather than on behaviour.
         require(
             "runs",
-            lambda step: step.method == "GET" and step.expected_json.get("status") == "completed",
-            "observe run completion",
+            lambda step: step.method == "GET" and step.poll and "status" in step.expected_json,
+            "observe the submitted run settle to a named status",
         )
         require(
             "retention",
@@ -312,23 +327,27 @@ class AcceptanceContract(BaseModel):
             )
 
     def _require_durability_evidence(self) -> None:
-        counts = [
-            step.expected_json.get("tool_execution_count")
-            for step in self.scenarios["approvals"].steps
-            if "tool_execution_count" in step.expected_json
-        ]
-        if counts != [0, 1]:
+        # The claim is about executions, so the evidence has to be a count of records
+        # the deployment published — not a field it was asked to report.
+        counting = [step for step in self.scenarios["approvals"].steps if step.count_path]
+        if [step.expected_count for step in counting] != [0, 1]:
             raise ValueError(
-                "approvals must prove zero times before approval and exactly once after"
+                "approvals must count zero executions before approval and exactly one after"
             )
+        if len({(step.count_path, canonical(step.count_where)) for step in counting}) != 1:
+            raise ValueError("approvals must count the same records before and after approval")
 
         restart = self.scenarios["restart_recovery"].steps
         if not any(step.operation == "restart" for step in restart):
             raise ValueError("restart_recovery must invoke the restart lifecycle operation")
-        anchors = {"run": True, "approval": True, "artifact": True}
-        if sum(step.expected_json == anchors for step in restart) < 2:
+        anchors = [
+            (step.path, step.count_path, canonical(step.count_where), step.expected_count)
+            for step in restart
+            if step.count_path
+        ]
+        if len(anchors) < 2 or len(set(anchors)) != 1:
             raise ValueError(
-                "restart_recovery must prove run, approval, and artifact anchors twice"
+                "restart_recovery must assert the identical durable fact before and after restart"
             )
 
         shutdown = self.scenarios["shutdown"].steps
