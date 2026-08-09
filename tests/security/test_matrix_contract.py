@@ -44,11 +44,23 @@ def test_fixture_models_the_exact_ticket_vocabulary() -> None:
 
 
 def test_fixture_behavioral_binding() -> None:
-    assert True
+    matrix = load_matrix(FIXTURE)
+    case = next(case for case in matrix.cases if case.id == "fixture-workflow-read")
+
+    assert case.coverage == "behavioral"
+    assert case.tiers == ("pr-critical", "release-candidate")
+    assert case.test_nodes == ("tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",)
+    assert matrix.coverage_report()["behavioral"] == (case.id,)
 
 
 def test_fixture_refusal_binding() -> None:
-    assert True
+    matrix = load_matrix(FIXTURE)
+    case = next(case for case in matrix.cases if case.id == "fixture-revoked-access-refusal")
+
+    assert case.coverage == "absent-fail-closed"
+    assert case.tiers == ("release-candidate",)
+    assert case.refusal_test in case.test_nodes
+    assert matrix.coverage_report()["absent-fail-closed"] == (case.id,)
 
 
 def test_absence_proofs_are_reported_separately_from_behavioral_coverage() -> None:
