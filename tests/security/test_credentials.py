@@ -153,6 +153,62 @@ def test_falsey_revocation_provider_is_injected_and_honored() -> None:
         authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})
 
 
+@pytest.mark.parametrize("identifiers", ["deploy-key", b"deploy-key", [""], [1]])
+def test_registry_rejects_ambiguous_or_invalid_identifier_collections(identifiers: object) -> None:
+    with pytest.raises(ValueError):
+        CredentialRevocationRegistry(identifiers)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("identifiers", ["deploy-key", b"deploy-key", [""], [1]])
+def test_registry_snapshot_replacement_rejects_ambiguous_or_invalid_identifiers(
+    identifiers: object,
+) -> None:
+    registry = CredentialRevocationRegistry()
+
+    with pytest.raises(ValueError):
+        registry.replace_snapshot(identifiers)  # type: ignore[arg-type]
+
+
+def test_snapshot_replacement_waits_for_an_inflight_old_snapshot_decision() -> None:
+    decision_started = threading.Event()
+    release_decision = threading.Event()
+    replacement_started = threading.Event()
+    replacement_finished = threading.Event()
+
+    class PausingRegistry(CredentialRevocationRegistry):
+        def is_revoked(self, identifier: str) -> bool:
+            decision_started.set()
+            assert release_decision.wait(timeout=1)
+            return super().is_revoked(identifier)
+
+    registry = PausingRegistry()
+    authenticator = ServiceAuthenticator(_static_config(), credential_status_provider=registry)
+
+    auth_thread = threading.Thread(
+        target=lambda: authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})
+    )
+
+    def replace() -> None:
+        replacement_started.set()
+        registry.replace_snapshot({"deploy-key"})
+        replacement_finished.set()
+
+    replacement_thread = threading.Thread(target=replace)
+    auth_thread.start()
+    assert decision_started.wait(timeout=1)
+    replacement_thread.start()
+    assert replacement_started.wait(timeout=1)
+    assert not replacement_finished.is_set()
+    release_decision.set()
+    auth_thread.join(timeout=1)
+    replacement_thread.join(timeout=1)
+    assert not auth_thread.is_alive()
+    assert replacement_finished.is_set()
+
+    with pytest.raises(AuthenticationError, match="^authentication required$"):
+        authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})
+
+
 def test_registry_snapshot_replacement_is_a_deterministic_revocation_barrier() -> None:
     registry = CredentialRevocationRegistry()
     authenticator = ServiceAuthenticator(_static_config(), credential_status_provider=registry)
@@ -189,6 +245,52 @@ def test_revocations_round_trip_through_environment_config() -> None:
 
     with pytest.raises(AuthenticationError, match="^authentication required$"):
         authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})
+
+
+@pytest.mark.parametrize("field", ["credential_id", "secret"])
+def test_static_api_key_credentials_must_be_unambiguous(field: str) -> None:
+    credentials = [
+        {
+            "credential_id": "earlier-id",
+            "secret": "earlier-secret",
+            "subject": "earlier",
+            "roles": [ServiceRole.OPERATOR],
+        },
+        {
+            "credential_id": "later-revoked-id",
+            "secret": "later-secret",
+            "subject": "later",
+            "roles": [ServiceRole.OPERATOR],
+        },
+    ]
+    credentials[1][field] = credentials[0][field]
+
+    with pytest.raises(ValidationError) as excinfo:
+        ServiceAuthConfig(api_keys=credentials)
+
+    assert "earlier-secret" not in str(excinfo.value)
+    assert "later-secret" not in str(excinfo.value)
+
+
+def test_later_revoked_id_cannot_be_hidden_behind_a_duplicate_static_secret() -> None:
+    with pytest.raises(ValidationError):
+        ServiceAuthConfig(
+            api_keys=[
+                StaticApiKeyCredential(
+                    credential_id="earlier-id",
+                    secret="shared-secret",
+                    subject="earlier",
+                    roles=[ServiceRole.OPERATOR],
+                ),
+                StaticApiKeyCredential(
+                    credential_id="later-revoked-id",
+                    secret="shared-secret",
+                    subject="later",
+                    roles=[ServiceRole.OPERATOR],
+                ),
+            ],
+            revoked_credential_ids=frozenset({"later-revoked-id"}),
+        )
 
 
 @pytest.mark.parametrize("payload", ['not-json', '["duplicate", "duplicate"]', '["valid", 2]'])

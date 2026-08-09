@@ -9,7 +9,8 @@ import json
 import os
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.error import HTTPError
@@ -55,15 +56,39 @@ class CredentialStatusProvider(Protocol):
         """Whether a verified credential identifier has been revoked."""
 
 
+def _identifier_snapshot(identifiers: Iterable[str]) -> frozenset[str]:
+    """Validate and freeze one revocation identifier collection."""
+    if isinstance(identifiers, (str, bytes)):
+        raise ValueError("credential identifiers must be an iterable of non-empty strings")
+    try:
+        values = tuple(identifiers)
+    except TypeError as exc:
+        raise ValueError("credential identifiers must be an iterable of non-empty strings") from exc
+    if any(not isinstance(identifier, str) or not identifier.strip() for identifier in values):
+        raise ValueError("credential identifiers must be non-empty strings")
+    return frozenset(values)
+
+
 class CredentialRevocationRegistry:
-    """Thread-safe, atomically replaceable immutable revocation snapshot."""
+    """Thread-safe revocations with linearizable snapshot replacement.
+
+    A replacement linearizes when it acquires the decision lock. Callers that
+    hold :meth:`decision_guard` make one status decision against one immutable
+    snapshot; ``replace_snapshot`` cannot return until those decisions finish.
+    """
 
     def __init__(self, revoked_credential_ids: Iterable[str] = ()) -> None:
-        self._lock = threading.Lock()
-        self._snapshot = frozenset(revoked_credential_ids)
+        self._lock = threading.RLock()
+        self._snapshot = _identifier_snapshot(revoked_credential_ids)
+
+    @contextmanager
+    def decision_guard(self) -> Iterator[None]:
+        """Serialize a complete authentication status decision with replacement."""
+        with self._lock:
+            yield
 
     def is_revoked(self, identifier: str) -> bool:
-        with self._lock:
+        with self.decision_guard():
             return identifier in self._snapshot
 
     @property
@@ -74,7 +99,7 @@ class CredentialRevocationRegistry:
 
     def replace_snapshot(self, identifiers: Iterable[str]) -> None:
         """Atomically replace the complete revoked-credential identifier set."""
-        snapshot = frozenset(identifiers)
+        snapshot = _identifier_snapshot(identifiers)
         with self._lock:
             self._snapshot = snapshot
 
@@ -82,7 +107,7 @@ class CredentialRevocationRegistry:
 class StaticApiKeyCredential(BaseModel):
     """Static API key credential for service authentication."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     credential_id: str
     secret: str
@@ -113,7 +138,7 @@ class BearerTokenConfig(BaseModel):
 class ServiceAuthConfig(BaseModel):
     """Top-level service authentication configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     api_keys: list[StaticApiKeyCredential] = Field(default_factory=list)
     bearer: BearerTokenConfig | None = None
@@ -131,6 +156,19 @@ class ServiceAuthConfig(BaseModel):
         if len(identifiers) != len(value):
             raise ValueError("revoked credential identifiers must be unique")
         return identifiers
+
+    @model_validator(mode="after")
+    def _require_unique_api_keys(self) -> ServiceAuthConfig:
+        credential_ids: set[str] = set()
+        secrets: set[str] = set()
+        for credential in self.api_keys:
+            if credential.credential_id in credential_ids:
+                raise ValueError("static API key credential IDs must be unique")
+            if credential.secret in secrets:
+                raise ValueError("static API key secrets must be unique")
+            credential_ids.add(credential.credential_id)
+            secrets.add(credential.secret)
+        return self
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
@@ -289,7 +327,13 @@ class ServiceAuthenticator:
         return self._credential_status_provider
 
     def _require_active_credential(self, identifier: str) -> None:
-        if self._credential_status_provider.is_revoked(identifier):
+        provider = self._credential_status_provider
+        if isinstance(provider, CredentialRevocationRegistry):
+            with provider.decision_guard():
+                if provider.is_revoked(identifier):
+                    raise AuthenticationError("authentication required")
+            return
+        if provider.is_revoked(identifier):
             raise AuthenticationError("authentication required")
 
     def _match_api_key(self, presented: str) -> StaticApiKeyCredential | None:
