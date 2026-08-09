@@ -506,6 +506,21 @@
               }
             }
           }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/health",
+          "expected_status": 200,
+          "expected_json": {
+            "langgraph_gateway": {
+              "compatibility": {
+                "status": "supported",
+                "detected_agent_server": "0.11.1"
+              }
+            }
+          }
         }
       ]
     },

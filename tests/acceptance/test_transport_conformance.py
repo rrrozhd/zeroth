@@ -60,7 +60,12 @@ def _fixture_app() -> FastAPI:
     # A dispatch table rather than a branch ladder: the mock's job is to answer the
     # contract's paths, and a table says which path gets which answer at a glance.
     exact: dict[str, Any] = {
-        "/health": {"deployment_ref": "candidate"},
+        "/health": {
+            "deployment_ref": "candidate",
+            "langgraph_gateway": {
+                "compatibility": {"status": "supported", "detected_agent_server": "0.11.1"}
+            },
+        },
         "/__acceptance/identity": {
             "candidate_digest": _CANDIDATE_DIGEST,
             "deployment_ref": "candidate",

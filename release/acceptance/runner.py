@@ -247,10 +247,20 @@ class AcceptanceRunner:
         free to name the route anything, and sniffing for "compatibility" in the
         URL silently records nothing the moment it does.
         """
+        # Prefer the gateway health block: it carries the detected version alongside
+        # the status, which is strictly better promotion evidence than a bare status.
+        gateway = body.get("langgraph_gateway")
+        if isinstance(gateway, dict) and isinstance(gateway.get("compatibility"), dict):
+            self._observed_compatibility = dict(gateway["compatibility"])
+            return
         agent_server = body.get("checks", {}).get("agent_server")
-        self._observed_compatibility = (
-            dict(agent_server) if isinstance(agent_server, dict) else dict(body)
-        )
+        candidate = dict(agent_server) if isinstance(agent_server, dict) else dict(body)
+        # Never trade a record that already names a version for a thinner one.
+        if self._observed_compatibility and "detected_agent_server" in (
+            self._observed_compatibility
+        ):
+            return
+        self._observed_compatibility = candidate
 
     async def _execute_websocket(self, step: AcceptanceStep, path: str) -> StepObservation:
         events = await self.transport.websocket_events(

@@ -404,12 +404,32 @@ class AcceptanceContract(BaseModel):
         # probe: the `agent_server` dependency check carries the CompatibilityStatus
         # value (`health.py`). There is no endpoint that returns a compatibility
         # document, so an invariant demanding one describes nothing.
+        steps = self.scenarios["compatibility"].steps
         if not any(
             _read_path(step.expected_json, ("checks", "agent_server", "status")) == "supported"
-            for step in self.scenarios["compatibility"].steps
+            for step in steps
         ):
             raise ValueError(
                 "compatibility must prove the deployment reports a supported Agent Server"
+            )
+        # `supported_agent_server_versions` was declared and never used, so a deployment
+        # reporting "supported" for a version outside the tested set passed. Pin the
+        # detected version against the declared set, which is what makes the field mean
+        # something.
+        detected = {
+            _read_path(
+                step.expected_json,
+                ("langgraph_gateway", "compatibility", "detected_agent_server"),
+            )
+            for step in steps
+        } - {None}
+        if not detected:
+            raise ValueError("compatibility must pin the Agent Server version it detected")
+        unknown = detected - set(self.supported_agent_server_versions)
+        if unknown:
+            raise ValueError(
+                "compatibility pins Agent Server version(s) outside the declared "
+                f"supported set: {', '.join(sorted(unknown))}"
             )
 
 

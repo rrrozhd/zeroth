@@ -138,7 +138,18 @@ def _contract() -> dict[str, object]:
             _step(
                 "/compatibility",
                 expected_json={"checks": {"agent_server": {"status": "supported"}}},
-            )
+            ),
+            _step(
+                "/health",
+                expected_json={
+                    "langgraph_gateway": {
+                        "compatibility": {
+                            "status": "supported",
+                            "detected_agent_server": "0.11.1",
+                        }
+                    }
+                },
+            ),
         ]
     }
     counted = {"count_path": "entries", "count_where": {"node_id": "finish", "status": "completed"}}
@@ -282,6 +293,15 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/workflow/create": HttpObservation(200, {"status": "draft"}, "corr-workflow"),
         "/workflow/publish": HttpObservation(200, {"status": "published"}, "corr-publish"),
         "/deployment": HttpObservation(200, {"deployment_ref": "dep"}, "corr-deployment"),
+        "/health": HttpObservation(
+            200,
+            {
+                "langgraph_gateway": {
+                    "compatibility": {"status": "supported", "detected_agent_server": "0.11.1"}
+                }
+            },
+            "corr-health",
+        ),
         "/readiness": HttpObservation(200, {"status": "ok"}, "corr-ready"),
         "/runs": HttpObservation(202, {"tenant_id": config.tenant_id}, "corr-run"),
         "/runs/settled": HttpObservation(
@@ -325,7 +345,10 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
     # which role the surrounding scenario's probes use.
     # The gate reads observed_compatibility.status, so the Agent Server verdict has to
     # survive out of whatever response carried it and into the report.
-    assert report.observed_compatibility == {"status": "supported"}
+    assert report.observed_compatibility == {
+        "status": "supported",
+        "detected_agent_server": "0.11.1",
+    }
 
     assert ("admin", "POST", "/restart") in transport.requested
     assert ("admin", "POST", "/shutdown") in transport.requested
