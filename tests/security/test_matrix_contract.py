@@ -41,9 +41,40 @@ def _write_production_matrix(tmp_path: Path, mutate) -> Path:
 
 
 @pytest.mark.parametrize(
+    "dimension",
+    (
+        "protected_surfaces",
+        "operations",
+        "persistence_boundaries",
+        "attacks",
+        "observable_output_surfaces",
+        "hostile_fixtures",
+    ),
+)
+def test_production_claims_require_every_dimension(tmp_path: Path, dimension: str) -> None:
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(
+            _write_production_matrix(tmp_path, lambda matrix: matrix["claims"].pop(dimension))
+        )
+    assert raised.value.path == f"claims.{dimension}"
+
+
+def test_production_claims_reject_one_ceremonial_node_collapse(tmp_path: Path) -> None:
+    ceremonial = "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
+
+    def collapse(matrix) -> None:
+        for claims in matrix["claims"].values():
+            for value in claims:
+                claims[value] = ceremonial
+
+    with pytest.raises(MatrixError) as raised:
+        load_matrix(_write_production_matrix(tmp_path, collapse))
+    assert raised.value.path == "claims.protected_surfaces.workflows"
+
+
+@pytest.mark.parametrize(
     ("mutate", "path"),
     [
-        (lambda matrix: matrix["claims"].pop("attacks"), "claims.attacks"),
         (
             lambda matrix: matrix["claims"]["operations"].__setitem__(
                 "read", "tests/security/test_missing.py::test_stale"
