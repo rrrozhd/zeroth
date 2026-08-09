@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1.2] - 2026-08-08
+
+### Fixed
+
+- The remote-acceptance job read the candidate identity in an earlier step than the one
+  that downloads it, so every release would have failed at that line. The identity is
+  downloaded first, and the published distributions are now *installed* from the verified
+  TestPyPI files rather than merely hashed alongside a two-index install — so the gate
+  binds the bytes that were actually exercised, not just bytes that exist.
+- The evidence gates tolerate a producer that never uploaded. `if: always()` keeps the job
+  alive but a hard-failing download still skipped the verdict, which is precisely the run
+  that needs one; missing records are now reported as `missing`, which blocks.
+
+## [0.19.1.1] - 2026-08-08
+
+### Fixed
+
+- Remote acceptance now proves it accepted *this* build. The install combined TestPyPI
+  with PyPI through `--extra-index-url`, and pip gives indexes no priority — it considers
+  every candidate and picks the best one, so an existing same-version artifact on PyPI
+  could be what was actually exercised. The primary distribution is now fetched from
+  TestPyPI as the sole index, hashed, and checked against the candidate's package
+  digests, so the gate names the bytes it accepted rather than only a version string.
+
+## [0.19.1] - 2026-08-08
+
+### Fixed
+
+- Evidence must now *be* evidence. Validation checked only that a cited file existed, so
+  a record could name `pyproject.toml`, or its own record, as its JUnit, SBOM and
+  provenance evidence and be accepted. Cited paths are confined to the evidence root and
+  must be non-empty, distinct per kind, and shaped like the kind they claim.
+- Identity is validated, not merely compared. A candidate and a record that agreed on an
+  empty artifact map or a commit that was not a commit used to match while identifying
+  nothing; commits, digests, package artifacts and image references are now checked for
+  form before equality decides anything.
+- The LangGraph gate cross-checks the compatibility set's declared release against the
+  measured candidate version. The legacy harness validates against a hand-edited
+  constant and cannot notice its own staleness, so the gate would otherwise have reported
+  compatibility passed using evidence for an older release.
+- The promotion signoff must name the candidate identity digest and an operator. Any file
+  at the expected path used to satisfy the gate, including a signoff for a different build
+  of the same version.
+- The evidence gates run even when a producer fails, so the verdict and the retained
+  bundle are published exactly when the diagnosis is most needed.
+- The console version assertion tracks the release, and the release verdict, records and
+  the files they cite now travel together so a retained bundle can be revalidated.
+
+### Added
+
+- The evidence manifest — the candidate identity plus the digest of every gate record —
+  is sealed and attested with `actions/attest`, so the evidence carries a signature
+  rather than only the image it describes.
+- The gate manifest accepts a superset of the required gates, so ZER-28's later tickets
+  can add one without editing the validator, as the guide already promised.
+
+## [0.19] - 2026-08-08
+
+### Added
+
+- An ordered, fail-closed release-gate substrate under `release/gates`. A manifest
+  enumerates the seven gate families — source, package, LangGraph, untrusted-code,
+  deployment smoke, remote acceptance and promotion — together with the evidence each
+  one must produce and the identity facets it must bind. Validation reports exactly the
+  five rejection reasons the gate contract names (missing, stale, partial, mismatched,
+  failed), one per gate, and renders a human-readable verdict for the operator who has
+  to sign the release off.
+
+### Fixed
+
+- Release evidence now binds to the candidate under release instead of validating
+  itself. `release/langgraph/release_evidence.py` checks its manifest against
+  `CURRENT_RELEASE`, a hand-edited source constant; once the project version moved past
+  it, `harness.py validate` kept exiting 0 while describing a release that was no longer
+  being built. Candidate identity is measured instead — commit, package artifact
+  digests, image digest, configuration and compatibility — so evidence produced for a
+  different commit or a different build is rejected rather than accepted, and a test
+  keeps version literals out of the gate substrate so the drift cannot come back.
+
 ## [0.18.11.1.3] - 2026-08-08
 
 ### Tests

@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "id": "source",
+      "order": 1,
+      "phase": "candidate",
+      "title": "Source",
+      "description": "Lint, docstring coverage, the Python suite and the console unit suite, all measured on the candidate commit.",
+      "binds": ["commit"],
+      "record": "release/evidence/source.json",
+      "requires": ["ruff", "pytest", "interrogate", "frontend-unit", "frontend-api-contract"],
+      "kinds": ["junit", "ui"],
+      "triggers": ["pull-request", "nightly", "release-candidate"]
+    },
+    {
+      "id": "package",
+      "order": 2,
+      "phase": "candidate",
+      "title": "Package",
+      "description": "The sdist and wheel build, install into a clean venv, expose every declared extra, and pass the suite when the suite runs against the installed wheel rather than the source tree.",
+      "binds": ["commit", "package"],
+      "record": "release/evidence/package.json",
+      "requires": ["build", "smoke-install", "extras", "wheel-tests"],
+      "kinds": ["junit"],
+      "triggers": ["nightly", "release-candidate"]
+    },
+    {
+      "id": "langgraph",
+      "order": 3,
+      "phase": "candidate",
+      "title": "LangGraph compatibility",
+      "description": "The pinned LangChain/LangGraph/Agent Server matrix still conforms and the governed-tool benchmark holds against its recorded baseline.",
+      "binds": ["commit", "package", "compatibility"],
+      "record": "release/evidence/langgraph.json",
+      "requires": [
+        "conformance",
+        "compatibility-matrix",
+        "compatibility-current",
+        "benchmark"
+      ],
+      "kinds": ["compatibility", "benchmark", "junit"],
+      "triggers": ["nightly", "release-candidate"]
+    },
+    {
+      "id": "untrusted-code",
+      "order": 4,
+      "phase": "candidate",
+      "title": "Untrusted code execution",
+      "description": "The sandbox sidecar still refuses what it is required to refuse: argv handling, hardening, and strict-network containment for code the platform did not author.",
+      "binds": ["commit", "package"],
+      "record": "release/evidence/untrusted-code.json",
+      "requires": ["sandbox-surface", "sandbox-hardening", "sandbox-strict-network", "sidecar-executor"],
+      "kinds": ["junit"],
+      "triggers": ["nightly", "release-candidate"]
+    },
+    {
+      "id": "deployment-smoke",
+      "order": 5,
+      "phase": "candidate",
+      "title": "Deployment smoke",
+      "description": "The release image starts, reports ready, serves the gateway, refuses invalid configuration promptly, drains in-flight work on shutdown, and carries an SBOM plus a verified provenance attestation.",
+      "binds": ["commit", "image", "configuration"],
+      "record": "release/evidence/deployment-smoke.json",
+      "requires": [
+        "readiness",
+        "gateway",
+        "invalid-configuration-refused",
+        "active-shutdown",
+        "sbom",
+        "provenance-verified"
+      ],
+      "kinds": ["deployment", "sbom", "provenance", "security"],
+      "triggers": ["release-candidate"]
+    },
+    {
+      "id": "remote-acceptance",
+      "order": 6,
+      "phase": "final",
+      "title": "Remote acceptance",
+      "description": "The candidate is installed from the published index rather than from the local build, and the published artifact is exercised end to end.",
+      "binds": ["commit", "package"],
+      "record": "release/evidence/remote-acceptance.json",
+      "requires": ["index-install", "example-run"],
+      "kinds": ["deployment"],
+      "triggers": ["release-candidate"]
+    },
+    {
+      "id": "promotion",
+      "order": 7,
+      "phase": "final",
+      "title": "Promotion",
+      "description": "Every preceding gate validated against this candidate, and a named human accepted the release.",
+      "binds": ["commit", "package"],
+      "record": "release/evidence/promotion.json",
+      "requires": ["candidate-gates-validated", "manual-signoff"],
+      "kinds": ["manual-signoff"],
+      "triggers": ["release-candidate", "manual"]
+    }
+  ],
+  "evidence_kinds": {
+    "junit": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Machine-readable test results for the suite the gate ran."
+    },
+    "compatibility": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "The resolved compatibility matrix the candidate was tested against."
+    },
+    "benchmark": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Governed-tool overhead measured against the recorded baseline release."
+    },
+    "security": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "The cryptographic verification result for the release image's provenance attestation. Scoped deliberately: no vulnerability or dependency scanner runs in this pipeline yet, so this kind claims provenance verification and nothing wider."
+    },
+    "deployment": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Readiness, gateway, configuration-refusal and shutdown probes against a running deployment."
+    },
+    "ui": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Console unit suite results. The console ships as the zeroth-console dist, so its tests are release evidence."
+    },
+    "sbom": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "SPDX software bill of materials for the release image."
+    },
+    "provenance": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Sigstore build-provenance bundle plus its cryptographic verification result."
+    },
+    "manual-signoff": {
+      "applicable": true,
+      "producer": "manual",
+      "description": "A named human's recorded acceptance of the candidate. No CI step can produce it; the promotion gate fails closed until an operator writes it."
+    }
+  }
+}

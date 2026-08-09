@@ -1,0 +1,395 @@
+name: Release gates
+
+# The complete gate matrix, run nightly so drift surfaces before a release is
+# cut, and on demand for a release candidate.
+#
+# This workflow deliberately has no `pull_request` trigger. Pull requests keep
+# the fast checks in ci.yml and langgraph-compatibility.yml; the expensive
+# matrix belongs to candidates, not to every push. tests/release_gates
+# asserts that property rather than trusting this comment.
+#
+# Every job emits a machine-readable record bound to the candidate's measured
+# identity. The evidence gate validates those records and fails closed: a
+# record that is absent, stale, incomplete, bound to another build, or
+# reporting failure blocks the run.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  # The release pipeline calls this workflow so the four source-level gates are
+  # produced once and validated in both places, rather than duplicated as YAML
+  # that can drift.
+  workflow_call:
+    inputs:
+      dist_artifact:
+        description: >-
+          Name of an already-built dist artifact to measure instead of building
+          one. A release must bind its evidence to the artifacts it actually
+          publishes, and two independent builds do not produce identical bytes,
+          so the caller passes its own build rather than letting this workflow
+          make a second one that would read as `mismatched`.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Measure the candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        if: inputs.dist_artifact == ''
+        run: uv build
+
+      - name: Reuse the caller's already-built dist
+        if: inputs.dist_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.dist_artifact }}
+          path: dist
+
+      - name: Measure candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=()
+          for artifact in dist/*; do
+            ARGS+=(--artifact "$(basename "${artifact}")=${artifact}")
+          done
+          python release/gates/cli.py identity \
+            "${ARGS[@]}" \
+            --compatibility release/langgraph/compatibility.json \
+            --output release/evidence/candidate-identity.json
+          cat release/evidence/candidate-identity.json
+
+      - name: Upload candidate identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence/candidate-identity.json
+
+      - name: Upload dist
+        if: inputs.dist_artifact == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-dist
+          path: dist/
+
+  source:
+    name: Gate — source
+    needs: [candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Run the source checks and record the outcome
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p release/evidence
+          uv sync --all-groups --all-extras
+          uv run ruff check src tests; RUFF=$?
+          uv run pytest -q --junitxml=release/evidence/source-junit.xml; PYTEST=$?
+          uv run interrogate src/zeroth; INTERROGATE=$?
+          (cd frontend && npm ci --no-fund --no-audit) ; NPM_CI=$?
+          (cd frontend && npx vitest run --reporter=junit \
+            --outputFile=../release/evidence/source-ui-junit.xml); VITEST=$?
+          (cd frontend && npm run check:api); API=$?
+          set -e
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          # npm ci failing means the console suite never ran; that is a failed
+          # UI result, not a passed one.
+          if [ "${NPM_CI}" -ne 0 ]; then VITEST=1; fi
+          python release/gates/cli.py record --gate source \
+            --identity release/evidence/candidate-identity.json \
+            --result "ruff=$(status ${RUFF})" \
+            --result "pytest=$(status ${PYTEST})" \
+            --result "interrogate=$(status ${INTERROGATE})" \
+            --result "frontend-unit=$(status ${VITEST})" \
+            --result "frontend-api-contract=$(status ${API})" \
+            --kind junit=release/evidence/source-junit.xml \
+            --kind ui=release/evidence/source-ui-junit.xml \
+            --output release/evidence/source.json
+          cat release/evidence/source.json
+
+      - name: Upload source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-source
+          path: release/evidence/source*
+
+  package:
+    name: Gate — package
+    needs: [candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.dist_artifact != '' && inputs.dist_artifact || 'gate-dist' }}
+          path: dist
+
+      - name: Install the built wheel and record the outcome
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p release/evidence
+          WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
+          python -m venv /tmp/gate-venv
+          # shellcheck disable=SC1091
+          source /tmp/gate-venv/bin/activate
+          pip install --upgrade pip >/dev/null
+          test -f "${WHEEL}"; BUILD=$?
+          pip install "${WHEEL}[all,langgraph]" pytest pytest-asyncio \
+            "testcontainers[postgres]"; INSTALL=$?
+          python -c "import zeroth.runtime; print(zeroth.runtime.__path__)"; SMOKE=$?
+          if [ "${INSTALL}" -ne 0 ]; then SMOKE=1; fi
+          pip install "${WHEEL}[memory-pg,memory-chroma,memory-es,dispatch,sandbox]"; EXTRAS=$?
+          pytest tests/ -q -m "not live" \
+            --junitxml=release/evidence/package-junit.xml; TESTS=$?
+          deactivate
+          set -e
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate package \
+            --identity release/evidence/candidate-identity.json \
+            --result "build=$(status ${BUILD})" \
+            --result "smoke-install=$(status ${SMOKE})" \
+            --result "extras=$(status ${EXTRAS})" \
+            --result "wheel-tests=$(status ${TESTS})" \
+            --kind junit=release/evidence/package-junit.xml \
+            --output release/evidence/package.json
+          cat release/evidence/package.json
+
+      - name: Upload package evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-package
+          path: release/evidence/package*
+
+  langgraph:
+    name: Gate — LangGraph
+    needs: [candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Run conformance and benchmark, and record the outcome
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p release/evidence
+          uv run --frozen --group gateway-conformance pytest -o addopts= -q \
+            -m langgraph_conformance tests/langgraph_gateway/conformance \
+            --junitxml=release/evidence/langgraph-junit.xml; CONFORMANCE=$?
+          uv run python release/langgraph/harness.py validate --phase source \
+            --manifest release/langgraph/release-manifest.json; MATRIX=$?
+          uv run python release/langgraph/harness.py benchmark \
+            --output release/evidence/langgraph-benchmark.json; BENCH=$?
+          # The legacy harness validates its manifest against CURRENT_RELEASE,
+          # a hand-edited constant, so it cannot notice that its evidence
+          # describes an older release than the candidate. Cross-check the
+          # declared release against the measured one, otherwise this gate
+          # would report compatibility "passed" using stale evidence -- the
+          # exact defect this ticket exists to close.
+          COMPAT=$(python -c "import json;print(json.load(open('release/langgraph/compatibility.json'))['release'])")
+          MEASURED=$(python -c "import json;print(json.load(open('release/evidence/candidate-identity.json'))['package']['version'])")
+          echo "compatibility evidence: ${COMPAT}; candidate: ${MEASURED}"
+          [ "${COMPAT}" = "${MEASURED}" ]; CURRENT=$?
+          # Everything the record cites must travel with it, so copy the
+          # committed compatibility set into the evidence directory.
+          cp release/langgraph/compatibility.json release/evidence/langgraph-compatibility.json
+          set -e
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate langgraph \
+            --identity release/evidence/candidate-identity.json \
+            --result "conformance=$(status ${CONFORMANCE})" \
+            --result "compatibility-matrix=$(status ${MATRIX})" \
+            --result "compatibility-current=$(status ${CURRENT})" \
+            --result "benchmark=$(status ${BENCH})" \
+            --kind junit=release/evidence/langgraph-junit.xml \
+            --kind compatibility=release/evidence/langgraph-compatibility.json \
+            --kind benchmark=release/evidence/langgraph-benchmark.json \
+            --output release/evidence/langgraph.json
+          cat release/evidence/langgraph.json
+
+      - name: Upload LangGraph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-langgraph
+          path: release/evidence/langgraph*
+
+  untrusted-code:
+    name: Gate — untrusted code
+    needs: [candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Prove the sandbox still refuses, and record the outcome
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p release/evidence
+          uv sync --all-groups --all-extras
+          run_suite() {
+            uv run pytest -q "$1" --junitxml="$2"
+          }
+          run_suite tests/integrations/test_sandbox_surface.py \
+            release/evidence/untrusted-surface.xml; SURFACE=$?
+          run_suite tests/execution_units/test_sandbox_hardening.py \
+            release/evidence/untrusted-hardening.xml; HARDENING=$?
+          run_suite tests/execution_units/test_sandbox_strict_network.py \
+            release/evidence/untrusted-network.xml; NETWORK=$?
+          run_suite tests/sandbox_sidecar \
+            release/evidence/untrusted-code-junit.xml; SIDECAR=$?
+          set -e
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate untrusted-code \
+            --identity release/evidence/candidate-identity.json \
+            --result "sandbox-surface=$(status ${SURFACE})" \
+            --result "sandbox-hardening=$(status ${HARDENING})" \
+            --result "sandbox-strict-network=$(status ${NETWORK})" \
+            --result "sidecar-executor=$(status ${SIDECAR})" \
+            --kind junit=release/evidence/untrusted-code-junit.xml \
+            --output release/evidence/untrusted-code.json
+          cat release/evidence/untrusted-code.json
+
+      - name: Upload untrusted-code evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-untrusted-code
+          path: release/evidence/untrusted*
+
+  evidence-gate:
+    name: Validate evidence and publish the verdict
+    needs: [candidate, source, package, langgraph, untrusted-code]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Collect every gate record
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gate-*
+          path: release/evidence
+          merge-multiple: true
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Publish the verdict for the gates this run produces
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `--trigger nightly` selects exactly the four gates this workflow
+          # emits. The release pipeline runs its own full-phase gates on top;
+          # this one must not demand evidence it never produces.
+          python release/gates/cli.py verdict \
+            --identity release/evidence/candidate-identity.json \
+            --phase candidate \
+            --trigger nightly \
+            --output release/evidence/VERDICT.md; VERDICT=$?
+          cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
+          exit "${VERDICT}"
+
+      - name: Retain the evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-gate-evidence-bundle
+          path: release/evidence
+          retention-days: 90

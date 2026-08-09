@@ -72,6 +72,16 @@ jobs:
           name: dist
           path: dist/
 
+  # The four source-level gates, measured against the dist this run just built
+  # rather than a second build of its own. Producing them here means a release
+  # cannot promote on evidence that was only ever gathered nightly.
+  source-gates:
+    name: Source-level gates
+    needs: [build]
+    uses: ./.github/workflows/release-gates.yml
+    with:
+      dist_artifact: dist
+
   smoke-install:
     name: Smoke-install built wheel
     needs: [build]
@@ -146,9 +156,68 @@ jobs:
           name: langgraph-junit
           path: release/langgraph/junit.xml
 
+  # Nothing is published until every candidate-phase gate holds against this
+  # exact candidate. Both promotion jobs depend on an evidence gate rather than
+  # on the individual checks, so adding a gate to the manifest tightens
+  # promotion automatically instead of needing this graph edited again.
+  evidence-gate:
+    name: Validate candidate evidence
+    needs: [source-gates, smoke-install, test-wheel, container-evidence]
+    # A gate that is skipped when a producer fails publishes no verdict and no
+    # bundle -- exactly when the diagnosis is most needed. It still fails on a
+    # blocking result, so promotion stays closed either way.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Tolerant on purpose. `if: always()` only keeps the JOB alive; a
+      # download that hard-fails because an upstream gate never uploaded would
+      # still skip the verdict, which is exactly the run that needs one. A
+      # record that never arrives is reported as `missing`, which blocks.
+      - name: Collect every gate record
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gate-*
+          path: release/evidence
+          merge-multiple: true
+
+      - name: Download the full candidate identity
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity-full
+          path: release/evidence
+
+      - name: Validate and publish the candidate verdict
+        shell: bash
+        run: |
+          set -uo pipefail
+          python release/gates/cli.py verdict \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase candidate \
+            --output release/evidence/VERDICT-candidate.md; VERDICT=$?
+          cat release/evidence/VERDICT-candidate.md >> "${GITHUB_STEP_SUMMARY}"
+          exit "${VERDICT}"
+
+      - name: Retain the candidate evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-candidate
+          path: release/evidence
+          retention-days: 90
+
   publish-testpypi:
     name: Publish to TestPyPI (trusted publisher)
-    needs: [smoke-install, test-wheel, container-evidence]
+    needs: [evidence-gate]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -182,7 +251,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install from TestPyPI (retry loop for indexing lag) and run example
+      # The identity must be on disk before anything is compared against it.
+      - name: Download the full candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity-full
+          path: release/evidence
+
+      - name: Install the published artifact and run the example
         shell: bash
         run: |
           set -euo pipefail
@@ -191,33 +267,204 @@ jobs:
           python -m venv /tmp/testpypi-venv
           source /tmp/testpypi-venv/bin/activate
           pip install --upgrade pip
-          # Retry loop — TestPyPI indexing can lag ~30-60s after publish (pitfall #4)
-          INSTALLED=0
+          mkdir -p release/evidence
+          # Fetch the primary distributions from TestPyPI as the SOLE index.
+          # `--extra-index-url` gives indexes no priority -- pip collects every
+          # candidate and picks the best -- so resolving the primary dist across
+          # both could install an existing same-version artifact from PyPI and
+          # exercise a different build than the one just published.
+          # Retry: TestPyPI indexing can lag ~30-60s after publish.
+          DOWNLOADED=0
           for i in 1 2 3 4 5; do
-            if pip install \
+            if pip download --no-deps --dest /tmp/rc-dist \
                 --index-url https://test.pypi.org/simple/ \
-                --extra-index-url https://pypi.org/simple/ \
                 "zeroth-core==${VERSION}" "zeroth-console==${VERSION}"; then
-              INSTALLED=1
+              DOWNLOADED=1
               break
             fi
-            echo "TestPyPI install attempt ${i} failed; sleeping 15s..."
+            echo "TestPyPI download attempt ${i} failed; sleeping 15s..."
             sleep 15
           done
-          if [ "${INSTALLED}" -ne 1 ]; then
-            echo "::error::TestPyPI install failed after 5 attempts"
+          if [ "${DOWNLOADED}" -ne 1 ]; then
+            echo "::error::TestPyPI download failed after 5 attempts"
             exit 1
           fi
+          {
+            echo "index: https://test.pypi.org/simple/ (sole index for the primary dists)"
+            echo "requested-version: ${VERSION}"
+            for dist in /tmp/rc-dist/*; do
+              echo "accepted-artifact: $(basename "${dist}") sha256:$(shasum -a 256 "${dist}" | cut -d' ' -f1)"
+            done
+          } > release/evidence/remote-acceptance-log.txt
+          # Refuse to go further unless those bytes are this candidate's.
+          python - <<'PY' || { echo "::error::published artifact is not the candidate"; exit 1; }
+          import json, pathlib, re
+          identity = json.loads(
+              pathlib.Path("release/evidence/candidate-identity-full.json").read_text()
+          )
+          expected = set(identity["package"]["artifacts"].values())
+          log = pathlib.Path("release/evidence/remote-acceptance-log.txt").read_text()
+          accepted = set(re.findall(r"accepted-artifact: \S+ (sha256:[0-9a-f]{64})", log))
+          assert accepted, "no artifact was downloaded"
+          unknown = accepted - expected
+          assert not unknown, f"published artifact {unknown} is not among this candidate's {expected}"
+          print("published artifacts match the candidate:", sorted(accepted))
+          PY
+          # Install exactly those verified files; PyPI serves dependencies only.
+          pip install /tmp/rc-dist/* --extra-index-url https://pypi.org/simple/
+          {
+            echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
+            echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
+          } >> release/evidence/remote-acceptance-log.txt
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             echo "OPENAI_API_KEY present — running examples/00_hello.py end-to-end"
-            python examples/00_hello.py
+            python examples/00_hello.py 2>&1 | tee -a release/evidence/remote-acceptance-log.txt
+            echo "EXAMPLE_STATUS=passed" >> "${GITHUB_ENV}"
           else
             echo "SKIP: no OPENAI_API_KEY available; skipping examples/00_hello.py"
+            echo "example: skipped, no OPENAI_API_KEY" >> release/evidence/remote-acceptance-log.txt
+            echo "EXAMPLE_STATUS=failed" >> "${GITHUB_ENV}"
           fi
+
+      - name: Record the remote-acceptance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/evidence
+          # A skipped example is not a passed one. Without the key the run has
+          # not accepted the published artifact end to end, so the gate reports
+          # failure and promotion to PyPI stays closed.
+          python release/gates/cli.py record --gate remote-acceptance \
+            --identity release/evidence/candidate-identity-full.json \
+            --result index-install=passed \
+            --result "example-run=${EXAMPLE_STATUS}" \
+            --kind deployment=release/evidence/remote-acceptance-log.txt \
+            --output release/evidence/remote-acceptance.json
+          cat release/evidence/remote-acceptance.json
+
+      - name: Upload remote-acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-remote-acceptance
+          path: |
+            release/evidence/remote-acceptance.json
+            release/evidence/remote-acceptance-log.txt
+
+  # The last gate before PyPI: every candidate gate, plus acceptance of the
+  # artifact as actually published, plus a named human's recorded signoff.
+  evidence-gate-final:
+    name: Validate final evidence and promotion signoff
+    needs: [evidence-gate, smoke-from-testpypi]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Tolerant on purpose. `if: always()` only keeps the JOB alive; a
+      # download that hard-fails because an upstream gate never uploaded would
+      # still skip the verdict, which is exactly the run that needs one. A
+      # record that never arrives is reported as `missing`, which blocks.
+      - name: Collect every gate record
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gate-*
+          path: release/evidence
+          merge-multiple: true
+
+      - name: Download the full candidate identity
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity-full
+          path: release/evidence
+
+      - name: Record the promotion gate
+        shell: bash
+        run: |
+          set -uo pipefail
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          SIGNOFF="release/signoff/${VERSION}.md"
+          # No CI step can produce a signoff. When the operator has not written
+          # one for this exact version the gate cannot cite it, and validation
+          # reports the promotion gate as `partial` naming the absent file.
+          # Nothing is written here on purpose: fabricating a placeholder so the
+          # evidence "exists" is precisely the move this gate exists to stop.
+          DIGEST=$(python release/gates/cli.py digest \
+            --identity release/evidence/candidate-identity-full.json)
+          SIGNOFF_STATUS=failed
+          if [ ! -f "${SIGNOFF}" ]; then
+            echo "::error::no operator signoff at ${SIGNOFF}"
+          elif ! grep -q "${DIGEST}" "${SIGNOFF}"; then
+            # A signoff that does not name this candidate is a signoff for some
+            # other build. Existing is not the same as accepting *this* one.
+            echo "::error::${SIGNOFF} does not name candidate ${DIGEST}"
+          elif ! grep -qiE '^(signed-off-by|operator):' "${SIGNOFF}"; then
+            echo "::error::${SIGNOFF} names no operator"
+          else
+            SIGNOFF_STATUS=passed
+            mkdir -p release/evidence
+            cp "${SIGNOFF}" release/evidence/promotion-signoff.md
+          fi
+          python release/gates/cli.py validate \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase candidate > /dev/null; CANDIDATE=$?
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate promotion \
+            --identity release/evidence/candidate-identity-full.json \
+            --result "candidate-gates-validated=$(status ${CANDIDATE})" \
+            --result "manual-signoff=${SIGNOFF_STATUS}" \
+            --kind manual-signoff=release/evidence/promotion-signoff.md \
+            --output release/evidence/promotion.json
+          cat release/evidence/promotion.json
+
+      - name: Validate and publish the final verdict
+        shell: bash
+        run: |
+          set -uo pipefail
+          python release/gates/cli.py verdict \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase final \
+            --output release/evidence/VERDICT.md; VERDICT=$?
+          cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
+          # Seal regardless of the verdict: a blocked release still needs a
+          # tamper-evident record of what was and was not proven.
+          python release/gates/cli.py seal \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase final \
+            --output release/evidence/evidence-manifest.json
+          exit "${VERDICT}"
+
+      - name: Attest the evidence manifest
+        if: always()
+        uses: actions/attest@v4
+        with:
+          # Signs over the candidate identity and the digest of every gate
+          # record, so the evidence itself carries an attestation rather than
+          # only the image it describes.
+          subject-path: release/evidence/evidence-manifest.json
+
+      - name: Retain the final evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-final
+          path: release/evidence
+          retention-days: 90
 
   publish-pypi:
     name: Publish to PyPI (trusted publisher)
-    needs: [smoke-from-testpypi]
+    needs: [evidence-gate-final]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -361,6 +608,73 @@ jobs:
 
       - name: Validate generated release evidence
         run: python release/langgraph/harness.py validate --phase final --manifest release/langgraph/release-manifest.json
+
+      - name: Download dist for the package identity
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Measure the full candidate identity and record the deployment gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every preceding step in this job runs without `continue-on-error`,
+          # so reaching this line means readiness, the gateway probe, the
+          # invalid-configuration refusal, the shutdown drain, the SBOM and the
+          # provenance verification all succeeded. If any had failed the job
+          # would have stopped and no record would exist -- which the evidence
+          # gate reports as `missing` and refuses to promote on.
+          ARGS=()
+          for artifact in dist/*; do
+            ARGS+=(--artifact "$(basename "${artifact}")=${artifact}")
+          done
+          python release/gates/cli.py identity \
+            "${ARGS[@]}" \
+            --image "zeroth-core:${{ github.ref_name }}=${{ steps.images.outputs.digest }}" \
+            --configuration docker-compose.yml \
+            --compatibility release/langgraph/compatibility.json \
+            --output release/evidence/candidate-identity-full.json
+          # The cited files must travel with the record. These four are
+          # generated by this job, not committed, so a validating job that only
+          # checks the repository out would find them absent and refuse to
+          # promote. Copy them under release/evidence so one artifact carries
+          # the record and everything it cites, with a common root.
+          cp release/langgraph/junit.xml release/evidence/deployment-junit.xml
+          cp release/langgraph/image.spdx.json release/evidence/deployment-sbom.spdx.json
+          cp release/langgraph/provenance.bundle.json \
+            release/evidence/deployment-provenance.bundle.json
+          cp release/langgraph/attestation-verification.json \
+            release/evidence/deployment-attestation-verification.json
+          python release/gates/cli.py record --gate deployment-smoke \
+            --identity release/evidence/candidate-identity-full.json \
+            --result readiness=passed \
+            --result gateway=passed \
+            --result invalid-configuration-refused=passed \
+            --result active-shutdown=passed \
+            --result sbom=passed \
+            --result provenance-verified=passed \
+            --kind deployment=release/evidence/deployment-junit.xml \
+            --kind sbom=release/evidence/deployment-sbom.spdx.json \
+            --kind provenance=release/evidence/deployment-provenance.bundle.json \
+            --kind security=release/evidence/deployment-attestation-verification.json \
+            --output release/evidence/deployment-smoke.json
+          cat release/evidence/deployment-smoke.json
+
+      - name: Upload the full candidate identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-identity-full
+          path: release/evidence/candidate-identity-full.json
+
+      - name: Upload deployment-smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          # Every path stays under release/evidence so the artifact root is
+          # that directory; adding a path from elsewhere would move the common
+          # ancestor and make the download land a directory deeper.
+          name: gate-deployment-smoke
+          path: release/evidence/deployment-*
 
       - name: Upload reproducible container evidence
         uses: actions/upload-artifact@v4
