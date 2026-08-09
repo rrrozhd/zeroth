@@ -33,6 +33,12 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+# Generates docs/assets/openapi/zeroth-core-openapi.json, which
+# reference/http-api.md links to and .gitignore excludes. Without it a clean
+# checkout has a dangling link and `mkdocs build --strict` fails (ZER-20).
+hooks:
+  - scripts/mkdocs_hooks.py
+
 plugins:
   - search
   - section-index

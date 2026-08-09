@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1.3] - 2026-08-08
+
+### Fixed
+
+- `mkdocs build --strict` now exits 0 from a clean checkout, and the published Swagger UI
+  actually loads the spec. `docs/reference/http-api.md` links to
+  `assets/openapi/zeroth-core-openapi.json`, which is generated from the live FastAPI app
+  rather than committed, so outside CI the link dangled and strict mode promoted it to a
+  build error — leaving the one check that catches documentation rot permanently red. A
+  build hook (`scripts/mkdocs_hooks.py`) generates the asset in `on_pre_build`, calling the
+  same `generate_spec_text()` the CLI uses so there is one source of truth, and skipping an
+  unchanged file so `mkdocs serve` cannot loop.
+- The viewer's spec URL is now written by the build. MkDocs rewrites relative URLs in
+  Markdown but not inside a `<script>`, and with directory URLs the page is served one
+  level deeper than its source path, so the hard-coded `../assets/…` resolved to
+  `/reference/assets/…` and 404'd while the Markdown link on the same page resolved
+  correctly. The build substitutes the URL computed by MkDocs' own `get_relative_url`, and
+  a page that loses the token — or whose binding is commented out or renamed — fails the
+  build rather than shipping a viewer that loads nothing.
+- A docs build no longer reaches the network: generating the spec imports the service app,
+  which pulls in LiteLLM and fetches its model cost map at import time;
+  `scripts/dump_openapi.py` now forces the local backup map.
+
 ## [0.19.1.2] - 2026-08-08
 
 ### Fixed

@@ -10,7 +10,12 @@ spec is generated from the FastAPI app at docs-build time via
 <script>
   window.addEventListener("load", function () {
     window.ui = SwaggerUIBundle({
-      url: "../assets/openapi/zeroth-core-openapi.json",
+      // Substituted at build time by scripts/mkdocs_hooks.py. MkDocs rewrites relative
+      // URLs in Markdown but not inside a <script>, and with directory URLs this page is
+      // served from /reference/http-api/ -- one level deeper than its source path -- so
+      // any URL written by hand here is wrong in at least one URL mode (ZER-20). The
+      // build computes it with MkDocs' own path logic and fails if this token is gone.
+      url: "@@ZEROTH_OPENAPI_SPEC_URL@@",
       dom_id: "#swagger-ui",
       deepLinking: true,
       presets: [SwaggerUIBundle.presets.apis],
