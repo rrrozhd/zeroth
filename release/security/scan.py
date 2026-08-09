@@ -43,10 +43,16 @@ _GITHUB_PATTERNS = (
     ),
 )
 _PERCENT_ESCAPE = re.compile(rb"%([0-9A-Fa-f]{2})")
-_JSON_UNICODE_ESCAPE = re.compile(rb"\\[uU]([0-9A-Fa-f]{4})")
-_JSON_SURROGATE_PAIR = re.compile(
-    rb"\\[uU]([dD][89ABab][0-9A-Fa-f]{2})\\[uU]([dD][C-Fc-f][0-9A-Fa-f]{2})"
-)
+_JSON_SIMPLE_ESCAPES = {
+    ord('"'): b'"',
+    ord("\\"): b"\\",
+    ord("/"): b"/",
+    ord("b"): b"\b",
+    ord("f"): b"\f",
+    ord("n"): b"\n",
+    ord("r"): b"\r",
+    ord("t"): b"\t",
+}
 
 
 def _fingerprint(value: bytes) -> str:
@@ -143,21 +149,48 @@ def _decode_percent(value: bytes) -> bytes:
 
 
 def _decode_json(value: bytes) -> bytes:
-    def _surrogate_pair(match: re.Match[bytes]) -> bytes:
-        high = int(match.group(1), 16)
-        low = int(match.group(2), 16)
-        codepoint = 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
-        return chr(codepoint).encode("utf-8")
-
-    def _unicode(match: re.Match[bytes]) -> bytes:
+    output = bytearray()
+    position = 0
+    while position < len(value):
+        if value[position] != ord("\\") or position + 1 >= len(value):
+            output.append(value[position])
+            position += 1
+            continue
+        escape = value[position + 1]
+        simple = _JSON_SIMPLE_ESCAPES.get(escape)
+        if simple is not None:
+            output.extend(simple)
+            position += 2
+            continue
+        if escape not in (ord("u"), ord("U")) or position + 6 > len(value):
+            output.extend(value[position : position + 2])
+            position += 2
+            continue
+        raw_codepoint = value[position + 2 : position + 6]
         try:
-            return chr(int(match.group(1), 16)).encode("utf-8")
+            codepoint = int(raw_codepoint, 16)
+        except ValueError:
+            output.extend(value[position : position + 2])
+            position += 2
+            continue
+        consumed = 6
+        if 0xD800 <= codepoint <= 0xDBFF and position + 12 <= len(value):
+            next_escape = value[position + 6 : position + 8]
+            raw_low = value[position + 8 : position + 12]
+            if next_escape in (b"\\u", b"\\U"):
+                try:
+                    low = int(raw_low, 16)
+                except ValueError:
+                    low = -1
+                if 0xDC00 <= low <= 0xDFFF:
+                    codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
+                    consumed = 12
+        try:
+            output.extend(chr(codepoint).encode("utf-8"))
         except UnicodeEncodeError:
-            return match.group(0)
-
-    decoded = _JSON_SURROGATE_PAIR.sub(_surrogate_pair, value)
-    decoded = _JSON_UNICODE_ESCAPE.sub(_unicode, decoded)
-    return decoded.replace(b"\\/", b"/")
+            output.extend(value[position : position + consumed])
+        position += consumed
+    return bytes(output)
 
 
 class CredentialLeakScanner:
@@ -276,9 +309,12 @@ class CredentialLeakScanner:
         for start in range(0, len(value) or 1, step):
             window = value[start : start + _MAX_NORMALIZATION_WINDOW]
             percent = _decode_percent(window)
+            form_percent = percent.replace(b"+", b" ")
             escaped_json = _decode_json(window)
             for canary, fingerprint in self._canaries:
                 if percent != window and canary in percent:
+                    findings.add(Finding(fingerprint, "canary:url", surface))
+                if form_percent != window and canary in form_percent:
                     findings.add(Finding(fingerprint, "canary:url", surface))
                 if escaped_json != window and canary in escaped_json:
                     findings.add(Finding(fingerprint, "canary:json", surface))

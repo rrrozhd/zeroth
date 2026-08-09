@@ -156,20 +156,67 @@ def test_semantic_encoding_normalization(rule: str, canary: str, encoded: str) -
     assert encoded not in findings[0].surface
 
 
-@pytest.mark.parametrize("malformed", [b"%", b"%GG", b"\\u12", b"\\uZZZZ", b"\xff%2"])
+def test_form_url_normalization_maps_plus_to_space_without_changing_plain_url_plus() -> None:
+    form_canary = "my secret!"
+    plus_canary = "my+secret!"
+    encoded = "my+%73ecret%21"
+
+    form_findings = CredentialLeakScanner([form_canary]).scan(encoded, surface=f"form-{encoded}")
+    plus_findings = CredentialLeakScanner([plus_canary]).scan(encoded, surface="ordinary-url")
+
+    assert [(item.rule, item.fingerprint) for item in form_findings] == [
+        ("canary:url", _fingerprint(form_canary))
+    ]
+    assert [(item.rule, item.fingerprint) for item in plus_findings] == [
+        ("canary:url", _fingerprint(plus_canary))
+    ]
+    assert encoded not in form_findings[0].surface
+
+
+@pytest.mark.parametrize(
+    ("canary", "encoded"),
+    [
+        ("café\n-token", rb"caf\u00E9\n-token"),
+        ("café\\token", rb"caf\u00E9\\token"),
+        ('café"\b\f\r\t/token', rb"caf\u00E9\"\b\f\r\t\/token"),
+    ],
+)
+def test_complete_json_string_escape_normalization(canary: str, encoded: bytes) -> None:
+    findings = CredentialLeakScanner([canary]).scan(encoded, surface="json")
+
+    assert [(item.rule, item.fingerprint) for item in findings] == [
+        ("canary:json", _fingerprint(canary))
+    ]
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [b"%", b"%GG", b"\\u12", b"\\uZZZZ", b"\xff%2", b"trailing\\", b"\\x"],
+)
 def test_malformed_encodings_do_not_crash(malformed: bytes) -> None:
     assert CredentialLeakScanner([CANARY]).scan(malformed, surface="malformed") == []
 
 
 def test_semantic_encoding_split_across_file_chunks(tmp_path: Path) -> None:
-    canary = "café-token"
-    encoded = rb"caf\u00E9-token"
+    canary = "café\n-token"
+    encoded = rb"caf\u00E9\n-token"
     target = tmp_path / "evidence.bin"
     target.write_bytes(b"x" * 65_532 + encoded)
 
     findings = scan_paths(tmp_path, [target], canaries=[canary])
 
     assert [item.rule for item in findings] == ["canary:json"]
+
+
+def test_form_url_normalization_split_across_file_chunks(tmp_path: Path) -> None:
+    canary = "my secret!"
+    encoded = b"my+%73ecret%21"
+    target = tmp_path / "evidence.bin"
+    target.write_bytes(b"x" * 65_531 + encoded)
+
+    findings = scan_paths(tmp_path, [target], canaries=[canary])
+
+    assert [item.rule for item in findings] == ["canary:url"]
 
 
 @pytest.mark.parametrize("canary", ["short", "aaaaaaaa", b"1234567", b"abcd" * 5000])
