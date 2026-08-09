@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from zeroth.platform.artifacts.errors import ArtifactNotFoundError
+from zeroth.platform.artifacts.errors import ArtifactNotFoundError, ArtifactStorageError
 from zeroth.platform.artifacts.store import RedisArtifactStore
 from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
@@ -40,7 +40,9 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
             workspace_id="workspace/*?[]\\",
         )
         key = "run*?[]\\/node/key"
+        owner_only_key = "owner-only/node/key"
         await tenant_a.store(key, b"A", "application/octet-stream")
+        await tenant_a.store(owner_only_key, b"owner-only", "application/octet-stream")
         await tenant_b.store(key, b"B", "application/octet-stream")
         assert await tenant_a.retrieve(key) == b"A"
         assert await tenant_b.retrieve(key) == b"B"
@@ -62,7 +64,26 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
             workspace_id="workspace/*?[]\\",
         )
         assert await tenant_a.retrieve(key) == b"A"
-        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 1
+        with pytest.raises(ArtifactNotFoundError):
+            await tenant_b.retrieve(owner_only_key)
+        assert await tenant_b.delete(owner_only_key, idempotency_key="foreign-delete") is False
+        assert await tenant_a.retrieve(owner_only_key) == b"owner-only"
+
+        await tenant_a.store("receipt-run/a", b"a", "application/octet-stream")
+        await tenant_a.store("receipt-run/b", b"b", "application/octet-stream")
+        assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
+        assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
+        with pytest.raises(ArtifactStorageError, match="reused for another operation") as misuse:
+            await tenant_a.delete("receipt-run/b", idempotency_key="bound-receipt")
+        assert "scopes/v1" not in str(misuse.value)
+        with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+            await tenant_a.cleanup_run("receipt-run", idempotency_key="bound-receipt")
+        assert await tenant_a.retrieve("receipt-run/b") == b"b"
+
+        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2
+        assert await tenant_a.cleanup_run("run*?[]\\", idempotency_key="cleanup") == 2
+        with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+            await tenant_a.cleanup_run("other-run", idempotency_key="cleanup")
         with pytest.raises(ArtifactNotFoundError):
             await tenant_a.retrieve(key)
         assert await tenant_b.retrieve(key) == b"B"

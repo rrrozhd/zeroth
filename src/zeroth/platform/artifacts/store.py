@@ -110,6 +110,40 @@ class RedisArtifactStore:
         """Build the Redis key for an erasure-operation replay receipt."""
         return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
+    @staticmethod
+    def _receipt_payload(*, kind: str, target: str, result: bool | int) -> str:
+        return json.dumps(
+            {"kind": kind, "target": target, "result": result},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _receipt_result(
+        raw_receipt: bytes | str,
+        *,
+        kind: str,
+        target: str,
+        result_type: type[bool] | type[int],
+    ) -> bool | int:
+        try:
+            receipt = json.loads(raw_receipt)
+        except (TypeError, ValueError):
+            raise ArtifactStorageError("Invalid erasure operation receipt") from None
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("kind") != kind
+            or receipt.get("target") != target
+        ):
+            raise ArtifactStorageError("idempotency key reused for another operation")
+        result = receipt.get("result")
+        if result_type is bool:
+            if type(result) is not bool:
+                raise ArtifactStorageError("Invalid erasure operation receipt")
+        elif type(result) is not int or result < 0:
+            raise ArtifactStorageError("Invalid erasure operation receipt")
+        return result
+
     async def store(
         self,
         key: str,
@@ -202,17 +236,37 @@ class RedisArtifactStore:
         receipt_key = self._receipt_key(idempotency_key)
         receipt = await self._client.get(receipt_key)
         if receipt is not None:
-            result = bool(int(receipt))
+            result = self._receipt_result(
+                receipt,
+                kind="delete",
+                target=key,
+                result_type=bool,
+            )
             async with self._client.pipeline(transaction=True) as pipe:
                 pipe.delete(full_key)
                 pipe.delete(meta_key)
                 await pipe.execute()
-            return result
+            return bool(result)
 
         existed = bool(await self._client.exists(full_key))
-        await self._client.set(receipt_key, "1" if existed else "0", nx=True)
+        await self._client.set(
+            receipt_key,
+            self._receipt_payload(kind="delete", target=key, result=existed),
+            nx=True,
+        )
         receipt = await self._client.get(receipt_key)
-        stable_result = existed if receipt is None else bool(int(receipt))
+        stable_result = (
+            existed
+            if receipt is None
+            else bool(
+                self._receipt_result(
+                    receipt,
+                    kind="delete",
+                    target=key,
+                    result_type=bool,
+                )
+            )
+        )
 
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.delete(full_key)
@@ -274,18 +328,36 @@ class RedisArtifactStore:
         pattern = f"{self._prefix}:{run_id}/*"
         receipt_key = self._receipt_key(idempotency_key)
         receipt = await self._client.get(receipt_key)
+        if receipt is not None:
+            stable_count = int(
+                self._receipt_result(
+                    receipt,
+                    kind="cleanup_run",
+                    target=run_id,
+                    result_type=int,
+                )
+            )
         redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
         if receipt is None:
-            count = sum(
-                1
-                for key in redis_keys
-                if not (key.endswith(b":meta") if isinstance(key, bytes) else key.endswith(":meta"))
+            count = len(redis_keys)
+            await self._client.set(
+                receipt_key,
+                self._receipt_payload(kind="cleanup_run", target=run_id, result=count),
+                nx=True,
             )
-            await self._client.set(receipt_key, str(count), nx=True)
             receipt = await self._client.get(receipt_key)
-            stable_count = count if receipt is None else int(receipt)
-        else:
-            stable_count = int(receipt)
+            stable_count = (
+                count
+                if receipt is None
+                else int(
+                    self._receipt_result(
+                        receipt,
+                        kind="cleanup_run",
+                        target=run_id,
+                        result_type=int,
+                    )
+                )
+            )
         for redis_key in redis_keys:
             await self._client.delete(redis_key)
         return stable_count

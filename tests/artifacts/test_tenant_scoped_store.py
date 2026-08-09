@@ -13,7 +13,10 @@ import pytest
 
 from zeroth.platform.artifacts.errors import ArtifactNotFoundError, ArtifactStorageError
 from zeroth.platform.artifacts.store import FilesystemArtifactStore, RedisArtifactStore
-from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+from zeroth.platform.artifacts.tenant_scoped import (
+    TenantScopedArtifactStore,
+    frame_artifact_key,
+)
 
 
 class _Pipeline:
@@ -129,8 +132,15 @@ async def test_shared_backend_isolates_full_artifact_lifecycle(
     await tenant_a.store("cleanup-run/n1/a", b"a", "text/plain")
     await tenant_a.store("cleanup-run/n2/b", b"b", "text/plain")
     await tenant_b.store("cleanup-run/n1/a", b"foreign", "text/plain")
-    assert await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup") == 2
-    assert await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup") == 2
+    expected_cleanup_count = 2 if backend == "filesystem" else 4
+    assert (
+        await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup")
+        == expected_cleanup_count
+    )
+    assert (
+        await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup")
+        == expected_cleanup_count
+    )
     assert await tenant_b.retrieve("cleanup-run/n1/a") == b"foreign"
 
 
@@ -190,6 +200,7 @@ async def test_physical_segments_and_receipt_id_use_exact_encoding(tmp_path: Pat
         / "objects"
         / "v1"
         / encode("run")
+        / encode("legacy")
         / encode("n\u00f8de")
         / encode("..")
     )
@@ -258,8 +269,66 @@ async def test_redis_cleanup_pattern_contains_only_encoded_run() -> None:
     run_id = "run*?[]\\"
     await wrapper.store(f"{run_id}/node/key", b"x", "text/plain")
 
-    assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 1
+    assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 2
     pattern = client.scan_patterns[-1]
     assert run_id not in pattern
     assert "tenant" not in pattern
     assert pattern.endswith("/*")
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("backend", ["filesystem", "redis"])
+async def test_slash_bearing_run_cleanup_uses_explicit_framing(
+    backend: str, tmp_path: Path
+) -> None:
+    values: dict[str, bytes] = {}
+    underlying = _filesystem_store(tmp_path) if backend == "filesystem" else _redis_store(values)[0]
+    wrapper = TenantScopedArtifactStore(underlying, tenant_id="tenant")
+    nested_run_key = frame_artifact_key("a/b", "node/artifact")
+    parent_run_key = frame_artifact_key("a", "b/node/artifact")
+    await wrapper.store(nested_run_key, b"nested", "text/plain")
+    await wrapper.store(parent_run_key, b"parent", "text/plain")
+
+    deleted = await wrapper.cleanup_run("a/b", idempotency_key="nested-cleanup")
+
+    assert deleted == (1 if backend == "filesystem" else 2)
+    assert not await wrapper.exists(nested_run_key)
+    assert await wrapper.retrieve(parent_run_key) == b"parent"
+    assert nested_run_key != parent_run_key
+
+
+@pytest.mark.asyncio()
+async def test_redis_cleanup_counts_data_key_ending_meta() -> None:
+    values: dict[str, bytes] = {}
+    backend, _ = _redis_store(values)
+    await backend.store("run/data:meta", b"payload", "text/plain")
+
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
+
+
+@pytest.mark.asyncio()
+async def test_redis_receipts_bind_operation_and_target() -> None:
+    values: dict[str, bytes] = {}
+    backend, _ = _redis_store(values)
+    await backend.store("run/a", b"a", "text/plain")
+    await backend.store("run/b", b"b", "text/plain")
+
+    assert await backend.delete("run/a", idempotency_key="receipt") is True
+    assert await backend.delete("run/a", idempotency_key="receipt") is True
+    with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+        await backend.delete("run/b", idempotency_key="receipt")
+    with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+        await backend.cleanup_run("run", idempotency_key="receipt")
+    assert await backend.retrieve("run/b") == b"b"
+
+
+@pytest.mark.asyncio()
+async def test_redis_cleanup_receipt_replay_and_target_misuse() -> None:
+    values: dict[str, bytes] = {}
+    backend, _ = _redis_store(values)
+    await backend.store("run/a", b"a", "text/plain")
+
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 2
+    with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+        await backend.cleanup_run("other", idempotency_key="cleanup")
