@@ -211,6 +211,7 @@ class TestApprovalWebhookEmission:
         )
         repo.get = AsyncMock(return_value=record)
         repo.write = AsyncMock(side_effect=lambda r: r)
+        repo.resolve_pending = AsyncMock(side_effect=lambda r: r)
 
         service = ApprovalService(repository=repo, run_repository=run_repo)
         webhook_service = AsyncMock()

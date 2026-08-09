@@ -26,3 +26,39 @@ jobs:
           uv run ruff check src tests
           uv run pytest -v --no-header -ra
           uv run interrogate src/zeroth
+
+  security-regression:
+    name: Security regression — PR-critical
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the reviewed PR-critical security subset
+        run: |
+          uv sync --all-groups --all-extras
+          uv run python -m release.security.pytest_gate \
+            --matrix release/security/security-matrix.json \
+            --tier pr-critical \
+            --results release/evidence/security-pr-outcomes.json \
+            --junitxml release/evidence/security-pr-junit.xml \
+            --pytest-arg=-q
+
+      - name: Upload PR security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-pr-evidence
+          path: |
+            release/evidence/security-pr-junit.xml
+            release/evidence/security-pr-outcomes.json

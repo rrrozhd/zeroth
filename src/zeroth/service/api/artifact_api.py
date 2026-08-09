@@ -11,20 +11,20 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
 from fastapi.responses import Response
 
-from zeroth.platform.artifacts.errors import ArtifactNotFoundError
+from zeroth.platform.artifacts.errors import ArtifactNotFoundError, ArtifactStorageError
 from zeroth.service.api.authorization import Permission, require_permission
 
 
 def register_artifact_routes(app: FastAPI | APIRouter) -> None:
     """Register artifact retrieval routes."""
 
-    @app.get("/artifacts/{artifact_id}")
+    @app.get("/artifacts/{artifact_id:path}")
     async def get_artifact(request: Request, artifact_id: str) -> Response:
         await require_permission(request, Permission.RUN_READ)
         store = _artifact_store(request)
         try:
             data = await store.retrieve(artifact_id)
-        except ArtifactNotFoundError as exc:
+        except (ArtifactNotFoundError, ArtifactStorageError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="artifact not found",

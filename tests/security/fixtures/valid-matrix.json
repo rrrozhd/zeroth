@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "protected_surfaces": [
+    "workflows",
+    "deployments",
+    "runs",
+    "threads",
+    "artifacts",
+    "audit",
+    "approvals",
+    "connectors",
+    "manifests",
+    "repository-installations",
+    "checkouts",
+    "caches",
+    "rate-limit-buckets",
+    "execution-results"
+  ],
+  "operations": [
+    "read",
+    "write",
+    "execute",
+    "enumerate",
+    "approve",
+    "retrieve",
+    "delete"
+  ],
+  "persistence_boundaries": [
+    "SQL",
+    "Redis",
+    "artifact-store",
+    "LangGraph-checkpointer",
+    "workers",
+    "restarts"
+  ],
+  "attacks": [
+    "forged-tenant-claims",
+    "identifier-guessing",
+    "replay",
+    "concurrency",
+    "stale-credentials",
+    "revoked-access"
+  ],
+  "observable_output_surfaces": [
+    "workload-environment",
+    "logs",
+    "errors",
+    "artifacts",
+    "audit-payloads",
+    "other-tenant"
+  ],
+  "hostile_fixtures": [
+    "traversal",
+    "symlinks",
+    "host-mounts",
+    "network",
+    "process-abuse",
+    "resource-abuse",
+    "output-abuse",
+    "timeout",
+    "cancellation"
+  ],
+  "cases": [
+    {
+      "id": "fixture-workflow-read",
+      "tiers": [
+        "pr-critical",
+        "release-candidate"
+      ],
+      "coverage": "behavioral",
+      "test_nodes": [
+        "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
+      ]
+    },
+    {
+      "id": "fixture-revoked-access-refusal",
+      "tiers": [
+        "release-candidate"
+      ],
+      "coverage": "absent-fail-closed",
+      "test_nodes": [
+        "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+      ],
+      "refusal_test": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    }
+  ],
+  "claims": {
+    "protected_surfaces": {
+      "workflows": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "deployments": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "runs": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "threads": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "artifacts": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "audit": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "approvals": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "connectors": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "manifests": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "repository-installations": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "checkouts": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "caches": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "rate-limit-buckets": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "execution-results": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    },
+    "operations": {
+      "read": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "write": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "execute": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "enumerate": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "approve": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "retrieve": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "delete": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
+    },
+    "persistence_boundaries": {
+      "SQL": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "Redis": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "artifact-store": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "LangGraph-checkpointer": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "workers": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "restarts": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    },
+    "attacks": {
+      "forged-tenant-claims": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "identifier-guessing": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "replay": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "concurrency": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "stale-credentials": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "revoked-access": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    },
+    "observable_output_surfaces": {
+      "workload-environment": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "logs": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "errors": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "artifacts": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "audit-payloads": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "other-tenant": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding"
+    },
+    "hostile_fixtures": {
+      "traversal": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "symlinks": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "host-mounts": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "network": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "process-abuse": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "resource-abuse": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "output-abuse": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding",
+      "timeout": "tests/security/test_matrix_contract.py::test_fixture_refusal_binding",
+      "cancellation": "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
+    }
+  }
+}

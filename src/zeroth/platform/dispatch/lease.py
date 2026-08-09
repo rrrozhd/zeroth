@@ -34,6 +34,7 @@ except ImportError:
 # values against RunStatus.
 _STATUS_PENDING = "PENDING"
 _STATUS_RUNNING = "RUNNING"
+_UNSCOPED_WORKSPACE = object()
 
 # The columns that constitute the fence itself. A fenced write may never touch
 # them: doing so would let a displaced worker re-grant its own lease.
@@ -78,6 +79,24 @@ def _new_worker_id() -> str:
     return uuid4().hex
 
 
+def _scope_sql(
+    tenant_id: str | None,
+    workspace_id: str | None | object,
+) -> tuple[str, tuple[object, ...]]:
+    predicates: list[str] = []
+    params: list[object] = []
+    if tenant_id is not None:
+        predicates.append("AND tenant_id = ?")
+        params.append(tenant_id)
+    if workspace_id is not _UNSCOPED_WORKSPACE:
+        if workspace_id is None:
+            predicates.append("AND workspace_id IS NULL")
+        else:
+            predicates.append("AND workspace_id = ?")
+            params.append(workspace_id)
+    return " ".join(predicates), tuple(params)
+
+
 class FencedRunWriteRejectedError(RuntimeError):
     """A fenced run-state write was refused because lease ownership moved.
 
@@ -120,7 +139,14 @@ class LeaseManager:
     # Claim operations
     # ---------------------------------------------------------------------------
 
-    async def claim_pending(self, deployment_ref: str, worker_id: str) -> str | None:
+    async def claim_pending(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Atomically claim one PENDING run for this worker.
 
         Dispatches to ``_claim_pending_pg`` (Postgres) or
@@ -130,11 +156,23 @@ class LeaseManager:
         The claimed run's status is left as PENDING -- the worker transitions
         it to RUNNING once execution actually starts.
         """
+        scope = (
+            {}
+            if tenant_id is None and workspace_id is _UNSCOPED_WORKSPACE
+            else {"tenant_id": tenant_id, "workspace_id": workspace_id}
+        )
         if self._is_postgres():
-            return await self._claim_pending_pg(deployment_ref, worker_id)
-        return await self._claim_pending_sqlite(deployment_ref, worker_id)
+            return await self._claim_pending_pg(deployment_ref, worker_id, **scope)
+        return await self._claim_pending_sqlite(deployment_ref, worker_id, **scope)
 
-    async def _claim_pending_sqlite(self, deployment_ref: str, worker_id: str) -> str | None:
+    async def _claim_pending_sqlite(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Claim using a guarded UPDATE ... RETURNING (SQLite).
 
         The previous shape selected a candidate, updated it, then re-read to
@@ -145,30 +183,33 @@ class LeaseManager:
         """
         now = _utc_now()
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
-                """
+                f"""
                 SELECT run_id FROM runs
                 WHERE deployment_ref = ?
+                  {scope_sql}
                   AND status = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
                 ORDER BY started_at ASC
                 LIMIT 1
                 """,
-                (deployment_ref, _STATUS_PENDING, now.isoformat()),
+                (deployment_ref, *scope_params, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
                 return None
             # The generation advances with the claim so a displaced worker's
             # writes can be told apart from the new owner's.
             won = await conn.fetch_one(
-                """
+                f"""
                 UPDATE runs
                 SET lease_worker_id = ?,
                     lease_acquired_at = ?,
                     lease_expires_at = ?,
                     lease_generation = lease_generation + 1
                 WHERE run_id = ?
+                  {scope_sql}
                   AND status = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
                 RETURNING run_id
@@ -178,13 +219,21 @@ class LeaseManager:
                     now.isoformat(),
                     expires_at.isoformat(),
                     row["run_id"],
+                    *scope_params,
                     _STATUS_PENDING,
                     now.isoformat(),
                 ),
             )
         return None if won is None else str(won["run_id"])
 
-    async def _claim_pending_pg(self, deployment_ref: str, worker_id: str) -> str | None:
+    async def _claim_pending_pg(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Atomic claim using SELECT ... FOR UPDATE SKIP LOCKED (Postgres).
 
         Workers skip rows already being claimed by another worker.
@@ -192,18 +241,20 @@ class LeaseManager:
         """
         now = _utc_now()
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
-                """
+                f"""
                 SELECT run_id FROM runs
                 WHERE deployment_ref = ?
+                  {scope_sql}
                   AND status = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
                 ORDER BY started_at ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """,
-                (deployment_ref, _STATUS_PENDING, now.isoformat()),
+                (deployment_ref, *scope_params, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
                 return None
@@ -221,7 +272,14 @@ class LeaseManager:
             )
         return run_id
 
-    async def claim_orphaned(self, deployment_ref: str, worker_id: str) -> list[str]:
+    async def claim_orphaned(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> list[str]:
         """Claim all RUNNING runs with expired leases for this deployment.
 
         Called at worker startup to recover work abandoned by crashed workers.
@@ -231,16 +289,18 @@ class LeaseManager:
         now = _utc_now()
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         claimed: list[str] = []
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             rows = await conn.fetch_all(
-                """
+                f"""
                 SELECT run_id FROM runs
                 WHERE deployment_ref = ?
+                  {scope_sql}
                   AND status = ?
                   AND lease_worker_id IS NOT NULL
                   AND lease_expires_at < ?
                 """,
-                (deployment_ref, _STATUS_RUNNING, now.isoformat()),
+                (deployment_ref, *scope_params, _STATUS_RUNNING, now.isoformat()),
             )
             for row in rows:
                 run_id = row["run_id"]

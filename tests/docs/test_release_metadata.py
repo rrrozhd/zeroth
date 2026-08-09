@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-EXPECTED_VERSION = "0.19.1.4"
+EXPECTED_VERSION = "0.20"
 
 
 def test_project_version_matches_release() -> None:
@@ -16,8 +16,27 @@ def test_project_version_matches_release() -> None:
 
 
 def test_uv_lock_tracks_project_version() -> None:
-    lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-    assert f'version = "{EXPECTED_VERSION}"' in lock
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    local_versions = {
+        package["name"]: package["version"]
+        for package in lock["package"]
+        if "source" in package
+        and (
+            package["source"].get("editable") == "."
+            or package["source"].get("directory") == "packaging/console"
+        )
+    }
+    assert local_versions == {
+        "zeroth-console": EXPECTED_VERSION,
+        "zeroth-core": EXPECTED_VERSION,
+    }
+
+
+def test_console_package_version_tracks_project_version() -> None:
+    console = tomllib.loads(
+        (REPO_ROOT / "packaging/console/pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert console["project"]["version"] == EXPECTED_VERSION
 
 
 def test_frontend_version_tracks_project_version() -> None:

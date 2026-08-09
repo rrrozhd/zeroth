@@ -8,6 +8,7 @@ from tests.conftest import content_capture
 from tests.service.helpers import admin_headers, agent_graph, deploy_service
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.service.bootstrap import bootstrap_app
+from zeroth.runtime.runs import Run
 
 
 def _record(
@@ -151,6 +152,50 @@ async def test_audit_api_exposes_run_and_deployment_timelines_in_order(sqlite_db
         "audit:early",
         "audit:late",
     ]
+
+
+async def test_run_audit_routes_forward_tenant_and_workspace_to_run_query(
+    sqlite_db, monkeypatch
+) -> None:
+    service, deployment = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-audit-query-scope"),
+        tenant_id="default",
+        workspace_id=None,
+    )
+    await service.run_repository.create(
+        Run(
+            run_id="query-scoped-run",
+            thread_id="query-scoped-thread",
+            graph_version_ref=deployment.graph_version_ref,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id="default",
+            workspace_id=None,
+        )
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+    calls: list[dict[str, object]] = []
+    original_get = service.run_repository.get
+
+    async def recording_get(run_id: str, **scope):
+        calls.append(scope)
+        return await original_get(run_id, **scope)
+
+    monkeypatch.setattr(service.run_repository, "get", recording_get)
+    with TestClient(app) as client:
+        for path in (
+            "/runs/query-scoped-run/timeline",
+            "/runs/query-scoped-run/audit-verification",
+            "/runs/query-scoped-run/evidence",
+        ):
+            calls.clear()
+            assert client.get(path, headers=admin_headers()).status_code == 200
+            assert {"tenant_id": "default", "workspace_id": None} in calls
 
 
 async def test_reviewer_can_list_audits(sqlite_db) -> None:

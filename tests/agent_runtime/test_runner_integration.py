@@ -62,6 +62,8 @@ async def test_repository_thread_state_store_integrates_with_agent_runner(sqlite
     )
     store = RepositoryThreadStateStore(
         sqlite_db,
+        tenant_id="default",
+        workspace_id=None,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )

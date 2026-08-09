@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -21,9 +22,11 @@ from zeroth.integrations.execution.models import (
 )
 from zeroth.integrations.execution.runner import (
     ExecutableUnitBinding,
+    ExecutableUnitExecutionError,
     ExecutableUnitRegistry,
     ExecutableUnitRunner,
 )
+from zeroth.integrations.execution.sandbox import SandboxManager
 
 
 class DemoInput(BaseModel):
@@ -189,7 +192,7 @@ output_file.write_text(json.dumps({"answer": payload["name"], "score": payload["
             output_model=DemoOutput,
         )
     )
-    runner = ExecutableUnitRunner(registry)
+    runner = ExecutableUnitRunner(registry, project_materializer=lambda _manifest, _cwd: None)
 
     first = await runner.run_manifest_ref("eu://project-unit", {"name": "gamma", "count": 5})
     second = await runner.run_manifest_ref("eu://project-unit", {"name": "delta", "count": 6})
@@ -197,6 +200,63 @@ output_file.write_text(json.dumps({"answer": payload["name"], "score": payload["
     assert first.output_data == {"answer": "gamma", "score": 5}
     assert second.output_data == {"answer": "delta", "score": 6}
     assert build_marker.read_text() == "1"
+
+
+@pytest.mark.asyncio
+async def test_project_build_uses_binding_environment_allowlist() -> None:
+    manifest = ProjectUnitManifest(
+        unit_id="project-build-env",
+        onboarding_mode=ExecutionMode.PROJECT,
+        runtime="project",
+        artifact_source=ProjectArchiveArtifactSource(ref="archive://project-build-env"),
+        build_config=BuildConfig(
+            command=[
+                sys.executable,
+                "-c",
+                "import os,sys; sys.exit(9 if os.getenv('GITHUB_TOKEN') else 0)",
+            ],
+        ),
+        run_config=RunConfig(
+            command=[sys.executable, "-c", 'print(\'{"answer":"safe","score":1}\')']
+        ),
+        project_archive_ref="archive://project-build-env",
+        entrypoint_type="project",
+        input_mode=InputMode.JSON_STDIN,
+        output_mode=OutputMode.JSON_STDOUT,
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        cache_identity_fields={"archive": "project-build-env"},
+    )
+    registry = ExecutableUnitRegistry()
+    registry.register(
+        ExecutableUnitBinding(
+            manifest_ref="eu://project-build-env",
+            manifest=manifest,
+            input_model=DemoInput,
+            output_model=DemoOutput,
+            allowed_env_keys=("PATH",),
+        )
+    )
+    manager = SandboxManager(base_env={"PATH": os.environ["PATH"], "GITHUB_TOKEN": "fake"})
+
+    result = await ExecutableUnitRunner(
+        registry,
+        sandbox_manager=manager,
+        project_materializer=lambda _manifest, _cwd: None,
+    ).run_manifest_ref("eu://project-build-env", {"name": "safe", "count": 1})
+
+    assert result.output_data == {"answer": "safe", "score": 1}
+
+
+def test_runner_rejects_symlink_escape_workdir(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "sandbox"
+    root.mkdir()
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ExecutableUnitExecutionError, match="contained"):
+        ExecutableUnitRunner()._resolve_workdir(root, "escape/job")
 
 
 @pytest.mark.asyncio

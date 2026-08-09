@@ -34,6 +34,7 @@ from zeroth.governance.audit.coordination import (
     hydrate_audit_row,
     load_ordered_run_records,
     lock_audit_chain,
+    order_audit_records,
 )
 from zeroth.governance.audit.erasure_schema import (
     ERASED_PII_VALUES,
@@ -183,13 +184,15 @@ class AuditRepository:
             )
         return await self.get(record.audit_id)
 
-    async def get(self, audit_id: str) -> NodeAuditRecord | None:
-        """Look up a single audit record by its ID. Returns None if not found."""
+    async def get(self, audit_id: str, *, tenant_id: str | None = None) -> NodeAuditRecord | None:
+        """Look up one audit record, optionally constrained by tenant in SQL."""
+        sql = "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?"
+        params: tuple[str, ...] = (audit_id,)
+        if tenant_id is not None:
+            sql += " AND tenant_id = ?"
+            params = (audit_id, tenant_id)
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?",
-                (audit_id,),
-            )
+            row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return self._hydrate(row)
@@ -201,24 +204,6 @@ class AuditRepository:
         is given, all records are returned.
         """
         query = query or AuditQuery()
-        if query.run_id is not None:
-            async with self._database.transaction() as connection:
-                records = await load_ordered_run_records(connection, query.run_id)
-            filter_fields = (
-                "thread_id",
-                "node_id",
-                "graph_version_ref",
-                "deployment_ref",
-                "tenant_id",
-            )
-            return [
-                record
-                for record in records
-                if all(
-                    getattr(query, field) is None or getattr(record, field) == getattr(query, field)
-                    for field in filter_fields
-                )
-            ]
         clauses: list[str] = []
         params: list[str] = []
         for field in (
@@ -228,23 +213,43 @@ class AuditRepository:
             "graph_version_ref",
             "deployment_ref",
             "tenant_id",  # WS-B: tenant filter (node_audits.tenant_id column)
+            "workspace_id",
         ):
             value = getattr(query, field)
             if value is None:
                 continue
             clauses.append(f"{field} = ?")
             params.append(value)
+        if query.workspace_scoped and query.workspace_id is None:
+            clauses.append("workspace_id IS NULL")
         sql = "SELECT record_json, chain_sequence FROM node_audits"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at, audit_id"
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, tuple(params))
-        return [self._hydrate(row) for row in rows]
+        records = [self._hydrate(row) for row in rows]
+        return order_audit_records(records) if query.run_id is not None else records
 
-    async def list_by_run(self, run_id: str) -> list[NodeAuditRecord]:
+    async def list_by_run(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_scoped: bool = False,
+        deployment_ref: str | None = None,
+    ) -> list[NodeAuditRecord]:
         """Return all audit records for a specific run."""
-        return await self.list(AuditQuery(run_id=run_id))
+        return await self.list(
+            AuditQuery(
+                run_id=run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                workspace_scoped=workspace_scoped,
+                deployment_ref=deployment_ref,
+            )
+        )
 
     async def list_by_run_in_transaction(
         self,
@@ -266,9 +271,23 @@ class AuditRepository:
         """Return all audit records for a specific graph version."""
         return await self.list(AuditQuery(graph_version_ref=graph_version_ref))
 
-    async def list_by_deployment(self, deployment_ref: str) -> list[NodeAuditRecord]:
+    async def list_by_deployment(
+        self,
+        deployment_ref: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_scoped: bool = False,
+    ) -> list[NodeAuditRecord]:
         """Return all audit records for a specific deployment."""
-        return await self.list(AuditQuery(deployment_ref=deployment_ref))
+        return await self.list(
+            AuditQuery(
+                deployment_ref=deployment_ref,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                workspace_scoped=workspace_scoped,
+            )
+        )
 
     async def write_many(self, records: Sequence[NodeAuditRecord]) -> list[NodeAuditRecord]:
         """Save multiple audit records at once. Returns all saved records."""

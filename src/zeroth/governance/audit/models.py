@@ -227,6 +227,8 @@ class AuditQuery(BaseModel):
     deployment_ref: str | None = None
     # WS-B: filter audit records to a single tenant. None = no tenant filter.
     tenant_id: str | None = None
+    workspace_id: str | None = None
+    workspace_scoped: bool = False
 
 
 class AuditTimeline(BaseModel):

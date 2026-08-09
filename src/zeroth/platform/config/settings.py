@@ -82,6 +82,14 @@ class AuthSettings(BaseModel):
         description="JSON bearer/JWT verification config (issuer, audience, jwks)",
         json_schema_extra={"env": "ZEROTH_SERVICE_BEARER_JSON"},
     )
+    revoked_credential_ids_json: list[str] | None = Field(
+        default=None,
+        description=(
+            "JSON array of unique credential identifiers rejected after successful "
+            "authentication (static credential_id; bearer jti or SHA-256 fingerprint)"
+        ),
+        json_schema_extra={"env": "ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"},
+    )
 
 
 class MemorySettings(BaseModel):

@@ -55,8 +55,25 @@
       "triggers": ["nightly", "release-candidate"]
     },
     {
-      "id": "deployment-smoke",
+      "id": "security-regression",
       "order": 5,
+      "phase": "candidate",
+      "title": "Security regression",
+      "description": "The reviewed tenant-isolation and hostile-execution matrix completed without skips, every exact node was covered, and observable evidence contains no credential canary or GitHub token.",
+      "binds": ["commit", "package"],
+      "record": "release/evidence/security-regression.json",
+      "requires": [
+        "security-matrix",
+        "coverage-complete",
+        "distributed-no-skips",
+        "credential-scan"
+      ],
+      "kinds": ["junit", "security"],
+      "triggers": ["pull-request", "nightly", "release-candidate"]
+    },
+    {
+      "id": "deployment-smoke",
+      "order": 6,
       "phase": "candidate",
       "title": "Deployment smoke",
       "description": "The release image starts, reports ready, serves the gateway, refuses invalid configuration promptly, drains in-flight work on shutdown, and carries an SBOM plus a verified provenance attestation.",
@@ -75,7 +92,7 @@
     },
     {
       "id": "remote-acceptance",
-      "order": 6,
+      "order": 7,
       "phase": "final",
       "title": "Remote acceptance",
       "description": "The candidate is installed from the published index rather than from the local build, and the published artifact is exercised end to end.",
@@ -87,7 +104,7 @@
     },
     {
       "id": "promotion",
-      "order": 7,
+      "order": 8,
       "phase": "final",
       "title": "Promotion",
       "description": "Every preceding gate validated against this candidate, and a named human accepted the release.",
@@ -117,7 +134,7 @@
     "security": {
       "applicable": true,
       "producer": "ci",
-      "description": "The cryptographic verification result for the release image's provenance attestation. Scoped deliberately: no vulnerability or dependency scanner runs in this pipeline yet, so this kind claims provenance verification and nothing wider."
+      "description": "Machine-readable security evidence: credential-leak scan results for the security regression gate and cryptographic verification of release image provenance. This does not claim a vulnerability or dependency scan."
     },
     "deployment": {
       "applicable": true,

@@ -129,17 +129,40 @@ class RoleRegistry:
 DEFAULT_ROLE_REGISTRY = RoleRegistry()
 
 
+def _configured_deployment(bootstrap: object | None) -> object | None:
+    """Read an explicitly configured deployment without mock ``__getattr__`` fallback."""
+    if bootstrap is None:
+        return None
+    try:
+        return object.__getattribute__(bootstrap, "deployment")
+    except AttributeError:
+        return None
+
+
 def _role_registry(request: Request) -> RoleRegistry:
     bootstrap = getattr(request.app.state, "bootstrap", None)
     registry = getattr(bootstrap, "role_registry", None)
     return registry if isinstance(registry, RoleRegistry) else DEFAULT_ROLE_REGISTRY
 
 
-async def require_permission(request: Request, permission: Permission) -> AuthenticatedPrincipal:
-    """Require that the authenticated principal holds the requested permission."""
+async def require_permission(
+    request: Request,
+    permission: Permission,
+    *,
+    enforce_deployment_scope: bool = True,
+) -> AuthenticatedPrincipal:
+    """Require a permission, and normally the currently served deployment scope.
+
+    ``enforce_deployment_scope=False`` is reserved for control-plane routes that
+    explicitly query their own resources by the caller's tenant/workspace.
+    """
     principal = current_principal(request)
     allowed = _role_registry(request).permissions_for(principal.roles)
     if permission in allowed:
+        bootstrap = getattr(request.app.state, "bootstrap", None)
+        deployment = _configured_deployment(bootstrap)
+        if enforce_deployment_scope and deployment is not None:
+            await require_deployment_scope(request, deployment)
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
     await record_service_denial(

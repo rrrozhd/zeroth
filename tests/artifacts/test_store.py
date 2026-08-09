@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import fcntl
 import json
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -77,6 +80,7 @@ class TestRedisArtifactStore:
         client.set = AsyncMock(return_value=True)
         client.exists = AsyncMock(return_value=0)
         client.delete = AsyncMock(return_value=1)
+        client.eval = AsyncMock(return_value=[b"ok", b"false"])
         client.scan_iter = MagicMock()
 
         return client
@@ -144,7 +148,7 @@ class TestRedisArtifactStore:
         result = await store.retrieve("run1/node1/abc123")
 
         assert result == b"file-contents"
-        mock_redis.get.assert_called_once_with("zeroth:artifact:run1/node1/abc123")
+        mock_redis.get.assert_called_once_with("zeroth:artifact:data:run1/node1/abc123")
 
     @pytest.mark.asyncio()
     async def test_retrieve_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
@@ -157,9 +161,7 @@ class TestRedisArtifactStore:
     @pytest.mark.asyncio()
     async def test_delete_existing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns True for existing key."""
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [1, 1]
-        mock_redis.exists.return_value = 1
+        mock_redis.eval.return_value = [b"ok", b"true"]
 
         result = await store.delete("run1/node1/abc123", idempotency_key="delete-existing")
 
@@ -168,9 +170,6 @@ class TestRedisArtifactStore:
     @pytest.mark.asyncio()
     async def test_delete_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns False for missing key."""
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [0, 0]
-
         result = await store.delete("run1/node1/missing", idempotency_key="delete-missing")
 
         assert result is False
@@ -179,27 +178,13 @@ class TestRedisArtifactStore:
     async def test_delete_replay_returns_stable_receipt(
         self, store: RedisArtifactStore, mock_redis: MagicMock
     ) -> None:
-        receipts: dict[str, bytes] = {}
-
-        async def get(key: str):
-            return receipts.get(key)
-
-        async def set_value(key: str, value: str, *, nx: bool = False):
-            if not nx or key not in receipts:
-                receipts[key] = value.encode()
-                return True
-            return False
-
-        mock_redis.get.side_effect = get
-        mock_redis.set.side_effect = set_value
-        mock_redis.exists.side_effect = [1, 0]
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [1, 1]
+        mock_redis.eval.return_value = [b"ok", b"true"]
 
         first = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
         second = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
 
         assert first is True and second is True
+        assert mock_redis.eval.await_count == 2
 
     @pytest.mark.asyncio()
     async def test_refresh_ttl_existing(
@@ -246,25 +231,14 @@ class TestRedisArtifactStore:
 
     @pytest.mark.asyncio()
     async def test_cleanup_run(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
-        """cleanup_run() uses scan_iter with prefix pattern, deletes matching keys."""
-        mock_redis.scan_iter.return_value = self._async_iter(
-            [b"zeroth:artifact:run1/a", b"zeroth:artifact:run1/b"]
-        )
-        mock_redis.delete.return_value = 1
+        """cleanup_run() returns the Lua script's logical artifact count."""
+        mock_redis.eval.return_value = [b"ok", b"2"]
 
         count = await store.cleanup_run("run1", idempotency_key="cleanup-run1")
 
         assert count == 2
-        mock_redis.scan_iter.assert_called_once()
-        # Verify the scan pattern contains the run_id
-        call_kwargs = mock_redis.scan_iter.call_args
-        assert "run1" in str(call_kwargs)
-
-    @staticmethod
-    async def _async_iter(items: list) -> ...:
-        """Helper to create an async iterator from a list."""
-        for item in items:
-            yield item
+        mock_redis.eval.assert_awaited_once()
+        assert "run1" in str(mock_redis.eval.await_args)
 
 
 # ---------------------------------------------------------------------------
@@ -476,3 +450,167 @@ class TestFilesystemArtifactStore:
         """Key containing '..' raises ArtifactStorageError (path traversal prevention)."""
         with pytest.raises(ArtifactStorageError, match="path traversal"):
             await store.store("run1/../../../etc/passwd", b"evil", "text/plain")
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("key", ["/tmp/absolute-artifact", "run1/node1/bad\x00key"])
+    async def test_unsafe_key_rejected(self, store: FilesystemArtifactStore, key: str) -> None:
+        with pytest.raises(ArtifactStorageError, match="unsafe artifact key"):
+            await store.store(key, b"evil", "text/plain")
+
+    @pytest.mark.asyncio()
+    async def test_data_symlink_escape_rejected_before_write(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-data"
+        outside.mkdir()
+        (tmp_path / "run1").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
+            await store.store("run1/node1/key", b"evil", "text/plain")
+
+        assert not (outside / "node1" / "key").exists()
+
+    @pytest.mark.asyncio()
+    async def test_metadata_symlink_escape_rejected_before_read(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        await store.store("run1/node1/key", b"inside", "text/plain")
+        meta_path = tmp_path / "run1" / "node1" / "key.meta.json"
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-meta.json"
+        outside.write_text(meta_path.read_text())
+        meta_path.unlink()
+        meta_path.symlink_to(outside)
+
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
+            await store.retrieve("run1/node1/key")
+
+    @pytest.mark.asyncio()
+    async def test_receipt_symlink_escape_rejected_before_write(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        await store.store("run1/node1/key", b"inside", "text/plain")
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-receipts"
+        outside.mkdir()
+        (tmp_path / ".erasure-receipts").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
+            await store.delete("run1/node1/key", idempotency_key="delete-key")
+
+        assert not (outside / "delete-key.json").exists()
+
+    @pytest.mark.asyncio()
+    async def test_symlink_loop_is_rejected_as_storage_error(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        (tmp_path / "loop").symlink_to(tmp_path / "loop")
+
+        with pytest.raises(ArtifactStorageError, match="Unsafe artifact"):
+            await store.exists("loop/key")
+
+    @pytest.mark.asyncio()
+    async def test_base_swap_cannot_redirect_any_filesystem_operation(self, tmp_path: Path) -> None:
+        base = tmp_path / "base"
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        store = FilesystemArtifactStore(base)
+        await store.store("run/node/key", b"inside", "text/plain", ttl=60)
+        original = tmp_path / "original-base"
+        base.rename(original)
+        base.symlink_to(outside, target_is_directory=True)
+
+        assert await store.retrieve("run/node/key") == b"inside"
+        assert await store.refresh_ttl("run/node/key", 120)
+        assert await store.delete("run/node/key", idempotency_key="delete") is True
+        await store.store("other/node/key", b"new", "text/plain")
+
+        assert not list(outside.rglob("*"))
+        assert (original / "other" / "node" / "key").read_bytes() == b"new"
+        assert (original / ".erasure-receipts" / "delete.json").exists()
+
+    @pytest.mark.asyncio()
+    async def test_filesystem_receipt_competition_has_one_binding_winner(
+        self, tmp_path: Path
+    ) -> None:
+        first = FilesystemArtifactStore(tmp_path)
+        second = FilesystemArtifactStore(tmp_path)
+        await first.store("run/a", b"a", "text/plain")
+        await first.store("run/b", b"b", "text/plain")
+
+        results = await asyncio.gather(
+            first.delete("run/a", idempotency_key="contended"),
+            second.cleanup_run("run", idempotency_key="contended"),
+            return_exceptions=True,
+        )
+
+        winners = [
+            index for index, result in enumerate(results) if not isinstance(result, Exception)
+        ]
+        losers = [result for result in results if isinstance(result, Exception)]
+        assert len(winners) == len(losers) == 1
+        assert isinstance(losers[0], ArtifactStorageError)
+        assert str(losers[0]) == "idempotency key reused for another operation"
+        restarted = FilesystemArtifactStore(tmp_path)
+        if winners[0] == 0:
+            assert await restarted.delete("run/a", idempotency_key="contended") is True
+        else:
+            assert await restarted.cleanup_run("run", idempotency_key="contended") == results[1]
+
+    def test_receipt_lock_closes_fd_when_lock_acquire_fails(
+        self, store: FilesystemArtifactStore, monkeypatch
+    ) -> None:
+        opened: list[int] = []
+        closed: list[int] = []
+        real_open = os.open
+        real_close = os.close
+
+        def tracking_open(path, *args, **kwargs):
+            fd = real_open(path, *args, **kwargs)
+            if str(path).endswith(".lock"):
+                opened.append(fd)
+            return fd
+
+        def tracking_close(fd: int) -> None:
+            closed.append(fd)
+            real_close(fd)
+
+        monkeypatch.setattr(os, "open", tracking_open)
+        monkeypatch.setattr(os, "close", tracking_close)
+        monkeypatch.setattr(fcntl, "flock", lambda *_args: (_ for _ in ()).throw(OSError()))
+
+        with pytest.raises(ArtifactStorageError, match="lock erasure receipt"):
+            with store._receipt_lock("failure"):
+                pass
+
+        assert opened and opened[-1] in closed
+
+    def test_receipt_lock_closes_fd_when_unlock_fails(
+        self, store: FilesystemArtifactStore, monkeypatch
+    ) -> None:
+        opened: list[int] = []
+        closed: list[int] = []
+        real_open = os.open
+        real_close = os.close
+
+        def tracking_open(path, *args, **kwargs):
+            fd = real_open(path, *args, **kwargs)
+            if str(path).endswith(".lock"):
+                opened.append(fd)
+            return fd
+
+        def tracking_close(fd: int) -> None:
+            closed.append(fd)
+            real_close(fd)
+
+        def failing_unlock(_fd: int, operation: int) -> None:
+            if operation == fcntl.LOCK_UN:
+                raise OSError()
+
+        monkeypatch.setattr(os, "open", tracking_open)
+        monkeypatch.setattr(os, "close", tracking_close)
+        monkeypatch.setattr(fcntl, "flock", failing_unlock)
+
+        with pytest.raises(ArtifactStorageError, match="unlock erasure receipt"):
+            with store._receipt_lock("failure"):
+                pass
+
+        assert opened and opened[-1] in closed

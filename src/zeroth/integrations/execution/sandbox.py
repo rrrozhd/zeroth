@@ -11,13 +11,17 @@ additional dependencies.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import re
 import subprocess
 import tempfile
+import threading
 import time
 import warnings
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
@@ -96,9 +100,9 @@ def build_sandbox_environment(
     adds any overlay variables on top. This prevents leaking sensitive
     environment variables into sandboxed processes.
     """
-    source = dict(base_env or os.environ)
+    source = dict(os.environ if base_env is None else base_env)
     environment: dict[str, str] = {}
-    allowed = set(source) if allowed_env_keys is None else {key for key in allowed_env_keys}
+    allowed = set() if allowed_env_keys is None else {key for key in allowed_env_keys}
     for key in allowed:
         if key in source:
             environment[key] = str(source[key])
@@ -140,6 +144,11 @@ class DockerSandboxConfig:
     # Off by default: the bind-mounted workspace is host-owned, so forcing a
     # non-root user breaks images whose units write outputs there.
     run_as_user: str | None = None
+    max_output_bytes: int = 1_048_576
+
+    def __post_init__(self) -> None:
+        if self.max_output_bytes < 0:
+            raise ValueError("max_output_bytes must be non-negative")
 
 
 class SandboxStrictnessMode(StrEnum):
@@ -150,9 +159,11 @@ class SandboxStrictnessMode(StrEnum):
     STRICT = "strict"
 
 
-def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
-    """Container-hardening flags applied to every sandbox `docker run`."""
-    if not docker.hardened:
+def build_docker_hardening_flags(
+    *, hardened: bool = True, run_as_user: str | None = None
+) -> list[str]:
+    """Build the shared fail-closed hardening flags for untrusted containers."""
+    if not hardened:
         flags: list[str] = []
     else:
         flags = [
@@ -164,9 +175,116 @@ def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
             "--tmpfs",
             "/tmp",
         ]
-    if docker.run_as_user:
-        flags.extend(["--user", docker.run_as_user])
+    if run_as_user:
+        flags.extend(["--user", run_as_user])
     return flags
+
+
+def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
+    """Container-hardening flags applied to every sandbox `docker run`."""
+    return build_docker_hardening_flags(
+        hardened=docker.hardened,
+        run_as_user=docker.run_as_user,
+    )
+
+
+_IMAGE_COMPONENT = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*\Z")
+_IMAGE_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_IMAGE_REGISTRY_HOST = re.compile(rf"(?:localhost|{_IMAGE_HOST_LABEL}(?:\.{_IMAGE_HOST_LABEL})*)\Z")
+_IMAGE_TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
+_IMAGE_DIGEST_LENGTHS = {"sha256": 64, "sha384": 96, "sha512": 128}
+
+
+def _reject_docker_image() -> None:
+    raise SandboxPolicyViolationError("sandbox image reference violates execution policy")
+
+
+def _validate_registry_component(registry: str) -> None:
+    if registry.startswith("["):
+        closing_bracket = registry.find("]")
+        if closing_bracket <= 1:
+            _reject_docker_image()
+        address = registry[1:closing_bracket]
+        if "%" in address:
+            _reject_docker_image()
+        try:
+            ipaddress.IPv6Address(address)
+        except ipaddress.AddressValueError:
+            _reject_docker_image()
+        suffix = registry[closing_bracket + 1 :]
+        if suffix and not suffix.startswith(":"):
+            _reject_docker_image()
+        port = suffix[1:] if suffix else ""
+        if suffix and not port:
+            _reject_docker_image()
+    else:
+        if "[" in registry or "]" in registry or registry.count(":") > 1:
+            _reject_docker_image()
+        host, separator, port = registry.rpartition(":")
+        if not separator:
+            host, port = registry, ""
+        elif not port:
+            _reject_docker_image()
+        if not _IMAGE_REGISTRY_HOST.fullmatch(host):
+            _reject_docker_image()
+    if port and (not port.isascii() or not port.isdigit() or not 1 <= int(port) <= 65_535):
+        _reject_docker_image()
+
+
+def _validate_image_digest(digest: str) -> None:
+    algorithm, separator, encoded = digest.partition(":")
+    expected_length = _IMAGE_DIGEST_LENGTHS.get(algorithm)
+    if (
+        not separator
+        or expected_length is None
+        or len(encoded) != expected_length
+        or not re.fullmatch(r"[0-9a-f]+", encoded)
+    ):
+        _reject_docker_image()
+
+
+def validate_docker_image_reference(image: str) -> str:
+    """Reject option-like or malformed image references before Docker argv assembly."""
+    if (
+        not image
+        or image.startswith("-")
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in image
+        )
+        or image.count("@") > 1
+    ):
+        _reject_docker_image()
+
+    name_and_tag, separator, digest = image.partition("@")
+    if separator:
+        _validate_image_digest(digest)
+
+    last_component = name_and_tag.rsplit("/", 1)[-1]
+    if ":" in last_component:
+        repository, tag = name_and_tag.rsplit(":", 1)
+        if not _IMAGE_TAG.fullmatch(tag):
+            _reject_docker_image()
+    else:
+        repository = name_and_tag
+
+    if not repository or len(repository.encode()) > 255:
+        _reject_docker_image()
+
+    components = repository.split("/")
+    if any(not component for component in components):
+        _reject_docker_image()
+    if len(components) > 1 and (
+        "." in components[0]
+        or ":" in components[0]
+        or components[0] == "localhost"
+        or components[0].startswith("[")
+    ):
+        registry, *components = components
+        _validate_registry_component(registry)
+    if not components or any(not _IMAGE_COMPONENT.fullmatch(item) for item in components):
+        _reject_docker_image()
+    return image
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +329,8 @@ class SandboxExecutionResult:
     cache_key: str | None = None
     backend: str = SandboxBackendMode.LOCAL.value
     container_name: str | None = None
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class SandboxTimeoutError(TimeoutError):
@@ -317,13 +437,15 @@ class SandboxManager:
         cache_manager: EnvironmentCacheManager | None = None,
         config: SandboxConfig | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        process_factory: Callable[..., subprocess.Popen[bytes]] | None = None,
         container_inspector: Callable[[str], bool] | None = None,
         sidecar_client: Any | None = None,
     ) -> None:
-        self._base_env = dict(base_env or os.environ)
+        self._base_env = dict(os.environ if base_env is None else base_env)
         self._cache_manager = cache_manager or EnvironmentCacheManager()
         self._config = config or SandboxConfig()
         self._command_runner = command_runner or subprocess.run
+        self._process_factory = process_factory or subprocess.Popen
         self._container_inspector = container_inspector
         self._sidecar_client = sidecar_client
 
@@ -413,6 +535,10 @@ class SandboxManager:
             sandbox_root = Path(tempdir)
             relative_cwd = self._resolve_relative_workdir(working_directory)
             host_cwd = sandbox_root if relative_cwd is None else sandbox_root / relative_cwd
+            try:
+                host_cwd.resolve(strict=False).relative_to(sandbox_root.resolve())
+            except ValueError as exc:
+                raise ValueError("working_directory must be contained by the sandbox root") from exc
             host_cwd.mkdir(parents=True, exist_ok=True)
             backend = self._resolve_backend(resource_constraints)
             if backend is SandboxBackendMode.SIDECAR:
@@ -449,6 +575,12 @@ class SandboxManager:
         """Decide which backend to use based on config and Docker availability."""
         configured = self._config.backend
         strictness = self._config.strictness_mode
+        if (
+            strictness is SandboxStrictnessMode.STRICT
+            and configured is not SandboxBackendMode.LOCAL
+            and not self._config.docker.hardened
+        ):
+            raise SandboxPolicyViolationError("strict sandbox mode requires container hardening")
         if configured is SandboxBackendMode.SIDECAR:
             if self._sidecar_client is None:
                 raise SandboxBackendUnavailableError("sidecar client not configured")
@@ -510,6 +642,8 @@ class SandboxManager:
         relative_cwd = Path(working_directory)
         if relative_cwd.is_absolute():
             raise ValueError("working_directory must be relative to the sandbox root")
+        if ".." in relative_cwd.parts:
+            raise ValueError("working_directory must be contained by the sandbox root")
         return relative_cwd
 
     def _run_locally(
@@ -594,49 +728,155 @@ class SandboxManager:
             for item in command
         ]
         image_ref = self._docker_image_for(container_name)
+        validate_docker_image_reference(image_ref)
+        constraints = resource_constraints or ResourceConstraints()
+        if constraints.network_access is None:
+            constraints = ResourceConstraints(
+                cpu_cores=constraints.cpu_cores,
+                memory_mb=constraints.memory_mb,
+                disk_mb=constraints.disk_mb,
+                max_processes=constraints.max_processes,
+                network_access=False,
+            )
 
         started_at = time.perf_counter()
+        docker_command = [
+            docker.docker_binary,
+            "run",
+            "--rm",
+            *_docker_hardening_flags(docker),
+            "-v",
+            f"{sandbox_root}:{container_root}",
+            *build_docker_resource_flags(constraints),
+            *self._docker_env_flags(translated_env),
+            "-w",
+            str(container_cwd),
+            image_ref,
+            *translated_command,
+        ]
+        process = self._process_factory(
+            docker_command,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         try:
-            started = self._command_runner(
-                [
-                    docker.docker_binary,
-                    "run",
-                    "--rm",
-                    *_docker_hardening_flags(docker),
-                    "-v",
-                    f"{sandbox_root}:{container_root}",
-                    *build_docker_resource_flags(resource_constraints),
-                    *self._docker_env_flags(translated_env),
-                    "-w",
-                    str(container_cwd),
-                    image_ref,
-                    *translated_command,
-                ],
-                input=input_text,
-                text=True,
-                capture_output=True,
-                timeout=timeout_seconds,
-                check=False,
+            stdout_bytes, stderr_bytes, stdout_truncated, stderr_truncated = (
+                self._communicate_bounded_process(
+                    process,
+                    input_text=input_text,
+                    timeout_seconds=timeout_seconds,
+                    max_output_bytes=docker.max_output_bytes,
+                )
             )
         except subprocess.TimeoutExpired as exc:
             raise SandboxTimeoutError(
                 command=command,
                 timeout_seconds=timeout_seconds,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=self._decode_capped_output(exc.stdout or b"", docker.max_output_bytes),
+                stderr=self._decode_capped_output(exc.stderr or b"", docker.max_output_bytes),
             ) from exc
         return SandboxExecutionResult(
             command=tuple(translated_command),
-            returncode=started.returncode,
-            stdout=started.stdout,
-            stderr=started.stderr,
+            returncode=process.returncode if process.returncode is not None else 1,
+            stdout=self._decode_capped_output(stdout_bytes, docker.max_output_bytes),
+            stderr=self._decode_capped_output(stderr_bytes, docker.max_output_bytes),
             workdir=str(container_cwd),
             environment=dict(translated_env),
             duration_seconds=time.perf_counter() - started_at,
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.DOCKER.value,
             container_name=container_name,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
+
+    def _communicate_bounded_process(
+        self,
+        process: subprocess.Popen[bytes],
+        *,
+        input_text: str | None,
+        timeout_seconds: float | None,
+        max_output_bytes: int,
+    ) -> tuple[bytes, bytes, bool, bool]:
+        """Drain Docker output concurrently while retaining bounded byte prefixes."""
+        assert process.stdout is not None
+        assert process.stderr is not None
+        stdout_result: list[tuple[bytes, bool]] = []
+        stderr_result: list[tuple[bytes, bool]] = []
+        stdout_thread = threading.Thread(
+            target=lambda: stdout_result.append(
+                self._read_bounded_stream(process.stdout, max_output_bytes)
+            ),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=lambda: stderr_result.append(
+                self._read_bounded_stream(process.stderr, max_output_bytes)
+            ),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        stdin_thread: threading.Thread | None = None
+        if input_text is not None and process.stdin is not None:
+
+            def pump_stdin() -> None:
+                try:
+                    process.stdin.write(input_text.encode())
+                    process.stdin.flush()
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+                finally:
+                    with suppress(OSError):
+                        process.stdin.close()
+
+            stdin_thread = threading.Thread(
+                target=pump_stdin,
+                name="zeroth-docker-stdin",
+                daemon=True,
+            )
+            stdin_thread.start()
+        try:
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            if process.stdin is not None:
+                with suppress(OSError):
+                    process.stdin.close()
+            process.wait()
+            if stdin_thread is not None:
+                stdin_thread.join()
+            stdout_thread.join()
+            stderr_thread.join()
+            exc.stdout = stdout_result[0][0] if stdout_result else b""
+            exc.stderr = stderr_result[0][0] if stderr_result else b""
+            raise
+        if stdin_thread is not None:
+            stdin_thread.join()
+        stdout_thread.join()
+        stderr_thread.join()
+        stdout, stdout_truncated = stdout_result[0]
+        stderr, stderr_truncated = stderr_result[0]
+        return stdout, stderr, stdout_truncated, stderr_truncated
+
+    @staticmethod
+    def _read_bounded_stream(stream: Any, max_output_bytes: int) -> tuple[bytes, bool]:
+        retained = bytearray()
+        truncated = False
+        while chunk := stream.read(65_536):
+            raw = chunk.encode() if isinstance(chunk, str) else chunk
+            remaining = max_output_bytes - len(retained)
+            if remaining > 0:
+                retained.extend(raw[:remaining])
+            if len(raw) > remaining:
+                truncated = True
+        return bytes(retained), truncated
+
+    @staticmethod
+    def _decode_capped_output(value: bytes | str, max_output_bytes: int) -> str:
+        raw = value.encode() if isinstance(value, str) else value
+        return raw[:max_output_bytes].decode(errors="ignore")
 
     def _run_via_sidecar(
         self,
@@ -685,6 +925,8 @@ class SandboxManager:
             duration_seconds=response.duration_seconds,
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.SIDECAR.value,
+            stdout_truncated=response.stdout_truncated,
+            stderr_truncated=response.stderr_truncated,
         )
 
     def _docker_image_for(self, container_name: str) -> str:
@@ -809,7 +1051,9 @@ __all__ = [
     "SandboxPolicyViolationError",
     "SandboxStrictnessMode",
     "SandboxTimeoutError",
+    "build_docker_hardening_flags",
     "build_sandbox_environment",
     "compute_environment_cache_key",
     "docker_container_running",
+    "validate_docker_image_reference",
 ]

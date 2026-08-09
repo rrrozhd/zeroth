@@ -74,7 +74,9 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         ``serving`` marks the deployment version this service instance was
         bootstrapped with (the one /health reports).
         """
-        principal = await require_permission(request, Permission.DEPLOYMENT_READ)
+        principal = await require_permission(
+            request, Permission.DEPLOYMENT_READ, enforce_deployment_scope=False
+        )
         bootstrap = request.app.state.bootstrap
         serving = bootstrap.deployment
         deployments = await bootstrap.deployment_service.list(
@@ -98,7 +100,9 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         (studio API), deploy it here, then restart the service with
         ``ZEROTH_DEPLOYMENT_REF`` set to the new ref to serve it.
         """
-        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
+        principal = await require_permission(
+            request, Permission.DEPLOYMENT_ADMIN, enforce_deployment_scope=False
+        )
         bootstrap = request.app.state.bootstrap
         try:
             deployment = await bootstrap.deployment_service.deploy(
@@ -123,7 +127,9 @@ def register_deployment_routes(app: FastAPI | APIRouter) -> None:
         request: Request, deployment_ref: str, body: RollbackDeploymentRequest
     ) -> DeploymentSummaryResponse:
         """Create a new deployment version pinned to an earlier graph version."""
-        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
+        principal = await require_permission(
+            request, Permission.DEPLOYMENT_ADMIN, enforce_deployment_scope=False
+        )
         bootstrap = request.app.state.bootstrap
         try:
             deployment = await bootstrap.deployment_service.rollback(

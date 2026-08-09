@@ -15,8 +15,8 @@ from tests.service.helpers import (
     wait_for,
 )
 from zeroth.contracts.graph import GraphRepository
-from zeroth.runtime.runs import Run, RunFailureState, RunStatus
-from zeroth.service.api.run_api import RunInvocationRequest, RunStatusResponse
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus, Thread
+from zeroth.service.api.run_api import RunInvocationRequest, RunStatusResponse, _validate_thread_id
 from zeroth.service.bootstrap import bootstrap_app
 
 
@@ -146,6 +146,37 @@ async def test_run_creation_rejects_foreign_thread_id(sqlite_db) -> None:
 
     assert response.status_code == 409
     assert "thread identity mismatch" in response.text
+
+
+async def test_explicit_foreign_tenant_thread_id_matches_unknown_scope_local_create(
+    sqlite_db, monkeypatch
+) -> None:
+    service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-thread-scope"))
+    await service.thread_repository.create(
+        Thread(
+            thread_id="shared-external-id",
+            graph_version_ref="foreign:v1",
+            deployment_ref="foreign-deployment",
+            tenant_id="tenant-b",
+        )
+    )
+    calls = []
+    original = service.thread_repository.get
+
+    async def recording_get(thread_id, **scope):
+        calls.append(scope)
+        return await original(thread_id, **scope)
+
+    monkeypatch.setattr(service.thread_repository, "get", recording_get)
+    foreign = await _validate_thread_id(service, "shared-external-id")
+    unknown = await _validate_thread_id(service, "unknown-external-id")
+
+    assert foreign == "shared-external-id"
+    assert unknown == "unknown-external-id"
+    assert calls == [
+        {"tenant_id": service.deployment.tenant_id, "workspace_id": None},
+        {"tenant_id": service.deployment.tenant_id, "workspace_id": None},
+    ]
 
 
 async def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:

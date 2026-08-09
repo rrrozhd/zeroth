@@ -43,6 +43,7 @@ Service authentication settings.
 | --- | --- | --- | --- | --- |
 | `ZEROTH_SERVICE_API_KEYS_JSON` | `SecretStr \| None` | `None` | ✓ | JSON **list** of credential objects: `[{"credential_id", "secret", "subject", "roles", "tenant_id"?, "workspace_id"?}]` |
 | `ZEROTH_SERVICE_BEARER_JSON` | `SecretStr \| None` | `None` | ✓ | JSON bearer/JWT verification config (issuer, audience, jwks) |
+| `ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON` | `list[str] \| None` | `None` |  | JSON array of unique credential identifiers rejected after successful authentication (static credential_id; bearer jti or SHA-256 fingerprint) |
 
 ## Regulus
 

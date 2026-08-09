@@ -1,0 +1,9330 @@
+{
+  "default": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    }
+  ],
+  "gateway": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ]
+    },
+    {
+      "kind": "websocket",
+      "path": "/threads/{thread_id}/stream/events",
+      "methods": []
+    }
+  ],
+  "console": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/console",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "mount",
+      "path": "/console",
+      "methods": []
+    }
+  ],
+  "gateway-console": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/console",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ]
+    },
+    {
+      "kind": "mount",
+      "path": "/console",
+      "methods": []
+    },
+    {
+      "kind": "websocket",
+      "path": "/threads/{thread_id}/stream/events",
+      "methods": []
+    }
+  ],
+  "regulus": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/auth/me",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/auth/token",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/budget/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/budget/tenants/{tenant_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities/{capability_id}/implementations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/outbox",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/outbox/{outbox_id}/retry",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/configure",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/disable",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/enable",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/pricing-catalog",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/profiles",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/estimated-vs-ground-truth",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/run",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/run/async",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/instrumentation/executions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/instrumentation/outcomes",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/outcomes/ingest",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/outcomes/query",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/reconciliation/ground-truth-import",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/deployments/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/experiments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/experiments/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/implementations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "mount",
+      "path": "/regulus",
+      "methods": []
+    }
+  ],
+  "all-features": [
+    {
+      "kind": "http",
+      "path": "/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/contracts",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/node-types",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/clone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/diff",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/console",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/live",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/health/ready",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/docs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/docs/oauth2-redirect",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/openapi.json",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/redoc",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/auth/me",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/auth/token",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/budget/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/budget/tenants/{tenant_id}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/capabilities/{capability_id}/implementations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/outbox",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/outbox/{outbox_id}/retry",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/configure",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/disable",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/connectors/{connector_type}/enable",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/pricing-catalog",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/profiles",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/estimated-vs-ground-truth",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/run",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/run/async",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/instrumentation/executions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/instrumentation/outcomes",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/outcomes/ingest",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/outcomes/query",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/reconciliation/ground-truth-import",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/deployments/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/experiments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/experiments/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/implementations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/regulus/v1/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/cancel",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/interrupt",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/admin/runs/{run_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/artifacts/{artifact_id:path}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/connectors/{ref}/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/attestation/verify",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/audits",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/input-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/metadata",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/output-contract",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/rollback",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/verify-attestation",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/quality-verdict",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/action-suppression",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/calibration-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capability-ranking",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/capital-destroyers",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/confidence-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/data-quality-mix",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/efficiency-trend",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/kpis",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/policy-timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/dashboard/top-creators",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/enforcement/policy-actions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/performance/summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/reconciliation/calibration-summary",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/experiment",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/rightsizing/opportunities",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/unit-economics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/econ/waste",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/deployments/{deployment_ref}/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/heartbeats",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/enforcement/registrations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/manifests",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/metrics",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/erasure-requests",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/legal-holds/{hold_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/retention/policy",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/audit-verification",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/evidence",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/timeline",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/runs/{run_id}/verify-chain",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/templates/{name}/{version}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/budget",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/tenants/{tenant_id}/cost",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/webhooks/subscriptions/{subscription_id}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ]
+    },
+    {
+      "kind": "mount",
+      "path": "/console",
+      "methods": []
+    },
+    {
+      "kind": "mount",
+      "path": "/regulus",
+      "methods": []
+    },
+    {
+      "kind": "websocket",
+      "path": "/threads/{thread_id}/stream/events",
+      "methods": []
+    }
+  ]
+}

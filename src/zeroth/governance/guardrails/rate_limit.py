@@ -2,11 +2,31 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase
+
+
+def guardrail_identity_key(
+    kind: str,
+    *,
+    tenant_id: str,
+    workspace_id: str | None,
+    deployment_ref: str,
+    subject: str | None,
+) -> str:
+    """Return an opaque, injective identity for one guardrail namespace."""
+    canonical = json.dumps(
+        ["zeroth.guardrail.identity.v1", kind, tenant_id, workspace_id, deployment_ref, subject],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    return f"guardrail:{kind}:v1:{digest}"
 
 
 def _for_update(backend: str) -> str:

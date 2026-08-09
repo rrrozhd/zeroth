@@ -14,7 +14,34 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import CLI, MANIFEST_PATH
+from release.security.matrix import load_matrix, verify_coverage, verify_outcomes
+from release.security.scan import main as scan_main
+
+from .conftest import CLI, MANIFEST_PATH, ROOT
+
+
+SECURITY_MATRIX = ROOT / "release/security/security-matrix.json"
+SECURITY_NODES = load_matrix(SECURITY_MATRIX).nodes("release-candidate")
+
+
+def _passing_outcomes() -> list[dict[str, object]]:
+    return [
+        {
+            "nodeid": nodeid,
+            "phase": phase,
+            "outcome": "passed",
+            "skip": False,
+            "wasxfail": False,
+        }
+        for nodeid in SECURITY_NODES
+        for phase in ("setup", "call", "teardown")
+    ]
+
+
+def _write_outcomes(path: Path, records: list[dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps({"schema_version": 1, "records": records}), encoding="utf-8"
+    )
 
 
 def _corrupt(root: Path, gate: dict, mode: str) -> None:
@@ -133,3 +160,107 @@ def test_the_cli_exits_zero_on_complete_evidence(candidate, evidence, tmp_path):
     )
 
     assert completed.returncode == 0, completed.stderr + completed.stdout
+
+
+def test_each_security_subresult_independently_blocks_promotion(
+    manifest, candidate, evidence
+):
+    from gates.validate import releasable, validate
+
+    gate = next(item for item in manifest["gates"] if item["id"] == "security-regression")
+    record_path = evidence / gate["record"]
+    pristine = json.loads(record_path.read_text(encoding="utf-8"))
+
+    for required in gate["requires"]:
+        record = {**pristine, "results": {**pristine["results"], required: "failed"}}
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        results = validate(manifest, candidate, evidence, phase="final")
+        blocking = [result for result in results if result.blocking]
+        assert not releasable(results)
+        assert [(result.gate, result.status) for result in blocking] == [
+            ("security-regression", "failed")
+        ]
+
+
+def test_incomplete_security_matrix_independently_fails_coverage(tmp_path: Path) -> None:
+    outcomes = tmp_path / "outcomes.json"
+    missing = SECURITY_NODES[0]
+    _write_outcomes(
+        outcomes,
+        [record for record in _passing_outcomes() if record["nodeid"] != missing],
+    )
+    output = tmp_path / "coverage.json"
+
+    assert verify_coverage(
+        SECURITY_MATRIX, "release-candidate", outcomes, output
+    ) == 1
+    assert json.loads(output.read_text(encoding="utf-8"))["missing_nodes"] == [missing]
+
+
+@pytest.mark.parametrize("skipped_node", SECURITY_NODES)
+def test_each_required_security_node_skip_independently_fails_outcomes(
+    tmp_path: Path, skipped_node: str
+) -> None:
+    records = _passing_outcomes()
+    skipped = next(
+        record
+        for record in records
+        if record["nodeid"] == skipped_node and record["phase"] == "setup"
+    )
+    skipped.update(outcome="skipped", skip=True)
+    outcomes = tmp_path / "outcomes.json"
+    _write_outcomes(outcomes, records)
+
+    assert verify_outcomes(
+        SECURITY_MATRIX,
+        "release-candidate",
+        outcomes,
+        tmp_path / "verdict.json",
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    "service_node",
+    [
+        next(node for node in SECURITY_NODES if "distributed/test_redis" in node),
+        next(node for node in SECURITY_NODES if "distributed/test_postgres" in node),
+        next(node for node in SECURITY_NODES if "test_run_in_docker" in node),
+    ],
+    ids=["redis-unavailable", "postgres-unavailable", "docker-unavailable"],
+)
+def test_unavailable_required_service_skip_blocks_independently(
+    tmp_path: Path, service_node: str
+) -> None:
+    records = _passing_outcomes()
+    skipped = next(
+        record
+        for record in records
+        if record["nodeid"] == service_node and record["phase"] == "setup"
+    )
+    skipped.update(outcome="skipped", skip=True)
+    outcomes = tmp_path / "outcomes.json"
+    _write_outcomes(outcomes, records)
+
+    assert verify_outcomes(
+        SECURITY_MATRIX,
+        "release-candidate",
+        outcomes,
+        tmp_path / "verdict.json",
+    ) == 1
+
+
+def test_leaked_canary_independently_fails_the_scanner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canary = "zeroth-security-regression-canary-7f3a"
+    leaked = tmp_path / "junit.xml"
+    leaked.write_text(f"<testsuite><system-out>{canary}</system-out></testsuite>", encoding="utf-8")
+    output = tmp_path / "scan.json"
+    monkeypatch.setenv("ZEROTH_SECURITY_CANARIES", json.dumps([canary]))
+
+    assert scan_main(
+        ["--root", str(tmp_path), "--output", str(output), str(leaked)]
+    ) == 1
+    raw = output.read_text(encoding="utf-8")
+    assert canary not in raw
+    assert json.loads(raw)["status"] == "failed"

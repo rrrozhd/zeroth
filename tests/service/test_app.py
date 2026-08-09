@@ -15,6 +15,7 @@ from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, Compa
 from zeroth.contracts.registry import ContractRegistry
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 from zeroth.service.api.authentication import ServiceAuthConfig, ServiceAuthenticator
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.container import DeploymentBootstrapError
@@ -57,6 +58,24 @@ async def test_bootstrap_service_loads_valid_deployment(sqlite_db) -> None:
     assert service.audit_repository is service.orchestrator.audit_repository
     assert service.approval_service is service.orchestrator.approval_service
     assert service.contract_registry is not None
+
+
+async def test_bootstrap_wires_one_deployment_scoped_artifact_store(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "artifact-scope-service")
+
+    service = await bootstrap_service(sqlite_db, deployment_ref=deployment.deployment_ref)
+
+    assert isinstance(service.artifact_store, TenantScopedArtifactStore)
+    assert service.orchestrator.artifact_store is service.artifact_store
+    assert service.retention_erasure_service._artifact_store is service.artifact_store
+    assert (
+        service.artifact_store.scope_digest
+        == TenantScopedArtifactStore(
+            object(),
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+        ).scope_digest
+    )
 
 
 async def test_bootstrap_service_accepts_injected_runners(sqlite_db) -> None:

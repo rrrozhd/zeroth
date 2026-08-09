@@ -545,7 +545,7 @@
       "GET"
     ],
     "name": "get_artifact",
-    "path": "/v1/artifacts/{artifact_id}"
+    "path": "/v1/artifacts/{artifact_id:path}"
   },
   {
     "kind": "APIRoute",
@@ -1385,7 +1385,7 @@
       "GET"
     ],
     "name": "get_artifact",
-    "path": "/artifacts/{artifact_id}"
+    "path": "/artifacts/{artifact_id:path}"
   },
   {
     "kind": "APIRoute",

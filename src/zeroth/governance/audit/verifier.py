@@ -85,13 +85,29 @@ class AuditContinuityVerifier:
         self._repository = repository
         self._signer = signer
 
-    async def verify_run(self, run_id: str) -> AuditContinuityReport:
+    async def verify_run(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_scoped: bool = False,
+        deployment_ref: str | None = None,
+    ) -> AuditContinuityReport:
         """Verify digest continuity and signatures for one run's audit chain.
 
         Records are strictly ordered first; an ordering violation yields a
         failed report (``verified=False``) rather than an exception.
         """
-        records = await self._repository.list_by_run(run_id)
+        scope = {}
+        if tenant_id is not None or workspace_scoped or deployment_ref is not None:
+            scope = {
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "workspace_scoped": workspace_scoped,
+                "deployment_ref": deployment_ref,
+            }
+        records = await self._repository.list_by_run(run_id, **scope)
         try:
             ordered = order_audit_records(records, strict=True)
         except AuditChainOrderingError as exc:
@@ -103,14 +119,28 @@ class AuditContinuityVerifier:
             )
         return self._verify_records(scope=f"run:{run_id}", records=ordered)
 
-    async def verify_deployment(self, deployment_ref: str) -> AuditContinuityReport:
+    async def verify_deployment(
+        self,
+        deployment_ref: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_scoped: bool = False,
+    ) -> AuditContinuityReport:
         """Verify every run recorded under ``deployment_ref``.
 
         Chains are per-run: each run is ordered and verified independently,
         with per-run signature states aggregated into one three-state result.
         The first failing run short-circuits into a failed deployment report.
         """
-        records = await self._repository.list_by_deployment(deployment_ref)
+        scope = {}
+        if tenant_id is not None or workspace_scoped:
+            scope = {
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "workspace_scoped": workspace_scoped,
+            }
+        records = await self._repository.list_by_deployment(deployment_ref, **scope)
         if not records:
             return AuditContinuityReport(
                 scope=f"deployment:{deployment_ref}",

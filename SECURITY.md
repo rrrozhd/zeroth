@@ -15,6 +15,14 @@ Only the latest released version receives security fixes.
 
 Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
 
+- **Repository ingress is absent and fails closed.** This release has no public
+  repository installation, checkout, or GitHub App ingress, and project
+  execution refuses manifests that require checkout material when no trusted
+  materializer is configured. The security release matrix records this as an
+  absence proof, not as exercised repository behavior. Adding any such endpoint
+  or trusted materializer invalidates the proof and requires new tenant-scoped
+  behavioral coverage before promotion.
+
 - **Never expose the bundled Regulus backend (`src/econ_plane`) standalone.**
   Its token issuer has no credential check of its own. The supported path is the
   in-process mount under `/regulus`, which sits behind Zeroth's API-key gate.

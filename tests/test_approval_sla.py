@@ -219,6 +219,7 @@ class TestApprovalServiceEscalate:
     def repo(self):
         repo = AsyncMock(spec=ApprovalRepository)
         repo.write = AsyncMock(side_effect=lambda r: r)
+        repo.resolve_pending = AsyncMock(side_effect=lambda r: r)
         return repo
 
     @pytest.fixture

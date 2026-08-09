@@ -13,6 +13,7 @@ from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
+from zeroth.governance.guardrails.rate_limit import guardrail_identity_key
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import Run, RunFailureState
@@ -220,12 +221,16 @@ async def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | N
     if thread_id is None:
         return None
 
-    thread = await bootstrap.thread_repository.get(thread_id)
+    deployment_tenant_id = getattr(bootstrap.deployment, "tenant_id", "default")
+    deployment_workspace_id = getattr(bootstrap.deployment, "workspace_id", None)
+    thread = await bootstrap.thread_repository.get(
+        thread_id,
+        tenant_id=deployment_tenant_id,
+        workspace_id=deployment_workspace_id,
+    )
     if thread is None:
         # A brand-new explicit thread ID is allowed and will become the new conversation key.
         return thread_id
-    deployment_tenant_id = getattr(bootstrap.deployment, "tenant_id", "default")
-    deployment_workspace_id = getattr(bootstrap.deployment, "workspace_id", None)
     if (
         thread.deployment_ref != bootstrap.deployment.deployment_ref
         or thread.graph_version_ref != bootstrap.deployment.graph_version_ref
@@ -335,6 +340,7 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
 
     deployment_ref = run.deployment_ref
     tenant_id = run.tenant_id
+    subject = None if run.submitted_by is None else run.submitted_by.subject
 
     # Backpressure: reject if the queue is too deep.
     backpressure_limit = guardrail_config.backpressure_queue_depth
@@ -349,7 +355,13 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     # Rate limiting.
     rate_limiter = getattr(bootstrap, "rate_limiter", None)
     if rate_limiter is not None:
-        bucket_key = f"tenant:{tenant_id}:deployment:{deployment_ref}"
+        bucket_key = guardrail_identity_key(
+            "token-bucket",
+            tenant_id=tenant_id,
+            workspace_id=run.workspace_id,
+            deployment_ref=deployment_ref,
+            subject=subject,
+        )
         allowed = await rate_limiter.check_and_consume(
             bucket_key,
             capacity=guardrail_config.rate_limit_capacity,
@@ -367,7 +379,13 @@ async def _check_guardrails(bootstrap: RunApiBootstrapLike, run: Run) -> None:
     if quota_limit is not None:
         quota_enforcer = getattr(bootstrap, "quota_enforcer", None)
         if quota_enforcer is not None:
-            counter_key = f"tenant:{tenant_id}:deployment:{deployment_ref}:daily"
+            counter_key = guardrail_identity_key(
+                "daily-quota",
+                tenant_id=tenant_id,
+                workspace_id=run.workspace_id,
+                deployment_ref=deployment_ref,
+                subject=subject,
+            )
             within_quota = await quota_enforcer.check_and_increment(
                 counter_key,
                 limit=quota_limit,

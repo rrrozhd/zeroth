@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC
 
 import pytest
@@ -147,3 +148,78 @@ async def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
                 tenant_id="default",
             ),
         )
+
+
+async def test_concurrent_opposite_approval_decisions_publish_exactly_one_winner(
+    sqlite_db, monkeypatch
+) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    run = await RunRepository(sqlite_db).create(_run())
+    record = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    original_get = repository.get
+    both_read = asyncio.Event()
+    read_count = 0
+    read_lock = asyncio.Lock()
+
+    async def synchronized_get(*args, **kwargs):
+        nonlocal read_count
+        result = await original_get(*args, **kwargs)
+        async with read_lock:
+            read_count += 1
+            if read_count == 2:
+                both_read.set()
+        if read_count <= 2:
+            await both_read.wait()
+        return result
+
+    monkeypatch.setattr(repository, "get", synchronized_get)
+    actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
+    outcomes = await asyncio.gather(
+        service.resolve(record.approval_id, decision=ApprovalDecision.APPROVE, actor=actor),
+        service.resolve(record.approval_id, decision=ApprovalDecision.REJECT, actor=actor),
+        return_exceptions=True,
+    )
+
+    winners = [item for item in outcomes if isinstance(item, approval_models.ApprovalRecord)]
+    losers = [item for item in outcomes if isinstance(item, ValueError)]
+    assert len(winners) == len(losers) == 1
+    persisted = await original_get(record.approval_id)
+    assert persisted is not None
+    assert persisted.resolution == winners[0].resolution
+
+
+async def test_concurrent_same_approval_decision_replays_one_stable_resolution(
+    sqlite_db, monkeypatch
+) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    run = await RunRepository(sqlite_db).create(_run())
+    record = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    original_get = repository.get
+    both_read = asyncio.Event()
+    read_count = 0
+    read_lock = asyncio.Lock()
+
+    async def synchronized_get(*args, **kwargs):
+        nonlocal read_count
+        result = await original_get(*args, **kwargs)
+        async with read_lock:
+            read_count += 1
+            current = read_count
+            if read_count == 2:
+                both_read.set()
+        if current <= 2:
+            await both_read.wait()
+        return result
+
+    monkeypatch.setattr(repository, "get", synchronized_get)
+    actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
+    first, replay = await asyncio.gather(
+        service.resolve(record.approval_id, decision=ApprovalDecision.APPROVE, actor=actor),
+        service.resolve(record.approval_id, decision=ApprovalDecision.APPROVE, actor=actor),
+    )
+
+    assert first == replay
+    assert first.resolution is not None
+    assert first.resolution.decision is ApprovalDecision.APPROVE
