@@ -213,6 +213,19 @@ class AcceptanceRunner:
             owned = _read(body, dotted_path)
             if not isinstance(owned, str) or not owned:
                 raise AssertionError(f"owned capture {name!r} is not a resource identifier")
+            # What makes this identifier deletable is the namespace attestation the
+            # contract forces into `expected_json` and `_subset` has already checked
+            # against this very response. The identifier itself cannot be required to
+            # carry the namespace: deployments assign opaque ids, so demanding a
+            # namespaced id would refuse every real create.
+            #
+            # The residual is therefore a target that attests namespace ownership in
+            # one field while returning another tenant's identifier in another. That
+            # is an internally inconsistent deployment rather than an ordinary one,
+            # and no assertion available here can tell the two apart — the identifier
+            # is opaque by construction. Cleanup stays bounded by the two guards that
+            # do hold: a literal id written into the contract must be namespace-owned,
+            # and a captured id must have come from a create in this same run.
             self._context[name] = owned
             self._owned_resources.add(owned)
         if self._scenario_name == "compatibility" and isinstance(body, dict):

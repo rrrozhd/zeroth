@@ -198,7 +198,8 @@
           },
           "expected_status": 202,
           "expected_json": {
-            "deployment_ref": "{deployment_ref}"
+            "deployment_ref": "{deployment_ref}",
+            "tenant_id": "{tenant_id}"
           },
           "capture": {
             "run_id": "run_id"

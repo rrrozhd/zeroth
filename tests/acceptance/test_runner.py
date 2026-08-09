@@ -86,7 +86,12 @@ def _contract() -> dict[str, object]:
     }
     scenarios["runs"] = {
         "steps": [
-            _step("/runs", method="POST", expected_status=202),
+            _step(
+                "/runs",
+                method="POST",
+                expected_status=202,
+                expected_json={"tenant_id": "{tenant_id}"},
+            ),
             _step("/runs/settled", expected_json={"status": "succeeded"}, poll=True),
         ]
     }
@@ -272,7 +277,7 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/workflow/publish": HttpObservation(200, {"status": "published"}, "corr-publish"),
         "/deployment": HttpObservation(200, {"deployment_ref": "dep"}, "corr-deployment"),
         "/readiness": HttpObservation(200, {"status": "ok"}, "corr-ready"),
-        "/runs": HttpObservation(202, {}, "corr-run"),
+        "/runs": HttpObservation(202, {"tenant_id": config.tenant_id}, "corr-run"),
         "/runs/settled": HttpObservation(200, {"status": "succeeded"}, "corr-run-done"),
         "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
         "/gateway/allow": HttpObservation(200, {"forwarded": True}, "corr-gateway"),

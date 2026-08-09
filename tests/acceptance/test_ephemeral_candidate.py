@@ -211,7 +211,7 @@ async def test_the_product_contract_runs_against_the_ephemeral_candidate(
         {
             "schema_version": 1,
             "base_url": candidate.base_url,
-            "tenant_id": "acceptance-ephemeral-leg",
+            "tenant_id": candidate.tenant_id,
             "deployment_ref": candidate.deployment_ref,
             "candidate_identity": str(identity),
             "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
@@ -245,3 +245,6 @@ async def test_the_product_contract_runs_against_the_ephemeral_candidate(
     assert report.candidate_digest == config.candidate_digest
     assert report.image_identity == config.candidate_identity["image"]
     assert report.namespace.startswith(f"{report.tenant_id}-")
+    # The tenant is only meaningful because the deployment echoed it back on the run
+    # it actually created; see the `runs` scenario's tenant_id assertion.
+    assert report.tenant_id == candidate.tenant_id

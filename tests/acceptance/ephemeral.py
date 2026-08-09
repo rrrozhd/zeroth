@@ -26,11 +26,13 @@ from pathlib import Path
 import uvicorn
 
 from tests.service.helpers import (
+    TEST_API_KEYS,
     CountingFinishRunner,
     approval_resume_graph,
-    default_service_auth_config,
     deploy_service,
+    scoped_auth_config,
 )
+from zeroth.governance.identity import ServiceRole
 from zeroth.platform.config import settings as settings_module
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.service.bootstrap import bootstrap_app
@@ -39,6 +41,7 @@ from zeroth.service.bootstrap.migrations import run_migrations
 APPROVAL_NODE = "approval-step"
 FINISH_NODE = "finish-step"
 DEPLOYMENT_REF = "acceptance-candidate"
+TENANT_ID = "acceptance-ephemeral-leg"
 _START_DEADLINE_SECONDS = 20.0
 _STOP_DEADLINE_SECONDS = 20.0
 
@@ -56,8 +59,15 @@ class _Server:
 class EphemeralCandidate:
     """Serve, restart and drain the real application on a stable origin."""
 
-    def __init__(self, workspace: Path, *, deployment_ref: str = DEPLOYMENT_REF) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        deployment_ref: str = DEPLOYMENT_REF,
+        tenant_id: str = TENANT_ID,
+    ) -> None:
         self.deployment_ref = deployment_ref
+        self.tenant_id = tenant_id
         self._db_path = workspace / "candidate.db"
         self._listener: socket.socket | None = None
         self._running: _Server | None = None
@@ -97,6 +107,8 @@ class EphemeralCandidate:
                 database,
                 approval_resume_graph(graph_id="acceptance-approval-graph"),
                 deployment_ref=self.deployment_ref,
+                auth_config=self._auth_config(),
+                tenant_id=self.tenant_id,
             )
         finally:
             await database.close()
@@ -118,13 +130,28 @@ class EphemeralCandidate:
         self._listener = listener
         self.port = listener.getsockname()[1]
 
+    def _auth_config(self):
+        """Authenticate inside the tenant this candidate claims to be.
+
+        Zeroth scopes a request by the credential that made it and ignores the
+        acceptance headers entirely, so credentials bound to `default` would make the
+        tenant in the report a restatement of configuration rather than something the
+        deployment ever confirmed.
+        """
+        return scoped_auth_config(
+            *(
+                (f"{role.value}-key", TEST_API_KEYS[role.value], role, self.tenant_id, None)
+                for role in (ServiceRole.OPERATOR, ServiceRole.REVIEWER, ServiceRole.ADMIN)
+            )
+        )
+
     async def _build_app(self):
         database = AsyncSQLiteDatabase(path=str(self._db_path))
         return await bootstrap_app(
             database,
             deployment_ref=self.deployment_ref,
             agent_runners={FINISH_NODE: self.finish_runner},
-            auth_config=default_service_auth_config(),
+            auth_config=self._auth_config(),
         )
 
     async def serve(self) -> None:

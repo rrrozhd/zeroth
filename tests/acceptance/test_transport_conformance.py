@@ -133,7 +133,7 @@ def _fixture_app() -> FastAPI:
             return JSONResponse(
                 {
                     "run_id": "server-run-id",
-                    "tenant_id": "acceptance-tenant",
+                    "tenant_id": request.headers.get("X-Acceptance-Tenant", ""),
                     "namespace": namespace,
                 },
                 status_code=202,

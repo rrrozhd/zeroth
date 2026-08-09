@@ -297,6 +297,15 @@ class AcceptanceContract(BaseModel):
             lambda step: step.method == "POST" and step.expected_status == 202,
             "submit a run",
         )
+        # The tenant in the report has to be something the deployment said, not a copy
+        # of what the harness was configured with. Zeroth scopes by credential and
+        # ignores the acceptance headers, so a report can otherwise name a tenant the
+        # run never touched.
+        require(
+            "runs",
+            lambda step: step.expected_json.get("tenant_id") == "{tenant_id}",
+            "observe the serving tenant back from the deployment",
+        )
         # A deployed run settles asynchronously. A single unpolled GET would pass or
         # fail on timing rather than on behaviour.
         require(
