@@ -33,8 +33,9 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/service/test_tenant_isolation.py::test_cross_tenant_run_read_returns_not_found_and_audits_denial",
-        "tests/service/test_tenant_isolation.py::test_cross_tenant_permission_routes_hide_every_deployment_surface"
+        "tests/security/test_api_surface_isolation.py::test_run_execute_api_foreign_matches_unknown_tenant",
+        "tests/security/test_api_surface_isolation.py::test_run_read_api_foreign_id_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_execution_result_api_foreign_id_matches_unknown"
       ]
     },
     {
@@ -56,7 +57,9 @@
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_list_excludes_other_tenant_and_workspace",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_hides_foreign_thread_like_unknown",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_rejects_foreign_and_unknown_runs_identically",
-        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_resolve_never_merges_a_foreign_thread"
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_resolve_foreign_id_matches_unknown_create_semantics",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_same_external_thread_id_race_creates_one_thread_per_tenant",
+        "tests/storage/test_migration_thread_scope.py::test_thread_scope_migration_preserves_legacy_rows_and_allows_scoped_duplicates"
       ]
     },
     {
@@ -78,7 +81,10 @@
       "coverage": "behavioral",
       "test_nodes": [
         "tests/security/test_surface_isolation.py::test_audit_enumerate_is_query_scoped_by_tenant_and_workspace",
-        "tests/security/test_surface_isolation.py::test_audit_retrieve_foreign_id_matches_unknown"
+        "tests/security/test_surface_isolation.py::test_audit_retrieve_foreign_id_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_audit_enumerate_api_foreign_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_audit_retrieve_api_foreign_run_matches_unknown",
+        "tests/service/test_audit_api.py::test_run_audit_routes_forward_tenant_and_workspace_to_run_query"
       ]
     },
     {
@@ -89,7 +95,9 @@
         "tests/security/test_surface_isolation.py::test_approval_enumerate_is_query_scoped_by_tenant_and_workspace",
         "tests/security/test_surface_isolation.py::test_approval_retrieve_foreign_matches_unknown",
         "tests/security/test_surface_isolation.py::test_approval_resolve_foreign_matches_unknown_before_mutation",
-        "tests/service/test_tenant_isolation.py::test_cross_tenant_approval_resolution_is_hidden",
+        "tests/security/test_api_surface_isolation.py::test_approval_enumerate_api_foreign_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_approval_retrieve_api_foreign_id_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_approval_resolve_api_foreign_id_matches_unknown",
         "tests/service/test_approval_api.py::test_approval_api_duplicate_resolution_is_idempotent"
       ]
     },
@@ -100,7 +108,10 @@
       "test_nodes": [
         "tests/service/test_cross_tenant_leak_matrix.py::test_connector_enumerate_matches_empty_unknown_tenant",
         "tests/service/test_cross_tenant_leak_matrix.py::test_connector_write_collision_preserves_owner",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_delete_foreign_matches_unknown"
+        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_delete_foreign_matches_unknown",
+        "tests/security/test_api_surface_isolation.py::test_connector_enumerate_api_foreign_matches_unknown_tenant",
+        "tests/security/test_api_surface_isolation.py::test_connector_write_api_foreign_matches_unknown_tenant",
+        "tests/security/test_api_surface_isolation.py::test_connector_delete_api_foreign_id_matches_unknown"
       ]
     },
     {
@@ -114,7 +125,8 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/memory/test_tenant_scoped_connector.py::test_write_as_a_not_readable_as_b[shared-redis_kv-raw1]",
+        "tests/memory/test_tenant_scoped_connector.py::test_memory_write_same_key_collision_is_tenant_scoped",
+        "tests/memory/test_tenant_scoped_connector.py::test_memory_read_foreign_matches_unknown_tenant",
         "tests/memory/test_tenant_scoped_connector.py::test_search_is_tenant_isolated[redis_thread-raw2]"
       ]
     },

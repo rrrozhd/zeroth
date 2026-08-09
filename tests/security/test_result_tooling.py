@@ -67,6 +67,59 @@ def test_nodes_cli_emits_exact_nul_delimited_parameterized_node_ids(tmp_path: Pa
     assert result.stdout == b"\0".join(item.encode() for item in expected) + b"\0"
 
 
+def test_portable_gate_runs_exact_tier_once_with_enforcement_flags(tmp_path: Path) -> None:
+    test_file = tmp_path / "test_gate_nodes.py"
+    test_file.write_text(
+        "import pytest\n"
+        "@pytest.mark.parametrize('value', [1, 2, 3], ids=['tenant/a', 'tenant b', 'rc'])\n"
+        "def test_exact(value): assert value > 0\n",
+        encoding="utf-8",
+    )
+    matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+    nodes = [
+        "test_gate_nodes.py::test_exact[tenant/a]",
+        "test_gate_nodes.py::test_exact[tenant b]",
+    ]
+    matrix["cases"][0]["test_nodes"] = nodes
+    rc_node = "test_gate_nodes.py::test_exact[rc]"
+    matrix["cases"][1]["test_nodes"] = [rc_node]
+    matrix["cases"][1]["refusal_test"] = rc_node
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+    outcomes = tmp_path / "outcomes.json"
+    junit = tmp_path / "junit.xml"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "release.security.pytest_gate",
+            "--matrix",
+            str(matrix_path),
+            "--tier",
+            "pr-critical",
+            "--results",
+            str(outcomes),
+            "--junitxml",
+            str(junit),
+            "--pytest-arg=-q",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[2])},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = {
+        record["nodeid"]
+        for record in json.loads(outcomes.read_text(encoding="utf-8"))["records"]
+        if record["phase"] == "call"
+    }
+    assert calls == set(nodes)
+    assert junit.is_file()
+
+
 def test_plugin_writes_canonical_phase_outcomes_without_captured_output(tmp_path: Path) -> None:
     test_file = tmp_path / "test_sample.py"
     test_file.write_text(

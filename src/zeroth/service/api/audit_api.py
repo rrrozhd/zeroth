@@ -231,7 +231,11 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment = bootstrap.deployment
         principal = await require_permission(request, Permission.AUDIT_READ)
         await require_deployment_scope(request, deployment)
-        run = await bootstrap.run_repository.get(run_id, tenant_id=principal.tenant_id)
+        run = await bootstrap.run_repository.get(
+            run_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
         if run is not None:
             if run.deployment_ref != deployment.deployment_ref:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
@@ -297,7 +301,11 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment = bootstrap.deployment
         principal = await require_permission(request, Permission.AUDIT_READ)
         await require_deployment_scope(request, deployment)
-        run = await bootstrap.run_repository.get(run_id, tenant_id=principal.tenant_id)
+        run = await bootstrap.run_repository.get(
+            run_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         if run.deployment_ref != deployment.deployment_ref:
@@ -404,7 +412,11 @@ def register_audit_routes(app: FastAPI | APIRouter) -> None:
         deployment = bootstrap.deployment
         principal = await require_permission(request, Permission.AUDIT_READ)
         await require_deployment_scope(request, deployment)
-        run = await bootstrap.run_repository.get(run_id, tenant_id=principal.tenant_id)
+        run = await bootstrap.run_repository.get(
+            run_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
         if run is None or run.deployment_ref != deployment.deployment_ref:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
         await require_resource_scope(

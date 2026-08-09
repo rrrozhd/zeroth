@@ -8,12 +8,15 @@ stored. These pin that behaviour across the move.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
 from zeroth.runtime.runs import Run, Thread, ThreadMemoryBinding, ThreadStatus
@@ -170,10 +173,10 @@ async def test_resolve_merges_references_without_duplicating_them(
     assert resolved.active_run_id == "run-2"
 
 
-async def test_resolve_rejects_a_thread_identity_mismatch(
+async def test_resolve_same_logical_id_creates_an_independent_tenant_thread(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    """A thread may not be re-pointed at another tenant or deployment."""
+    """A logical external ID is independently addressable in each tenant."""
     repository = ThreadRepository(sqlite_db)
     await repository.resolve(
         "thread-1",
@@ -182,13 +185,13 @@ async def test_resolve_rejects_a_thread_identity_mismatch(
         tenant_id="tenant-1",
     )
 
-    with pytest.raises(KeyError, match="thread could not be resolved"):
-        await repository.resolve(
-            "thread-1",
-            graph_version_ref="graph-1",
-            deployment_ref="deployment-1",
-            tenant_id="tenant-2",
-        )
+    other = await repository.resolve(
+        "thread-1",
+        graph_version_ref="graph-1",
+        deployment_ref="deployment-1",
+        tenant_id="tenant-2",
+    )
+    assert other.tenant_id == "tenant-2"
 
 
 async def test_attach_run_makes_it_the_active_run(
@@ -232,7 +235,7 @@ async def test_scoped_get_hides_foreign_thread_like_unknown(sqlite_db: AsyncSQLi
     assert foreign is unknown is None
 
 
-async def test_create_rejects_foreign_same_thread_id_without_overwriting_owner(
+async def test_create_allows_scoped_same_thread_id_without_overwriting_owner(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     repository = ThreadRepository(sqlite_db)
@@ -240,12 +243,14 @@ async def test_create_rejects_foreign_same_thread_id_without_overwriting_owner(
         _make_thread("shared-id", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
-    with pytest.raises(KeyError, match="thread already exists"):
-        await repository.create(
-            _make_thread("shared-id", tenant_id="tenant-b", workspace_id="workspace-b")
-        )
+    created = await repository.create(
+        _make_thread("shared-id", tenant_id="tenant-b", workspace_id="workspace-b")
+    )
+    assert created.tenant_id == "tenant-b"
 
-    owner = await repository.get("shared-id")
+    owner = await repository.get(
+        "shared-id", tenant_id="tenant-a", workspace_id="workspace-a"
+    )
     assert owner is not None
     assert owner.tenant_id == "tenant-a"
     assert owner.workspace_id == "workspace-a"
@@ -260,8 +265,13 @@ async def test_scoped_list_excludes_other_tenant_and_workspace(
     await repository.create(_make_thread("b-1", tenant_id="tenant-b", workspace_id="workspace-a"))
 
     listed = await repository.list(tenant_id="tenant-a", workspace_id="workspace-a")
+    foreign = await repository.list(tenant_id="tenant-b", workspace_id="workspace-b")
+    unknown = await repository.list(
+        tenant_id="tenant-unknown", workspace_id="workspace-unknown"
+    )
 
     assert [thread.thread_id for thread in listed] == ["a-1"]
+    assert foreign == unknown == []
 
 
 async def test_scoped_attach_hides_foreign_thread_like_unknown(
@@ -332,7 +342,7 @@ async def test_scoped_attach_rejects_foreign_and_unknown_runs_identically(
         assert raised.value.args == (run_id,)
 
 
-async def test_scoped_resolve_never_merges_a_foreign_thread(
+async def test_scoped_resolve_foreign_id_matches_unknown_create_semantics(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     repository = ThreadRepository(sqlite_db)
@@ -340,21 +350,77 @@ async def test_scoped_resolve_never_merges_a_foreign_thread(
         _make_thread("external-id", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
-    with pytest.raises(KeyError, match="thread could not be resolved"):
-        await repository.resolve(
-            "external-id",
-            graph_version_ref="graph-1",
-            deployment_ref="deployment-1",
-            tenant_id="tenant-b",
-            workspace_id="workspace-b",
-            participating_agent_refs=["foreign-agent"],
-        )
+    foreign_collision = await repository.resolve(
+        "external-id",
+        graph_version_ref="graph-1",
+        deployment_ref="deployment-1",
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+        participating_agent_refs=["tenant-b-agent"],
+    )
+    unknown = await repository.resolve(
+        "unknown-external-id",
+        graph_version_ref="graph-1",
+        deployment_ref="deployment-1",
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+        participating_agent_refs=["tenant-b-agent"],
+    )
+
+    for thread in (foreign_collision, unknown):
+        assert thread.tenant_id == "tenant-b"
+        assert thread.workspace_id == "workspace-b"
+        assert thread.graph_version_ref == "graph-1"
+        assert thread.deployment_ref == "deployment-1"
+        assert thread.participating_agent_refs == ["tenant-b-agent"]
 
     owner = await repository.get(
         "external-id", tenant_id="tenant-a", workspace_id="workspace-a"
     )
     assert owner is not None
     assert owner.participating_agent_refs == []
+
+
+async def test_same_external_thread_id_race_creates_one_thread_per_tenant(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "thread-scope-race.db"
+    run_migrations(f"sqlite:///{database_path}")
+    database = AsyncSQLiteDatabase(str(database_path))
+    first = ThreadRepository(database)
+    second = ThreadRepository(database)
+
+    results = await asyncio.gather(
+        first.resolve(
+            "raced-external-id",
+            graph_version_ref="graph-1",
+            deployment_ref="deployment-1",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+        ),
+        second.resolve(
+            "raced-external-id",
+            graph_version_ref="graph-1",
+            deployment_ref="deployment-1",
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        ),
+    )
+
+    assert {thread.tenant_id for thread in results} == {"tenant-a", "tenant-b"}
+    await database.close()
+
+    restarted = AsyncSQLiteDatabase(str(database_path))
+    try:
+        repository = ThreadRepository(restarted)
+        assert await repository.get(
+            "raced-external-id", tenant_id="tenant-a", workspace_id="workspace-a"
+        ) is not None
+        assert await repository.get(
+            "raced-external-id", tenant_id="tenant-b", workspace_id="workspace-b"
+        ) is not None
+    finally:
+        await restarted.close()
 
 
 async def test_scoped_active_run_helpers_hide_foreign_thread(

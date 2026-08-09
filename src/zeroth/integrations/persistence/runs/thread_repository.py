@@ -40,7 +40,14 @@ class ThreadRepository:
     async def create(self, thread: Thread) -> Thread:
         """Save a new thread and return the persisted version."""
         await self._store.create_thread(thread)
-        return await self.get(thread.thread_id)
+        created = await self.get(
+            thread.thread_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+        )
+        if created is None:  # pragma: no cover - insert/read transaction contract
+            raise RuntimeError("created thread is unavailable in its owning scope")
+        return created
 
     async def get(
         self,
@@ -87,7 +94,14 @@ class ThreadRepository:
         """Save changes to an existing thread."""
         thread.updated_at = utc_now()
         await self._store.save_thread(thread)
-        return await self.get(thread.thread_id)
+        updated = await self.get(
+            thread.thread_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+        )
+        if updated is None:  # pragma: no cover - update/read transaction contract
+            raise RuntimeError("updated thread is unavailable in its owning scope")
+        return updated
 
     async def resolve(
         self,

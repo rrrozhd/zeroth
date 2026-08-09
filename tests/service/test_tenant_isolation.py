@@ -41,6 +41,20 @@ def _scoped_auth_config() -> ServiceAuthConfig:
                 roles=[ServiceRole.REVIEWER],
                 tenant_id="tenant-b",
             ),
+            StaticApiKeyCredential(
+                credential_id="tenant-c-operator",
+                secret="tenant-c-operator-key",
+                subject="tenant-c-operator",
+                roles=[ServiceRole.OPERATOR],
+                tenant_id="tenant-c",
+            ),
+            StaticApiKeyCredential(
+                credential_id="tenant-c-reviewer",
+                secret="tenant-c-reviewer-key",
+                subject="tenant-c-reviewer",
+                roles=[ServiceRole.REVIEWER],
+                tenant_id="tenant-c",
+            ),
         ]
     )
 

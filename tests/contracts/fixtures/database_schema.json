@@ -79,6 +79,10 @@
     {
       "down_revision": "019",
       "revision": "020"
+    },
+    {
+      "down_revision": "020",
+      "revision": "021"
     }
   ],
   "tables": {
@@ -3175,8 +3179,8 @@
           "default": null,
           "hidden": 0,
           "name": "thread_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 3,
           "type": "TEXT"
         },
         {
@@ -3292,8 +3296,8 @@
           "default": "'default'",
           "hidden": 0,
           "name": "tenant_id",
-          "not_null": false,
-          "primary_key_position": 0,
+          "not_null": true,
+          "primary_key_position": 1,
           "type": "TEXT"
         },
         {
@@ -3304,9 +3308,18 @@
           "not_null": false,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT PRIMARY KEY, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT )",
+      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT threads_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, thread_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3323,6 +3336,8 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "thread_id"
           ],
           "name": "sqlite_autoindex_threads_1",

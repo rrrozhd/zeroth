@@ -62,16 +62,17 @@ async def test_thread_resolver_prelookup_uses_requested_scope(sqlite_db, monkeyp
         return await original_get(thread_id, **scope)
 
     monkeypatch.setattr(repository, "get", recording_get)
-    with pytest.raises(KeyError):
-        await resolver.resolve(
-            "foreign-or-unknown",
-            graph_version_ref="graph:v1",
-            deployment_ref="deployment:v1",
-            tenant_id="tenant-b",
-            workspace_id="workspace-b",
-        )
+    resolved = await resolver.resolve(
+        "foreign-or-unknown",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+    )
 
     assert calls[0] == {"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+    assert resolved.thread.tenant_id == "tenant-b"
+    assert resolved.thread.workspace_id == "workspace-b"
 
 
 async def test_thread_state_store_checkpoints_and_loads_latest_state(

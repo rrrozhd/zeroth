@@ -78,6 +78,11 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
 
 # Sentinel stored in failure_state.reason to mark dead-letter runs.
 DEAD_LETTER_REASON = "dead_letter"
+_UNSCOPED_WORKSPACE = object()
+
+
+def _workspace_scope(workspace_id: str | None) -> str:
+    return "null" if workspace_id is None else f"value:{workspace_id}"
 
 
 def _validate_transition(current: RunStatus, new: RunStatus) -> None:
@@ -276,7 +281,11 @@ class _RunThreadStore:
             # whether its existing owner also uses the guessed thread ID.
             await self._save_run_in_connection(connection, run, None, insert_only=True)
             row = await connection.fetch_one(
-                "SELECT * FROM threads WHERE thread_id = ?", (run.thread_id,)
+                """
+                SELECT * FROM threads
+                WHERE thread_id = ? AND tenant_id = ? AND workspace_scope = ?
+                """,
+                (run.thread_id, run.tenant_id, _workspace_scope(run.workspace_id)),
             )
             thread = (
                 Thread(
@@ -328,13 +337,12 @@ class _RunThreadStore:
         insert_only: bool = False,
     ) -> None:
         conflict_clause = (
-            "ON CONFLICT(thread_id) DO NOTHING"
+            "ON CONFLICT(tenant_id, workspace_scope, thread_id) DO NOTHING"
             if insert_only
             else """
-                ON CONFLICT(thread_id) DO UPDATE SET
+                ON CONFLICT(tenant_id, workspace_scope, thread_id) DO UPDATE SET
                     graph_version_ref = excluded.graph_version_ref,
                     deployment_ref = excluded.deployment_ref,
-                    tenant_id = excluded.tenant_id,
                     workspace_id = excluded.workspace_id,
                     status = excluded.status,
                     participating_agent_refs = excluded.participating_agent_refs,
@@ -350,11 +358,12 @@ class _RunThreadStore:
         row = await connection.fetch_one(
             f"""
                 INSERT INTO threads (
-                    thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id, status,
+                    thread_id, graph_version_ref, deployment_ref, tenant_id, workspace_id,
+                    workspace_scope, status,
                     participating_agent_refs, state_snapshot_refs, checkpoint_refs,
                     memory_bindings, run_ids, active_run_id, last_run_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 {conflict_clause}
                 RETURNING thread_id
                 """,
@@ -364,6 +373,7 @@ class _RunThreadStore:
                 thread.deployment_ref,
                 thread.tenant_id,
                 thread.workspace_id,
+                _workspace_scope(thread.workspace_id),
                 thread.status.value,
                 to_json_value(thread.participating_agent_refs),
                 to_json_value(thread.state_snapshot_refs),
@@ -426,16 +436,15 @@ class _RunThreadStore:
             sql += " AND tenant_id = ?"
             params.append(tenant_id)
         if workspace_scoped:
-            if workspace_id is None:
-                sql += " AND workspace_id IS NULL"
-            else:
-                sql += " AND workspace_id = ?"
-                params.append(workspace_id)
+            sql += " AND workspace_scope = ?"
+            params.append(_workspace_scope(workspace_id))
         async with self.database.transaction() as connection:
-            row = await connection.fetch_one(sql, tuple(params))
-        if row is None:
+            rows = await connection.fetch_all(
+                sql + " ORDER BY tenant_id, workspace_scope LIMIT 2", tuple(params)
+            )
+        if len(rows) != 1:
             return None
-        return row_to_thread(row)
+        return row_to_thread(rows[0])
 
     async def delete_run(self, run_id: str) -> None:
         """Remove a run from the database and update its parent thread."""
@@ -444,7 +453,12 @@ class _RunThreadStore:
             return
         async with self.database.transaction() as connection:
             await connection.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
-        thread = await self.get_thread(run.thread_id)
+        thread = await self.get_thread(
+            run.thread_id,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            workspace_scoped=True,
+        )
         if thread is None:
             return
         thread.run_ids = [current for current in thread.run_ids if current != run_id]
@@ -465,7 +479,12 @@ class _RunThreadStore:
         """
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
-        thread = await self.get_thread(run.thread_id)
+        thread = await self.get_thread(
+            run.thread_id,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            workspace_scoped=True,
+        )
         if thread is None:
             await self._record_thread_run(
                 run.thread_id,
@@ -477,7 +496,9 @@ class _RunThreadStore:
             )
         run.touch()
         snapshot = run.model_dump(mode="json")
-        checkpoint_order = await self._next_checkpoint_order(run.thread_id)
+        checkpoint_order = await self._next_checkpoint_order(
+            run.thread_id, tenant_id=run.tenant_id, workspace_id=run.workspace_id
+        )
         await self.checkpoints.write_row(
             checkpoint_id=checkpoint_id,
             run_id=run.run_id,
@@ -486,7 +507,12 @@ class _RunThreadStore:
             state_json=to_json_value(snapshot),
             created_at=run.updated_at.isoformat(),
         )
-        await self._record_thread_checkpoint(run.thread_id, checkpoint_id)
+        await self._record_thread_checkpoint(
+            run.thread_id,
+            checkpoint_id,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+        )
         return checkpoint_id
 
     async def get_checkpoint(self, checkpoint_id: str) -> Run | None:
@@ -578,7 +604,11 @@ class _RunThreadStore:
         snapshot = run.model_dump(mode="json")
         async with self.database.transaction() as connection:
             row = await connection.fetch_one(
-                "SELECT * FROM threads WHERE thread_id = ?", (run.thread_id,)
+                """
+                SELECT * FROM threads
+                WHERE thread_id = ? AND tenant_id = ? AND workspace_scope = ?
+                """,
+                (run.thread_id, run.tenant_id, _workspace_scope(run.workspace_id)),
             )
             thread = (
                 Thread(
@@ -632,7 +662,12 @@ class _RunThreadStore:
         workspace_id: str | None,
     ) -> None:
         """Register a run with its thread, creating the thread if needed."""
-        thread = await self.get_thread(thread_id)
+        thread = await self.get_thread(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            workspace_scoped=True,
+        )
         if thread is None:
             thread = Thread(
                 thread_id=thread_id,
@@ -652,25 +687,58 @@ class _RunThreadStore:
             thread.updated_at = utc_now()
         await self.save_thread(thread)
 
-    async def _record_thread_checkpoint(self, thread_id: str, checkpoint_id: str) -> None:
+    async def _record_thread_checkpoint(
+        self,
+        thread_id: str,
+        checkpoint_id: str,
+        *,
+        tenant_id: str,
+        workspace_id: str | None,
+    ) -> None:
         """Add a checkpoint reference to a thread's list of checkpoints."""
-        thread = await self.get_thread(thread_id)
+        thread = await self.get_thread(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            workspace_scoped=True,
+        )
         if thread is None:
             return
         thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
         thread.updated_at = utc_now()
         await self.save_thread(thread)
 
-    async def _checkpoint_ids(self, thread_id: str) -> list[str]:
+    async def _checkpoint_ids(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[str]:
         """Return all checkpoint IDs for a thread."""
-        thread = await self.get_thread(thread_id)
+        thread = await self.get_thread(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            workspace_scoped=tenant_id is not None,
+        )
         if thread is None:
             return []
         return list(thread.checkpoint_refs)
 
-    async def _next_checkpoint_order(self, thread_id: str) -> int:
+    async def _next_checkpoint_order(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> int:
         """Return the next checkpoint order number for a thread."""
-        return len(await self._checkpoint_ids(thread_id))
+        return len(
+            await self._checkpoint_ids(
+                thread_id, tenant_id=tenant_id, workspace_id=workspace_id
+            )
+        )
 
     async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the checkpoint_id for the most recent checkpoint of a run."""
@@ -791,13 +859,24 @@ class RunRepository:
         """Remove the write fence installed for a run."""
         self._store.clear_fence(run_id)
 
-    async def get(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
+    async def get(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> Run | None:
         """Load a run by its ID, or return None if not found.
 
         WS-B: optional ``tenant_id`` filter (defense-in-depth). Default ``None``
         preserves the no-filter behaviour internal callers rely on.
         """
-        return await self._store.get_run(run_id, tenant_id=tenant_id)
+        return await self._store.get_run(
+            run_id,
+            tenant_id=tenant_id,
+            workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
+            workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
+        )
 
     async def delete(self, run_id: str) -> None:
         """Remove a run from the database."""
