@@ -460,22 +460,25 @@ def test_invalid_role_enum_is_sanitized_without_losing_enum_guidance() -> None:
 
 
 @pytest.mark.parametrize(
-    "payload",
-    [
-        {"custom_roles": {987654321012345678: ["operator"]}},
-        {
+    "mapping_field",
+    ["custom_roles", "jwks"],
+)
+def test_config_validation_redacts_numeric_mapping_keys_from_locations(
+    mapping_field: str,
+) -> None:
+    raw_key = "987654321012345678"
+    raw_value = "SENTINEL_NUMERIC_MAPPING_VALUE"
+    payload: dict[str, object]
+    if mapping_field == "custom_roles":
+        payload = {"custom_roles": {int(raw_key): [raw_value]}}
+    else:
+        payload = {
             "bearer": {
                 "issuer": "issuer",
                 "audience": "audience",
-                "jwks": {987654321012345678: "not-a-jwk"},
+                "jwks": {int(raw_key): raw_value},
             }
-        },
-    ],
-)
-def test_config_validation_redacts_numeric_mapping_keys_from_locations(
-    payload: dict[str, object],
-) -> None:
-    raw_key = "987654321012345678"
+        }
     # JSON object keys are strings, so from_env cannot produce this Pydantic loc shape.
     loaders = (
         lambda: ServiceAuthConfig(**payload),
@@ -487,6 +490,98 @@ def test_config_validation_redacts_numeric_mapping_keys_from_locations(
             load()
 
         _assert_secret_absent_from_exception_chain(excinfo.value, raw_key)
+        _assert_secret_absent_from_exception_chain(excinfo.value, raw_value)
+
+
+def test_invalid_key_locations_redact_numeric_keys_across_supported_model_boundaries() -> None:
+    raw_key = 987654321012345678
+    raw_key_text = str(raw_key)
+    raw_value = "SENTINEL_NUMERIC_KEY_VALUE"
+    loaders = (
+        lambda: ServiceAuthConfig(
+            bearer={
+                "issuer": "issuer",
+                "audience": "audience",
+                "jwks": {"keys": []},
+                raw_key: raw_value,
+            }
+        ),
+        lambda: ServiceAuthConfig.model_validate(
+            {
+                "bearer": {
+                    "issuer": "issuer",
+                    "audience": "audience",
+                    "jwks": {"keys": []},
+                    raw_key: raw_value,
+                }
+            }
+        ),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+
+        error = excinfo.value
+        _assert_secret_absent_from_exception_chain(error, raw_key_text)
+        _assert_secret_absent_from_exception_chain(error, raw_value)
+        details = error.errors()
+        assert any(
+            detail["type"] == "invalid_key" and detail["msg"] == "Keys should be strings"
+            for detail in details
+        )
+        assert any("[redacted-key]" in str(detail["loc"]) for detail in details)
+
+
+def test_custom_keyword_constructors_do_not_expose_numeric_keys_before_validation() -> None:
+    raw_key = 987654321012345678
+    raw_value = "SENTINEL_PRECALL_VALUE"
+    static_input = {raw_key: raw_value}
+    nested_input = {
+        "api_keys": [
+            {
+                "credential_id": "nested",
+                "secret": "valid-secret",
+                "subject": "subject",
+                raw_key: raw_value,
+            }
+        ]
+    }
+    loaders = (
+        lambda: ServiceAuthConfig(**static_input),
+        lambda: ServiceAuthConfig.model_validate(static_input),
+        lambda: StaticApiKeyCredential(**static_input),
+        lambda: StaticApiKeyCredential.model_validate(static_input),
+        lambda: ServiceAuthConfig(**nested_input),
+        lambda: ServiceAuthConfig.model_validate(nested_input),
+    )
+
+    for load in loaders:
+        with pytest.raises(TypeError, match="^keywords must be strings$") as excinfo:
+            load()
+
+        # Python rejects non-string ** keys before the custom model __init__ body runs.
+        _assert_secret_absent_from_exception_chain(excinfo.value, str(raw_key))
+        _assert_secret_absent_from_exception_chain(excinfo.value, raw_value)
+
+
+def test_config_validation_preserves_nonzero_api_key_and_role_list_indices() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        ServiceAuthConfig(
+            api_keys=[
+                {"credential_id": "first", "secret": "first", "subject": "first"},
+                {
+                    "credential_id": "second",
+                    "secret": "second",
+                    "subject": "second",
+                    "roles": [""],
+                },
+            ]
+        )
+
+    detail = excinfo.value.errors()[0]
+    assert detail["type"] == "enum"
+    assert detail["loc"] == ("api_keys", 1, "roles", 0)
 
 
 def _config_environment(payload: dict[str, object]) -> dict[str, str]:

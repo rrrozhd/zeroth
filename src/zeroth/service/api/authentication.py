@@ -35,6 +35,7 @@ _REMOTE_JWKS_CACHE_SECONDS = 300.0
 _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS = 5.0
 _REDACTED_CONFIG_VALUE = "[redacted]"
 _REDACTED_CONFIG_LOCATION = "[redacted-field]"
+_REDACTED_CONFIG_KEY = "[redacted-key]"
 _PYDANTIC_MAPPING_KEY_LOCATION_MARKER = "[key]"
 _SAFE_CONFIG_LOCATION_SEGMENTS = frozenset(
     {
@@ -130,7 +131,7 @@ def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
     safe_detail: dict[str, Any] = {
         "type": error_type,
         "loc": tuple(
-            _redacted_config_location_segment(location, index)
+            _redacted_config_location_segment(location, index, error_type)
             for index in range(len(location))
         ),
         "input": _REDACTED_CONFIG_VALUE,
@@ -150,9 +151,18 @@ def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
     return safe_detail
 
 
-def _redacted_config_location_segment(location: tuple[Any, ...], index: int) -> str | int:
+def _redacted_config_location_segment(
+    location: tuple[Any, ...], index: int, error_type: str
+) -> str | int:
     """Preserve schema fields and list indices, never mapping keys from caller input."""
     segment = location[index]
+    if error_type == "invalid_key":
+        if segment in {
+            _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
+            _REDACTED_CONFIG_KEY,
+        } or segment in _SAFE_CONFIG_LOCATION_SEGMENTS:
+            return segment
+        return _REDACTED_CONFIG_KEY
     if index + 1 < len(location) and location[index + 1] == _PYDANTIC_MAPPING_KEY_LOCATION_MARKER:
         return _REDACTED_CONFIG_LOCATION
     if isinstance(segment, int):
