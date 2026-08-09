@@ -76,6 +76,7 @@ class AcceptanceStep(BaseModel):
     count_path: str | None = None
     count_where: dict[str, Any] = Field(default_factory=dict)
     expected_count: int | None = None
+    expect_unreachable: bool = False
 
     @model_validator(mode="after")
     def _protocol_shape(self) -> AcceptanceStep:
@@ -90,6 +91,9 @@ class AcceptanceStep(BaseModel):
         return self._capture_shape()
 
     def _transport_shape(self) -> None:
+        if self.expect_unreachable:
+            self._unreachable_shape()
+            return
         if self.protocol == "http":
             if self.method is None or self.expected_status is None:
                 raise ValueError("HTTP steps require method and expected_status")
@@ -102,6 +106,28 @@ class AcceptanceStep(BaseModel):
             raise ValueError("WebSocket steps require max_events and ordered_events")
         if self.poll:
             raise ValueError("WebSocket steps cannot be polled")
+
+    def _unreachable_shape(self) -> None:
+        """A withdrawn candidate refuses connections; it does not answer politely.
+
+        A deployment that has genuinely stopped serving cannot return a status code
+        saying so. Asserting a 503 would only ever pass against something still
+        running, which is the opposite of what a drain proves.
+        """
+        if self.protocol != "http":
+            raise ValueError("only HTTP steps can expect an unreachable candidate")
+        if self.method is None:
+            raise ValueError("unreachable steps require a method")
+        forbidden = (
+            self.expected_status is not None
+            or self.expected_json
+            or self.capture
+            or self.owned_capture
+            or self.count_path is not None
+            or self.require_correlation
+        )
+        if forbidden:
+            raise ValueError("unreachable steps cannot assert a response")
 
     def _counting_shape(self) -> None:
         if (self.count_path is None) != (self.expected_count is None):
@@ -183,6 +209,24 @@ class AcceptanceContract(BaseModel):
 
     @model_validator(mode="after")
     def _required_invariants(self) -> AcceptanceContract:
+        """The contract's paths are supplied; these guarantees are not negotiable.
+
+        Split by concern rather than written as one pass: this function *is* the
+        specification of what a deployed candidate has to demonstrate, and an
+        auditor cannot hold an undivided version of it in view.
+        """
+        self._require_scenario_coverage()
+        self._require_access_evidence()
+        self._require_lifecycle_evidence()
+        self._require_gateway_evidence()
+        self._require_durability_evidence()
+        return self
+
+    def _require(self, name: str, predicate: Any, detail: str) -> None:
+        if not any(predicate(step) for step in self.scenarios[name].steps):
+            raise ValueError(f"{name} must {detail}")
+
+    def _require_scenario_coverage(self) -> None:
         missing = set(REQUIRED_SCENARIOS) - set(self.scenarios)
         if missing:
             raise ValueError(f"missing required scenarios: {', '.join(sorted(missing))}")
@@ -190,10 +234,8 @@ class AcceptanceContract(BaseModel):
         if unknown:
             raise ValueError(f"unknown scenarios: {', '.join(sorted(unknown))}")
 
-        def require(name: str, predicate: Any, detail: str) -> None:
-            if not any(predicate(step) for step in self.scenarios[name].steps):
-                raise ValueError(f"{name} must {detail}")
-
+    def _require_access_evidence(self) -> None:
+        require = self._require
         readiness = self.scenarios["readiness"].steps
         if not any(
             step.expected_json.get("candidate_digest") == "{candidate_digest}"
@@ -212,6 +254,9 @@ class AcceptanceContract(BaseModel):
             lambda step: step.role == "reviewer" and step.expected_status == 403,
             "prove a role-specific denial",
         )
+
+    def _require_lifecycle_evidence(self) -> None:
+        require = self._require
         for method, status in (("POST", "draft"), ("GET", None), ("POST", "published")):
             require(
                 "workflow_lifecycle",
@@ -241,6 +286,8 @@ class AcceptanceContract(BaseModel):
             lambda step: step.expected_json.get("enabled") is True,
             "prove retention enforcement",
         )
+
+    def _require_gateway_evidence(self) -> None:
         http_decisions = {
             step.expected_json.get("decision") for step in self.scenarios["gateway_http"].steps
         }
@@ -264,6 +311,7 @@ class AcceptanceContract(BaseModel):
                 "gateway_websocket must prove allow, deny, approval, resume, and failure"
             )
 
+    def _require_durability_evidence(self) -> None:
         counts = [
             step.expected_json.get("tool_execution_count")
             for step in self.scenarios["approvals"].steps
@@ -287,7 +335,9 @@ class AcceptanceContract(BaseModel):
         if not any(step.operation == "shutdown" for step in shutdown):
             raise ValueError("shutdown must invoke the shutdown lifecycle operation")
         readiness_withdrawn = any(
-            step.path == "/health/ready" and step.expected_status == 503 for step in shutdown
+            step.path == "/health/ready"
+            and (step.expected_status == 503 or step.expect_unreachable)
+            for step in shutdown
         )
         if not readiness_withdrawn:
             raise ValueError("shutdown must prove readiness is withdrawn")
@@ -300,7 +350,6 @@ class AcceptanceContract(BaseModel):
             for value in expected
         ):
             raise ValueError("compatibility must pin a supported Agent Server version")
-        return self
 
 
 class StepObservation(BaseModel):

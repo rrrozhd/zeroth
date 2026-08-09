@@ -10,7 +10,14 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from release.gates.identity import identity_digest
 

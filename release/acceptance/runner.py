@@ -166,6 +166,8 @@ class AcceptanceRunner:
 
     async def _execute_http(self, step: AcceptanceStep, path: str) -> StepObservation:
         role = None if step.role == "anonymous" else step.role
+        if step.expect_unreachable:
+            return await self._expect_unreachable(step, path, role)
         response = await self.transport.request(
             role,
             step.method or "GET",
@@ -189,6 +191,18 @@ class AcceptanceRunner:
             path=path,
             status_code=response.status_code,
             correlation_id=response.correlation_id,
+        )
+
+    async def _expect_unreachable(
+        self, step: AcceptanceStep, path: str, role: str | None
+    ) -> StepObservation:
+        try:
+            response = await self.transport.request(role, step.method or "GET", path)
+        except TransportError:
+            return StepObservation(protocol="http", path=path)
+        raise AssertionError(
+            f"{path} is still served (HTTP {response.status_code}) after the candidate "
+            "was withdrawn"
         )
 
     def _apply_captures(self, step: AcceptanceStep, body: Any, path: str) -> None:
