@@ -38,7 +38,9 @@ class _ExecutionState:
     process: asyncio.subprocess.Process | None = None
     cancel_requested: bool = False
     stop_started: bool = False
-    cleanup_required: bool = False
+    owns_network: bool = False
+    terminal: bool = False
+    cleanup_task: asyncio.Task[None] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cleanup_done: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -68,7 +70,7 @@ class SidecarExecutor:
         execution_task = asyncio.current_task()
         assert execution_task is not None
         async with self._registry_lock:
-            if request.execution_id in self._states:
+            if request.execution_id in self._states or request.execution_id in self._executions:
                 raise SandboxPolicyViolationError("sandbox execution request violates policy")
             state = _ExecutionState(task=execution_task)
             self._states[request.execution_id] = state
@@ -95,7 +97,6 @@ class SidecarExecutor:
         try:
             # Step 1: Create isolated network
             network_flags = ["--internal"] if not request.network_access else []
-            state.cleanup_required = True
             await self._run_cmd(
                 self._docker_binary,
                 "network",
@@ -103,6 +104,7 @@ class SidecarExecutor:
                 *network_flags,
                 network_name,
             )
+            state.owns_network = True
             if state.cancel_requested:
                 return self._persist_cancelled(request.execution_id, started_at)
 
@@ -160,12 +162,14 @@ class SidecarExecutor:
                 stderr_truncated = False
                 returncode = -1
 
-            duration = time.perf_counter() - started_at
-            status = "completed" if returncode == 0 else "failed"
-            if timed_out:
-                status = "failed"
-            if state.cancel_requested:
-                status = "cancelled"
+            async with state.lock:
+                duration = time.perf_counter() - started_at
+                status = "completed" if returncode == 0 else "failed"
+                if timed_out:
+                    status = "failed"
+                if state.cancel_requested:
+                    status = "cancelled"
+                state.terminal = True
 
             stdout = stdout_bytes.decode(errors="replace")
             stderr = stderr_bytes.decode(errors="replace")
@@ -189,25 +193,15 @@ class SidecarExecutor:
             await asyncio.shield(self._stop_process(state))
             self._persist_cancelled(request.execution_id, started_at)
             raise
+        except Exception:
+            self._persist_failed(request.execution_id, started_at)
+            raise
 
         finally:
-            # Step 4: Cleanup network
-            if state.cleanup_required:
-                try:
-                    await asyncio.shield(
-                        self._run_cmd(
-                            self._docker_binary,
-                            "network",
-                            "rm",
-                            network_name,
-                        )
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning("Failed to remove network %s", network_name)
-            state.cleanup_done.set()
-            async with self._registry_lock:
-                if self._states.get(request.execution_id) is state:
-                    self._states.pop(request.execution_id, None)
+            state.cleanup_task = asyncio.create_task(
+                self._finalize(request.execution_id, state, network_name)
+            )
+            await self._await_finalizer(state.cleanup_task)
 
     async def get_status(self, execution_id: str) -> SidecarStatusResponse | None:
         """Return the status of a previously submitted execution."""
@@ -232,13 +226,44 @@ class SidecarExecutor:
             state = self._states.get(execution_id)
         if state is None:
             return
-        state.cancel_requested = True
+        async with state.lock:
+            if state.terminal or (
+                state.process is not None and state.process.returncode is not None
+            ):
+                return
+            state.cancel_requested = True
         await self._stop_process(state)
         self._persist_cancelled(execution_id, time.perf_counter())
         if state.task is not asyncio.current_task():
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(state.task)
         await state.cleanup_done.wait()
+
+    async def _finalize(self, execution_id: str, state: _ExecutionState, network_name: str) -> None:
+        if state.owns_network:
+            try:
+                await self._run_cmd(self._docker_binary, "network", "rm", network_name)
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to remove network %s", network_name)
+        state.cleanup_done.set()
+        async with self._registry_lock:
+            if self._states.get(execution_id) is state:
+                self._states.pop(execution_id, None)
+
+    @staticmethod
+    async def _await_finalizer(task: asyncio.Task[None]) -> None:
+        current = asyncio.current_task()
+        interrupted = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                interrupted = True
+                if current is not None:
+                    current.uncancel()
+        await task
+        if interrupted:
+            raise asyncio.CancelledError
 
     async def _stop_process(self, state: _ExecutionState) -> None:
         async with state.lock:
@@ -263,6 +288,22 @@ class SidecarExecutor:
             stderr_truncated=previous.stderr_truncated if previous else False,
         )
         self._executions[execution_id] = response
+        state = self._states.get(execution_id)
+        if state is not None:
+            state.terminal = True
+        return response
+
+    def _persist_failed(self, execution_id: str, started_at: float) -> SidecarExecuteResponse:
+        response = SidecarExecuteResponse(
+            execution_id=execution_id,
+            status="failed",
+            returncode=None,
+            duration_seconds=time.perf_counter() - started_at,
+        )
+        self._executions[execution_id] = response
+        state = self._states.get(execution_id)
+        if state is not None:
+            state.terminal = True
         return response
 
     async def _communicate_bounded(
@@ -335,7 +376,13 @@ class SidecarExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            raise
         if proc.returncode != 0:
             stderr_text = stderr.decode(errors="replace")
             msg = f"Command {args} failed with rc={proc.returncode}: {stderr_text}"

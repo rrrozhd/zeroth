@@ -276,3 +276,136 @@ async def test_duplicate_active_execution_id_is_rejected_before_side_effects(mon
     await cancellation
     await first
     assert executor._states == {}
+
+
+async def test_network_create_failure_is_failed_without_foreign_cleanup(monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        calls.append(args)
+        raise RuntimeError("already exists")
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    with pytest.raises(RuntimeError, match="already exists"):
+        await executor.execute(
+            SidecarExecuteRequest(execution_id="foreign-network", image="python", command=["run"])
+        )
+
+    assert not any(call[1:3] == ("network", "rm") for call in calls)
+    status = await executor.get_status("foreign-network")
+    assert status is not None and status.status == "failed"
+    assert executor._states == {}
+    with pytest.raises(SandboxPolicyViolationError):
+        await executor.execute(
+            SidecarExecuteRequest(
+                execution_id="foreign-network", image="python", command=["replay"]
+            )
+        )
+
+
+async def test_cancellation_during_network_create_reaps_control_process_without_rm(
+    monkeypatch,
+) -> None:
+    process = _ActiveProcess()
+    spawn = AsyncMock(return_value=process)
+    executor = SidecarExecutor()
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec", spawn
+    )
+    task = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(execution_id="setup-cancel", image="python", command=["run"])
+        )
+    )
+    await process.started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed and process.waited
+    assert spawn.await_count == 1
+    assert executor._states == {}
+    status = await executor.get_status("setup-cancel")
+    assert status is not None and status.status == "cancelled"
+    with pytest.raises(SandboxPolicyViolationError):
+        await executor.execute(
+            SidecarExecuteRequest(execution_id="setup-cancel", image="python", command=["replay"])
+        )
+
+
+async def test_repeated_task_cancellation_cannot_interrupt_network_finalizer(monkeypatch) -> None:
+    process = _ActiveProcess()
+    rm_entered = asyncio.Event()
+    release_rm = asyncio.Event()
+    calls: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        calls.append(args)
+        if args[1:3] == ("network", "rm"):
+            rm_entered.set()
+            await release_rm.wait()
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=process),
+    )
+    task = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(execution_id="double", image="python", command=["run"])
+        )
+    )
+    await process.started.wait()
+    task.cancel()
+    await rm_entered.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    release_rm.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed and process.waited
+    assert calls.count(("docker", "network", "rm", "zeroth-sandbox-double")) == 1
+    assert executor._states == {}
+
+
+async def test_completed_status_is_immutable_during_cleanup_and_id_cannot_replay(
+    monkeypatch,
+) -> None:
+    rm_entered = asyncio.Event()
+    release_rm = asyncio.Event()
+
+    async def run_cmd(*args: str):
+        if args[1:3] == ("network", "rm"):
+            rm_entered.set()
+            await release_rm.wait()
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_CompletedProcess()),
+    )
+    task = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(execution_id="immutable", image="python", command=["run"])
+        )
+    )
+    await rm_entered.wait()
+    before = await executor.get_status("immutable")
+    await executor.cancel("immutable")
+    after = await executor.get_status("immutable")
+    assert before is not None and before.status == "completed"
+    assert after == before
+
+    with pytest.raises(SandboxPolicyViolationError):
+        await executor.execute(
+            SidecarExecuteRequest(execution_id="immutable", image="python", command=["replay"])
+        )
+    release_rm.set()
+    await task

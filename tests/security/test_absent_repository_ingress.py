@@ -68,8 +68,8 @@ def test_reviewed_public_inventory_has_no_repository_ingress_capability() -> Non
     assert all(term not in searchable for term in REPOSITORY_INGRESS_TERMS)
 
 
-def _bootstrap(*, gateway: bool) -> SimpleNamespace:
-    values = {"regulus_client": None}
+def _bootstrap(*, gateway: bool, regulus: bool = False) -> SimpleNamespace:
+    values = {"regulus_client": object() if regulus else None}
     if gateway:
         values.update(
             langgraph_gateway_proxy=object(),
@@ -112,13 +112,18 @@ def _configured_live_inventory() -> dict[str, list[dict[str, object]]]:
         console = Path(directory)
         (console / "index.html").write_text("console", encoding="utf-8")
         configurations: dict[str, list[dict[str, object]]] = {}
-        for name, gateway, console_dir in (
-            ("default", False, "/__zeroth_no_console__"),
-            ("gateway", True, "/__zeroth_no_console__"),
-            ("console", False, str(console)),
+        for name, gateway, regulus, console_dir in (
+            ("default", False, False, "/__zeroth_no_console__"),
+            ("gateway", True, False, "/__zeroth_no_console__"),
+            ("console", False, False, str(console)),
+            ("gateway-console", True, False, str(console)),
+            ("regulus", False, True, "/__zeroth_no_console__"),
+            ("all-features", True, True, str(console)),
         ):
             with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": console_dir}):
-                configurations[name] = _live_routes(create_app(_bootstrap(gateway=gateway)))
+                configurations[name] = _live_routes(
+                    create_app(_bootstrap(gateway=gateway, regulus=regulus))
+                )
         return configurations
 
 
