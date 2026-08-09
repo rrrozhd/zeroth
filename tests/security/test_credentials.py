@@ -394,6 +394,23 @@ def _assert_secret_absent_from_exception_chain(error: BaseException, sentinel: s
                 "roles": [ServiceRole.OPERATOR],
             }
         ],
+        lambda sentinel: [
+            {
+                "credential_id": "role-secret",
+                "secret": "valid-secret",
+                "subject": "subject",
+                "roles": [{"secret": sentinel}],
+            }
+        ],
+        lambda sentinel: [
+            {
+                "credential_id": "hostile-extra",
+                "secret": "valid-secret",
+                "subject": "subject",
+                "roles": [ServiceRole.OPERATOR],
+                f"{sentinel}_client_secret": "ignored",
+            }
+        ],
     ],
 )
 def test_config_validation_never_retains_sensitive_input_in_exception_chain(api_keys) -> None:
@@ -413,6 +430,107 @@ def test_config_validation_never_retains_sensitive_input_in_exception_chain(api_
         assert excinfo.value.__context__ is None
         assert excinfo.value.__cause__ is None
         _assert_secret_absent_from_exception_chain(excinfo.value, sentinel)
+
+
+def test_invalid_role_enum_is_sanitized_without_losing_enum_guidance() -> None:
+    api_keys = [
+        {
+            "credential_id": "invalid-role",
+            "secret": "valid-secret",
+            "subject": "subject",
+            "roles": [""],
+        }
+    ]
+    loaders = (
+        lambda: ServiceAuthConfig(api_keys=api_keys),
+        lambda: ServiceAuthConfig.model_validate({"api_keys": api_keys}),
+        lambda: ServiceAuthConfig.from_env({"ZEROTH_SERVICE_API_KEYS_JSON": json.dumps(api_keys)}),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+        error = excinfo.value
+        assert error.__context__ is None
+        assert error.__cause__ is None
+        detail = error.errors()[0]
+        assert detail["type"] == "enum"
+        assert detail["loc"] == ("api_keys", 0, "roles", 0)
+        assert "operator" in detail["msg"]
+
+
+def _config_environment(payload: dict[str, object]) -> dict[str, str]:
+    """Serialize a complete auth config payload through its public env API."""
+    env_names = {
+        "api_keys": "ZEROTH_SERVICE_API_KEYS_JSON",
+        "bearer": "ZEROTH_SERVICE_BEARER_JSON",
+        "custom_roles": "ZEROTH_SERVICE_ROLES_JSON",
+        "revoked_credential_ids": "ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON",
+    }
+    return {env_names[key]: json.dumps(value) for key, value in payload.items()}
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {
+                "api_keys": [
+                    {
+                        "credential_id": "",
+                        "secret": "valid-secret",
+                        "subject": "subject",
+                    }
+                ]
+            },
+            "credential_id must be non-empty",
+        ),
+        (
+            {
+                "api_keys": [
+                    {"credential_id": "same", "secret": "first", "subject": "first"},
+                    {"credential_id": "same", "secret": "second", "subject": "second"},
+                ]
+            },
+            "static API key credential IDs must be unique",
+        ),
+        (
+            {
+                "api_keys": [
+                    {"credential_id": "first", "secret": "same", "subject": "first"},
+                    {"credential_id": "second", "secret": "same", "subject": "second"},
+                ]
+            },
+            "static API key secrets must be unique",
+        ),
+        (
+            {"revoked_credential_ids": "not-an-array"},
+            "revoked credential identifiers must be an array of strings",
+        ),
+        (
+            {"revoked_credential_ids": ["same", "same"]},
+            "revoked credential identifiers must be unique",
+        ),
+        (
+            {"bearer": {"issuer": "issuer", "audience": "audience"}},
+            "bearer auth requires jwks_url or jwks",
+        ),
+    ],
+)
+def test_config_validation_preserves_distinct_safe_messages(
+    payload: dict[str, object], message: str
+) -> None:
+    loaders = (
+        lambda: ServiceAuthConfig(**payload),
+        lambda: ServiceAuthConfig.model_validate(payload),
+        lambda: ServiceAuthConfig.from_env(_config_environment(payload)),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+
+        assert message in str(excinfo.value)
 
 
 @pytest.mark.parametrize("credential_id", ["", "   "])

@@ -33,6 +33,39 @@ except ImportError:  # pragma: no cover - graceful until dependency is added
 _REMOTE_JWKS_MAX_BYTES = 64 * 1024
 _REMOTE_JWKS_CACHE_SECONDS = 300.0
 _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS = 5.0
+_REDACTED_CONFIG_VALUE = "[redacted]"
+_REDACTED_CONFIG_LOCATION = "[redacted-field]"
+_SAFE_CONFIG_LOCATION_SEGMENTS = frozenset(
+    {
+        "api_keys",
+        "bearer",
+        "custom_roles",
+        "revoked_credential_ids",
+        "credential_id",
+        "secret",
+        "subject",
+        "roles",
+        "tenant_id",
+        "workspace_id",
+        "issuer",
+        "audience",
+        "jwks_url",
+        "jwks",
+        "algorithms",
+    }
+)
+_SAFE_ENUM_EXPECTED = "'operator', 'reviewer', 'admin' or 'platform_admin'"
+_SAFE_CONFIG_VALUE_ERROR_MESSAGES = frozenset(
+    {
+        "credential_id must be non-empty",
+        "static API key credential IDs must be unique",
+        "static API key secrets must be unique",
+        "revoked credential identifiers must be an array of strings",
+        "revoked credential identifiers must be non-empty strings",
+        "revoked credential identifiers must be unique",
+        "bearer auth requires jwks_url or jwks",
+    }
+)
 
 
 class _HTTPOnlyRedirectHandler(HTTPRedirectHandler):
@@ -70,17 +103,51 @@ def _identifier_snapshot(identifiers: Iterable[str]) -> frozenset[str]:
 
 
 def _redacted_config_validation_error(error: ValidationError, *, title: str) -> ValidationError:
-    """Return equivalent Pydantic diagnostics with no retained raw config input."""
-    details = []
-    for detail in error.errors():
-        safe_detail = dict(detail)
-        safe_detail["input"] = "[redacted]"
-        if safe_detail["type"] == "value_error":
-            safe_detail["ctx"] = {"error": ValueError("invalid configuration")}
-        else:
-            safe_detail.pop("ctx", None)
-        details.append(safe_detail)
-    return ValidationError.from_exception_data(title, details)
+    """Build a type-valid config error without retaining caller-controlled data."""
+    try:
+        details = [_redacted_config_error_detail(detail) for detail in error.errors()]
+        return ValidationError.from_exception_data(title, details)
+    except Exception:
+        # Do not let reconstruction failures expose the original validation error.
+        return ValidationError.from_exception_data(
+            title,
+            [
+                {
+                    "type": "value_error",
+                    "loc": (),
+                    "input": _REDACTED_CONFIG_VALUE,
+                    "ctx": {"error": ValueError("invalid configuration")},
+                }
+            ],
+        )
+
+
+def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild one Pydantic error detail using only fixed schema data."""
+    error_type = detail["type"]
+    safe_detail: dict[str, Any] = {
+        "type": error_type,
+        "loc": tuple(
+            segment
+            if isinstance(segment, int) or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+            else _REDACTED_CONFIG_LOCATION
+            for segment in detail.get("loc", ())
+        ),
+        "input": _REDACTED_CONFIG_VALUE,
+    }
+    if error_type == "enum":
+        expected = detail.get("ctx", {}).get("expected")
+        safe_detail["ctx"] = {
+            "expected": expected if expected == _SAFE_ENUM_EXPECTED else _REDACTED_CONFIG_VALUE
+        }
+    elif error_type == "value_error":
+        message = str(detail.get("ctx", {}).get("error", ""))
+        safe_detail["ctx"] = {
+            "error": ValueError(
+                message if message in _SAFE_CONFIG_VALUE_ERROR_MESSAGES else "invalid configuration"
+            )
+        }
+    return safe_detail
 
 
 class CredentialRevocationRegistry:
