@@ -15,6 +15,21 @@ def test_the_manifest_enumerates_every_gate_family_the_ticket_names(manifest):
     assert {gate["id"] for gate in manifest["gates"]} == REQUIRED_GATES
 
 
+def test_security_regression_is_candidate_bound_and_requires_four_independent_results(manifest):
+    gate = next(item for item in manifest["gates"] if item["id"] == "security-regression")
+
+    assert gate["phase"] == "candidate"
+    assert gate["binds"] == ["commit", "package"]
+    assert gate["requires"] == [
+        "security-matrix",
+        "coverage-complete",
+        "distributed-no-skips",
+        "credential-scan",
+    ]
+    assert gate["kinds"] == ["junit", "security"]
+    assert gate["triggers"] == ["pull-request", "nightly", "release-candidate"]
+
+
 def test_every_gate_declares_its_artifacts_kinds_binds_and_triggers(manifest):
     for gate in manifest["gates"]:
         assert gate["requires"], f"{gate['id']} requires nothing"

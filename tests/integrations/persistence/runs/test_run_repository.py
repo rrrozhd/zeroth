@@ -8,6 +8,7 @@ that run inside a caller-supplied transaction.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -90,6 +91,66 @@ async def test_get_hides_a_run_owned_by_another_tenant(
     assert await repository.get("run-1", tenant_id="tenant-1") is not None
     assert await repository.get("run-1", tenant_id="tenant-2") is None
     assert await repository.get("run-1") is not None
+
+
+async def test_create_rejects_foreign_tenant_same_id_without_overwriting_owner(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    repository = RunRepository(sqlite_db)
+    owner = _make_run("guessed-run", tenant_id="tenant-a")
+    owner.metadata = {"owner": "tenant-a"}
+    await repository.create(owner)
+    foreign = _make_run("guessed-run", tenant_id="tenant-b")
+    foreign.metadata = {"owner": "tenant-b"}
+
+    with pytest.raises(KeyError, match="run already exists"):
+        await repository.create(foreign)
+
+    persisted = await repository.get("guessed-run")
+    assert persisted is not None
+    assert persisted.tenant_id == "tenant-a"
+    assert persisted.metadata == {"owner": "tenant-a"}
+
+
+async def test_racing_tenants_get_exactly_one_same_run_id_winner(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    first = RunRepository(sqlite_db)
+    second = RunRepository(sqlite_db)
+    contenders = [
+        _make_run("raced-run", thread_id="thread-a", tenant_id="tenant-a"),
+        _make_run("raced-run", thread_id="thread-b", tenant_id="tenant-b"),
+    ]
+
+    results = await asyncio.gather(
+        first.create(contenders[0]),
+        second.create(contenders[1]),
+        return_exceptions=True,
+    )
+
+    assert sum(isinstance(result, Run) for result in results) == 1
+    assert sum(isinstance(result, KeyError) for result in results) == 1
+    persisted = await first.get("raced-run")
+    assert persisted is not None
+    assert persisted.tenant_id in {"tenant-a", "tenant-b"}
+
+
+async def test_replayed_same_run_id_is_refused_without_mutating_owner(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    repository = RunRepository(sqlite_db)
+    original = _make_run("replayed-run", tenant_id="tenant-a")
+    original.metadata = {"request": "first"}
+    await repository.create(original)
+
+    replay = original.model_copy(deep=True)
+    replay.metadata = {"request": "replayed"}
+    with pytest.raises(KeyError, match="run already exists"):
+        await repository.create(replay)
+
+    persisted = await repository.get("replayed-run", tenant_id="tenant-a")
+    assert persisted is not None
+    assert persisted.metadata == {"request": "first"}
 
 
 async def test_transition_records_the_new_status(

@@ -115,6 +115,62 @@ async def test_graph_foreign_tenant_is_404_across_studio_api(sqlite_db) -> None:
         assert client_b.delete(f"/api/studio/v1/workflows/{graph_id}").status_code == 404
 
 
+def _assert_masked(foreign, unknown) -> None:
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.json() == unknown.json()
+
+
+@pytest.mark.asyncio
+async def test_workflow_read_foreign_matches_unknown(sqlite_db) -> None:
+    repo = GraphRepository(sqlite_db)
+    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
+        _studio_app(repo, "tenant-b")
+    ) as foreign:
+        graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
+        _assert_masked(
+            foreign.get(f"/api/studio/v1/workflows/{graph_id}"),
+            foreign.get("/api/studio/v1/workflows/unknown-workflow"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_workflow_write_foreign_matches_unknown(sqlite_db) -> None:
+    repo = GraphRepository(sqlite_db)
+    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
+        _studio_app(repo, "tenant-b")
+    ) as foreign:
+        graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
+        _assert_masked(
+            foreign.post(f"/api/studio/v1/workflows/{graph_id}/publish"),
+            foreign.post("/api/studio/v1/workflows/unknown-workflow/publish"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_workflow_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
+    repo = GraphRepository(sqlite_db)
+    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
+        _studio_app(repo, "tenant-b")
+    ) as foreign, TestClient(_studio_app(repo, "tenant-unknown")) as unknown:
+        owner.post("/api/studio/v1/workflows", json={"name": "private"})
+        assert foreign.get("/api/studio/v1/workflows").json() == unknown.get(
+            "/api/studio/v1/workflows"
+        ).json()
+
+
+@pytest.mark.asyncio
+async def test_workflow_delete_foreign_matches_unknown(sqlite_db) -> None:
+    repo = GraphRepository(sqlite_db)
+    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
+        _studio_app(repo, "tenant-b")
+    ) as foreign:
+        graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
+        _assert_masked(
+            foreign.delete(f"/api/studio/v1/workflows/{graph_id}"),
+            foreign.delete("/api/studio/v1/workflows/unknown-workflow"),
+        )
+
+
 @pytest.mark.asyncio
 async def test_cloned_draft_stays_owned_by_source_tenant(sqlite_db) -> None:
     # The clone path routes through clone_graph_version + save; a dropped tenant
@@ -188,6 +244,62 @@ async def test_deployment_repository_is_tenant_scoped(sqlite_db) -> None:
     assert await repo.list("dep-a", tenant_id="tenant-a", workspace_id="workspace-a") == [owned]
 
 
+async def _seed_scoped_deployment(sqlite_db, deployment_ref: str = "dep-split"):
+    await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id=f"graph-{deployment_ref}").model_copy(
+            update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+        ),
+        deployment_ref=deployment_ref,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    repository = SQLiteDeploymentRepository(sqlite_db)
+    owner = await repository.get(
+        deployment_ref, tenant_id="tenant-a", workspace_id="workspace-a"
+    )
+    assert owner is not None
+    return repository, owner
+
+
+@pytest.mark.asyncio
+async def test_deployment_read_foreign_matches_unknown(sqlite_db) -> None:
+    repository, _ = await _seed_scoped_deployment(sqlite_db)
+    foreign = await repository.get(
+        "dep-split", tenant_id="tenant-b", workspace_id="workspace-b"
+    )
+    unknown = await repository.get(
+        "unknown-deployment", tenant_id="tenant-b", workspace_id="workspace-b"
+    )
+    assert foreign is unknown is None
+
+
+@pytest.mark.asyncio
+async def test_deployment_enumerate_matches_empty_unknown_scope(sqlite_db) -> None:
+    repository, _ = await _seed_scoped_deployment(sqlite_db)
+    foreign = await repository.list(tenant_id="tenant-b", workspace_id="workspace-b")
+    unknown = await repository.list(tenant_id="tenant-unknown", workspace_id="workspace-unknown")
+    assert foreign == unknown == []
+
+
+@pytest.mark.asyncio
+async def test_deployment_create_collision_preserves_owner(sqlite_db) -> None:
+    repository, owner = await _seed_scoped_deployment(sqlite_db)
+    collision = owner.model_copy(
+        update={
+            "deployment_id": "foreign-collision-split",
+            "version": 2,
+            "tenant_id": "tenant-b",
+            "workspace_id": "workspace-b",
+        }
+    )
+    with pytest.raises(KeyError):
+        await repository.create(collision, tenant_id="tenant-b", workspace_id="workspace-b")
+    assert await repository.get(
+        "dep-split", tenant_id="tenant-a", workspace_id="workspace-a"
+    ) == owner
+
+
 # ---------------------------------------------------------------------------
 # audits — AuditQuery.tenant_id filters node_audits
 # ---------------------------------------------------------------------------
@@ -238,6 +350,35 @@ async def test_connector_config_repository_is_tenant_scoped(sqlite_db) -> None:
     assert await repo.delete("kv-a", tenant_id="tenant-b") is False
     # The owner still sees it.
     assert (await repo.get("kv-a", tenant_id="tenant-a")).params == {"dsn": "postgres://a-secret"}
+
+
+@pytest.mark.asyncio
+async def test_connector_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
+    repository = MemoryConnectorConfigRepository(sqlite_db)
+    await repository.upsert("private-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
+    assert await repository.list(tenant_id="tenant-b") == await repository.list(
+        tenant_id="tenant-unknown"
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_connector_write_collision_preserves_owner(sqlite_db) -> None:
+    repository = MemoryConnectorConfigRepository(sqlite_db)
+    await repository.upsert("shared-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
+    with pytest.raises(KeyError):
+        await repository.upsert(
+            "shared-ref", "key_value", {"secret": "foreign"}, tenant_id="tenant-b"
+        )
+    owner = await repository.get("shared-ref", tenant_id="tenant-a")
+    assert owner is not None and owner.params == {"secret": "owner"}
+
+
+@pytest.mark.asyncio
+async def test_connector_delete_foreign_matches_unknown(sqlite_db) -> None:
+    repository = MemoryConnectorConfigRepository(sqlite_db)
+    await repository.upsert("private-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
+    assert await repository.delete("private-ref", tenant_id="tenant-b") is False
+    assert await repository.delete("unknown-ref", tenant_id="tenant-b") is False
 
 
 # ---------------------------------------------------------------------------

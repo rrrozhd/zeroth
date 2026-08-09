@@ -567,7 +567,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
 
 @pytest.mark.legacy_engine
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
-    store = RepositoryThreadStateStore(sqlite_db)
+    store = RepositoryThreadStateStore(sqlite_db, tenant_id="default", workspace_id=None)
     thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
     runner = AgentRunner(
         AgentConfig(

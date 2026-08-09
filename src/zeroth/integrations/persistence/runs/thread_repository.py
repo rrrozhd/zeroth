@@ -24,6 +24,8 @@ from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["ThreadRepository"]
 
+_UNSCOPED_WORKSPACE = object()
+
 
 class ThreadRepository:
     """High-level async interface for saving and loading threads.
@@ -37,26 +39,69 @@ class ThreadRepository:
 
     async def create(self, thread: Thread) -> Thread:
         """Save a new thread and return the persisted version."""
-        await self._store.save_thread(thread)
-        return await self.get(thread.thread_id)
+        await self._store.create_thread(thread)
+        created = await self.get(
+            thread.thread_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+        )
+        if created is None:  # pragma: no cover - insert/read transaction contract
+            raise RuntimeError("created thread is unavailable in its owning scope")
+        return created
 
-    async def get(self, thread_id: str) -> Thread | None:
-        """Load a thread by its ID, or return None if not found."""
-        return await self._store.get_thread(thread_id)
+    async def get(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> Thread | None:
+        """Load a thread, optionally hiding scopes other than the caller's."""
+        return await self._store.get_thread(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
+            workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
+        )
 
-    async def list(self) -> list[Thread]:
-        """Return all threads, ordered by creation time."""
+    async def list(
+        self,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> list[Thread]:
+        """Return ordered threads, optionally constrained at query time."""
+        sql = "SELECT * FROM threads"
+        predicates: list[str] = []
+        params: list[object] = []
+        if tenant_id is not None:
+            predicates.append("tenant_id = ?")
+            params.append(tenant_id)
+        if workspace_id is not _UNSCOPED_WORKSPACE:
+            if workspace_id is None:
+                predicates.append("workspace_id IS NULL")
+            else:
+                predicates.append("workspace_id = ?")
+                params.append(workspace_id)
+        if predicates:
+            sql += " WHERE " + " AND ".join(predicates)
+        sql += " ORDER BY created_at, thread_id"
         async with self._store.database.transaction() as connection:
-            rows = await connection.fetch_all(
-                "SELECT * FROM threads ORDER BY created_at, thread_id"
-            )
+            rows = await connection.fetch_all(sql, tuple(params))
         return [row_to_thread(row) for row in rows]
 
     async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
         thread.updated_at = utc_now()
         await self._store.save_thread(thread)
-        return await self.get(thread.thread_id)
+        updated = await self.get(
+            thread.thread_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+        )
+        if updated is None:  # pragma: no cover - update/read transaction contract
+            raise RuntimeError("updated thread is unavailable in its owning scope")
+        return updated
 
     async def resolve(
         self,
@@ -82,25 +127,32 @@ class ThreadRepository:
         if thread_id is None:
             thread_id = run_id or uuid4().hex
 
-        existing = await self.get(thread_id)
+        existing = await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
         if existing is None:
-            return await self.create(
-                Thread(
-                    thread_id=thread_id,
-                    graph_version_ref=graph_version_ref,
-                    deployment_ref=deployment_ref,
-                    tenant_id=tenant_id,
-                    workspace_id=workspace_id,
-                    participating_agent_refs=list(participating_agent_refs or []),
-                    state_snapshot_refs=list(state_snapshot_refs or []),
-                    checkpoint_refs=list(checkpoint_refs or []),
-                    memory_bindings=list(memory_bindings or []),
-                    run_ids=[run_id] if run_id else [],
-                    active_run_id=run_id,
-                    last_run_id=run_id,
-                    status=status or ThreadStatus.ACTIVE,
+            try:
+                return await self.create(
+                    Thread(
+                        thread_id=thread_id,
+                        graph_version_ref=graph_version_ref,
+                        deployment_ref=deployment_ref,
+                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
+                        participating_agent_refs=list(participating_agent_refs or []),
+                        state_snapshot_refs=list(state_snapshot_refs or []),
+                        checkpoint_refs=list(checkpoint_refs or []),
+                        memory_bindings=list(memory_bindings or []),
+                        run_ids=[run_id] if run_id else [],
+                        active_run_id=run_id,
+                        last_run_id=run_id,
+                        status=status or ThreadStatus.ACTIVE,
+                    )
                 )
-            )
+            except KeyError as error:
+                raise KeyError("thread could not be resolved") from error
 
         if (
             existing.graph_version_ref != graph_version_ref
@@ -124,33 +176,99 @@ class ThreadRepository:
             existing.status = status
         existing.updated_at = utc_now()
         await self._store.save_thread(existing)
-        return await self.get(thread_id)
+        resolved = await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if resolved is None:  # pragma: no cover - concurrent delete guard
+            raise KeyError("thread could not be resolved")
+        return resolved
 
-    async def attach_run(self, thread_id: str, run_id: str) -> Thread:
+    async def attach_run(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> Thread:
         """Add a run to a thread and make it the active run."""
-        thread = await self.get(thread_id)
+        thread = await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
         if thread is None:
             raise KeyError(thread_id)
+        run = await self._store.get_run(
+            run_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+            workspace_scoped=True,
+        )
+        if run is None:
+            raise KeyError(run_id)
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
         thread.active_run_id = run_id
         thread.last_run_id = run_id
         thread.updated_at = utc_now()
         await self._store.save_thread(thread)
-        return await self.get(thread_id)
+        return await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
-    async def get_active_run_id(self, thread_id: str) -> str | None:
+    async def get_active_run_id(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Return the currently active run ID for a thread."""
-        return await self._store.get_active_run_id(thread_id)
+        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        return None if thread is None else thread.active_run_id
 
-    async def get_latest_run_id(self, thread_id: str) -> str | None:
+    async def get_latest_run_id(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Return the most recently added run ID for a thread."""
-        return await self._store.get_latest_run_id(thread_id)
+        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        return None if thread is None else thread.last_run_id
 
-    async def list_run_ids(self, thread_id: str) -> list[str]:
+    async def list_run_ids(
+        self,
+        thread_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> list[str]:
         """Return all run IDs belonging to a thread."""
-        return await self._store.list_run_ids(thread_id)
+        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        return [] if thread is None else list(thread.run_ids)
 
-    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
         """Mark a run as the active run for its thread."""
-        await self._store.set_active_run_id(thread_id, run_id)
+        if workspace_id is _UNSCOPED_WORKSPACE:
+            await self._store.set_active_run_id(thread_id, run_id, tenant_id=tenant_id)
+        else:
+            await self._store.set_active_run_id(
+                thread_id,
+                run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )

@@ -22,6 +22,10 @@ from zeroth.platform.artifacts.store import (
     FilesystemArtifactStore,
     RedisArtifactStore,
 )
+from zeroth.platform.artifacts.tenant_scoped import (
+    TenantScopedArtifactStore,
+    frame_artifact_key,
+)
 
 __all__ = [
     "ArtifactNotFoundError",
@@ -33,5 +37,7 @@ __all__ = [
     "ArtifactTTLError",
     "FilesystemArtifactStore",
     "RedisArtifactStore",
+    "TenantScopedArtifactStore",
+    "frame_artifact_key",
     "generate_artifact_key",
 ]

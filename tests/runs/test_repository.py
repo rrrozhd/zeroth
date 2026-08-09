@@ -11,6 +11,17 @@ from zeroth.runtime.runs import ThreadStatus
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
+async def _create_linkable_run(database, run_id: str) -> None:
+    await RunRepository(database).create(
+        Run(
+            run_id=run_id,
+            thread_id=f"origin-{run_id}",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+        )
+    )
+
+
 async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -> None:
     fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
     monkeypatch.setattr(thread_repository_module, "utc_now", lambda: fixed)
@@ -18,6 +29,7 @@ async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -
     thread = await repository.create(
         Thread(graph_version_ref="graph:v1", deployment_ref="deployment:v1")
     )
+    await _create_linkable_run(runs_db, "run-1")
 
     updated = await repository.attach_run(thread.thread_id, "run-1")
 
@@ -150,6 +162,7 @@ async def test_thread_repository_attach_run_updates_existing_thread(runs_db) -> 
             deployment_ref="deployment:v1",
         )
     )
+    await _create_linkable_run(runs_db, "run-a")
 
     updated = await repo.attach_run(thread.thread_id, "run-a")
 
@@ -166,6 +179,7 @@ async def test_thread_repository_thread_aware_run_indexing(runs_db) -> None:
             deployment_ref="deployment:v1",
         )
     )
+    await _create_linkable_run(runs_db, "run-a")
 
     await repo.set_active_run_id(thread.thread_id, "run-a")
 

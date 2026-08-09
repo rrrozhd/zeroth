@@ -31,6 +31,8 @@ class SidecarExecuteResponse(BaseModel):
     stderr: str = ""
     duration_seconds: float | None = None
     timed_out: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class SidecarStatusResponse(BaseModel):
@@ -43,6 +45,8 @@ class SidecarStatusResponse(BaseModel):
     stderr: str = ""
     duration_seconds: float | None = None
     timed_out: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class SidecarHealthResponse(BaseModel):

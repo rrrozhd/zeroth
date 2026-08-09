@@ -8,6 +8,7 @@ encrypt-at-rest behaviour without asserting anything about threads.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,8 @@ async def _write(
         checkpoint_id=checkpoint_id,
         run_id=run.run_id,
         thread_id=run.thread_id,
+        tenant_id=run.tenant_id,
+        workspace_id=run.workspace_id,
         checkpoint_order=checkpoint_order,
         state_json=to_json_value(run.model_dump(mode="json")),
         created_at=run.updated_at.isoformat(),
@@ -117,6 +120,55 @@ async def test_write_row_upserts_an_existing_checkpoint_id(
 
     assert restored is not None
     assert restored.workflow_name == "updated"
+
+
+async def test_same_checkpoint_id_is_atomic_and_independent_across_tenants(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    store = CheckpointRowStore(sqlite_db)
+    owner = _make_run("run-a")
+    foreign = _make_run("run-b")
+    foreign.tenant_id = "tenant-2"
+    owner.workflow_name = "owner-secret"
+    foreign.workflow_name = "foreign-value"
+
+    await asyncio.gather(
+        _write(store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0),
+        _write(store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0),
+    )
+
+    owner_copy = await store.get("shared-checkpoint", tenant_id="tenant-1", workspace_id=None)
+    foreign_copy = await store.get("shared-checkpoint", tenant_id="tenant-2", workspace_id=None)
+    assert owner_copy is not None and owner_copy.workflow_name == "owner-secret"
+    assert foreign_copy is not None and foreign_copy.workflow_name == "foreign-value"
+    assert await store.get("shared-checkpoint") is None
+
+
+async def test_checkpoint_list_and_delete_use_durable_owner_scope(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    store = CheckpointRowStore(sqlite_db)
+    owner = _make_run("run-a", thread_id="shared-thread")
+    foreign = _make_run("run-b", thread_id="shared-thread")
+    foreign.tenant_id = "tenant-2"
+    await _write(store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0)
+    await _write(store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0)
+
+    assert await store.list_ids(
+        "shared-thread", tenant_id="tenant-1", workspace_id=None
+    ) == ["shared-checkpoint"]
+    assert await store.list_ids(
+        "unknown-thread", tenant_id="tenant-1", workspace_id=None
+    ) == []
+    assert await store.delete(
+        "shared-checkpoint", tenant_id="tenant-2", workspace_id=None
+    ) is True
+    assert await store.get(
+        "shared-checkpoint", tenant_id="tenant-1", workspace_id=None
+    ) is not None
+    assert await store.get(
+        "shared-checkpoint", tenant_id="tenant-2", workspace_id=None
+    ) is None
 
 
 async def test_latest_id_for_run_returns_the_highest_ordered_checkpoint(
@@ -183,18 +235,22 @@ async def test_reading_falls_back_to_plaintext_written_before_encryption(
     async with encrypted_database.transaction() as connection:
         await connection.execute(
             """
-            INSERT INTO run_checkpoints (
-                checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO run_checkpoints (
+                    checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at,
+                    tenant_id, workspace_id, workspace_scope
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "plaintext-checkpoint",
                 run.run_id,
                 run.thread_id,
                 0,
-                to_json_value(run.model_dump(mode="json")),
-                run.updated_at.isoformat(),
-            ),
+                    to_json_value(run.model_dump(mode="json")),
+                    run.updated_at.isoformat(),
+                    run.tenant_id,
+                    run.workspace_id,
+                    "null",
+                ),
         )
 
     restored = await CheckpointRowStore(encrypted_database).get("plaintext-checkpoint")
