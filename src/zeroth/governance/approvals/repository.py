@@ -121,6 +121,34 @@ class ApprovalRepository:
             return None
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
 
+    async def resolve_pending(self, record: ApprovalRecord) -> ApprovalRecord | None:
+        """Atomically publish ``record`` only while its exact scoped row is pending."""
+        sql = """UPDATE approvals
+                 SET status = ?, updated_at = ?, record_json = ?
+                 WHERE approval_id = ? AND status = ?
+                   AND tenant_id = ? AND deployment_ref = ? AND graph_version_ref = ?"""
+        params: list[object] = [
+            record.status.value,
+            record.updated_at.isoformat(),
+            to_json_value(record.model_dump(mode="json")),
+            record.approval_id,
+            ApprovalStatus.PENDING.value,
+            record.tenant_id,
+            record.deployment_ref,
+            record.graph_version_ref,
+        ]
+        if record.workspace_id is None:
+            sql += " AND workspace_id IS NULL"
+        else:
+            sql += " AND workspace_id = ?"
+            params.append(record.workspace_id)
+        sql += " RETURNING record_json"
+        async with self._database.transaction(write_lock=True) as connection:
+            row = await connection.fetch_one(sql, tuple(params))
+        if row is None:
+            return None
+        return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
+
     async def list_pending(
         self,
         *,

@@ -59,7 +59,15 @@
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_rejects_foreign_and_unknown_runs_identically",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_resolve_foreign_id_matches_unknown_create_semantics",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_same_external_thread_id_race_creates_one_thread_per_tenant",
-        "tests/storage/test_migration_thread_scope.py::test_thread_scope_migration_preserves_legacy_rows_and_allows_scoped_duplicates"
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_unscoped_thread_run_link_rejects_foreign_run_without_mutation[attach]",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_unscoped_thread_run_link_rejects_foreign_run_without_mutation[set-active]",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_unscoped_thread_run_link_rejects_foreign_run_without_mutation[run-repository-set-active]",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_valid_thread_run_link_survives_repository_restart",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_set_active_addresses_duplicate_logical_thread_ids",
+        "tests/storage/test_migration_thread_scope.py::test_thread_scope_migration_preserves_legacy_rows_and_allows_scoped_duplicates",
+        "tests/storage/test_migration_thread_scope.py::test_upgrade_canonicalizes_legacy_null_tenant_before_rebuild",
+        "tests/storage/test_migration_thread_scope.py::test_upgrade_preflight_failure_leaves_legacy_schema_retryable",
+        "tests/storage/test_migration_thread_scope.py::test_downgrade_duplicate_preflight_leaves_scoped_schema_and_data_retryable"
       ]
     },
     {
@@ -98,6 +106,8 @@
         "tests/security/test_api_surface_isolation.py::test_approval_enumerate_api_foreign_matches_unknown",
         "tests/security/test_api_surface_isolation.py::test_approval_retrieve_api_foreign_id_matches_unknown",
         "tests/security/test_api_surface_isolation.py::test_approval_resolve_api_foreign_id_matches_unknown",
+        "tests/approvals/test_service.py::test_concurrent_opposite_approval_decisions_publish_exactly_one_winner",
+        "tests/approvals/test_service.py::test_concurrent_same_approval_decision_replays_one_stable_resolution",
         "tests/service/test_approval_api.py::test_approval_api_duplicate_resolution_is_idempotent"
       ]
     },
@@ -141,8 +151,8 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/security/test_surface_isolation.py::test_rate_limit_same_subject_isolated_by_tenant_key",
-        "tests/security/test_surface_isolation.py::test_quota_same_subject_isolated_by_tenant_key",
+        "tests/service/test_guardrails_api.py::test_run_api_token_bucket_key_isolates_same_subject_and_deployment_by_tenant",
+        "tests/service/test_guardrails_api.py::test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant",
         "tests/guardrails/test_rate_limit.py::test_token_bucket_concurrent_consume_never_exceeds_capacity",
         "tests/guardrails/test_rate_limit.py::test_quota_concurrent_increment_never_exceeds_limit"
       ]
@@ -215,7 +225,8 @@
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_run_scope_predicate",
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_audit_scope_predicate",
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_same_id_tenant_race",
-        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_pool_restart_preserves_scope"
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_pool_restart_preserves_scope",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_approval_opposite_decision_race"
       ]
     },
     {

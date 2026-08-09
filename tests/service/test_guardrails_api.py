@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import (
@@ -10,6 +14,11 @@ from tests.service.helpers import (
     operator_headers,
 )
 from zeroth.service.bootstrap import bootstrap_app
+from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.runtime.runs import Run
+from zeroth.service.api.run_api import _check_guardrails
 
 DEPLOYMENT = "guardrail-test"
 
@@ -101,3 +110,61 @@ async def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
     assert r1.status_code == 202
     assert r2.status_code == 503
     assert "quota" in r2.json()["detail"].lower()
+
+
+def _guardrail_run(tenant_id: str) -> Run:
+    return Run(
+        run_id=f"run-{tenant_id}",
+        thread_id=f"thread-{tenant_id}",
+        graph_version_ref="graph:v1",
+        deployment_ref="same-logical-deployment",
+        tenant_id=tenant_id,
+        submitted_by=ActorIdentity(subject="same-subject", auth_method=AuthMethod.API_KEY),
+    )
+
+
+async def test_run_api_token_bucket_key_isolates_same_subject_and_deployment_by_tenant(
+    sqlite_db,
+) -> None:
+    bootstrap = SimpleNamespace(
+        guardrail_config=SimpleNamespace(
+            backpressure_queue_depth=100,
+            rate_limit_capacity=1.0,
+            rate_limit_refill_rate=0.0,
+            quota_daily_limit=None,
+        ),
+        run_repository=RunRepository(sqlite_db),
+        rate_limiter=TokenBucketRateLimiter(sqlite_db),
+    )
+    tenant_a = _guardrail_run("tenant-a")
+    tenant_b = _guardrail_run("tenant-b")
+
+    await _check_guardrails(bootstrap, tenant_a)
+    with pytest.raises(HTTPException) as exhausted:
+        await _check_guardrails(bootstrap, tenant_a)
+    await _check_guardrails(bootstrap, tenant_b)
+
+    assert exhausted.value.status_code == 429
+
+
+async def test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant(sqlite_db) -> None:
+    bootstrap = SimpleNamespace(
+        guardrail_config=SimpleNamespace(
+            backpressure_queue_depth=100,
+            rate_limit_capacity=100.0,
+            rate_limit_refill_rate=0.0,
+            quota_daily_limit=1,
+        ),
+        run_repository=RunRepository(sqlite_db),
+        rate_limiter=None,
+        quota_enforcer=QuotaEnforcer(sqlite_db),
+    )
+    tenant_a = _guardrail_run("tenant-a")
+    tenant_b = _guardrail_run("tenant-b")
+
+    await _check_guardrails(bootstrap, tenant_a)
+    with pytest.raises(HTTPException) as exhausted:
+        await _check_guardrails(bootstrap, tenant_a)
+    await _check_guardrails(bootstrap, tenant_b)
+
+    assert exhausted.value.status_code == 503

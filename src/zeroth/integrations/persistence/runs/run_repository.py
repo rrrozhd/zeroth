@@ -552,9 +552,31 @@ class _RunThreadStore:
             return []
         return list(thread.run_ids)
 
-    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
         """Mark a run as the active run for its thread."""
-        thread = await self._ensure_thread(thread_id)
+        thread = await self.get_thread(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
+            workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
+        )
+        if thread is None:
+            raise KeyError(thread_id)
+        run = await self.get_run(
+            run_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+            workspace_scoped=True,
+        )
+        if run is None:
+            raise KeyError(run_id)
         thread.active_run_id = run_id
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
@@ -735,9 +757,7 @@ class _RunThreadStore:
     ) -> int:
         """Return the next checkpoint order number for a thread."""
         return len(
-            await self._checkpoint_ids(
-                thread_id, tenant_id=tenant_id, workspace_id=workspace_id
-            )
+            await self._checkpoint_ids(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
         )
 
     async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
@@ -930,9 +950,21 @@ class RunRepository:
         """Return all run IDs belonging to a thread."""
         return await self._store.list_run_ids(thread_id)
 
-    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
         """Mark a run as the active run for its thread."""
-        await self._store.set_active_run_id(thread_id, run_id)
+        await self._store.set_active_run_id(
+            thread_id,
+            run_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
 
     async def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Clear the active run for a thread if it matches the given run_id."""

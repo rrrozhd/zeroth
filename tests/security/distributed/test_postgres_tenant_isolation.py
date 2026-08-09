@@ -12,6 +12,13 @@ from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
+from zeroth.governance.approvals import (
+    ApprovalDecision,
+    ApprovalRecord,
+    ApprovalRepository,
+    ApprovalService,
+)
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.runtime.runs import Run
@@ -137,9 +144,53 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
             for record in await AuditRepository(restarted).list(AuditQuery(tenant_id="tenant-b"))
         }
         assert f"restart-{unique}" not in foreign_ids
-        owner = await AuditRepository(restarted).get(
-            f"restart-{unique}", tenant_id="tenant-a"
-        )
+        owner = await AuditRepository(restarted).get(f"restart-{unique}", tenant_id="tenant-a")
         assert owner is not None
     finally:
         await restarted.close()
+
+
+@requires_docker
+@pytest.mark.security_rc
+async def test_security_rc_postgres_approval_opposite_decision_race(security_postgres) -> None:
+    database, unique = security_postgres
+    repository = ApprovalRepository(database)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(database))
+    record = await repository.write(
+        ApprovalRecord(
+            approval_id=f"approval-race-{unique}",
+            run_id=f"run-{unique}",
+            node_id="approval",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment",
+            allowed_actions=[ApprovalDecision.APPROVE, ApprovalDecision.REJECT],
+            summary="race",
+            rationale="race",
+        )
+    )
+    original_get = repository.get
+    both_read = asyncio.Event()
+    reads = 0
+    lock = asyncio.Lock()
+
+    async def synchronized_get(*args, **kwargs):
+        nonlocal reads
+        result = await original_get(*args, **kwargs)
+        async with lock:
+            reads += 1
+            current = reads
+            if reads == 2:
+                both_read.set()
+        if current <= 2:
+            await both_read.wait()
+        return result
+
+    repository.get = synchronized_get  # type: ignore[method-assign]
+    actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
+    outcomes = await asyncio.gather(
+        service.resolve(record.approval_id, decision=ApprovalDecision.APPROVE, actor=actor),
+        service.resolve(record.approval_id, decision=ApprovalDecision.REJECT, actor=actor),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(item, ApprovalRecord) for item in outcomes) == 1
+    assert sum(isinstance(item, ValueError) for item in outcomes) == 1

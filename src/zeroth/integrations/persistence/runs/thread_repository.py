@@ -201,15 +201,14 @@ class ThreadRepository:
         )
         if thread is None:
             raise KeyError(thread_id)
-        if tenant_id is not None or workspace_id is not _UNSCOPED_WORKSPACE:
-            run = await self._store.get_run(
-                run_id,
-                tenant_id=tenant_id,
-                workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
-                workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
-            )
-            if run is None:
-                raise KeyError(run_id)
+        run = await self._store.get_run(
+            run_id,
+            tenant_id=thread.tenant_id,
+            workspace_id=thread.workspace_id,
+            workspace_scoped=True,
+        )
+        if run is None:
+            raise KeyError(run_id)
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
         thread.active_run_id = run_id
@@ -255,6 +254,21 @@ class ThreadRepository:
         thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
         return [] if thread is None else list(thread.run_ids)
 
-    async def set_active_run_id(self, thread_id: str, run_id: str) -> None:
+    async def set_active_run_id(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
         """Mark a run as the active run for its thread."""
-        await self._store.set_active_run_id(thread_id, run_id)
+        if workspace_id is _UNSCOPED_WORKSPACE:
+            await self._store.set_active_run_id(thread_id, run_id, tenant_id=tenant_id)
+        else:
+            await self._store.set_active_run_id(
+                thread_id,
+                run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )

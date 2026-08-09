@@ -350,7 +350,25 @@ class ApprovalService:
             edited_payload=edited_payload,
         )
         record.updated_at = datetime.now(UTC)
-        resolved = await self.repository.write(record)
+        resolved = await self.repository.resolve_pending(record)
+        if resolved is None:
+            current = await self._require(
+                approval_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                deployment_ref=deployment_ref,
+                graph_version_ref=graph_version_ref,
+            )
+            current_resolution = current.resolution
+            if (
+                current.status is ApprovalStatus.RESOLVED
+                and current_resolution is not None
+                and current_resolution.decision is decision
+                and current_resolution.actor == actor
+                and current_resolution.edited_payload == edited_payload
+            ):
+                return current
+            raise ValueError("approval already resolved")
         await self._record_api_audit(resolved)
         await self._emit_webhook(
             "approval.resolved",
