@@ -140,6 +140,10 @@ async def require_permission(request: Request, permission: Permission) -> Authen
     principal = current_principal(request)
     allowed = _role_registry(request).permissions_for(principal.roles)
     if permission in allowed:
+        bootstrap = getattr(request.app.state, "bootstrap", None)
+        deployment = getattr(bootstrap, "deployment", None)
+        if deployment is not None:
+            await require_deployment_scope(request, deployment)
         return principal
     bootstrap = getattr(request.app.state, "bootstrap", None)
     await record_service_denial(

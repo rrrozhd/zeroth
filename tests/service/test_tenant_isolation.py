@@ -80,13 +80,87 @@ async def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_
         )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "run not found"}
+    assert response.json() == {"detail": "deployment not found"}
     denials = [
         record
         for record in await service.audit_repository.list_by_node("service.authorization")
         if record.error == "scope mismatch"
     ]
     assert denials
+
+
+async def test_cross_tenant_permission_only_manifest_read_is_hidden_and_audited(sqlite_db) -> None:
+    """Permission authorization alone must not disclose a served deployment."""
+    auth_config = _scoped_auth_config()
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-tenant-manifest"),
+        auth_config=auth_config,
+        tenant_id="tenant-a",
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+    app.state.bootstrap = service
+    content_capture(service.audit_repository)
+
+    with TestClient(app) as client:
+        foreign = client.get("/manifests", headers=_headers("tenant-b-operator-key"))
+        unknown = client.get(
+            "/deployments/not-a-deployment/metadata", headers=_headers("tenant-a-operator-key")
+        )
+
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.json() == {"detail": "deployment not found"}
+    denials = [
+        record
+        for record in await service.audit_repository.list_by_node("service.authorization")
+        if record.error == "scope mismatch"
+    ]
+    assert denials
+
+
+async def test_cross_tenant_permission_routes_hide_every_deployment_surface(sqlite_db) -> None:
+    """The shared permission gate scopes reads, writes, deletes, execution, and Studio."""
+    auth_config = _scoped_auth_config()
+    service, _ = await deploy_service(
+        sqlite_db,
+        approval_resume_graph(graph_id="graph-tenant-central-scope"),
+        auth_config=auth_config,
+        tenant_id="tenant-a",
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=service.deployment.deployment_ref,
+        auth_config=auth_config,
+    )
+    app.state.bootstrap = service
+
+    requests = [
+        ("get", "/connectors", None, "tenant-b-operator-key"),
+        ("post", "/connectors", {"ref": "foreign", "backend_type": "ephemeral"}, "tenant-b-operator-key"),
+        ("delete", "/connectors/foreign", None, "tenant-b-operator-key"),
+        ("post", "/runs", {"input_payload": {"value": 1}}, "tenant-b-operator-key"),
+        ("get", "/runs/not-a-run", None, "tenant-b-operator-key"),
+        ("post", f"/deployments/{service.deployment.deployment_ref}/approvals/missing/resolve", {"decision": "approve"}, "tenant-b-reviewer-key"),
+        ("get", "/api/studio/v1/workflows", None, "tenant-b-operator-key"),
+    ]
+    with TestClient(app) as client:
+        unknown = client.get(
+            "/deployments/not-a-deployment/metadata", headers=_headers("tenant-a-operator-key")
+        )
+        responses = [
+            client.request(method, path, json=body, headers=_headers(secret))
+            for method, path, body, secret in requests
+        ]
+
+    assert unknown.status_code == 404
+    assert unknown.json() == {"detail": "deployment not found"}
+    for response in responses:
+        assert response.status_code == unknown.status_code
+        assert response.json() == unknown.json()
 
 
 async def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:

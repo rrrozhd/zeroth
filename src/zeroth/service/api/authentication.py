@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import inspect
 import json
 import os
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 from uuid import uuid4
 
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
@@ -45,6 +46,37 @@ _open_remote_jwks = build_opener(_HTTPOnlyRedirectHandler()).open
 
 class AuthenticationError(RuntimeError):
     """Raised when a request cannot be authenticated."""
+
+
+class CredentialStatusProvider(Protocol):
+    """Synchronous source of credential status checked after verification."""
+
+    def is_revoked(self, identifier: str) -> bool:
+        """Whether a verified credential identifier has been revoked."""
+
+
+class CredentialRevocationRegistry:
+    """Thread-safe, atomically replaceable immutable revocation snapshot."""
+
+    def __init__(self, revoked_credential_ids: Iterable[str] = ()) -> None:
+        self._lock = threading.Lock()
+        self._snapshot = frozenset(revoked_credential_ids)
+
+    def is_revoked(self, identifier: str) -> bool:
+        with self._lock:
+            return identifier in self._snapshot
+
+    @property
+    def snapshot(self) -> frozenset[str]:
+        """Immutable current revocation view, safe to inspect or replace from bootstrap code."""
+        with self._lock:
+            return self._snapshot
+
+    def replace_snapshot(self, identifiers: Iterable[str]) -> None:
+        """Atomically replace the complete revoked-credential identifier set."""
+        snapshot = frozenset(identifiers)
+        with self._lock:
+            self._snapshot = snapshot
 
 
 class StaticApiKeyCredential(BaseModel):
@@ -86,6 +118,19 @@ class ServiceAuthConfig(BaseModel):
     api_keys: list[StaticApiKeyCredential] = Field(default_factory=list)
     bearer: BearerTokenConfig | None = None
     custom_roles: dict[str, list[str]] = Field(default_factory=dict)
+    revoked_credential_ids: frozenset[str] = Field(default_factory=frozenset)
+
+    @field_validator("revoked_credential_ids", mode="before")
+    @classmethod
+    def _validate_revoked_credential_ids(cls, value: object) -> frozenset[str]:
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise ValueError("revoked credential identifiers must be an array of strings")
+        if any(not isinstance(identifier, str) for identifier in value):
+            raise ValueError("revoked credential identifiers must be strings")
+        identifiers = frozenset(value)
+        if len(identifiers) != len(value):
+            raise ValueError("revoked credential identifiers must be unique")
+        return identifiers
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
@@ -97,12 +142,20 @@ class ServiceAuthConfig(BaseModel):
             payload["bearer"] = json.loads(source["ZEROTH_SERVICE_BEARER_JSON"])
         if source.get("ZEROTH_SERVICE_ROLES_JSON"):
             payload["custom_roles"] = json.loads(source["ZEROTH_SERVICE_ROLES_JSON"])
+        if source.get("ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"):
+            payload["revoked_credential_ids"] = json.loads(
+                source["ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"]
+            )
         return cls.model_validate(payload)
 
 
 _auth_parameters = inspect.signature(ServiceAuthConfig).parameters
 ServiceAuthConfig.__signature__ = inspect.signature(ServiceAuthConfig).replace(
-    parameters=[parameter for name, parameter in _auth_parameters.items() if name != "custom_roles"]
+    parameters=[
+        parameter
+        for name, parameter in _auth_parameters.items()
+        if name not in {"custom_roles", "revoked_credential_ids"}
+    ]
 )
 
 
@@ -217,12 +270,26 @@ class ServiceAuthenticator:
         config: ServiceAuthConfig | None = None,
         *,
         bearer_verifier: JWTBearerTokenVerifier | None = None,
+        credential_status_provider: CredentialStatusProvider | None = None,
     ) -> None:
         self._config = config or ServiceAuthConfig()
         self._api_keys: tuple[StaticApiKeyCredential, ...] = tuple(self._config.api_keys)
         self._bearer_verifier = bearer_verifier or (
             JWTBearerTokenVerifier(self._config.bearer) if self._config.bearer else None
         )
+        self._credential_status_provider = (
+            credential_status_provider
+            or CredentialRevocationRegistry(self._config.revoked_credential_ids)
+        )
+
+    @property
+    def credential_status_provider(self) -> CredentialStatusProvider:
+        """Provider used to make the final credential-status decision."""
+        return self._credential_status_provider
+
+    def _require_active_credential(self, identifier: str) -> None:
+        if self._credential_status_provider.is_revoked(identifier):
+            raise AuthenticationError("authentication required")
 
     def _match_api_key(self, presented: str) -> StaticApiKeyCredential | None:
         """Constant-time lookup of a stored API key credential by presented secret."""
@@ -240,6 +307,7 @@ class ServiceAuthenticator:
             credential = self._match_api_key(api_key)
             if credential is None:
                 raise AuthenticationError("authentication required")
+            self._require_active_credential(credential.credential_id)
             return AuthenticatedPrincipal(
                 subject=credential.subject,
                 auth_method=AuthMethod.API_KEY,
@@ -256,7 +324,13 @@ class ServiceAuthenticator:
                 raise AuthenticationError("authentication required")
             if self._bearer_verifier is None:
                 raise AuthenticationError("authentication required")
-            return self._bearer_verifier.verify(token)
+            principal = self._bearer_verifier.verify(token)
+            jti = principal.claims.get("jti") if principal.claims is not None else None
+            identifier = jti if isinstance(jti, str) and jti else "sha256:" + hashlib.sha256(
+                token.encode("utf-8")
+            ).hexdigest()
+            self._require_active_credential(identifier)
+            return principal
 
         raise AuthenticationError("authentication required")
 
