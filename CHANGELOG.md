@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1.4] - 2026-08-08
+
+### Fixed
+
+- The service test suite's `wait_for` helper now uses a hang deadline rather than a
+  latency guess. Its 3-second budget was only about six worker poll ticks against
+  operations measured at 0.632–0.917 s, so sustained CPU load could cross it and
+  `test_approval_api.py` failed about 1 run in 50 with "timed out waiting for condition".
+  The poll returns the instant its condition holds, so no healthy test gets slower.
+- The approval API tests no longer read a run's terminal status out of the resolve
+  response. `resolve_approval` hands the resume to the durable worker and waits for it only
+  best-effort, so that response can carry a run still marked `running`. The tests now wait
+  for the run to become terminal — whatever it settles on — so a *wrong* terminal outcome
+  fails immediately with its actual value instead of burning the deadline and reporting a
+  timeout. A new test pins what the endpoint actually guarantees.
+
+### Added
+
+- A slow wait is now recorded durably, not just warned about: `wait_for` appends elapsed
+  time, poll count, threshold and the observed run state to `.autopilot/slow-waits.jsonl`
+  (overridable via `ZEROTH_SLOW_WAIT_LOG`). The excursion behind the flake has never been
+  captured with state attached; this makes the next occurrence self-describing. Recording
+  is best-effort and can never fail the wait it describes.
+
 ## [0.19.1.3] - 2026-08-08
 
 ### Fixed
