@@ -303,8 +303,8 @@ async def test_slash_bearing_run_cleanup_uses_explicit_framing(
     values: dict[str, bytes] = {}
     underlying = _filesystem_store(tmp_path) if backend == "filesystem" else _redis_store(values)[0]
     wrapper = TenantScopedArtifactStore(underlying, tenant_id="tenant")
-    nested_run_key = frame_artifact_key("a/b", "node/artifact")
-    parent_run_key = frame_artifact_key("a", "b/node/artifact")
+    nested_run_key = frame_artifact_key("a/b", f"node/{'a' * 32}")
+    parent_run_key = frame_artifact_key("a", f"b/{'b' * 32}")
     await wrapper.store(nested_run_key, b"nested", "text/plain")
     await wrapper.store(parent_run_key, b"parent", "text/plain")
 
@@ -325,6 +325,25 @@ async def test_production_generated_slash_run_key_cleans_up(tmp_path: Path) -> N
     assert await wrapper.cleanup_run("slash/run", idempotency_key="cleanup") == 1
     assert not await wrapper.exists(key)
     assert reference.key == key
+
+
+@pytest.mark.asyncio()
+async def test_historical_marker_key_survives_foreign_framed_owner_cleanup(
+    tmp_path: Path,
+) -> None:
+    wrapper = TenantScopedArtifactStore(_filesystem_store(tmp_path), tenant_id="tenant")
+    historical = f"zeroth-run-v1/1-YQ/{'a' * 32}"
+    await wrapper.store(historical, b"historical", "text/plain")
+
+    assert await wrapper.retrieve(historical) == b"historical"
+    assert await wrapper.cleanup_run("a", idempotency_key="foreign-cleanup") == 0
+    assert await wrapper.retrieve(historical) == b"historical"
+    with pytest.raises(ArtifactStorageError, match="Malformed framed artifact key"):
+        await wrapper.store(
+            "zeroth-run-v1/1-YQ/not-a-generated-key",
+            b"ambiguous",
+            "text/plain",
+        )
 
 
 @pytest.mark.asyncio()

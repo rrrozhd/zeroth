@@ -26,6 +26,7 @@ from zeroth.platform.artifacts.errors import (
     ArtifactStoreError as DirectStoreError,
     ArtifactTTLError as DirectTTLError,
 )
+from zeroth.platform.artifacts.models import artifact_key_owner
 from zeroth.platform.artifacts.models import (
     ArtifactReference as DirectReference,
     ArtifactStoreSettings as DirectSettings,
@@ -151,6 +152,12 @@ class TestGenerateArtifactKey:
 
         assert key.startswith("zeroth-run-v1/")
         assert len(key.split("/")) == 4
+
+    def test_historical_marker_owner_is_not_misread_as_framed(self) -> None:
+        historical = f"zeroth-run-v1/1-YQ/{'a' * 32}"
+
+        assert artifact_key_owner(historical) == "zeroth-run-v1"
+        assert artifact_key_owner("zeroth-run-v1/1-YQ/not-a-generated-key") is None
 
 
 class TestArtifactStoreSettings:

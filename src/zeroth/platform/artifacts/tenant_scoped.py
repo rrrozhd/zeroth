@@ -15,6 +15,7 @@ from zeroth.platform.artifacts.errors import (
 from zeroth.platform.artifacts.models import (
     ArtifactReference,
     parse_framed_artifact_key,
+    parse_generated_artifact_key,
 )
 from zeroth.platform.artifacts.models import (
     frame_artifact_key as _frame_artifact_key,
@@ -80,7 +81,9 @@ class TenantScopedArtifactStore:
         try:
             framed = parse_framed_artifact_key(logical_key)
         except ValueError:
-            raise ArtifactStorageError("Malformed framed artifact key") from None
+            if parse_generated_artifact_key(logical_key) is None:
+                raise ArtifactStorageError("Malformed framed artifact key") from None
+            framed = None
         if framed is not None:
             run_id, remainder_text = framed
             owner = _encode_segment(run_id)

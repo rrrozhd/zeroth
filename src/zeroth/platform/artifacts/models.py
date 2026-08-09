@@ -9,6 +9,7 @@ keys suitable for prefix-based bulk cleanup.
 from __future__ import annotations
 
 import base64
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -16,6 +17,8 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 _FRAMED_KEY_MARKER = "zeroth-run-v1"
+_SAFE_NODE_ID = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._\-]{0,127}\Z")
+_UUID_HEX = re.compile(r"\A[0-9a-f]{32}\Z")
 
 
 def _encode_key_segment(value: str) -> str:
@@ -43,6 +46,13 @@ def frame_artifact_key(run_id: str, remainder: str) -> str:
     """Frame a run ID so slash bytes cannot blur its logical key boundary."""
     if not run_id or not remainder or "\x00" in run_id or "\x00" in remainder:
         raise ValueError("framed artifact key parts must be non-empty and NUL-free")
+    parts = remainder.split("/")
+    if (
+        len(parts) != 2
+        or _SAFE_NODE_ID.fullmatch(parts[0]) is None
+        or _UUID_HEX.fullmatch(parts[1]) is None
+    ):
+        raise ValueError("framed artifact key remainder must match generated key grammar")
     return f"{_FRAMED_KEY_MARKER}/{_encode_key_segment(run_id)}/{remainder}"
 
 
@@ -51,11 +61,15 @@ def parse_framed_artifact_key(key: str) -> tuple[str, str] | None:
     segments = key.split("/")
     if not segments or segments[0] != _FRAMED_KEY_MARKER:
         return None
-    if len(segments) < 3:
+    if len(segments) != 4:
         raise ValueError("malformed framed artifact key")
     run_id = _decode_key_segment(segments[1])
     remainder = "/".join(segments[2:])
-    if not run_id or not remainder or "\x00" in remainder:
+    if (
+        not run_id
+        or _SAFE_NODE_ID.fullmatch(segments[2]) is None
+        or _UUID_HEX.fullmatch(segments[3]) is None
+    ):
         raise ValueError("malformed framed artifact key")
     return run_id, remainder
 
@@ -64,27 +78,30 @@ def artifact_key_owner(key: str) -> str | None:
     """Return the unambiguous run owner of a framed or legacy logical key."""
     if not key or "\x00" in key:
         return None
-    try:
-        framed = parse_framed_artifact_key(key)
-    except ValueError:
-        return None
-    return framed[0] if framed is not None else key.split("/", 1)[0]
+    parsed = parse_generated_artifact_key(key)
+    if parsed is not None:
+        return parsed[0]
+    return None if key.startswith(f"{_FRAMED_KEY_MARKER}/") else key.split("/", 1)[0]
 
 
 def parse_generated_artifact_key(key: str) -> tuple[str, str, str] | None:
     """Parse the complete grammar minted by :func:`generate_artifact_key`."""
-    owner = artifact_key_owner(key)
-    if owner is None:
+    if not key or "\x00" in key:
         return None
-    try:
-        framed = parse_framed_artifact_key(key)
-    except ValueError:
+    parts = key.split("/")
+    if parts[0] == _FRAMED_KEY_MARKER and len(parts) == 4:
+        try:
+            owner = _decode_key_segment(parts[1])
+        except ValueError:
+            return None
+        node_id, suffix = parts[2:]
+    elif len(parts) == 3:
+        owner, node_id, suffix = parts
+    else:
         return None
-    remainder = framed[1] if framed is not None else key.removeprefix(f"{owner}/")
-    parts = remainder.split("/")
-    if len(parts) != 2:
+    if not owner or _SAFE_NODE_ID.fullmatch(node_id) is None or _UUID_HEX.fullmatch(suffix) is None:
         return None
-    return owner, parts[0], parts[1]
+    return owner, node_id, suffix
 
 
 class ArtifactReference(BaseModel):

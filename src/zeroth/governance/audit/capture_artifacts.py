@@ -25,7 +25,6 @@ addresses a blob by key and needs nothing else.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -43,11 +42,6 @@ MAX_RETAINED_ARTIFACT_KEYS = 64
 # platform scanner's duck-type. Used only to *find* candidates -- none of these
 # fields other than ``key`` survives.
 _REFERENCE_FIELDS = frozenset({"store", "key", "content_type", "size"})
-
-# The two halves of the minted grammar that are not the run id. A node id is
-# bounded and punctuated the way an identifier is; the suffix is a uuid4 hex.
-_SAFE_NODE_ID = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._\-]{0,127}\Z")
-_UUID_HEX = re.compile(r"\A[0-9a-f]{32}\Z")
 
 # The channels a reference can be named in. ``execution_metadata`` is included
 # because a producer may file one there; it is scanned, never trusted.
@@ -76,12 +70,8 @@ def _is_owned_artifact_key(key: Any, *, run_id: str) -> bool:
     parsed = parse_generated_artifact_key(key)
     if parsed is None:
         return False
-    owner, node_id, suffix = parsed
-    return (
-        owner == run_id
-        and _SAFE_NODE_ID.match(node_id) is not None
-        and _UUID_HEX.match(suffix) is not None
-    )
+    owner, _node_id, _suffix = parsed
+    return owner == run_id
 
 
 def _scan(value: Any, *, run_id: str, kept: list[str], seen: set[str], depth: int) -> None:
