@@ -19,6 +19,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import uvicorn
@@ -47,40 +48,74 @@ def _fixture_app() -> FastAPI:
     async def websocket_fixture(websocket: WebSocket, path: str) -> None:
         await websocket.accept()
         await websocket.receive_json()
-        if path.endswith("stream"):
-            names = ["run.started", "node.completed", "run.completed"]
+        if "gateway" in path:
+            names = ["metadata", "values"]
         else:
-            case = path.rsplit("/", 1)[-1]
-            names = {
-                "allow": ["gateway.admitted", "gateway.forwarded", "gateway.completed"],
-                "deny": ["gateway.admitted", "gateway.denied"],
-                "approval": ["gateway.admitted", "gateway.approval_required"],
-                "resume": ["gateway.resumed", "gateway.forwarded", "gateway.completed"],
-                "upstream-failure": [
-                    "gateway.admitted",
-                    "gateway.forwarded",
-                    "gateway.upstream_error",
-                ],
-            }[case]
+            names = ["run.started", "node.completed", "run.completed"]
         for sequence, name in enumerate(names, start=1):
             await websocket.send_json({"event": name, "sequence": sequence})
         await websocket.close()
+
+    done_audit = [{"node_id": "finish-step", "status": "completed"}]
+    # A dispatch table rather than a branch ladder: the mock's job is to answer the
+    # contract's paths, and a table says which path gets which answer at a glance.
+    exact: dict[str, Any] = {
+        "/health": {"deployment_ref": "candidate"},
+        "/__acceptance/identity": {
+            "candidate_digest": _CANDIDATE_DIGEST,
+            "deployment_ref": "candidate",
+        },
+        "/__acceptance/migrations": {"current": True},
+        "/v1/deployments": {"deployment_ref": "candidate"},
+        "/__acceptance/timeline/after": {"entries": done_audit},
+        "/v1/retention/policy": {"enabled": True},
+        "/__acceptance/compatibility": {"status": "supported", "detected_agent_server": "0.11.1"},
+    }
+    by_prefix: dict[str, Any] = {
+        "/__acceptance/runs/": {"status": "succeeded"},
+        "/__acceptance/audit/": {"tenant_id": "acceptance-tenant", "causally_ordered": True},
+        "/__acceptance/artifacts/": {
+            "artifact_id": "server-artifact-id",
+            "system_produced": True,
+        },
+        "/__acceptance/durability/": {"audits": done_audit},
+    }
+    status_body: dict[str, tuple[int, Any]] = {
+        "/__acceptance/executable-units/resolve": (
+            422,
+            {"error_code": "unresolved_project_artifact"},
+        ),
+        "/__acceptance/executable-units/run": (422, {"error_code": "unstaged_project_artifact"}),
+        "/__acceptance/restart": (202, {}),
+    }
+
+    def _gateway(assistant: str) -> tuple[int, Any]:
+        if assistant.endswith("-deny"):
+            return 403, {"code": "zeroth.policy_denied"}
+        if assistant.endswith("-upstream-failure"):
+            return 502, {"code": "zeroth.upstream_unavailable"}
+        return 200, {"forwarded": True}
+
+    def _workflow(route: str, method: str, namespace: str) -> Response | None:
+        if not route.startswith("/api/studio/v1/workflows/server-workflow-id"):
+            return None
+        if method == "DELETE":
+            return Response(status_code=204)
+        if route.endswith("/publish"):
+            return JSONResponse({"status": "published"})
+        return JSONResponse({"id": "server-workflow-id", "name": f"{namespace}-workflow"})
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
     async def http_fixture(request: Request, path: str) -> Response:
         route = f"/{path}"
         role = request.headers.get("X-API-Key")
+        namespace = request.headers.get("X-Acceptance-Namespace", "")
         correlation = {"X-Correlation-ID": f"corr-{path.replace('/', '-')}"}
+
         if route == "/health/ready":
             if getattr(app.state, "draining", False):
                 return JSONResponse({"status": "draining"}, status_code=503)
             return JSONResponse({"status": "ok", "checks": {"database": {"status": "ok"}}})
-        if route == "/health":
-            return JSONResponse({"deployment_ref": "candidate"})
-        if route == "/__acceptance/identity":
-            return JSONResponse(
-                {"candidate_digest": _CANDIDATE_DIGEST, "deployment_ref": "candidate"}
-            )
         if route == "/v1/deployments" and role is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
         if route == "/api/studio/v1/workflows" and request.method == "POST":
@@ -91,74 +126,39 @@ def _fixture_app() -> FastAPI:
                 {"id": "server-workflow-id", "name": payload["name"], "status": "draft"},
                 status_code=201,
             )
-        if route.startswith("/api/studio/v1/workflows/server-workflow-id"):
-            if request.method == "DELETE":
-                return Response(status_code=204)
-            if route.endswith("/publish") and request.method == "POST":
-                return JSONResponse({"status": "published"})
-            namespace = request.headers["X-Acceptance-Namespace"]
-            return JSONResponse({"id": "server-workflow-id", "name": f"{namespace}-workflow"})
-        if route == "/__acceptance/migrations":
-            return JSONResponse({"current": True})
-        if route == "/v1/deployments":
-            return JSONResponse({"deployment_ref": "candidate"})
+        workflow = _workflow(route, request.method, namespace)
+        if workflow is not None:
+            return workflow
         if route == "/__acceptance/runs":
             return JSONResponse(
                 {
                     "run_id": "server-run-id",
                     "tenant_id": "acceptance-tenant",
-                    "namespace": request.headers["X-Acceptance-Namespace"],
+                    "namespace": namespace,
                 },
                 status_code=202,
                 headers=correlation,
             )
-        if route.startswith("/__acceptance/runs/"):
-            return JSONResponse({"status": "succeeded"})
         if route == "/__acceptance/timeline/before":
-            return JSONResponse(
-                {
-                    "approval_id": f"{request.headers['X-Acceptance-Namespace']}-approval",
-                    "entries": [],
-                }
-            )
-        if route == "/__acceptance/timeline/after":
-            return JSONResponse({"entries": [{"node_id": "finish-step", "status": "completed"}]})
-        if route.startswith("/__acceptance/approvals/acceptance-tenant-") and route.endswith(
-            "/resolve"
-        ):
-            return JSONResponse({"resolved": True})
-        if route.startswith("/__acceptance/audit/"):
-            return JSONResponse({"tenant_id": "acceptance-tenant", "causally_ordered": True})
-        if route.startswith("/__acceptance/artifacts/"):
-            return JSONResponse({"artifact_id": "server-artifact-id", "system_produced": True})
-        if route == "/v1/retention/policy":
-            return JSONResponse({"enabled": True})
+            return JSONResponse({"approval_id": f"{namespace}-approval", "entries": []})
         if route == "/__acceptance/gateway/http":
-            case = (await request.json())["case"]
-            decisions = {
-                "allow": ("allow", 200),
-                "deny": ("deny", 403),
-                "approval": ("approval_required", 202),
-                "resume": ("resumed", 200),
-                "upstream_failure": ("upstream_error", 502),
-            }
-            decision, status = decisions[case]
-            return JSONResponse({"decision": decision}, status_code=status, headers=correlation)
-        if route == "/__acceptance/compatibility":
-            return JSONResponse({"status": "supported", "detected_agent_server": "0.11.1"})
-        if route == "/__acceptance/executable-units/resolve":
-            return JSONResponse({"error_code": "unresolved_project_artifact"}, status_code=422)
-        if route == "/__acceptance/executable-units/run":
-            return JSONResponse({"error_code": "unstaged_project_artifact"}, status_code=422)
-        if route.startswith("/__acceptance/durability/"):
-            return JSONResponse({"audits": [{"node_id": "finish-step", "status": "completed"}]})
-        if route == "/__acceptance/restart":
-            return JSONResponse({}, status_code=202)
+            status, body = _gateway((await request.json())["assistant_id"])
+            return JSONResponse(body, status_code=status, headers=correlation)
         if route == "/__acceptance/shutdown":
             app.state.draining = True
             return JSONResponse({"draining": True}, status_code=202)
+        if route.startswith("/__acceptance/approvals/") and route.endswith("/resolve"):
+            return JSONResponse({"resolved": True})
         if route.startswith("/__acceptance/fixtures/") and request.method == "DELETE":
             return Response(status_code=204)
+        if route in exact:
+            return JSONResponse(exact[route])
+        if route in status_body:
+            status, body = status_body[route]
+            return JSONResponse(body, status_code=status)
+        for prefix, body in by_prefix.items():
+            if route.startswith(prefix):
+                return JSONResponse(body)
         return JSONResponse({"detail": "not found"}, status_code=404)
 
     return app
@@ -226,6 +226,13 @@ async def test_the_runner_drives_a_whole_contract_over_real_sockets(
     async with AcceptanceTransport(config) as transport:
         report = await AcceptanceRunner(config, contract, transport).run()
 
+    # Name what failed. A bare status assertion makes every regression here look the
+    # same, and this module exists to localize harness faults.
+    failed = {
+        item.name: item.detail
+        for item in [*report.scenarios, *report.cleanup]
+        if item.status is not ScenarioStatus.PASSED
+    }
+    assert not failed, failed
     assert report.status is ScenarioStatus.PASSED
     assert len(report.scenarios) == 18
-    assert all(item.status is ScenarioStatus.PASSED for item in report.cleanup)

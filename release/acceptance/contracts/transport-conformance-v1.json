@@ -279,13 +279,9 @@
           "method": "POST",
           "path": "/__acceptance/gateway/http",
           "payload": {
-            "namespace": "{namespace}",
-            "case": "allow"
+            "assistant_id": "{namespace}-allow"
           },
           "expected_status": 200,
-          "expected_json": {
-            "decision": "allow"
-          },
           "require_correlation": true
         },
         {
@@ -294,14 +290,13 @@
           "method": "POST",
           "path": "/__acceptance/gateway/http",
           "payload": {
-            "namespace": "{namespace}",
-            "case": "deny"
+            "assistant_id": "{namespace}-deny"
           },
           "expected_status": 403,
+          "require_correlation": true,
           "expected_json": {
-            "decision": "deny"
-          },
-          "require_correlation": true
+            "code": "zeroth.policy_denied"
+          }
         },
         {
           "protocol": "http",
@@ -309,44 +304,13 @@
           "method": "POST",
           "path": "/__acceptance/gateway/http",
           "payload": {
-            "namespace": "{namespace}",
-            "case": "approval"
-          },
-          "expected_status": 202,
-          "expected_json": {
-            "decision": "approval_required"
-          },
-          "require_correlation": true
-        },
-        {
-          "protocol": "http",
-          "role": "reviewer",
-          "method": "POST",
-          "path": "/__acceptance/gateway/http",
-          "payload": {
-            "namespace": "{namespace}",
-            "case": "resume"
-          },
-          "expected_status": 200,
-          "expected_json": {
-            "decision": "resumed"
-          },
-          "require_correlation": true
-        },
-        {
-          "protocol": "http",
-          "role": "operator",
-          "method": "POST",
-          "path": "/__acceptance/gateway/http",
-          "payload": {
-            "namespace": "{namespace}",
-            "case": "upstream_failure"
+            "assistant_id": "{namespace}-upstream-failure"
           },
           "expected_status": 502,
+          "require_correlation": true,
           "expected_json": {
-            "decision": "upstream_error"
-          },
-          "require_correlation": true
+            "code": "zeroth.upstream_unavailable"
+          }
         }
       ]
     },
@@ -355,69 +319,14 @@
         {
           "protocol": "websocket",
           "role": "operator",
-          "path": "/__acceptance/gateway/ws/allow",
-          "payload": {
-            "namespace": "{namespace}"
-          },
-          "max_events": 3,
-          "ordered_events": [
-            "gateway.admitted",
-            "gateway.forwarded",
-            "gateway.completed"
-          ]
-        },
-        {
-          "protocol": "websocket",
-          "role": "operator",
-          "path": "/__acceptance/gateway/ws/deny",
+          "path": "/__acceptance/gateway/ws/stream",
           "payload": {
             "namespace": "{namespace}"
           },
           "max_events": 2,
           "ordered_events": [
-            "gateway.admitted",
-            "gateway.denied"
-          ]
-        },
-        {
-          "protocol": "websocket",
-          "role": "operator",
-          "path": "/__acceptance/gateway/ws/approval",
-          "payload": {
-            "namespace": "{namespace}"
-          },
-          "max_events": 2,
-          "ordered_events": [
-            "gateway.admitted",
-            "gateway.approval_required"
-          ]
-        },
-        {
-          "protocol": "websocket",
-          "role": "reviewer",
-          "path": "/__acceptance/gateway/ws/resume",
-          "payload": {
-            "namespace": "{namespace}"
-          },
-          "max_events": 3,
-          "ordered_events": [
-            "gateway.resumed",
-            "gateway.forwarded",
-            "gateway.completed"
-          ]
-        },
-        {
-          "protocol": "websocket",
-          "role": "operator",
-          "path": "/__acceptance/gateway/ws/upstream-failure",
-          "payload": {
-            "namespace": "{namespace}"
-          },
-          "max_events": 3,
-          "ordered_events": [
-            "gateway.admitted",
-            "gateway.forwarded",
-            "gateway.upstream_error"
+            "metadata",
+            "values"
           ]
         }
       ]

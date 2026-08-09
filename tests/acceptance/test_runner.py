@@ -92,8 +92,21 @@ def _contract() -> dict[str, object]:
     scenarios["retention"] = {"steps": [_step("/retention", expected_json={"enabled": True})]}
     scenarios["gateway_http"] = {
         "steps": [
-            _step(f"/gateway/{decision}", expected_json={"decision": decision})
-            for decision in ("allow", "deny", "approval_required", "resumed", "upstream_error")
+            _step("/gateway/allow", method="POST", require_correlation=True),
+            _step(
+                "/gateway/deny",
+                method="POST",
+                expected_status=403,
+                expected_json={"code": "zeroth.policy_denied"},
+                require_correlation=True,
+            ),
+            _step(
+                "/gateway/upstream-failure",
+                method="POST",
+                expected_status=502,
+                expected_json={"code": "zeroth.upstream_unavailable"},
+                require_correlation=True,
+            ),
         ]
     }
     scenarios["gateway_websocket"] = {
@@ -101,12 +114,11 @@ def _contract() -> dict[str, object]:
             {
                 "protocol": "websocket",
                 "role": "operator",
-                "path": f"/gateway-ws/{event}",
+                "path": "/gateway-ws/stream",
                 "payload": {},
-                "max_events": 1,
-                "ordered_events": [f"gateway.{event}"],
+                "max_events": 2,
+                "ordered_events": ["metadata", "values"],
             }
-            for event in ("completed", "denied", "approval_required", "resumed", "upstream_error")
         ]
     }
     scenarios["compatibility"] = {
@@ -240,7 +252,10 @@ class FakeTransport:
 
     async def websocket_events(self, role, path, payload, *, max_events):
         if path.startswith("/gateway-ws/"):
-            return [{"event": f"gateway.{path.rsplit('/', 1)[-1]}", "sequence": 1}]
+            return [
+                {"event": "metadata", "sequence": 1},
+                {"event": "values", "sequence": 2},
+            ]
         return [
             {"event": "run.started", "sequence": 1},
             {"event": "node.completed", "sequence": 2},
@@ -271,10 +286,11 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/runs": HttpObservation(202, {}, "corr-run"),
         "/runs/settled": HttpObservation(200, {"status": "succeeded"}, "corr-run-done"),
         "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
-        **{
-            f"/gateway/{decision}": HttpObservation(200, {"decision": decision}, "corr-gateway")
-            for decision in ("allow", "deny", "approval_required", "resumed", "upstream_error")
-        },
+        "/gateway/allow": HttpObservation(200, {"forwarded": True}, "corr-gateway"),
+        "/gateway/deny": HttpObservation(403, {"code": "zeroth.policy_denied"}, "corr-gateway"),
+        "/gateway/upstream-failure": HttpObservation(
+            502, {"code": "zeroth.upstream_unavailable"}, "corr-gateway"
+        ),
         "/health/ready": HttpObservation(503, {}, "corr-shutdown"),
         "/compatibility": HttpObservation(
             200, {"status": "supported", "detected_agent_server": "0.11.1"}, "corr-compat"

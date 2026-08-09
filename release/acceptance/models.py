@@ -303,28 +303,38 @@ class AcceptanceContract(BaseModel):
         )
 
     def _require_gateway_evidence(self) -> None:
-        http_decisions = {
-            step.expected_json.get("decision") for step in self.scenarios["gateway_http"].steps
-        }
-        required_decisions = {"allow", "deny", "approval_required", "resumed", "upstream_error"}
-        if http_decisions != required_decisions:
-            raise ValueError("gateway_http must prove allow, deny, approval, resume, and failure")
-        websocket_outcomes = {
-            event
-            for step in self.scenarios["gateway_websocket"].steps
-            for event in step.ordered_events
-        }
-        required_events = {
-            "gateway.completed",
-            "gateway.denied",
-            "gateway.approval_required",
-            "gateway.resumed",
-            "gateway.upstream_error",
-        }
-        if not required_events <= websocket_outcomes:
-            raise ValueError(
-                "gateway_websocket must prove allow, deny, approval, resume, and failure"
+        """The gateway's wire vocabulary is an error envelope, not a decision field.
+
+        A governed request is either forwarded upstream or refused with a `GatewayError`
+        whose `code` is namespaced `zeroth.` — a denial is 403 and an unreachable
+        upstream is 502 (`proxy.py`). Nothing on the wire carries a `decision` key, so
+        an invariant demanding one can only ever be met by a fixture.
+
+        Approval and resume are run-lifecycle facts, not gateway admission outcomes;
+        the `approvals` scenario proves them against the real approval API.
+        """
+        steps = self.scenarios["gateway_http"].steps
+        if not all(step.require_correlation for step in steps):
+            raise ValueError("gateway_http must require a correlation id on every step")
+        if not any(200 <= (step.expected_status or 0) < 300 for step in steps):
+            raise ValueError("gateway_http must prove an admitted request reaches upstream")
+
+        def refuses_with_namespaced_code(status: int) -> bool:
+            return any(
+                step.expected_status == status
+                and str(step.expected_json.get("code", "")).startswith("zeroth.")
+                for step in steps
             )
+
+        if not refuses_with_namespaced_code(403):
+            raise ValueError("gateway_http must prove a policy denial carries a zeroth.* code")
+        if not refuses_with_namespaced_code(502):
+            raise ValueError("gateway_http must prove an upstream failure carries a zeroth.* code")
+
+        if not any(
+            len(step.ordered_events) > 1 for step in self.scenarios["gateway_websocket"].steps
+        ):
+            raise ValueError("gateway_websocket must prove causally ordered proxied events")
 
     def _require_durability_evidence(self) -> None:
         # The claim is about executions, so the evidence has to be a count of records
