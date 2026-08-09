@@ -54,6 +54,7 @@ class _MemoryRedis:
     def __init__(self, values: dict[str, bytes] | None = None) -> None:
         self.values = values if values is not None else {}
         self.scan_patterns: list[str] = []
+        self.delete_calls: list[tuple[str | bytes, ...]] = []
 
     def pipeline(self, *, transaction: bool = True) -> _Pipeline:
         assert transaction is True
@@ -73,6 +74,7 @@ class _MemoryRedis:
         return True
 
     async def delete(self, *keys: str | bytes) -> int:
+        self.delete_calls.append(keys)
         count = 0
         for raw_key in keys:
             key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
@@ -438,3 +440,76 @@ async def test_redis_legacy_layout_key_ending_meta_counts_once_after_restart() -
     restarted, _ = _redis_store(values)
     assert await restarted.cleanup_run("run", idempotency_key="cleanup") == 1
     assert not await restarted.exists("run/data:meta")
+
+
+@pytest.mark.asyncio()
+async def test_redis_delete_replay_does_not_delete_replacement() -> None:
+    values: dict[str, bytes] = {}
+    backend, client = _redis_store(values)
+    await backend.store("run/a", b"first", "text/plain")
+    assert await backend.delete("run/a", idempotency_key="delete") is True
+    first_delete_count = len(client.delete_calls)
+    await backend.store("run/a", b"replacement", "text/plain")
+
+    assert await backend.delete("run/a", idempotency_key="delete") is True
+    assert len(client.delete_calls) == first_delete_count
+    assert await backend.retrieve("run/a") == b"replacement"
+
+
+@pytest.mark.asyncio()
+async def test_redis_cleanup_replay_does_not_scan_or_delete_replacement() -> None:
+    values: dict[str, bytes] = {}
+    backend, client = _redis_store(values)
+    await backend.store("run/a", b"first", "text/plain")
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
+    first_scan_count = len(client.scan_patterns)
+    first_delete_count = len(client.delete_calls)
+    await backend.store("run/b", b"replacement", "text/plain")
+
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
+    assert len(client.scan_patterns) == first_scan_count
+    assert len(client.delete_calls) == first_delete_count
+    assert await backend.retrieve("run/b") == b"replacement"
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("kind", ["delete", "cleanup_run"])
+async def test_redis_prior_structured_receipt_replays_without_mutation(kind: str) -> None:
+    target = "run/a" if kind == "delete" else "run"
+    result: bool | int = True if kind == "delete" else 1
+    values: dict[str, bytes] = {
+        "shared:erasure-receipt:prior": json.dumps(
+            {"kind": kind, "target": target, "result": result}
+        ).encode(),
+        "shared:data:run/a": b"replacement",
+        "shared:meta:run/a": b"{}",
+    }
+    backend, client = _redis_store(values)
+
+    replayed = (
+        await backend.delete(target, idempotency_key="prior")
+        if kind == "delete"
+        else await backend.cleanup_run(target, idempotency_key="prior")
+    )
+
+    assert replayed == result
+    assert await backend.retrieve("run/a") == b"replacement"
+    assert client.scan_patterns == []
+    assert client.delete_calls == []
+    assert "shared:erasure-receipt:v2:prior" in values
+
+
+@pytest.mark.asyncio()
+async def test_redis_prior_structured_receipt_rejects_target_mismatch() -> None:
+    values: dict[str, bytes] = {
+        "shared:erasure-receipt:prior": json.dumps(
+            {"kind": "delete", "target": "run/a", "result": True}
+        ).encode(),
+        "shared:data:run/b": b"replacement",
+        "shared:meta:run/b": b"{}",
+    }
+    backend, _ = _redis_store(values)
+
+    with pytest.raises(ArtifactStorageError, match="reused for another operation"):
+        await backend.delete("run/b", idempotency_key="prior")
+    assert await backend.retrieve("run/b") == b"replacement"

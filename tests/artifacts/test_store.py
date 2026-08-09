@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -582,3 +584,63 @@ class TestFilesystemArtifactStore:
             assert await restarted.delete("run/a", idempotency_key="contended") is True
         else:
             assert await restarted.cleanup_run("run", idempotency_key="contended") == results[1]
+
+    def test_receipt_lock_closes_fd_when_lock_acquire_fails(
+        self, store: FilesystemArtifactStore, monkeypatch
+    ) -> None:
+        opened: list[int] = []
+        closed: list[int] = []
+        real_open = os.open
+        real_close = os.close
+
+        def tracking_open(path, *args, **kwargs):
+            fd = real_open(path, *args, **kwargs)
+            if str(path).endswith(".lock"):
+                opened.append(fd)
+            return fd
+
+        def tracking_close(fd: int) -> None:
+            closed.append(fd)
+            real_close(fd)
+
+        monkeypatch.setattr(os, "open", tracking_open)
+        monkeypatch.setattr(os, "close", tracking_close)
+        monkeypatch.setattr(fcntl, "flock", lambda *_args: (_ for _ in ()).throw(OSError()))
+
+        with pytest.raises(ArtifactStorageError, match="lock erasure receipt"):
+            with store._receipt_lock("failure"):
+                pass
+
+        assert opened and opened[-1] in closed
+
+    def test_receipt_lock_closes_fd_when_unlock_fails(
+        self, store: FilesystemArtifactStore, monkeypatch
+    ) -> None:
+        opened: list[int] = []
+        closed: list[int] = []
+        real_open = os.open
+        real_close = os.close
+
+        def tracking_open(path, *args, **kwargs):
+            fd = real_open(path, *args, **kwargs)
+            if str(path).endswith(".lock"):
+                opened.append(fd)
+            return fd
+
+        def tracking_close(fd: int) -> None:
+            closed.append(fd)
+            real_close(fd)
+
+        def failing_unlock(_fd: int, operation: int) -> None:
+            if operation == fcntl.LOCK_UN:
+                raise OSError()
+
+        monkeypatch.setattr(os, "open", tracking_open)
+        monkeypatch.setattr(os, "close", tracking_close)
+        monkeypatch.setattr(fcntl, "flock", failing_unlock)
+
+        with pytest.raises(ArtifactStorageError, match="unlock erasure receipt"):
+            with store._receipt_lock("failure"):
+                pass
+
+        assert opened and opened[-1] in closed

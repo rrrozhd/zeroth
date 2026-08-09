@@ -143,17 +143,16 @@ class RedisArtifactStore:
         kind: str,
         target: str,
         result_type: type[bool] | type[int],
+        allow_prior_version: bool = False,
     ) -> bool | int:
         try:
             receipt = json.loads(raw_receipt)
         except (TypeError, ValueError):
             raise ArtifactStorageError("Invalid erasure operation receipt") from None
-        if (
-            not isinstance(receipt, dict)
-            or receipt.get("version") != 2
-            or receipt.get("kind") != kind
-            or receipt.get("target") != target
-        ):
+        valid_version = isinstance(receipt, dict) and (
+            receipt.get("version") == 2 or (allow_prior_version and "version" not in receipt)
+        )
+        if not valid_version or receipt.get("kind") != kind or receipt.get("target") != target:
             raise ArtifactStorageError("idempotency key reused for another operation")
         result = receipt.get("result")
         if result_type is bool:
@@ -162,6 +161,88 @@ class RedisArtifactStore:
         elif type(result) is not int or result < 0:
             raise ArtifactStorageError("Invalid erasure operation receipt")
         return result
+
+    async def _existing_receipt(
+        self,
+        idempotency_key: str,
+        *,
+        kind: str,
+        target: str,
+        result_type: type[bool] | type[int],
+    ) -> tuple[bool, bool | int]:
+        """Return a validated replay result, migrating the prior JSON namespace."""
+        receipt_key = self._receipt_key(idempotency_key)
+        receipt = await self._client.get(receipt_key)
+        if receipt is not None:
+            return True, self._receipt_result(
+                receipt,
+                kind=kind,
+                target=target,
+                result_type=result_type,
+            )
+
+        prior_receipt = await self._client.get(self._legacy_receipt_key(idempotency_key))
+        if prior_receipt is None:
+            return False, False if result_type is bool else 0
+        try:
+            prior_value = json.loads(prior_receipt)
+        except (TypeError, ValueError):
+            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay") from None
+        if not isinstance(prior_value, dict):
+            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
+
+        prior_result = self._receipt_result(
+            prior_receipt,
+            kind=kind,
+            target=target,
+            result_type=result_type,
+            allow_prior_version=True,
+        )
+        await self._client.set(
+            receipt_key,
+            self._receipt_payload(kind=kind, target=target, result=prior_result),
+            nx=True,
+        )
+        migrated_receipt = await self._client.get(receipt_key)
+        if migrated_receipt is None:
+            raise ArtifactStorageError("Invalid erasure operation receipt")
+        return True, self._receipt_result(
+            migrated_receipt,
+            kind=kind,
+            target=target,
+            result_type=result_type,
+        )
+
+    async def _claim_receipt(
+        self,
+        idempotency_key: str,
+        *,
+        kind: str,
+        target: str,
+        result: bool | int,
+        result_type: type[bool] | type[int],
+    ) -> tuple[bool, bool | int]:
+        """Atomically bind an operation and report whether this caller won."""
+        receipt_key = self._receipt_key(idempotency_key)
+        claimed = bool(
+            await self._client.set(
+                receipt_key,
+                self._receipt_payload(kind=kind, target=target, result=result),
+                nx=True,
+            )
+        )
+        receipt = await self._client.get(receipt_key)
+        if receipt is None:
+            if claimed:
+                return True, result
+            raise ArtifactStorageError("Invalid erasure operation receipt")
+        stable_result = self._receipt_result(
+            receipt,
+            kind=kind,
+            target=target,
+            result_type=result_type,
+        )
+        return claimed, stable_result
 
     async def store(
         self,
@@ -256,46 +337,27 @@ class RedisArtifactStore:
         meta_key = self._meta_key(key)
         legacy_full_key = self._legacy_full_key(key)
         legacy_meta_key = self._legacy_meta_key(key)
-        receipt_key = self._receipt_key(idempotency_key)
-        receipt = await self._client.get(receipt_key)
-        if receipt is None and await self._client.get(self._legacy_receipt_key(idempotency_key)):
-            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
-        if receipt is not None:
-            result = self._receipt_result(
-                receipt,
-                kind="delete",
-                target=key,
-                result_type=bool,
-            )
-            async with self._client.pipeline(transaction=True) as pipe:
-                pipe.delete(full_key)
-                pipe.delete(meta_key)
-                pipe.delete(legacy_full_key)
-                pipe.delete(legacy_meta_key)
-                await pipe.execute()
+        has_receipt, result = await self._existing_receipt(
+            idempotency_key,
+            kind="delete",
+            target=key,
+            result_type=bool,
+        )
+        if has_receipt:
             return bool(result)
 
         existed = bool(
             await self._client.exists(full_key) or await self._client.exists(legacy_full_key)
         )
-        await self._client.set(
-            receipt_key,
-            self._receipt_payload(kind="delete", target=key, result=existed),
-            nx=True,
+        claimed, stable_result = await self._claim_receipt(
+            idempotency_key,
+            kind="delete",
+            target=key,
+            result=existed,
+            result_type=bool,
         )
-        receipt = await self._client.get(receipt_key)
-        stable_result = (
-            existed
-            if receipt is None
-            else bool(
-                self._receipt_result(
-                    receipt,
-                    kind="delete",
-                    target=key,
-                    result_type=bool,
-                )
-            )
-        )
+        if not claimed:
+            return bool(stable_result)
 
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.delete(full_key)
@@ -364,54 +426,37 @@ class RedisArtifactStore:
         """
         pattern = f"{self._prefix}:data:{run_id}/*"
         legacy_pattern = f"{self._prefix}:{run_id}/*"
-        receipt_key = self._receipt_key(idempotency_key)
-        receipt = await self._client.get(receipt_key)
-        if receipt is None and await self._client.get(self._legacy_receipt_key(idempotency_key)):
-            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
-        if receipt is not None:
-            stable_count = int(
-                self._receipt_result(
-                    receipt,
-                    kind="cleanup_run",
-                    target=run_id,
-                    result_type=int,
-                )
-            )
+        has_receipt, stable_count = await self._existing_receipt(
+            idempotency_key,
+            kind="cleanup_run",
+            target=run_id,
+            result_type=int,
+        )
+        if has_receipt:
+            return int(stable_count)
         redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
         legacy_keys = [key async for key in self._client.scan_iter(match=legacy_pattern, count=100)]
-        if receipt is None:
 
-            def _text(redis_key: str | bytes) -> str:
-                return redis_key.decode() if isinstance(redis_key, bytes) else redis_key
+        def _text(redis_key: str | bytes) -> str:
+            return redis_key.decode() if isinstance(redis_key, bytes) else redis_key
 
-            new_prefix = f"{self._prefix}:data:"
-            legacy_prefix = f"{self._prefix}:"
-            logical_keys = {_text(key).removeprefix(new_prefix) for key in redis_keys}
-            legacy_text = {_text(key) for key in legacy_keys}
-            logical_keys.update(
-                key.removeprefix(legacy_prefix)
-                for key in legacy_text
-                if f"{key}:meta" in legacy_text
-            )
-            count = len(logical_keys)
-            await self._client.set(
-                receipt_key,
-                self._receipt_payload(kind="cleanup_run", target=run_id, result=count),
-                nx=True,
-            )
-            receipt = await self._client.get(receipt_key)
-            stable_count = (
-                count
-                if receipt is None
-                else int(
-                    self._receipt_result(
-                        receipt,
-                        kind="cleanup_run",
-                        target=run_id,
-                        result_type=int,
-                    )
-                )
-            )
+        new_prefix = f"{self._prefix}:data:"
+        legacy_prefix = f"{self._prefix}:"
+        logical_keys = {_text(key).removeprefix(new_prefix) for key in redis_keys}
+        legacy_text = {_text(key) for key in legacy_keys}
+        logical_keys.update(
+            key.removeprefix(legacy_prefix) for key in legacy_text if f"{key}:meta" in legacy_text
+        )
+        count = len(logical_keys)
+        claimed, stable_count = await self._claim_receipt(
+            idempotency_key,
+            kind="cleanup_run",
+            target=run_id,
+            result=count,
+            result_type=int,
+        )
+        if not claimed:
+            return int(stable_count)
         for redis_key in redis_keys:
             await self._client.delete(redis_key)
             redis_key_text = redis_key.decode() if isinstance(redis_key, bytes) else redis_key
@@ -597,6 +642,7 @@ class FilesystemArtifactStore:
         lock_name = hashlib.sha256(idempotency_key.encode()).hexdigest() + ".lock"
         lock_dir_fd, _ = self._open_parent_fd(".erasure-locks/placeholder", create=True)
         try:
+            lock_fd: int | None = None
             for attempt in range(3):
                 try:
                     lock_fd = os.open(
@@ -605,20 +651,41 @@ class FilesystemArtifactStore:
                         0o600,
                         dir_fd=lock_dir_fd,
                     )
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
-                    break
                 except FileNotFoundError:
                     if attempt == 2:
                         raise ArtifactStorageError("Unable to lock erasure receipt") from None
+                    replacement_fd, _ = self._open_parent_fd(
+                        ".erasure-locks/placeholder", create=True
+                    )
                     os.close(lock_dir_fd)
-                    lock_dir_fd, _ = self._open_parent_fd(".erasure-locks/placeholder", create=True)
+                    lock_dir_fd = replacement_fd
+                    continue
                 except OSError:
                     raise ArtifactStorageError("Unable to lock erasure receipt") from None
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                except OSError:
+                    with contextlib.suppress(OSError):
+                        os.close(lock_fd)
+                    lock_fd = None
+                    raise ArtifactStorageError("Unable to lock erasure receipt") from None
+                break
+            if lock_fd is None:
+                raise ArtifactStorageError("Unable to lock erasure receipt")
             try:
                 yield
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                raise
+            else:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except OSError:
+                    raise ArtifactStorageError("Unable to unlock erasure receipt") from None
             finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                os.close(lock_fd)
+                with contextlib.suppress(OSError):
+                    os.close(lock_fd)
         finally:
             os.close(lock_dir_fd)
 
