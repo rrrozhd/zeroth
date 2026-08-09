@@ -8,7 +8,10 @@ import pytest
 
 from zeroth.integrations.sandbox.executor import SidecarExecutor
 from zeroth.integrations.sandbox.models import SidecarExecuteRequest
-from zeroth.integrations.execution.sandbox import SandboxPolicyViolationError
+from zeroth.integrations.execution.sandbox import (
+    SandboxPolicyViolationError,
+    validate_docker_image_reference,
+)
 
 
 class _FakeProc:
@@ -104,10 +107,19 @@ async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeyp
         "python:3.12\n--privileged",
         "UPPER/repository:tag",
         "repository//image:tag",
-        "repository:image@sha256:" + "a" * 64,
         "repository@sha256:abc",
+        "repository@sha512:abc",
         "repository::tag",
         "registry.example.com:65536/repository",
+        "[::1:5000/team/image:tag",
+        "[not-ipv6]:5000/team/image:tag",
+        "[fe80::1%eth0]:5000/team/image:tag",
+        "[::1]:port/team/image:tag",
+        "[::1]:/team/image:tag",
+        "[::1]junk/team/image:tag",
+        "a" * 256 + ":tag",
+        "repository:" + "T" * 129,
+        "repository@md5:" + "a" * 32,
     ],
 )
 async def test_sidecar_rejects_noncanonical_image_before_docker_spawn(
@@ -129,6 +141,28 @@ async def test_sidecar_rejects_noncanonical_image_before_docker_spawn(
     assert image not in str(exc_info.value)
     run_cmd.assert_not_awaited()
     spawn.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "python",
+        "python:3.12",
+        "localhost:5000/team/image:tag",
+        "registry.example.com:443/openai/team/zeroth:Release_1",
+        "ghcr.io/openai/zeroth:release@sha256:" + "a" * 64,
+        "ghcr.io/openai/zeroth@sha384:" + "b" * 96,
+        "ghcr.io/openai/zeroth@sha512:" + "c" * 128,
+        "[::1]:5000/team/image:tag",
+        "[2001:db8::1]/team/image:UPPER",
+        "registry.example.com:80/a/b/c:Tag",
+        "xn--bcher-kva.example/team/image:tag",
+        "Registry.EXAMPLE.com/team/image:Tag",
+        "a" * 255 + ":Release@sha256:" + "d" * 64,
+    ],
+)
+def test_canonical_docker_image_reference_acceptance_corpus(image: str) -> None:
+    assert validate_docker_image_reference(image) == image
 
 
 @pytest.mark.parametrize(

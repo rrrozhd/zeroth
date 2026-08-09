@@ -11,6 +11,7 @@ additional dependencies.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -187,22 +188,64 @@ def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
 
 
 _IMAGE_COMPONENT = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*\Z")
-_IMAGE_REGISTRY = re.compile(
-    r"(?:localhost|[a-z0-9]+(?:[.-][a-z0-9]+)*)(?::(?:[1-9][0-9]{0,4}))?\Z"
-)
+_IMAGE_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_IMAGE_REGISTRY_HOST = re.compile(rf"(?:localhost|{_IMAGE_HOST_LABEL}(?:\.{_IMAGE_HOST_LABEL})*)\Z")
 _IMAGE_TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
-_IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_IMAGE_DIGEST_LENGTHS = {"sha256": 64, "sha384": 96, "sha512": 128}
+
+
+def _reject_docker_image() -> None:
+    raise SandboxPolicyViolationError("sandbox image reference violates execution policy")
+
+
+def _validate_registry_component(registry: str) -> None:
+    if registry.startswith("["):
+        closing_bracket = registry.find("]")
+        if closing_bracket <= 1:
+            _reject_docker_image()
+        address = registry[1:closing_bracket]
+        if "%" in address:
+            _reject_docker_image()
+        try:
+            ipaddress.IPv6Address(address)
+        except ipaddress.AddressValueError:
+            _reject_docker_image()
+        suffix = registry[closing_bracket + 1 :]
+        if suffix and not suffix.startswith(":"):
+            _reject_docker_image()
+        port = suffix[1:] if suffix else ""
+        if suffix and not port:
+            _reject_docker_image()
+    else:
+        if "[" in registry or "]" in registry or registry.count(":") > 1:
+            _reject_docker_image()
+        host, separator, port = registry.rpartition(":")
+        if not separator:
+            host, port = registry, ""
+        elif not port:
+            _reject_docker_image()
+        if not _IMAGE_REGISTRY_HOST.fullmatch(host):
+            _reject_docker_image()
+    if port and (not port.isascii() or not port.isdigit() or not 1 <= int(port) <= 65_535):
+        _reject_docker_image()
+
+
+def _validate_image_digest(digest: str) -> None:
+    algorithm, separator, encoded = digest.partition(":")
+    expected_length = _IMAGE_DIGEST_LENGTHS.get(algorithm)
+    if (
+        not separator
+        or expected_length is None
+        or len(encoded) != expected_length
+        or not re.fullmatch(r"[0-9a-f]+", encoded)
+    ):
+        _reject_docker_image()
 
 
 def validate_docker_image_reference(image: str) -> str:
-    """Reject option-like or ambiguous image references before Docker argv assembly."""
-
-    def reject() -> None:
-        raise SandboxPolicyViolationError("sandbox image reference violates execution policy")
-
+    """Reject option-like or malformed image references before Docker argv assembly."""
     if (
         not image
-        or len(image) > 255
         or image.startswith("-")
         or any(
             character.isspace() or ord(character) < 32 or ord(character) == 127
@@ -210,36 +253,36 @@ def validate_docker_image_reference(image: str) -> str:
         )
         or image.count("@") > 1
     ):
-        reject()
+        _reject_docker_image()
 
     name_and_tag, separator, digest = image.partition("@")
     if separator:
-        if not _IMAGE_DIGEST.fullmatch(digest):
-            reject()
-        if ":" in name_and_tag.rsplit("/", 1)[-1]:
-            reject()
+        _validate_image_digest(digest)
 
     last_component = name_and_tag.rsplit("/", 1)[-1]
     if ":" in last_component:
         repository, tag = name_and_tag.rsplit(":", 1)
         if not _IMAGE_TAG.fullmatch(tag):
-            reject()
+            _reject_docker_image()
     else:
         repository = name_and_tag
 
+    if not repository or len(repository.encode()) > 255:
+        _reject_docker_image()
+
     components = repository.split("/")
     if any(not component for component in components):
-        reject()
+        _reject_docker_image()
     if len(components) > 1 and (
-        "." in components[0] or ":" in components[0] or components[0] == "localhost"
+        "." in components[0]
+        or ":" in components[0]
+        or components[0] == "localhost"
+        or components[0].startswith("[")
     ):
         registry, *components = components
-        if not _IMAGE_REGISTRY.fullmatch(registry):
-            reject()
-        if ":" in registry and int(registry.rsplit(":", 1)[1]) > 65_535:
-            reject()
+        _validate_registry_component(registry)
     if not components or any(not _IMAGE_COMPONENT.fullmatch(item) for item in components):
-        reject()
+        _reject_docker_image()
     return image
 
 
