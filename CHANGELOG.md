@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-08-08
+
+### Fixed
+
+- Evidence must now *be* evidence. Validation checked only that a cited file existed, so
+  a record could name `pyproject.toml`, or its own record, as its JUnit, SBOM and
+  provenance evidence and be accepted. Cited paths are confined to the evidence root and
+  must be non-empty, distinct per kind, and shaped like the kind they claim.
+- Identity is validated, not merely compared. A candidate and a record that agreed on an
+  empty artifact map or a commit that was not a commit used to match while identifying
+  nothing; commits, digests, package artifacts and image references are now checked for
+  form before equality decides anything.
+- The LangGraph gate cross-checks the compatibility set's declared release against the
+  measured candidate version. The legacy harness validates against a hand-edited
+  constant and cannot notice its own staleness, so the gate would otherwise have reported
+  compatibility passed using evidence for an older release.
+- The promotion signoff must name the candidate identity digest and an operator. Any file
+  at the expected path used to satisfy the gate, including a signoff for a different build
+  of the same version.
+- The evidence gates run even when a producer fails, so the verdict and the retained
+  bundle are published exactly when the diagnosis is most needed.
+- The console version assertion tracks the release, and the release verdict, records and
+  the files they cite now travel together so a retained bundle can be revalidated.
+
+### Added
+
+- The evidence manifest — the candidate identity plus the digest of every gate record —
+  is sealed and attested with `actions/attest`, so the evidence carries a signature
+  rather than only the image it describes.
+- The gate manifest accepts a superset of the required gates, so ZER-28's later tickets
+  can add one without editing the validator, as the guide already promised.
+
 ## [0.19] - 2026-08-08
 
 ### Added

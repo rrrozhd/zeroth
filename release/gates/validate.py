@@ -30,6 +30,7 @@ thing this validator exists to reject.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,76 @@ RECORD_KEYS = frozenset(
     {"schema_version", "gate", "status", "identity", "results", "kinds", "generated_at"}
 )
 RECORD_SCHEMA_VERSION = 1
+
+#: The shape each evidence kind must actually have. A kind absent here is only
+#: required to be a non-empty file inside the evidence root.
+EVIDENCE_SHAPES = {
+    "junit": "junit",
+    "ui": "junit",
+    "compatibility": "json",
+    "benchmark": "json",
+    "sbom": "json",
+    "provenance": "json",
+    "security": "json",
+}
+
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _all_digests(values: Any) -> bool:
+    return isinstance(values, dict) and bool(values) and all(
+        isinstance(item, str) and _DIGEST.match(item) for item in values.values()
+    )
+
+
+def _commit_reason(value: Any) -> str:
+    if not isinstance(value, str) or not _COMMIT.match(value):
+        return f"commit identity is not a commit sha: {value!r}"
+    return ""
+
+
+def _package_reason(value: Any) -> str:
+    if not isinstance(value, dict) or not value.get("version"):
+        return "package identity carries no version"
+    artifacts = value.get("artifacts")
+    if not isinstance(artifacts, dict) or not artifacts:
+        return "package identity names no built artifact"
+    if not _all_digests(artifacts):
+        return "package identity artifacts are not sha256 digests"
+    return ""
+
+
+def _image_reason(value: Any) -> str:
+    if not isinstance(value, dict) or not value:
+        return "image identity names no image"
+    if not _all_digests(value):
+        return "image identity values are not sha256 digests"
+    return ""
+
+
+def _digest_reason(facet: str, value: Any) -> str:
+    if not isinstance(value, str) or not _DIGEST.match(value):
+        return f"{facet} identity is not a sha256 digest: {value!r}"
+    return ""
+
+
+def _well_formed_facet(facet: str, value: Any) -> str:
+    """Return why an identity facet is not a usable identity, or "".
+
+    Equality alone is not identity: a candidate and a record that agree on an
+    empty artifact map, or on a commit that is not a commit, would match while
+    identifying nothing.
+    """
+    if facet == "commit":
+        return _commit_reason(value)
+    if facet == "package":
+        return _package_reason(value)
+    if facet == "image":
+        return _image_reason(value)
+    if facet in ("configuration", "compatibility"):
+        return _digest_reason(facet, value)
+    return ""
 
 
 @dataclass(frozen=True)
@@ -107,15 +178,56 @@ def _results_reason(gate: dict[str, Any], record: dict[str, Any]) -> str:
     return f"record reports results the gate does not define: {extra}"
 
 
+def _evidence_file_reason(kind: str, relative: str, gate: dict[str, Any], root: Path) -> str:
+    """Return why a cited evidence file is not usable evidence, or "".
+
+    Existence alone is far too weak. Without these checks a record could cite
+    ``pyproject.toml`` -- or itself -- as its JUnit, SBOM and provenance
+    evidence and be accepted, which turns the whole gate into paperwork.
+    """
+    if Path(relative).is_absolute() or ".." in Path(relative).parts:
+        return f"{kind} evidence path must be relative to the evidence root: {relative}"
+    path = root / relative
+    if not path.is_file():
+        return f"{kind} evidence file is absent: {relative}"
+    if path.resolve() == (root / gate["record"]).resolve():
+        return f"{kind} evidence cites the gate's own record: {relative}"
+    if path.stat().st_size == 0:
+        return f"{kind} evidence file is empty: {relative}"
+    expected = EVIDENCE_SHAPES.get(kind)
+    if expected is None:
+        return ""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace").lstrip()[:4096]
+    except OSError as error:
+        return f"{kind} evidence file is unreadable: {error}"
+    if expected == "json":
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return f"{kind} evidence must be JSON: {relative}"
+    elif expected == "junit" and "<testsuite" not in head:
+        return f"{kind} evidence must be a JUnit report: {relative}"
+    return ""
+
+
 def _kinds_reason(gate: dict[str, Any], record: dict[str, Any], root: Path) -> str:
     kinds = record["kinds"]
     if not isinstance(kinds, dict):
         return "record kinds must be an object"
+    seen: dict[str, str] = {}
     for kind in gate["kinds"]:
         if kind not in kinds:
             return f"record is missing the {kind} evidence kind"
-        if not (root / str(kinds[kind])).is_file():
-            return f"{kind} evidence file is absent: {kinds[kind]}"
+        relative = str(kinds[kind])
+        reason = _evidence_file_reason(kind, relative, gate, root)
+        if reason:
+            return reason
+        # One file standing in for several kinds means at least one of them was
+        # never actually produced.
+        if relative in seen:
+            return f"{kind} evidence reuses the {seen[relative]} file: {relative}"
+        seen[relative] = kind
     return ""
 
 
@@ -145,6 +257,27 @@ def _structural_reason(gate: dict[str, Any], record: dict[str, Any], root: Path)
     return ""
 
 
+def _binding_result(
+    gate: dict[str, Any], identity: dict[str, Any], candidate: dict[str, Any]
+) -> GateResult | None:
+    """Return the stale/mismatched verdict, or None when the record binds this candidate."""
+    if "commit" in gate["binds"] and not facet_matches(candidate, identity, "commit"):
+        return GateResult(
+            gate["id"],
+            STALE,
+            f"record is bound to commit {identity['commit']}, candidate is {candidate['commit']}",
+        )
+    for facet in gate["binds"]:
+        if facet != "commit" and not facet_matches(candidate, identity, facet):
+            return GateResult(
+                gate["id"],
+                MISMATCHED,
+                f"record {facet} identity belongs to a different build "
+                f"({canonical(identity[facet]).decode('utf-8')})",
+            )
+    return None
+
+
 def validate_gate(
     gate: dict[str, Any], candidate: dict[str, Any], evidence_root: Path
 ) -> GateResult:
@@ -166,24 +299,14 @@ def validate_gate(
             PARTIAL,
             f"candidate identity does not carry the {', '.join(absent)} facet this gate binds",
         )
-
-    identity = record["identity"]
-    if "commit" in gate["binds"] and not facet_matches(candidate, identity, "commit"):
-        return GateResult(
-            gate["id"],
-            STALE,
-            f"record is bound to commit {identity['commit']}, candidate is {candidate['commit']}",
-        )
     for facet in gate["binds"]:
-        if facet == "commit":
-            continue
-        if not facet_matches(candidate, identity, facet):
-            return GateResult(
-                gate["id"],
-                MISMATCHED,
-                f"record {facet} identity belongs to a different build "
-                f"({canonical(identity[facet]).decode('utf-8')})",
-            )
+        malformed = _well_formed_facet(facet, candidate[facet])
+        if malformed:
+            return GateResult(gate["id"], PARTIAL, f"candidate {malformed}")
+
+    bound = _binding_result(gate, record["identity"], candidate)
+    if bound is not None:
+        return bound
 
     if record["status"] != PASSED:
         return GateResult(gate["id"], FAILED, f"record status is {record['status']!r}")

@@ -160,7 +160,11 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
     seen: set[str] = set()
     for gate in gates:
         _check_gate(gate, manifest["evidence_kinds"], seen)
-    _require(seen == REQUIRED_GATES, "manifest must enumerate exactly the required gates")
+    # A superset is allowed: ZER-28's later tickets add gates, and the docs
+    # promise that adding one is a manifest edit. What may never happen is a
+    # required gate going missing, which would quietly widen promotion.
+    missing = REQUIRED_GATES - seen
+    _require(not missing, f"manifest is missing required gates: {', '.join(sorted(missing))}")
     orders = [gate["order"] for gate in gates]
     _require(orders == sorted(orders), "gates must be listed in their evaluation order")
     _require(len(set(orders)) == len(orders), "gate order must be unambiguous")

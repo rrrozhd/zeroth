@@ -252,15 +252,29 @@ jobs:
             --manifest release/langgraph/release-manifest.json; MATRIX=$?
           uv run python release/langgraph/harness.py benchmark \
             --output release/evidence/langgraph-benchmark.json; BENCH=$?
+          # The legacy harness validates its manifest against CURRENT_RELEASE,
+          # a hand-edited constant, so it cannot notice that its evidence
+          # describes an older release than the candidate. Cross-check the
+          # declared release against the measured one, otherwise this gate
+          # would report compatibility "passed" using stale evidence -- the
+          # exact defect this ticket exists to close.
+          COMPAT=$(python -c "import json;print(json.load(open('release/langgraph/compatibility.json'))['release'])")
+          MEASURED=$(python -c "import json;print(json.load(open('release/evidence/candidate-identity.json'))['package']['version'])")
+          echo "compatibility evidence: ${COMPAT}; candidate: ${MEASURED}"
+          [ "${COMPAT}" = "${MEASURED}" ]; CURRENT=$?
+          # Everything the record cites must travel with it, so copy the
+          # committed compatibility set into the evidence directory.
+          cp release/langgraph/compatibility.json release/evidence/langgraph-compatibility.json
           set -e
           status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
           python release/gates/cli.py record --gate langgraph \
             --identity release/evidence/candidate-identity.json \
             --result "conformance=$(status ${CONFORMANCE})" \
             --result "compatibility-matrix=$(status ${MATRIX})" \
+            --result "compatibility-current=$(status ${CURRENT})" \
             --result "benchmark=$(status ${BENCH})" \
             --kind junit=release/evidence/langgraph-junit.xml \
-            --kind compatibility=release/langgraph/compatibility.json \
+            --kind compatibility=release/evidence/langgraph-compatibility.json \
             --kind benchmark=release/evidence/langgraph-benchmark.json \
             --output release/evidence/langgraph.json
           cat release/evidence/langgraph.json

@@ -148,6 +148,92 @@ def test_candidate_missing_a_bound_facet_cannot_pass(manifest, candidate, eviden
     assert "image" in result.reason
 
 
+def test_an_arbitrary_file_is_not_evidence(manifest, candidate, evidence):
+    """Citing any file that happens to exist would make the gate paperwork."""
+    gate = _gate(manifest, "source")
+    (evidence / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    _rewrite(evidence, gate, lambda record: record["kinds"].update(junit="pyproject.toml"))
+
+    result = _validate(manifest, candidate, evidence)["source"]
+
+    assert result.status == "partial"
+    assert "JUnit" in result.reason
+
+
+def test_a_record_cannot_cite_itself_as_its_own_evidence(manifest, candidate, evidence):
+    gate = _gate(manifest, "remote-acceptance")
+    _rewrite(
+        evidence, gate, lambda record: record["kinds"].update(deployment=gate["record"])
+    )
+
+    result = _validate(manifest, candidate, evidence)["remote-acceptance"]
+
+    assert result.status == "partial"
+    assert "own record" in result.reason
+
+
+def test_an_empty_evidence_file_is_not_evidence(manifest, candidate, evidence):
+    gate = _gate(manifest, "untrusted-code")
+    record = json.loads((evidence / gate["record"]).read_text(encoding="utf-8"))
+    (evidence / record["kinds"]["junit"]).write_text("", encoding="utf-8")
+
+    result = _validate(manifest, candidate, evidence)["untrusted-code"]
+
+    assert result.status == "partial"
+    assert "empty" in result.reason
+
+
+@pytest.mark.parametrize("escape", ["/etc/hosts", "../../../etc/hosts"])
+def test_evidence_cannot_escape_the_evidence_root(manifest, candidate, evidence, escape):
+    gate = _gate(manifest, "source")
+    _rewrite(evidence, gate, lambda record: record["kinds"].update(junit=escape))
+
+    result = _validate(manifest, candidate, evidence)["source"]
+
+    assert result.status == "partial"
+    assert "relative to the evidence root" in result.reason
+
+
+def test_one_file_cannot_stand_in_for_two_evidence_kinds(manifest, candidate, evidence):
+    """Reuse means at least one of the two was never produced."""
+    gate = _gate(manifest, "source")
+    record = json.loads((evidence / gate["record"]).read_text(encoding="utf-8"))
+    shared = record["kinds"]["junit"]
+    _rewrite(evidence, gate, lambda item: item["kinds"].update(ui=shared))
+
+    result = _validate(manifest, candidate, evidence)["source"]
+
+    assert result.status == "partial"
+    assert "reuses" in result.reason
+
+
+def test_a_candidate_naming_no_built_artifact_cannot_pass(manifest, candidate, evidence):
+    """Agreeing on an empty identity identifies nothing."""
+    candidate["package"]["artifacts"] = {}
+
+    result = _validate(manifest, candidate, evidence)["package"]
+
+    assert result.status == "partial"
+    assert "names no built artifact" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("facet", "value"),
+    [
+        ("commit", "not-a-commit"),
+        ("configuration", "whatever"),
+        ("image", {}),
+    ],
+)
+def test_a_malformed_candidate_identity_cannot_pass(manifest, candidate, evidence, facet, value):
+    candidate[facet] = value
+    gate_id = "source" if facet == "commit" else "deployment-smoke"
+
+    result = _validate(manifest, candidate, evidence)[gate_id]
+
+    assert result.status == "partial"
+
+
 def test_an_empty_gate_set_is_not_releasable():
     from gates.validate import releasable
 
