@@ -45,6 +45,8 @@ class _Pipeline:
         self.operations.append(("expire", args))
 
     async def execute(self) -> list[object]:
+        if any(operation == "delete" for operation, _args in self.operations):
+            self.redis.fail_erasure_if_requested()
         return [await getattr(self.redis, operation)(*args) for operation, args in self.operations]
 
 
@@ -55,6 +57,14 @@ class _MemoryRedis:
         self.values = values if values is not None else {}
         self.scan_patterns: list[str] = []
         self.delete_calls: list[tuple[str | bytes, ...]] = []
+        self.fail_next_erasure = False
+        self.eval_calls: list[tuple[int, tuple[object, ...]]] = []
+        self.erasure_mutations = 0
+
+    def fail_erasure_if_requested(self) -> None:
+        if self.fail_next_erasure:
+            self.fail_next_erasure = False
+            raise RuntimeError("injected erasure failure")
 
     def pipeline(self, *, transaction: bool = True) -> _Pipeline:
         assert transaction is True
@@ -74,6 +84,7 @@ class _MemoryRedis:
         return True
 
     async def delete(self, *keys: str | bytes) -> int:
+        self.fail_erasure_if_requested()
         self.delete_calls.append(keys)
         count = 0
         for raw_key in keys:
@@ -94,22 +105,97 @@ class _MemoryRedis:
             if fnmatch.fnmatchcase(key, match):
                 yield key.encode()
 
+    async def eval(self, script: str, numkeys: int, *items: object) -> list[bytes]:
+        """Model the atomic receipt/mutation Lua state machine used in production."""
+        assert script == RedisArtifactStore._ERASURE_SCRIPT
+        self.eval_calls.append((numkeys, items))
+        self.fail_erasure_if_requested()
+
+        def _text(value: object) -> str:
+            return value.decode() if isinstance(value, bytes) else str(value)
+
+        keys = [_text(value) for value in items[:numkeys]]
+        arguments = [_text(value) for value in items[numkeys:]]
+        kind, target = arguments[:2]
+
+        def _validated(raw: bytes, *, prior: bool) -> tuple[str, bool | int | None]:
+            try:
+                receipt = json.loads(raw)
+            except (TypeError, ValueError):
+                return ("legacy" if prior else "invalid"), None
+            if not isinstance(receipt, dict):
+                return ("legacy" if prior else "invalid"), None
+            version = receipt.get("version")
+            if (not prior and version != 2) or (prior and version not in (None, 2)):
+                return "mismatch", None
+            if receipt.get("kind") != kind or receipt.get("target") != target:
+                return "mismatch", None
+            result = receipt.get("result")
+            if kind == "delete" and type(result) is not bool:
+                return "invalid", None
+            if kind == "cleanup_run" and (type(result) is not int or result < 0):
+                return "invalid", None
+            return "ok", result
+
+        completed = self.values.get(keys[0])
+        if completed is not None:
+            status, result = _validated(completed, prior=False)
+            return [status.encode()] if status != "ok" else [b"ok", json.dumps(result).encode()]
+
+        prior_receipt = self.values.get(keys[1])
+        if prior_receipt is not None:
+            status, result = _validated(prior_receipt, prior=True)
+            if status != "ok":
+                return [status.encode()]
+            self.values[keys[0]] = json.dumps(
+                {"version": 2, "kind": kind, "target": target, "result": result}
+            ).encode()
+            return [b"ok", json.dumps(result).encode()]
+
+        if kind == "delete":
+            result = keys[2] in self.values or keys[4] in self.values
+            for key in keys[2:6]:
+                self.values.pop(key, None)
+        else:
+            new_exact, meta_namespace, legacy_exact, new_namespace, legacy_namespace = arguments[
+                2:7
+            ]
+            new_keys = [key for key in tuple(self.values) if key.startswith(new_exact)]
+            legacy_keys = [key for key in tuple(self.values) if key.startswith(legacy_exact)]
+            logical = {key.removeprefix(new_namespace) for key in new_keys}
+            logical.update(
+                key.removeprefix(legacy_namespace)
+                for key in legacy_keys
+                if f"{key}:meta" in self.values
+            )
+            result = len(logical)
+            for key in new_keys:
+                self.values.pop(key, None)
+                self.values.pop(f"{meta_namespace}{key.removeprefix(new_namespace)}", None)
+            for key in legacy_keys:
+                self.values.pop(key, None)
+
+        self.values[keys[0]] = json.dumps(
+            {"version": 2, "kind": kind, "target": target, "result": result}
+        ).encode()
+        self.erasure_mutations += 1
+        return [b"ok", json.dumps(result).encode()]
+
 
 class _ContendedMemoryRedis(_MemoryRedis):
-    """Hold two NX receipt writes so competing operations observe no receipt."""
+    """Release two erasure scripts together, then execute each atomically."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._receipt_writers = 0
-        self._release_receipts = asyncio.Event()
+        self._eval_waiters = 0
+        self._release_evals = asyncio.Event()
 
-    async def set(self, key: str, value: object, *, nx: bool = False) -> bool:
-        if nx and ":erasure-receipt:" in key:
-            self._receipt_writers += 1
-            if self._receipt_writers == 2:
-                self._release_receipts.set()
-            await self._release_receipts.wait()
-        return await super().set(key, value, nx=nx)
+    async def eval(self, script: str, numkeys: int, *items: object) -> list[bytes]:
+        self._eval_waiters += 1
+        if self._eval_waiters == 2:
+            self._release_evals.set()
+        await self._release_evals.wait()
+        return await super().eval(script, numkeys, *items)
 
 
 def _filesystem_store(path: Path) -> FilesystemArtifactStore:
@@ -291,7 +377,8 @@ async def test_redis_cleanup_pattern_contains_only_encoded_run() -> None:
     await wrapper.store(f"{run_id}/node/key", b"x", "text/plain")
 
     assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 1
-    pattern = client.scan_patterns[-1]
+    numkeys, items = client.eval_calls[-1]
+    pattern = str(items[numkeys + 7])
     assert run_id not in pattern
     assert "tenant" not in pattern
     assert pattern.endswith("/*")
@@ -404,6 +491,7 @@ async def test_redis_competing_receipt_has_one_binding_winner(competitor: str) -
     winners = [index for index, result in enumerate(results) if not isinstance(result, Exception)]
     losers = [result for result in results if isinstance(result, Exception)]
     assert len(winners) == len(losers) == 1
+    assert client.erasure_mutations == 1
     assert isinstance(losers[0], ArtifactStorageError)
     assert str(losers[0]) == "idempotency key reused for another operation"
     if winners[0] == 0:
@@ -453,6 +541,27 @@ async def test_redis_delete_replay_does_not_delete_replacement() -> None:
 
     assert await backend.delete("run/a", idempotency_key="delete") is True
     assert len(client.delete_calls) == first_delete_count
+    assert client.erasure_mutations == 1
+    assert await backend.retrieve("run/a") == b"replacement"
+
+
+@pytest.mark.asyncio()
+async def test_redis_failed_delete_has_no_receipt_and_retry_completes() -> None:
+    values: dict[str, bytes] = {}
+    backend, client = _redis_store(values)
+    await backend.store("run/a", b"first", "text/plain")
+    client.fail_next_erasure = True
+
+    with pytest.raises(RuntimeError, match="injected erasure failure"):
+        await backend.delete("run/a", idempotency_key="delete")
+
+    assert "shared:erasure-receipt:v2:delete" not in values
+    assert await backend.retrieve("run/a") == b"first"
+    assert await backend.delete("run/a", idempotency_key="delete") is True
+    await backend.store("run/a", b"replacement", "text/plain")
+    assert await backend.delete("run/a", idempotency_key="delete") is True
+    assert client.erasure_mutations == 1
+    assert len(client.eval_calls) == 3
     assert await backend.retrieve("run/a") == b"replacement"
 
 
@@ -469,6 +578,27 @@ async def test_redis_cleanup_replay_does_not_scan_or_delete_replacement() -> Non
     assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
     assert len(client.scan_patterns) == first_scan_count
     assert len(client.delete_calls) == first_delete_count
+    assert client.erasure_mutations == 1
+    assert await backend.retrieve("run/b") == b"replacement"
+
+
+@pytest.mark.asyncio()
+async def test_redis_failed_cleanup_has_no_receipt_and_retry_completes() -> None:
+    values: dict[str, bytes] = {}
+    backend, client = _redis_store(values)
+    await backend.store("run/a", b"first", "text/plain")
+    client.fail_next_erasure = True
+
+    with pytest.raises(RuntimeError, match="injected erasure failure"):
+        await backend.cleanup_run("run", idempotency_key="cleanup")
+
+    assert "shared:erasure-receipt:v2:cleanup" not in values
+    assert await backend.retrieve("run/a") == b"first"
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
+    await backend.store("run/b", b"replacement", "text/plain")
+    assert await backend.cleanup_run("run", idempotency_key="cleanup") == 1
+    assert client.erasure_mutations == 1
+    assert len(client.eval_calls) == 3
     assert await backend.retrieve("run/b") == b"replacement"
 
 

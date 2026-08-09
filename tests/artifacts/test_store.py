@@ -80,6 +80,7 @@ class TestRedisArtifactStore:
         client.set = AsyncMock(return_value=True)
         client.exists = AsyncMock(return_value=0)
         client.delete = AsyncMock(return_value=1)
+        client.eval = AsyncMock(return_value=[b"ok", b"false"])
         client.scan_iter = MagicMock()
 
         return client
@@ -160,9 +161,7 @@ class TestRedisArtifactStore:
     @pytest.mark.asyncio()
     async def test_delete_existing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns True for existing key."""
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [1, 1]
-        mock_redis.exists.return_value = 1
+        mock_redis.eval.return_value = [b"ok", b"true"]
 
         result = await store.delete("run1/node1/abc123", idempotency_key="delete-existing")
 
@@ -171,9 +170,6 @@ class TestRedisArtifactStore:
     @pytest.mark.asyncio()
     async def test_delete_missing(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
         """delete() returns False for missing key."""
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [0, 0]
-
         result = await store.delete("run1/node1/missing", idempotency_key="delete-missing")
 
         assert result is False
@@ -182,27 +178,13 @@ class TestRedisArtifactStore:
     async def test_delete_replay_returns_stable_receipt(
         self, store: RedisArtifactStore, mock_redis: MagicMock
     ) -> None:
-        receipts: dict[str, bytes] = {}
-
-        async def get(key: str):
-            return receipts.get(key)
-
-        async def set_value(key: str, value: str, *, nx: bool = False):
-            if not nx or key not in receipts:
-                receipts[key] = value.encode()
-                return True
-            return False
-
-        mock_redis.get.side_effect = get
-        mock_redis.set.side_effect = set_value
-        mock_redis.exists.side_effect = [1, 0]
-        pipeline = mock_redis.pipeline.return_value
-        pipeline.execute.return_value = [1, 1]
+        mock_redis.eval.return_value = [b"ok", b"true"]
 
         first = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
         second = await store.delete("run1/node1/replay", idempotency_key="redis-replay")
 
         assert first is True and second is True
+        assert mock_redis.eval.await_count == 2
 
     @pytest.mark.asyncio()
     async def test_refresh_ttl_existing(
@@ -249,26 +231,14 @@ class TestRedisArtifactStore:
 
     @pytest.mark.asyncio()
     async def test_cleanup_run(self, store: RedisArtifactStore, mock_redis: MagicMock) -> None:
-        """cleanup_run() uses scan_iter with prefix pattern, deletes matching keys."""
-        mock_redis.scan_iter.side_effect = [
-            self._async_iter([b"zeroth:artifact:data:run1/a", b"zeroth:artifact:data:run1/b"]),
-            self._async_iter([]),
-        ]
-        mock_redis.delete.return_value = 1
+        """cleanup_run() returns the Lua script's logical artifact count."""
+        mock_redis.eval.return_value = [b"ok", b"2"]
 
         count = await store.cleanup_run("run1", idempotency_key="cleanup-run1")
 
         assert count == 2
-        assert mock_redis.scan_iter.call_count == 2
-        # Verify the scan pattern contains the run_id
-        call_kwargs = mock_redis.scan_iter.call_args
-        assert "run1" in str(call_kwargs)
-
-    @staticmethod
-    async def _async_iter(items: list) -> ...:
-        """Helper to create an async iterator from a list."""
-        for item in items:
-            yield item
+        mock_redis.eval.assert_awaited_once()
+        assert "run1" in str(mock_redis.eval.await_args)
 
 
 # ---------------------------------------------------------------------------

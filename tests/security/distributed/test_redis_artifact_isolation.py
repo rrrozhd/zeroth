@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from uuid import uuid4
 
@@ -76,14 +77,24 @@ async def test_security_rc_redis_artifact_isolation_survives_reconnect() -> None
         assert await tenant_a.retrieve(owner_only_key) == b"owner-only"
 
         # Receipt bindings survive client and wrapper reconstruction.
+        script_digest = hashlib.sha1(  # noqa: S324 - Redis requires a SHA-1 script digest
+            RedisArtifactStore._ERASURE_SCRIPT.encode()
+        ).hexdigest()
+        assert await reconnected_a.script_exists(script_digest) == [True]
+        await tenant_a.store("receipt-run/a", b"replacement", "application/octet-stream")
         assert await tenant_a.delete("receipt-run/a", idempotency_key="bound-receipt") is True
+        assert await tenant_a.retrieve("receipt-run/a") == b"replacement"
         with pytest.raises(ArtifactStorageError, match="reused for another operation") as misuse:
             await tenant_a.delete("receipt-run/b", idempotency_key="bound-receipt")
         assert "scopes/v1" not in str(misuse.value)
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("receipt-run", idempotency_key="bound-receipt")
         assert await tenant_a.retrieve("receipt-run/b") == b"b"
+        await tenant_a.store(
+            "cleanup-restart/replacement", b"replacement", "application/octet-stream"
+        )
         assert await tenant_a.cleanup_run("cleanup-restart", idempotency_key="cleanup-receipt") == 1
+        assert await tenant_a.retrieve("cleanup-restart/replacement") == b"replacement"
         with pytest.raises(ArtifactStorageError, match="reused for another operation"):
             await tenant_a.cleanup_run("other-cleanup", idempotency_key="cleanup-receipt")
 

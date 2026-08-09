@@ -76,10 +76,12 @@ class ArtifactStore(Protocol):
 
 
 class RedisArtifactStore:
-    """Redis-backed artifact store using pipeline-atomic SETEX operations.
+    """Redis-backed artifact store with atomic Lua erasure receipts.
 
     Stores artifact data and metadata as separate Redis keys with optional
-    TTL. Uses scan_iter for prefix-based bulk cleanup of run artifacts.
+    TTL. Run cleanup uses ``KEYS`` inside a Lua script so enumeration, deletion,
+    and receipt completion cannot interleave. This blocks the Redis server for
+    the namespace scan and requires a standalone Redis deployment, not Cluster.
 
     Args:
         redis_url: Redis connection URL.
@@ -87,6 +89,136 @@ class RedisArtifactStore:
         default_ttl: Default TTL in seconds when none is specified.
         max_size: Maximum artifact payload size in bytes.
     """
+
+    _ERASURE_SCRIPT = r"""
+local kind = ARGV[1]
+local target = ARGV[2]
+
+local function validate_receipt(raw, prior)
+    local decoded, receipt = pcall(cjson.decode, raw)
+    if not decoded or type(receipt) ~= "table" then
+        if prior then
+            return "legacy", nil
+        end
+        return "invalid", nil
+    end
+    if prior then
+        if receipt.version ~= nil and receipt.version ~= 2 then
+            return "mismatch", nil
+        end
+    elseif receipt.version ~= 2 then
+        return "mismatch", nil
+    end
+    if receipt.kind ~= kind or receipt.target ~= target then
+        return "mismatch", nil
+    end
+    if kind == "delete" then
+        if type(receipt.result) ~= "boolean" then
+            return "invalid", nil
+        end
+    elseif kind == "cleanup_run" then
+        if type(receipt.result) ~= "number"
+            or receipt.result < 0
+            or receipt.result ~= math.floor(receipt.result) then
+            return "invalid", nil
+        end
+    else
+        return "invalid", nil
+    end
+    return "ok", receipt.result
+end
+
+local completed = redis.call("GET", KEYS[1])
+if completed then
+    local status, result = validate_receipt(completed, false)
+    if status ~= "ok" then
+        return {status}
+    end
+    return {"ok", cjson.encode(result)}
+end
+
+local prior = redis.call("GET", KEYS[2])
+if prior then
+    local status, result = validate_receipt(prior, true)
+    if status ~= "ok" then
+        return {status}
+    end
+    local migrated = cjson.encode({
+        version = 2,
+        kind = kind,
+        target = target,
+        result = result
+    })
+    redis.call("SET", KEYS[1], migrated)
+    return {"ok", cjson.encode(result)}
+end
+
+if kind == "delete" then
+    local existed = redis.call("EXISTS", KEYS[3]) == 1
+        or redis.call("EXISTS", KEYS[5]) == 1
+    local payload = cjson.encode({
+        version = 2,
+        kind = kind,
+        target = target,
+        result = existed
+    })
+    redis.call("DEL", KEYS[3], KEYS[4], KEYS[5], KEYS[6])
+    redis.call("SET", KEYS[1], payload)
+    return {"ok", cjson.encode(existed)}
+end
+
+if kind ~= "cleanup_run" then
+    return {"invalid"}
+end
+
+local new_exact = ARGV[3]
+local meta_namespace = ARGV[4]
+local legacy_exact = ARGV[5]
+local new_namespace = ARGV[6]
+local legacy_namespace = ARGV[7]
+local new_keys = redis.call("KEYS", ARGV[8])
+local legacy_keys = redis.call("KEYS", ARGV[9])
+local logical = {}
+local new_delete = {}
+local legacy_delete = {}
+
+for _, key in ipairs(new_keys) do
+    if string.sub(key, 1, string.len(new_exact)) == new_exact then
+        local logical_key = string.sub(key, string.len(new_namespace) + 1)
+        logical[logical_key] = true
+        table.insert(new_delete, key)
+    end
+end
+for _, key in ipairs(legacy_keys) do
+    if string.sub(key, 1, string.len(legacy_exact)) == legacy_exact then
+        local logical_key = string.sub(key, string.len(legacy_namespace) + 1)
+        if redis.call("EXISTS", key .. ":meta") == 1 then
+            logical[logical_key] = true
+        end
+        table.insert(legacy_delete, key)
+    end
+end
+
+local count = 0
+for _ in pairs(logical) do
+    count = count + 1
+end
+local payload = cjson.encode({
+    version = 2,
+    kind = kind,
+    target = target,
+    result = count
+})
+for _, key in ipairs(new_delete) do
+    local logical_key = string.sub(key, string.len(new_namespace) + 1)
+    redis.call("DEL", key, meta_namespace .. logical_key)
+end
+for _, key in ipairs(legacy_delete) do
+    redis.call("DEL", key)
+end
+redis.call("SET", KEYS[1], payload)
+return {"ok", cjson.encode(count)}
+"""
 
     def __init__(
         self,
@@ -129,120 +261,57 @@ class RedisArtifactStore:
         return f"{self._prefix}:erasure-receipt:{idempotency_key}"
 
     @staticmethod
-    def _receipt_payload(*, kind: str, target: str, result: bool | int) -> str:
-        return json.dumps(
-            {"version": 2, "kind": kind, "target": target, "result": result},
-            sort_keys=True,
-            separators=(",", ":"),
+    def _glob_prefix(value: str) -> str:
+        """Escape a literal Redis glob prefix before appending a wildcard."""
+        return "".join(
+            f"\\{character}" if character in r"\*?[]" else character for character in value
         )
 
-    @staticmethod
-    def _receipt_result(
-        raw_receipt: bytes | str,
+    async def _run_erasure_script(
+        self,
+        idempotency_key: str,
         *,
         kind: str,
         target: str,
         result_type: type[bool] | type[int],
-        allow_prior_version: bool = False,
+        keys: list[str],
+        arguments: list[str] | None = None,
     ) -> bool | int:
+        """Run receipt validation and destructive mutation as one Redis script."""
+        script_keys = [
+            self._receipt_key(idempotency_key),
+            self._legacy_receipt_key(idempotency_key),
+            *keys,
+        ]
+        response = await self._client.eval(
+            self._ERASURE_SCRIPT,
+            len(script_keys),
+            *script_keys,
+            kind,
+            target,
+            *(arguments or []),
+        )
+        if not isinstance(response, (list, tuple)) or not response:
+            raise ArtifactStorageError("Invalid erasure operation receipt")
+        raw_status = response[0]
+        status = raw_status.decode() if isinstance(raw_status, bytes) else raw_status
+        if status == "mismatch":
+            raise ArtifactStorageError("idempotency key reused for another operation")
+        if status == "legacy":
+            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
+        if status != "ok" or len(response) != 2:
+            raise ArtifactStorageError("Invalid erasure operation receipt")
+        raw_result = response[1]
         try:
-            receipt = json.loads(raw_receipt)
+            result = json.loads(raw_result)
         except (TypeError, ValueError):
             raise ArtifactStorageError("Invalid erasure operation receipt") from None
-        valid_version = isinstance(receipt, dict) and (
-            receipt.get("version") == 2 or (allow_prior_version and "version" not in receipt)
-        )
-        if not valid_version or receipt.get("kind") != kind or receipt.get("target") != target:
-            raise ArtifactStorageError("idempotency key reused for another operation")
-        result = receipt.get("result")
         if result_type is bool:
             if type(result) is not bool:
                 raise ArtifactStorageError("Invalid erasure operation receipt")
         elif type(result) is not int or result < 0:
             raise ArtifactStorageError("Invalid erasure operation receipt")
         return result
-
-    async def _existing_receipt(
-        self,
-        idempotency_key: str,
-        *,
-        kind: str,
-        target: str,
-        result_type: type[bool] | type[int],
-    ) -> tuple[bool, bool | int]:
-        """Return a validated replay result, migrating the prior JSON namespace."""
-        receipt_key = self._receipt_key(idempotency_key)
-        receipt = await self._client.get(receipt_key)
-        if receipt is not None:
-            return True, self._receipt_result(
-                receipt,
-                kind=kind,
-                target=target,
-                result_type=result_type,
-            )
-
-        prior_receipt = await self._client.get(self._legacy_receipt_key(idempotency_key))
-        if prior_receipt is None:
-            return False, False if result_type is bool else 0
-        try:
-            prior_value = json.loads(prior_receipt)
-        except (TypeError, ValueError):
-            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay") from None
-        if not isinstance(prior_value, dict):
-            raise ArtifactStorageError("Legacy erasure receipt blocks unbound replay")
-
-        prior_result = self._receipt_result(
-            prior_receipt,
-            kind=kind,
-            target=target,
-            result_type=result_type,
-            allow_prior_version=True,
-        )
-        await self._client.set(
-            receipt_key,
-            self._receipt_payload(kind=kind, target=target, result=prior_result),
-            nx=True,
-        )
-        migrated_receipt = await self._client.get(receipt_key)
-        if migrated_receipt is None:
-            raise ArtifactStorageError("Invalid erasure operation receipt")
-        return True, self._receipt_result(
-            migrated_receipt,
-            kind=kind,
-            target=target,
-            result_type=result_type,
-        )
-
-    async def _claim_receipt(
-        self,
-        idempotency_key: str,
-        *,
-        kind: str,
-        target: str,
-        result: bool | int,
-        result_type: type[bool] | type[int],
-    ) -> tuple[bool, bool | int]:
-        """Atomically bind an operation and report whether this caller won."""
-        receipt_key = self._receipt_key(idempotency_key)
-        claimed = bool(
-            await self._client.set(
-                receipt_key,
-                self._receipt_payload(kind=kind, target=target, result=result),
-                nx=True,
-            )
-        )
-        receipt = await self._client.get(receipt_key)
-        if receipt is None:
-            if claimed:
-                return True, result
-            raise ArtifactStorageError("Invalid erasure operation receipt")
-        stable_result = self._receipt_result(
-            receipt,
-            kind=kind,
-            target=target,
-            result_type=result_type,
-        )
-        return claimed, stable_result
 
     async def store(
         self,
@@ -337,36 +406,14 @@ class RedisArtifactStore:
         meta_key = self._meta_key(key)
         legacy_full_key = self._legacy_full_key(key)
         legacy_meta_key = self._legacy_meta_key(key)
-        has_receipt, result = await self._existing_receipt(
+        result = await self._run_erasure_script(
             idempotency_key,
             kind="delete",
             target=key,
             result_type=bool,
+            keys=[full_key, meta_key, legacy_full_key, legacy_meta_key],
         )
-        if has_receipt:
-            return bool(result)
-
-        existed = bool(
-            await self._client.exists(full_key) or await self._client.exists(legacy_full_key)
-        )
-        claimed, stable_result = await self._claim_receipt(
-            idempotency_key,
-            kind="delete",
-            target=key,
-            result=existed,
-            result_type=bool,
-        )
-        if not claimed:
-            return bool(stable_result)
-
-        async with self._client.pipeline(transaction=True) as pipe:
-            pipe.delete(full_key)
-            pipe.delete(meta_key)
-            pipe.delete(legacy_full_key)
-            pipe.delete(legacy_meta_key)
-            await pipe.execute()
-
-        return stable_result
+        return bool(result)
 
     async def refresh_ttl(self, key: str, ttl: int) -> bool:
         """Refresh the TTL of an existing artifact.
@@ -413,9 +460,10 @@ class RedisArtifactStore:
         )
 
     async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
-        """Remove all artifacts for a run using scan_iter.
+        """Atomically remove all artifacts for a run and complete its receipt.
 
-        Scans for all keys matching the run_id prefix and deletes them.
+        The Lua script uses ``KEYS`` with escaped exact-prefix patterns. This
+        deliberately trades server latency for a race-free cleanup boundary.
 
         Args:
             run_id: Run identifier whose artifacts should be cleaned up.
@@ -424,48 +472,28 @@ class RedisArtifactStore:
         Returns:
             Count of deleted logical artifacts.
         """
-        pattern = f"{self._prefix}:data:{run_id}/*"
-        legacy_pattern = f"{self._prefix}:{run_id}/*"
-        has_receipt, stable_count = await self._existing_receipt(
+        new_namespace = f"{self._prefix}:data:"
+        meta_namespace = f"{self._prefix}:meta:"
+        legacy_namespace = f"{self._prefix}:"
+        new_exact = f"{new_namespace}{run_id}/"
+        legacy_exact = f"{legacy_namespace}{run_id}/"
+        stable_count = await self._run_erasure_script(
             idempotency_key,
             kind="cleanup_run",
             target=run_id,
             result_type=int,
+            keys=[],
+            arguments=[
+                new_exact,
+                meta_namespace,
+                legacy_exact,
+                new_namespace,
+                legacy_namespace,
+                f"{self._glob_prefix(new_exact)}*",
+                f"{self._glob_prefix(legacy_exact)}*",
+            ],
         )
-        if has_receipt:
-            return int(stable_count)
-        redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
-        legacy_keys = [key async for key in self._client.scan_iter(match=legacy_pattern, count=100)]
-
-        def _text(redis_key: str | bytes) -> str:
-            return redis_key.decode() if isinstance(redis_key, bytes) else redis_key
-
-        new_prefix = f"{self._prefix}:data:"
-        legacy_prefix = f"{self._prefix}:"
-        logical_keys = {_text(key).removeprefix(new_prefix) for key in redis_keys}
-        legacy_text = {_text(key) for key in legacy_keys}
-        logical_keys.update(
-            key.removeprefix(legacy_prefix) for key in legacy_text if f"{key}:meta" in legacy_text
-        )
-        count = len(logical_keys)
-        claimed, stable_count = await self._claim_receipt(
-            idempotency_key,
-            kind="cleanup_run",
-            target=run_id,
-            result=count,
-            result_type=int,
-        )
-        if not claimed:
-            return int(stable_count)
-        for redis_key in redis_keys:
-            await self._client.delete(redis_key)
-            redis_key_text = redis_key.decode() if isinstance(redis_key, bytes) else redis_key
-            await self._client.delete(
-                redis_key_text.replace(f"{self._prefix}:data:", f"{self._prefix}:meta:", 1)
-            )
-        for redis_key in legacy_keys:
-            await self._client.delete(redis_key)
-        return stable_count
+        return int(stable_count)
 
 
 class FilesystemArtifactStore:
