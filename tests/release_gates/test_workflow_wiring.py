@@ -153,11 +153,49 @@ def test_the_final_gate_seals_the_evidence_it_validated():
 
 
 def test_the_gate_jobs_publish_a_verdict_even_when_a_producer_failed():
-    """Otherwise the verdict disappears exactly when it is most needed."""
+    """Otherwise the verdict disappears exactly when it is most needed.
+
+    ``if: always()`` alone is not enough: it keeps the job alive, but a
+    download step that hard-fails on an artifact an upstream gate never
+    uploaded would still skip the verdict.
+    """
     jobs = _jobs(RELEASE_WORKFLOW)
 
     for name in ("evidence-gate", "evidence-gate-final"):
         assert jobs[name].get("if") == "always()", f"{name} is skipped when a producer fails"
+        downloads = [
+            step
+            for step in _steps(jobs[name])
+            if str(step.get("uses", "")).startswith("actions/download-artifact")
+        ]
+        assert downloads, f"{name} downloads no evidence"
+        for step in downloads:
+            assert step.get("continue-on-error") is True, (
+                f"{name}: '{step.get('name')}' aborts the job when a producer never uploaded"
+            )
+
+
+def test_a_step_never_reads_an_artifact_downloaded_by_a_later_step():
+    """Ordering bugs here fail every release at the same line.
+
+    A step that consumes the candidate identity must come after the step that
+    downloads it -- otherwise the file simply is not there yet.
+    """
+    for path in (RELEASE_WORKFLOW, GATES_WORKFLOW):
+        for job_name, job in _jobs(path).items():
+            downloaded_at: int | None = None
+            for index, step in enumerate(_steps(job)):
+                if str(step.get("uses", "")).startswith("actions/download-artifact"):
+                    target = str(step.get("with", {}).get("path", ""))
+                    if "release/evidence" in target:
+                        downloaded_at = index if downloaded_at is None else downloaded_at
+                script = step.get("run", "")
+                if "candidate-identity" in script and "cli.py identity" not in script:
+                    assert downloaded_at is not None and downloaded_at < index, (
+                        f"{path.name}:{job_name} step {index} "
+                        f"('{step.get('name')}') reads the candidate identity "
+                        "before any step downloads it"
+                    )
 
 
 def test_every_needs_edge_names_a_job_that_exists():
