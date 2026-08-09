@@ -14,7 +14,9 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
+import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,11 +72,42 @@ def _lower_percent_escapes(value: str) -> str:
     return re.sub(r"%[0-9A-F]{2}", lambda match: match.group(0).lower(), value)
 
 
+def _ascii_case_pattern(value: bytes) -> bytes:
+    parts: list[bytes] = []
+    for item in value:
+        character = bytes([item])
+        if 65 <= item <= 70 or 97 <= item <= 102:
+            lower = character.lower()
+            parts.append(b"[" + lower + lower.upper() + b"]")
+        else:
+            parts.append(re.escape(character))
+    return b"".join(parts)
+
+
+def _percent_case_pattern(value: str) -> bytes:
+    encoded = value.encode()
+    parts: list[bytes] = []
+    position = 0
+    while position < len(encoded):
+        if encoded[position : position + 1] == b"%" and position + 2 < len(encoded):
+            parts.append(b"%" + _ascii_case_pattern(encoded[position + 1 : position + 3]))
+            position += 3
+        else:
+            parts.append(re.escape(encoded[position : position + 1]))
+            position += 1
+    return b"".join(parts)
+
+
+def _json_slash_pattern(value: bytes) -> bytes:
+    return b"(?:/|\\\\/)".join(re.escape(part) for part in value.split(b"/"))
+
+
 class CredentialLeakScanner:
     """Scan byte and structured observable surfaces for credentials."""
 
     def __init__(self, canaries: Iterable[str | bytes]) -> None:
         needles: list[tuple[str, bytes, str]] = []
+        patterns: list[tuple[str, re.Pattern[bytes], str, bytes | None]] = []
         seen_variants: set[tuple[bytes, str]] = set()
         for raw_canary in canaries:
             canary = raw_canary if isinstance(raw_canary, bytes) else raw_canary.encode()
@@ -93,6 +126,14 @@ class CredentialLeakScanner:
                 },
                 "canary:hex": {canary.hex().encode(), canary.hex().upper().encode()},
             }
+            patterns.append(
+                (
+                    "canary:hex",
+                    re.compile(_ascii_case_pattern(canary.hex().encode())),
+                    fingerprint,
+                    None,
+                )
+            )
             try:
                 text = canary.decode("utf-8")
             except UnicodeDecodeError:
@@ -109,6 +150,26 @@ class CredentialLeakScanner:
                 variants["canary:json"] = {
                     json.dumps(text, ensure_ascii=True)[1:-1].encode()
                 }
+                patterns.extend(
+                    (
+                        "canary:url",
+                        re.compile(_percent_case_pattern(encoded_url)),
+                        fingerprint,
+                        None,
+                    )
+                    for encoded_url in (quoted, plus_quoted)
+                    if encoded_url.encode() != canary
+                )
+                json_inner = json.dumps(text, ensure_ascii=True)[1:-1].encode()
+                if json_inner != canary or b"/" in json_inner:
+                    patterns.append(
+                        (
+                            "canary:json",
+                            re.compile(_json_slash_pattern(json_inner)),
+                            fingerprint,
+                            b"\\/" if b"/" in json_inner else None,
+                        )
+                    )
             for rule, encoded_values in variants.items():
                 for value in encoded_values:
                     identity = (value, fingerprint)
@@ -116,6 +177,7 @@ class CredentialLeakScanner:
                         needles.append((rule, value, fingerprint))
                         seen_variants.add(identity)
         self._needles = tuple(needles)
+        self._patterns = tuple(patterns)
         self._overlap = max(
             [300, *(len(needle) - 1 for _, needle, _ in self._needles)], default=300
         )
@@ -127,6 +189,12 @@ class CredentialLeakScanner:
             for rule, needle, fingerprint in self._needles
             if needle in value
         }
+        findings.update(
+            Finding(fingerprint=fingerprint, rule=rule, surface=safe_surface)
+            for rule, pattern, fingerprint, required in self._patterns
+            if (match := pattern.search(value))
+            and (required is None or required in match.group(0))
+        )
         for rule, pattern in _GITHUB_PATTERNS:
             findings.update(
                 Finding(
@@ -139,8 +207,13 @@ class CredentialLeakScanner:
     def _safe_surface(self, surface: str) -> str:
         encoded = surface.encode("utf-8", errors="replace")
         contains_canary = any(needle in encoded for _, needle, _ in self._needles)
+        contains_encoded_canary = any(
+            (match := pattern.search(encoded))
+            and (required is None or required in match.group(0))
+            for _, pattern, _, required in self._patterns
+        )
         contains_github_token = any(pattern.search(encoded) for _, pattern in _GITHUB_PATTERNS)
-        if contains_canary or contains_github_token:
+        if contains_canary or contains_encoded_canary or contains_github_token:
             return "surface:" + _fingerprint(encoded)
         return surface
 
@@ -174,27 +247,83 @@ class CredentialLeakScanner:
         """Scan a file incrementally, preserving matches across chunk edges."""
         findings: set[Finding] = set()
         tail = b""
+        descriptor: int | None = None
         try:
-            with path.open("rb") as handle:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                os.close(descriptor)
+                descriptor = None
+                raise ScanInputError("input:not-file", str(path))
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = None
                 while chunk := handle.read(_CHUNK_SIZE):
                     window = tail + chunk
                     findings.update(self.scan_bytes(window, surface=surface))
                     tail = window[-self._overlap :]
         except OSError as error:
+            if descriptor is not None:
+                os.close(descriptor)
             raise ScanInputError("input:unreadable", str(path)) from error
         return _sorted(findings)
 
 
-def _inside(root: Path, path: Path) -> Path:
+def _absolute(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _contained(root: Path, path: Path) -> Path:
+    if ".." in path.parts:
+        raise ScanInputError("input:parent-traversal", str(path))
+    candidate = _absolute(path)
     try:
-        resolved = path.resolve(strict=True)
+        relative = candidate.relative_to(root)
+    except ValueError:
+        raise ScanInputError("input:outside-root", str(path)) from None
+    current = root
+    try:
+        root_status = root.lstat()
+        if stat.S_ISLNK(root_status.st_mode):
+            raise ScanInputError("input:symlink", str(root))
+        for part in relative.parts:
+            current = current / part
+            status = current.lstat()
+            if stat.S_ISLNK(status.st_mode):
+                raise ScanInputError("input:symlink", str(current))
+    except ScanInputError:
+        raise
     except OSError as error:
-        raise ScanInputError("input:unreadable", str(path)) from error
-    if not resolved.is_relative_to(root):
-        raise ScanInputError("input:outside-root", str(path))
-    if not resolved.is_file():
-        raise ScanInputError("input:not-file", str(path))
-    return resolved
+        raise ScanInputError("input:unreadable", str(current)) from error
+    return candidate
+
+
+def _files(root: Path, requested: Path) -> list[Path]:
+    candidate = _contained(root, requested)
+    mode = candidate.lstat().st_mode
+    if stat.S_ISREG(mode):
+        return [candidate]
+    if not stat.S_ISDIR(mode):
+        raise ScanInputError("input:not-file-or-directory", str(candidate))
+    files: list[Path] = []
+    pending = [candidate]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name, reverse=True)
+        except OSError as error:
+            raise ScanInputError("input:unreadable", str(directory)) from error
+        for entry in entries:
+            entry_path = Path(entry.path)
+            if entry.is_symlink():
+                raise ScanInputError("input:symlink", str(entry_path))
+            if entry.is_dir(follow_symlinks=False):
+                pending.append(entry_path)
+            elif entry.is_file(follow_symlinks=False):
+                files.append(entry_path)
+            else:
+                raise ScanInputError("input:not-file-or-directory", str(entry_path))
+    return sorted(files)
 
 
 def scan_paths(
@@ -202,19 +331,20 @@ def scan_paths(
 ) -> list[Finding]:
     """Scan required files contained by ``root`` and return sorted findings."""
     try:
-        resolved_root = root.resolve(strict=True)
+        resolved_root = _absolute(root)
+        root_status = resolved_root.lstat()
     except OSError as error:
         raise ScanInputError("input:root-unreadable", str(root)) from error
-    if not resolved_root.is_dir():
+    if stat.S_ISLNK(root_status.st_mode) or not stat.S_ISDIR(root_status.st_mode):
         raise ScanInputError("input:root-not-directory", str(root))
     scanner = CredentialLeakScanner(canaries)
     findings: set[Finding] = set()
     for requested in paths:
         if not requested.is_absolute():
             requested = resolved_root / requested
-        resolved = _inside(resolved_root, requested)
-        surface = resolved.relative_to(resolved_root).as_posix()
-        findings.update(scanner.scan_file(resolved, surface=surface))
+        for resolved in _files(resolved_root, requested):
+            surface = resolved.relative_to(resolved_root).as_posix()
+            findings.update(scanner.scan_file(resolved, surface=surface))
     return _sorted(findings)
 
 
@@ -224,7 +354,8 @@ def _sorted(findings: Iterable[Finding]) -> list[Finding]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = _SafeArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--output", type=Path)
     parser.add_argument("paths", type=Path, nargs="+")
     return parser
 
@@ -232,7 +363,7 @@ def _parser() -> argparse.ArgumentParser:
 def _canaries_from_environment() -> list[str]:
     raw = os.environ.get("ZEROTH_SECURITY_CANARIES")
     if raw is None:
-        raise ScanInputError("input:canaries-missing", "ZEROTH_SECURITY_CANARIES")
+        return []
     try:
         canaries = json.loads(raw)
     except json.JSONDecodeError as error:
@@ -244,9 +375,70 @@ def _canaries_from_environment() -> list[str]:
     return canaries
 
 
+def _output_path(root: Path, requested: Path) -> Path:
+    resolved_root = _absolute(root)
+    try:
+        root_status = resolved_root.lstat()
+    except OSError as error:
+        raise ScanInputError("output:unsafe-root", str(root)) from error
+    if stat.S_ISLNK(root_status.st_mode) or not stat.S_ISDIR(root_status.st_mode):
+        raise ScanInputError("output:unsafe-root", str(root))
+    if ".." in requested.parts:
+        raise ScanInputError("output:parent-traversal", str(requested))
+    candidate = requested if requested.is_absolute() else resolved_root / requested
+    candidate = _absolute(candidate)
+    try:
+        relative = candidate.relative_to(resolved_root)
+    except ValueError:
+        raise ScanInputError("output:outside-root", str(requested)) from None
+    current = resolved_root
+    try:
+        for part in relative.parts[:-1]:
+            current = current / part
+            status = current.lstat()
+            if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+                raise ScanInputError("output:unsafe-path", str(current))
+        if (candidate.exists() or candidate.is_symlink()) and stat.S_ISLNK(
+            candidate.lstat().st_mode
+        ):
+            raise ScanInputError("output:unsafe-path", str(candidate))
+    except ScanInputError:
+        raise
+    except OSError as error:
+        raise ScanInputError("output:unwritable", str(current)) from error
+    return candidate
+
+
+def _emit(report: dict[str, Any], output: Path | None) -> None:
+    rendered = json.dumps(report, sort_keys=True) + "\n"
+    if output is None:
+        sys.stdout.write(rendered)
+        return
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    except OSError as error:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise ScanInputError("output:unwritable", str(output)) from error
+
+
 def main(argv: list[str] | None = None) -> int:
+    output: Path | None = None
     try:
         args = _parser().parse_args(argv)
+        output = _output_path(args.root, args.output) if args.output is not None else None
         findings = scan_paths(args.root, args.paths, canaries=_canaries_from_environment())
     except ScanInputError as error:
         report = {
@@ -254,13 +446,21 @@ def main(argv: list[str] | None = None) -> int:
             "findings": [],
             "status": "error",
         }
-        print(json.dumps(report, sort_keys=True))
+        try:
+            _emit(report, output)
+        except ScanInputError:
+            print(json.dumps(report, sort_keys=True))
         return 2
     report = {
         "findings": [finding.as_dict() for finding in findings],
         "status": "failed" if findings else "passed",
     }
-    print(json.dumps(report, sort_keys=True))
+    try:
+        _emit(report, output)
+    except ScanInputError as error:
+        fallback = {"diagnostics": [error.diagnostic.as_dict()], "findings": [], "status": "error"}
+        print(json.dumps(fallback, sort_keys=True))
+        return 2
     return 1 if findings else 0
 
 

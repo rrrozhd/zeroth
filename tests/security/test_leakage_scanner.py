@@ -108,6 +108,27 @@ def test_scanner_detects_uppercase_hex_and_lowercase_percent_escapes() -> None:
     assert [item.rule for item in url_findings] == ["canary:url"]
 
 
+@pytest.mark.parametrize(
+    ("rule", "encoded"),
+    [
+        ("canary:hex", "41622B2f4364"),
+        ("canary:url", "Ab%2b%2FCd"),
+        ("canary:json", r"Ab+\/Cd"),
+    ],
+)
+def test_representation_aware_matching_and_surface_safety(rule: str, encoded: str) -> None:
+    canary = "Ab+/Cd"
+    scanner = CredentialLeakScanner([canary])
+
+    findings = scanner.scan(encoded, surface=f"surface-{encoded}")
+
+    assert [(item.rule, item.fingerprint) for item in findings] == [
+        (rule, _fingerprint(canary))
+    ]
+    assert encoded not in findings[0].surface
+    assert findings[0].surface.startswith("surface:sha256:")
+
+
 def test_scan_paths_detects_binary_value_split_across_read_chunks(tmp_path: Path) -> None:
     canary = "chunk-boundary-secret"
     target = tmp_path / "evidence.bin"
@@ -119,18 +140,48 @@ def test_scan_paths_detects_binary_value_split_across_read_chunks(tmp_path: Path
     assert findings[0].surface == "evidence.bin"
 
 
-def test_scan_paths_rejects_symlink_that_resolves_outside_root(tmp_path: Path) -> None:
+@pytest.mark.parametrize("target_location", ["inside", "outside"])
+def test_scan_paths_rejects_symlink_file_without_following_it(
+    tmp_path: Path, target_location: str
+) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    outside = tmp_path / "outside.txt"
-    outside.write_text(CANARY)
-    link = root / "escape"
-    link.symlink_to(outside)
+    target_root = root if target_location == "inside" else tmp_path
+    target = target_root / "target.txt"
+    target.write_text(CANARY)
+    link = root / f"secret-link-{CANARY.encode().hex()}"
+    link.symlink_to(target)
 
     with pytest.raises(ValueError) as excinfo:
         scan_paths(root, [link], canaries=[CANARY])
 
     assert CANARY not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("target_location", ["inside", "outside"])
+def test_scan_paths_rejects_symlink_directory_component_without_following_it(
+    tmp_path: Path, target_location: str
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    target_root = root if target_location == "inside" else tmp_path
+    target = target_root / "target-directory"
+    target.mkdir()
+    (target / "evidence.txt").write_text(CANARY)
+    link = root / "linked-directory"
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError):
+        scan_paths(root, [link / "evidence.txt"], canaries=[CANARY])
+
+
+def test_scan_paths_rejects_parent_components_before_path_normalization(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "evidence.txt").write_text("safe")
+
+    with pytest.raises(ValueError):
+        scan_paths(root, [root / "unused" / ".." / "evidence.txt"], canaries=[CANARY])
 
 
 def test_findings_are_deduplicated_and_deterministically_sorted() -> None:
@@ -218,6 +269,32 @@ def test_cli_does_not_echo_secret_bearing_file_name(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("rule", "encoded"),
+    [
+        ("canary:hex", "41622B2f4364"),
+        ("canary:url", "Ab%2b%2FCd"),
+        ("canary:json", r"Ab+\/Cd"),
+    ],
+)
+def test_cli_does_not_echo_encoded_secret_in_path_components(
+    tmp_path: Path, rule: str, encoded: str
+) -> None:
+    canary = "Ab+/Cd"
+    target = tmp_path / f"evidence-{encoded}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(encoded)
+
+    completed = _run_cli(tmp_path, target, canary=canary)
+
+    assert completed.returncode == 1
+    assert encoded not in completed.stdout
+    finding = json.loads(completed.stdout)["findings"][0]
+    assert finding["surface"].startswith("surface:sha256:")
+    assert finding["rule"] == rule
+    assert finding["fingerprint"] == _fingerprint(canary)
+
+
 def test_cli_argument_errors_never_echo_supplied_values() -> None:
     script = Path(__file__).parents[2] / "release" / "security" / "scan.py"
 
@@ -259,3 +336,116 @@ def test_cli_fails_closed_with_safe_diagnostic_for_invalid_required_input(
     assert len(report["diagnostics"]) == 1
     assert set(report["diagnostics"][0]) == {"fingerprint", "rule", "surface"}
     assert CANARY not in completed.stdout
+
+
+def _run_module_cli(
+    cwd: Path, *arguments: str, canary: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    repository = Path(__file__).parents[2]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository)
+    if canary is not None:
+        environment["ZEROTH_SECURITY_CANARIES"] = json.dumps([canary])
+    else:
+        environment.pop("ZEROTH_SECURITY_CANARIES", None)
+    return subprocess.run(
+        [sys.executable, "-m", "release.security.scan", *arguments],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+
+
+def test_module_cli_scans_directory_and_atomically_writes_requested_report(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "release" / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "result.json").write_text('{"status":"passed"}')
+    output = evidence / "security-scan.json"
+
+    completed = _run_module_cli(
+        tmp_path,
+        "release/evidence",
+        "--output",
+        "release/evidence/security-scan.json",
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == completed.stderr == ""
+    assert json.loads(output.read_text()) == {"findings": [], "status": "passed"}
+    assert output.read_text() == json.dumps(json.loads(output.read_text()), sort_keys=True) + "\n"
+    assert not list(evidence.glob(".*security-scan.json.*"))
+
+
+def test_module_cli_writes_report_and_returns_nonzero_on_finding(tmp_path: Path) -> None:
+    evidence = tmp_path / "release" / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "result.txt").write_text(CANARY)
+    output = evidence / "security-scan.json"
+
+    completed = _run_module_cli(
+        tmp_path,
+        "release/evidence",
+        "--output",
+        "release/evidence/security-scan.json",
+        canary=CANARY,
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == completed.stderr == ""
+    assert json.loads(output.read_text())["status"] == "failed"
+    assert CANARY not in output.read_text()
+
+
+def test_module_cli_writes_error_report_for_unreadable_input(tmp_path: Path) -> None:
+    (tmp_path / "release" / "evidence").mkdir(parents=True)
+    output = tmp_path / "release" / "evidence" / "security-scan.json"
+
+    completed = _run_module_cli(
+        tmp_path,
+        "release/missing",
+        "--output",
+        "release/evidence/security-scan.json",
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == completed.stderr == ""
+    assert json.loads(output.read_text())["status"] == "error"
+
+
+def test_module_cli_rejects_output_outside_root_without_writing_it(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    outside = tmp_path.parent / f"outside-{tmp_path.name}.json"
+
+    completed = _run_module_cli(
+        tmp_path, "evidence", "--output", str(outside)
+    )
+
+    assert completed.returncode == 2
+    assert completed.stderr == ""
+    assert not outside.exists()
+
+
+def test_module_cli_does_not_write_through_a_symlink_scan_root(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    (actual / "evidence").mkdir(parents=True)
+    (actual / "evidence" / "result.txt").write_text("safe")
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    completed = _run_module_cli(
+        tmp_path,
+        "--root",
+        str(alias),
+        "evidence",
+        "--output",
+        "security-scan.json",
+    )
+
+    assert completed.returncode == 2
+    assert completed.stderr == ""
+    assert not (actual / "security-scan.json").exists()
