@@ -308,6 +308,10 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
     assert report.cleanup[0].status is ScenarioStatus.PASSED
     # Lifecycle is a platform operation, so it authenticates as admin regardless of
     # which role the surrounding scenario's probes use.
+    # The gate reads observed_compatibility.status, so the Agent Server verdict has to
+    # survive out of whatever response carried it and into the report.
+    assert report.observed_compatibility == {"status": "supported"}
+
     assert ("admin", "POST", "/restart") in transport.requested
     assert ("admin", "POST", "/shutdown") in transport.requested
 

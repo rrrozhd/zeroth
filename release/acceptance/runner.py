@@ -83,6 +83,7 @@ class AcceptanceRunner:
             "candidate_digest": config.candidate_digest,
         }
         self._observed_compatibility: dict[str, Any] | None = None
+        self._scenario_name = ""
         self._owned_resources: set[str] = set()
 
     def _format(self, value: Any) -> Any:
@@ -214,8 +215,22 @@ class AcceptanceRunner:
                 raise AssertionError(f"owned capture {name!r} is not a resource identifier")
             self._context[name] = owned
             self._owned_resources.add(owned)
-        if path.endswith("compatibility") and isinstance(body, dict):
-            self._observed_compatibility = body
+        if self._scenario_name == "compatibility" and isinstance(body, dict):
+            self._record_compatibility(body)
+
+    def _record_compatibility(self, body: dict[str, Any]) -> None:
+        """Lift the Agent Server verdict out of whatever response carried it.
+
+        The gate reads `observed_compatibility.status`, and the deployment reports
+        compatibility inside its readiness document rather than as a standalone
+        one. Keyed on the scenario rather than on a path spelling: a contract is
+        free to name the route anything, and sniffing for "compatibility" in the
+        URL silently records nothing the moment it does.
+        """
+        agent_server = body.get("checks", {}).get("agent_server")
+        self._observed_compatibility = (
+            dict(agent_server) if isinstance(agent_server, dict) else dict(body)
+        )
 
     async def _execute_websocket(self, step: AcceptanceStep, path: str) -> StepObservation:
         events = await self.transport.websocket_events(
@@ -248,6 +263,7 @@ class AcceptanceRunner:
         return StepObservation(protocol="websocket", path=path, event_count=len(events))
 
     async def _scenario(self, name: str, steps: list[AcceptanceStep]) -> ScenarioResult:
+        self._scenario_name = name
         observations: list[StepObservation] = []
         try:
             for step in steps:
