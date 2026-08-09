@@ -194,6 +194,11 @@ class SidecarExecutor:
             self._persist_cancelled(request.execution_id, started_at)
             raise
         except Exception:
+            stop_task = asyncio.create_task(self._stop_process(state))
+            try:
+                await self._await_shielded_task(stop_task, propagate_cancellation=False)
+            except BaseException:  # noqa: BLE001
+                logger.warning("Failed to stop sandbox process after execution error")
             self._persist_failed(request.execution_id, started_at)
             raise
 
@@ -201,7 +206,7 @@ class SidecarExecutor:
             state.cleanup_task = asyncio.create_task(
                 self._finalize(request.execution_id, state, network_name)
             )
-            await self._await_finalizer(state.cleanup_task)
+            await self._await_shielded_task(state.cleanup_task)
 
     async def get_status(self, execution_id: str) -> SidecarStatusResponse | None:
         """Return the status of a previously submitted execution."""
@@ -251,7 +256,9 @@ class SidecarExecutor:
                 self._states.pop(execution_id, None)
 
     @staticmethod
-    async def _await_finalizer(task: asyncio.Task[None]) -> None:
+    async def _await_shielded_task(
+        task: asyncio.Task[None], *, propagate_cancellation: bool = True
+    ) -> None:
         current = asyncio.current_task()
         interrupted = False
         while not task.done():
@@ -262,7 +269,7 @@ class SidecarExecutor:
                 if current is not None:
                     current.uncancel()
         await task
-        if interrupted:
+        if interrupted and propagate_cancellation:
             raise asyncio.CancelledError
 
     async def _stop_process(self, state: _ExecutionState) -> None:

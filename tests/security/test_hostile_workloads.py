@@ -91,6 +91,124 @@ async def test_sidecar_timeout_kills_and_waits_for_child(monkeypatch) -> None:
     assert process.waited is True
 
 
+class _FailingStdin:
+    def write(self, _data: bytes) -> None:
+        return None
+
+    async def drain(self) -> None:
+        raise RuntimeError("stdin pump failed")
+
+    def close(self) -> None:
+        return None
+
+
+class _StdinFailureProcess:
+    returncode = None
+
+    def __init__(self) -> None:
+        self.stdout = _ChunkStream([])
+        self.stderr = _ChunkStream([])
+        self.stdin = _FailingStdin()
+        self.killed = False
+        self.waited = False
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        self.waited = True
+        return -9
+
+
+class _BlockedStopAfterStdinFailureProcess(_StdinFailureProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stop_wait_started = asyncio.Event()
+        self.release_stop_wait = asyncio.Event()
+
+    async def wait(self) -> int:
+        self.waited = True
+        self.stop_wait_started.set()
+        await self.release_stop_wait.wait()
+        return -9
+
+
+async def test_unexpected_stdin_failure_reaps_child_before_network_cleanup(monkeypatch) -> None:
+    process = _StdinFailureProcess()
+    commands: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        commands.append(args)
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=process),
+    )
+
+    with pytest.raises(RuntimeError, match="stdin pump failed"):
+        await executor.execute(
+            SidecarExecuteRequest(
+                execution_id="stdin-failure",
+                image="python",
+                command=["run"],
+                input_text="payload",
+            )
+        )
+
+    assert process.killed and process.waited
+    assert commands.count(("docker", "network", "rm", "zeroth-sandbox-stdin-failure")) == 1
+    assert executor._states == {}
+    status = await executor.get_status("stdin-failure")
+    assert status is not None and status.status == "failed"
+
+
+async def test_repeated_cancellation_during_error_stop_preserves_original_failure(
+    monkeypatch,
+) -> None:
+    process = _BlockedStopAfterStdinFailureProcess()
+    commands: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        commands.append(args)
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=process),
+    )
+    task = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(
+                execution_id="cancelled-error-stop",
+                image="python",
+                command=["run"],
+                input_text="payload",
+            )
+        )
+    )
+    await process.stop_wait_started.wait()
+
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    process.release_stop_wait.set()
+
+    with pytest.raises(RuntimeError, match="stdin pump failed"):
+        await task
+    assert process.killed and process.waited
+    assert commands.count(("docker", "network", "rm", "zeroth-sandbox-cancelled-error-stop")) == 1
+    assert executor._states == {}
+    status = await executor.get_status("cancelled-error-stop")
+    assert status is not None and status.status == "failed"
+
+
 class _ActiveProcess:
     returncode = None
 
