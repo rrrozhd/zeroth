@@ -31,8 +31,17 @@ if __package__ in (None, ""):  # invoked as a path, not as a module
     sys.modules["gates"] = _module
     _spec.loader.exec_module(_module)
 
-from gates.identity import candidate_identity, identity_digest  # noqa: E402
-from gates.manifest import DEFAULT_MANIFEST, TRIGGERS, load_manifest  # noqa: E402
+from gates.identity import (  # noqa: E402
+    candidate_identity,
+    file_digest,
+    identity_digest,
+)
+from gates.manifest import (  # noqa: E402
+    DEFAULT_MANIFEST,
+    TRIGGERS,
+    load_manifest,
+    select_gates,
+)
 from gates.validate import PASSED, releasable, validate  # noqa: E402
 from gates.verdict import render  # noqa: E402
 
@@ -91,6 +100,20 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("--phase", choices=("candidate", "final"), default="final")
     report.add_argument("--trigger", choices=TRIGGERS)
     report.add_argument("--output", type=Path)
+
+    seal = commands.add_parser(
+        "seal", help="write the evidence manifest that attestation signs over"
+    )
+    seal.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    seal.add_argument("--identity", type=Path, required=True)
+    seal.add_argument("--evidence-root", type=Path, default=ROOT)
+    seal.add_argument("--phase", choices=("candidate", "final"), default="final")
+    seal.add_argument("--output", type=Path, required=True)
+
+    fingerprint = commands.add_parser(
+        "digest", help="print the candidate identity digest a signoff must name"
+    )
+    fingerprint.add_argument("--identity", type=Path, required=True)
     return parser
 
 
@@ -182,6 +205,38 @@ def _do_verdict(args: argparse.Namespace) -> int:
     return 0 if releasable(results) else 1
 
 
+def _do_seal(args: argparse.Namespace) -> int:
+    """Bind the candidate and every record into one digest-carrying document.
+
+    This is what build attestation signs over. Attesting the image alone leaves
+    the evidence itself unsigned, so anyone able to write a record could forge
+    a passing one by copying the public candidate identity. Sealing puts every
+    record's digest under the same signature as the artifact.
+    """
+    manifest = load_manifest(args.manifest)
+    candidate = _identity(args.identity)
+    sealed: dict[str, Any] = {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "phase": args.phase,
+        "candidate": candidate,
+        "candidate_digest": identity_digest(candidate),
+        "records": {},
+    }
+    for gate in select_gates(manifest, phase=args.phase):
+        path = args.evidence_root / gate["record"]
+        sealed["records"][gate["id"]] = (
+            file_digest(path) if path.is_file() else "absent"
+        )
+    _write_json(args.output, sealed)
+    print(sealed["candidate_digest"])
+    return 0
+
+
+def _do_digest(args: argparse.Namespace) -> int:
+    print(identity_digest(_identity(args.identity)))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return its exit status."""
     args = _parser().parse_args(argv)
@@ -190,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         "record": _do_record,
         "validate": _do_validate,
         "verdict": _do_verdict,
+        "seal": _do_seal,
+        "digest": _do_digest,
     }
     return handlers[args.command](args)
 

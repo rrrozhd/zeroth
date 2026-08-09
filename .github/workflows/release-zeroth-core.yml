@@ -163,6 +163,10 @@ jobs:
   evidence-gate:
     name: Validate candidate evidence
     needs: [source-gates, smoke-install, test-wheel, container-evidence]
+    # A gate that is skipped when a producer fails publishes no verdict and no
+    # bundle -- exactly when the diagnosis is most needed. It still fails on a
+    # blocking result, so promotion stays closed either way.
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -319,7 +323,12 @@ jobs:
   evidence-gate-final:
     name: Validate final evidence and promotion signoff
     needs: [evidence-gate, smoke-from-testpypi]
+    if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -353,11 +362,21 @@ jobs:
           # reports the promotion gate as `partial` naming the absent file.
           # Nothing is written here on purpose: fabricating a placeholder so the
           # evidence "exists" is precisely the move this gate exists to stop.
-          if [ -f "${SIGNOFF}" ]; then
-            SIGNOFF_STATUS=passed
-          else
-            SIGNOFF_STATUS=failed
+          DIGEST=$(python release/gates/cli.py digest \
+            --identity release/evidence/candidate-identity-full.json)
+          SIGNOFF_STATUS=failed
+          if [ ! -f "${SIGNOFF}" ]; then
             echo "::error::no operator signoff at ${SIGNOFF}"
+          elif ! grep -q "${DIGEST}" "${SIGNOFF}"; then
+            # A signoff that does not name this candidate is a signoff for some
+            # other build. Existing is not the same as accepting *this* one.
+            echo "::error::${SIGNOFF} does not name candidate ${DIGEST}"
+          elif ! grep -qiE '^(signed-off-by|operator):' "${SIGNOFF}"; then
+            echo "::error::${SIGNOFF} names no operator"
+          else
+            SIGNOFF_STATUS=passed
+            mkdir -p release/evidence
+            cp "${SIGNOFF}" release/evidence/promotion-signoff.md
           fi
           python release/gates/cli.py validate \
             --identity release/evidence/candidate-identity-full.json \
@@ -367,7 +386,7 @@ jobs:
             --identity release/evidence/candidate-identity-full.json \
             --result "candidate-gates-validated=$(status ${CANDIDATE})" \
             --result "manual-signoff=${SIGNOFF_STATUS}" \
-            --kind "manual-signoff=${SIGNOFF}" \
+            --kind manual-signoff=release/evidence/promotion-signoff.md \
             --output release/evidence/promotion.json
           cat release/evidence/promotion.json
 
@@ -380,7 +399,22 @@ jobs:
             --phase final \
             --output release/evidence/VERDICT.md; VERDICT=$?
           cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
+          # Seal regardless of the verdict: a blocked release still needs a
+          # tamper-evident record of what was and was not proven.
+          python release/gates/cli.py seal \
+            --identity release/evidence/candidate-identity-full.json \
+            --phase final \
+            --output release/evidence/evidence-manifest.json
           exit "${VERDICT}"
+
+      - name: Attest the evidence manifest
+        if: always()
+        uses: actions/attest@v4
+        with:
+          # Signs over the candidate identity and the digest of every gate
+          # record, so the evidence itself carries an attestation rather than
+          # only the image it describes.
+          subject-path: release/evidence/evidence-manifest.json
 
       - name: Retain the final evidence bundle
         if: always()
