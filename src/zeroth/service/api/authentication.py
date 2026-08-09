@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, build_opener
 from uuid import uuid4
 
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
@@ -69,6 +69,35 @@ def _identifier_snapshot(identifiers: Iterable[str]) -> frozenset[str]:
     return frozenset(values)
 
 
+def _redact_config_input(value: Any) -> Any:
+    """Recursively redact secrets before a configuration error is surfaced."""
+    if isinstance(value, Mapping):
+        return {
+            key: (
+                "**********"
+                if isinstance(key, str) and key.lower() in {"secret", "token", "authorization"}
+                else _redact_config_input(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return type(value)(_redact_config_input(item) for item in value)
+    if isinstance(value, BaseModel):
+        return _redact_config_input(value.model_dump(mode="python"))
+    return value
+
+
+def _redacted_config_validation_error(error: ValidationError, *, title: str) -> ValidationError:
+    """Return equivalent Pydantic diagnostics whose ``input`` has no secrets."""
+    details = []
+    for detail in error.errors():
+        safe_detail = dict(detail)
+        if "input" in safe_detail:
+            safe_detail["input"] = _redact_config_input(safe_detail["input"])
+        details.append(safe_detail)
+    return ValidationError.from_exception_data(title, details)
+
+
 class CredentialRevocationRegistry:
     """Thread-safe revocations with linearizable snapshot replacement.
 
@@ -116,6 +145,19 @@ class StaticApiKeyCredential(BaseModel):
     tenant_id: str = "default"
     workspace_id: str | None = None
 
+    def __init__(self, /, **data: Any) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            raise _redacted_config_validation_error(exc, title="StaticApiKeyCredential") from None
+
+    @field_validator("credential_id")
+    @classmethod
+    def _require_credential_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("credential_id must be non-empty")
+        return value
+
 
 class BearerTokenConfig(BaseModel):
     """JWT/OIDC verifier settings for bearer-token authentication."""
@@ -145,13 +187,19 @@ class ServiceAuthConfig(BaseModel):
     custom_roles: dict[str, list[str]] = Field(default_factory=dict)
     revoked_credential_ids: frozenset[str] = Field(default_factory=frozenset)
 
+    def __init__(self, /, **data: Any) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            raise _redacted_config_validation_error(exc, title="ServiceAuthConfig") from None
+
     @field_validator("revoked_credential_ids", mode="before")
     @classmethod
     def _validate_revoked_credential_ids(cls, value: object) -> frozenset[str]:
         if not isinstance(value, (list, tuple, set, frozenset)):
             raise ValueError("revoked credential identifiers must be an array of strings")
-        if any(not isinstance(identifier, str) for identifier in value):
-            raise ValueError("revoked credential identifiers must be strings")
+        if any(not isinstance(identifier, str) or not identifier.strip() for identifier in value):
+            raise ValueError("revoked credential identifiers must be non-empty strings")
         identifiers = frozenset(value)
         if len(identifiers) != len(value):
             raise ValueError("revoked credential identifiers must be unique")
@@ -184,7 +232,7 @@ class ServiceAuthConfig(BaseModel):
             payload["revoked_credential_ids"] = json.loads(
                 source["ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"]
             )
-        return cls.model_validate(payload)
+        return cls(**payload)
 
 
 _auth_parameters = inspect.signature(ServiceAuthConfig).parameters
@@ -371,9 +419,11 @@ class ServiceAuthenticator:
                 raise AuthenticationError("authentication required")
             principal = self._bearer_verifier.verify(token)
             jti = principal.claims.get("jti") if principal.claims is not None else None
-            identifier = jti if isinstance(jti, str) and jti else "sha256:" + hashlib.sha256(
-                token.encode("utf-8")
-            ).hexdigest()
+            identifier = (
+                jti
+                if isinstance(jti, str) and jti.strip()
+                else "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+            )
             self._require_active_credential(identifier)
             return principal
 

@@ -293,6 +293,89 @@ def test_later_revoked_id_cannot_be_hidden_behind_a_duplicate_static_secret() ->
         )
 
 
+def test_duplicate_secret_validation_redacts_structured_diagnostics_and_keeps_valid_secret_usable() -> None:
+    sentinel = "SENTINEL_RAW_STATIC_SECRET"
+    duplicate_config = {
+        "api_keys": [
+            {
+                "credential_id": "first",
+                "secret": sentinel,
+                "subject": "first",
+                "roles": [ServiceRole.OPERATOR],
+            },
+            {
+                "credential_id": "second",
+                "secret": sentinel,
+                "subject": "second",
+                "roles": [ServiceRole.OPERATOR],
+            },
+        ]
+    }
+
+    loaders = (
+        lambda: ServiceAuthConfig(**duplicate_config),
+        lambda: ServiceAuthConfig.model_validate(duplicate_config),
+        lambda: ServiceAuthConfig.from_env(
+            {"ZEROTH_SERVICE_API_KEYS_JSON": json.dumps(duplicate_config["api_keys"])}
+        ),
+    )
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+        error = excinfo.value
+        for diagnostic in (str(error), repr(error), error.errors(), error.json()):
+            assert sentinel not in str(diagnostic)
+
+    valid = ServiceAuthenticator(
+        ServiceAuthConfig(
+            api_keys=[
+                StaticApiKeyCredential(
+                    credential_id="usable",
+                    secret=sentinel,
+                    subject="usable-subject",
+                    roles=[ServiceRole.OPERATOR],
+                )
+            ]
+        )
+    )
+    assert valid.authenticate_headers({"X-API-Key": sentinel}).subject == "usable-subject"
+
+
+@pytest.mark.parametrize("credential_id", ["", "   "])
+def test_service_auth_config_rejects_empty_or_whitespace_static_credential_ids(
+    credential_id: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        ServiceAuthConfig(
+            api_keys=[
+                {
+                    "credential_id": credential_id,
+                    "secret": "valid-secret",
+                    "subject": "subject",
+                    "roles": [ServiceRole.OPERATOR],
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize("identifier", ["", "   "])
+def test_service_auth_config_rejects_empty_or_whitespace_revocation_ids(identifier: str) -> None:
+    with pytest.raises(ValidationError):
+        ServiceAuthConfig(revoked_credential_ids=[identifier])
+
+
+def test_whitespace_jti_uses_the_verified_token_fingerprint_for_revocation() -> None:
+    config, private_key = _bearer_config()
+    token = _token(private_key, jti="   ")
+    fingerprint = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
+    authenticator = ServiceAuthenticator(
+        config.model_copy(update={"revoked_credential_ids": frozenset({fingerprint})})
+    )
+
+    with pytest.raises(AuthenticationError, match="^authentication required$"):
+        _authenticate(authenticator, token)
+
+
 @pytest.mark.parametrize("payload", ['not-json', '["duplicate", "duplicate"]', '["valid", 2]'])
 def test_revocation_environment_config_rejects_malformed_or_ambiguous_identifiers(payload: str) -> None:
     with pytest.raises((ValidationError, ValueError, json.JSONDecodeError)):
