@@ -272,6 +272,27 @@ def _absolute(path: Path) -> Path:
     return Path(os.path.abspath(path))
 
 
+def _validated_root(root: Path, *, rule_prefix: str) -> Path:
+    if ".." in root.parts:
+        raise ScanInputError(f"{rule_prefix}:root-parent-traversal", str(root))
+    candidate = root if root.is_absolute() else Path.cwd() / root
+    current = Path(candidate.anchor)
+    try:
+        status = current.lstat()
+        for part in candidate.parts[1:]:
+            current = current / part
+            status = current.lstat()
+            if stat.S_ISLNK(status.st_mode):
+                raise ScanInputError(f"{rule_prefix}:root-symlink", str(current))
+    except ScanInputError:
+        raise
+    except OSError as error:
+        raise ScanInputError(f"{rule_prefix}:root-unreadable", str(current)) from error
+    if not stat.S_ISDIR(status.st_mode):
+        raise ScanInputError(f"{rule_prefix}:root-not-directory", str(root))
+    return current
+
+
 def _contained(root: Path, path: Path) -> Path:
     if ".." in path.parts:
         raise ScanInputError("input:parent-traversal", str(path))
@@ -330,13 +351,7 @@ def scan_paths(
     root: Path, paths: Iterable[Path], *, canaries: Iterable[str | bytes]
 ) -> list[Finding]:
     """Scan required files contained by ``root`` and return sorted findings."""
-    try:
-        resolved_root = _absolute(root)
-        root_status = resolved_root.lstat()
-    except OSError as error:
-        raise ScanInputError("input:root-unreadable", str(root)) from error
-    if stat.S_ISLNK(root_status.st_mode) or not stat.S_ISDIR(root_status.st_mode):
-        raise ScanInputError("input:root-not-directory", str(root))
+    resolved_root = _validated_root(root, rule_prefix="input")
     scanner = CredentialLeakScanner(canaries)
     findings: set[Finding] = set()
     for requested in paths:
@@ -376,13 +391,7 @@ def _canaries_from_environment() -> list[str]:
 
 
 def _output_path(root: Path, requested: Path) -> Path:
-    resolved_root = _absolute(root)
-    try:
-        root_status = resolved_root.lstat()
-    except OSError as error:
-        raise ScanInputError("output:unsafe-root", str(root)) from error
-    if stat.S_ISLNK(root_status.st_mode) or not stat.S_ISDIR(root_status.st_mode):
-        raise ScanInputError("output:unsafe-root", str(root))
+    resolved_root = _validated_root(root, rule_prefix="output")
     if ".." in requested.parts:
         raise ScanInputError("output:parent-traversal", str(requested))
     candidate = requested if requested.is_absolute() else resolved_root / requested

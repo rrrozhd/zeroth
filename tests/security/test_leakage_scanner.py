@@ -184,6 +184,32 @@ def test_scan_paths_rejects_parent_components_before_path_normalization(tmp_path
         scan_paths(root, [root / "unused" / ".." / "evidence.txt"], canaries=[CANARY])
 
 
+def test_scan_paths_rejects_symlink_in_lexical_root_ancestors(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    root = actual / "root"
+    root.mkdir(parents=True)
+    (root / "evidence.txt").write_text("safe")
+    encoded = CANARY.encode().hex()
+    alias = tmp_path / f"alias-{encoded}"
+    alias.symlink_to(actual, target_is_directory=True)
+    supplied_root = alias / "root"
+
+    with pytest.raises(ValueError) as excinfo:
+        scan_paths(supplied_root, [Path("evidence.txt")], canaries=[CANARY])
+
+    assert encoded not in str(excinfo.value)
+
+
+def test_scan_paths_rejects_parent_components_in_supplied_root(tmp_path: Path) -> None:
+    root = tmp_path / "actual" / "root"
+    root.mkdir(parents=True)
+    (root / "evidence.txt").write_text("safe")
+    supplied_root = tmp_path / "actual" / "unused" / ".." / "root"
+
+    with pytest.raises(ValueError):
+        scan_paths(supplied_root, [Path("evidence.txt")], canaries=[CANARY])
+
+
 def test_findings_are_deduplicated_and_deterministically_sorted() -> None:
     scanner = CredentialLeakScanner(["z-secret", "a-secret"])
 
@@ -449,3 +475,48 @@ def test_module_cli_does_not_write_through_a_symlink_scan_root(tmp_path: Path) -
     assert completed.returncode == 2
     assert completed.stderr == ""
     assert not (actual / "security-scan.json").exists()
+
+
+def test_module_cli_does_not_write_through_a_symlink_root_ancestor(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    root = actual / "root"
+    (root / "evidence").mkdir(parents=True)
+    (root / "evidence" / "result.txt").write_text("safe")
+    encoded = CANARY.encode().hex()
+    alias = tmp_path / f"alias-{encoded}"
+    alias.symlink_to(actual, target_is_directory=True)
+    output = root / "security-scan.json"
+
+    completed = _run_module_cli(
+        tmp_path,
+        "--root",
+        str(alias / "root"),
+        "evidence",
+        "--output",
+        "security-scan.json",
+        canary=CANARY,
+    )
+
+    assert completed.returncode == 2
+    assert completed.stderr == ""
+    assert encoded not in completed.stdout
+    assert not output.exists()
+
+
+def test_module_cli_rejects_parent_components_in_root_before_writing(tmp_path: Path) -> None:
+    root = tmp_path / "actual" / "root"
+    (root / "evidence").mkdir(parents=True)
+    supplied_root = tmp_path / "actual" / "unused" / ".." / "root"
+
+    completed = _run_module_cli(
+        tmp_path,
+        "--root",
+        str(supplied_root),
+        "evidence",
+        "--output",
+        "security-scan.json",
+    )
+
+    assert completed.returncode == 2
+    assert completed.stderr == ""
+    assert not (root / "security-scan.json").exists()
