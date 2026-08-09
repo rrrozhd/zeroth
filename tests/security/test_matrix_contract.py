@@ -72,6 +72,27 @@ def test_production_claims_reject_one_ceremonial_node_collapse(tmp_path: Path) -
     assert raised.value.path == "claims.protected_surfaces.workflows"
 
 
+def test_production_observable_claims_bind_exact_canary_scanners() -> None:
+    matrix = load_matrix(PRODUCTION)
+
+    assert matrix.claims["observable_output_surfaces"] == {
+        surface: (
+            "tests/security/test_observable_surfaces.py::"
+            f"test_credential_canary_absent_from_{surface.replace('-', '_')}"
+        )
+        for surface in OBSERVABLE_OUTPUT_SURFACES
+    }
+
+
+def test_production_checkpointer_claim_binds_shadow_owner_restart_repro() -> None:
+    matrix = load_matrix(PRODUCTION)
+
+    assert matrix.claims["persistence_boundaries"]["LangGraph-checkpointer"] == (
+        "tests/agent_runtime/test_thread_store.py::"
+        "test_thread_state_checkpoint_owner_survives_shadow_id_and_restart"
+    )
+
+
 @pytest.mark.parametrize(
     ("mutate", "path"),
     [

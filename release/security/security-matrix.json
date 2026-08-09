@@ -267,7 +267,8 @@
       "coverage": "behavioral",
       "test_nodes": [
         "tests/security/test_persistence_isolation.py::test_checkpoint_guessing_is_hidden_by_owning_run_tenant",
-        "tests/agent_runtime/test_thread_store.py::test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope"
+        "tests/agent_runtime/test_thread_store.py::test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope",
+        "tests/agent_runtime/test_thread_store.py::test_thread_state_checkpoint_owner_survives_shadow_id_and_restart"
       ]
     },
     {
@@ -309,7 +310,12 @@
       ],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/security/test_observable_surfaces.py::test_credential_canary_is_absent_from_every_observable_surface"
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_workload_environment",
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_logs",
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_errors",
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_artifacts",
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_audit_payloads",
+        "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_other_tenant"
       ]
     },
     {
@@ -353,7 +359,9 @@
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_audit_scope_predicate",
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_same_id_tenant_race",
         "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_pool_restart_preserves_scope",
-        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_approval_opposite_decision_race"
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_approval_opposite_decision_race",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_checkpoint_owner_scope",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_checkpoint_migration_backfills_owner"
       ]
     },
     {
@@ -420,7 +428,7 @@
       "SQL": "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_create_collision_preserves_owner",
       "Redis": "tests/security/distributed/test_redis_memory_isolation.py::test_security_rc_memory_same_key_isolated_after_client_reconnect[redis-kv]",
       "artifact-store": "tests/artifacts/test_tenant_scoped_store.py::test_artifact_write_same_key_is_scoped",
-      "LangGraph-checkpointer": "tests/agent_runtime/test_thread_store.py::test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope",
+      "LangGraph-checkpointer": "tests/agent_runtime/test_thread_store.py::test_thread_state_checkpoint_owner_survives_shadow_id_and_restart",
       "workers": "tests/security/test_persistence_isolation.py::test_worker_claims_only_its_tenant_pending_runs",
       "restarts": "tests/security/test_persistence_isolation.py::test_restarted_dispatch_worker_executes_only_its_deployment_tenant"
     },
@@ -433,12 +441,12 @@
       "revoked-access": "tests/security/test_credentials.py::test_static_key_is_rejected_immediately_after_registry_snapshot_replacement"
     },
     "observable_output_surfaces": {
-      "workload-environment": "tests/security/test_observable_surfaces.py::test_credential_canary_is_absent_from_every_observable_surface",
-      "logs": "tests/service/test_tenant_isolation.py::test_foreign_tenant_artifact_retrieval_is_hidden_before_store_lookup",
-      "errors": "tests/security/test_api_surface_isolation.py::test_run_execute_api_foreign_matches_unknown_tenant",
-      "artifacts": "tests/artifacts/test_tenant_scoped_store.py::test_artifact_retrieve_foreign_matches_unknown",
-      "audit-payloads": "tests/security/test_api_surface_isolation.py::test_audit_retrieve_api_foreign_run_matches_unknown",
-      "other-tenant": "tests/memory/test_tenant_scoped_connector.py::test_memory_read_foreign_matches_unknown_tenant"
+      "workload-environment": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_workload_environment",
+      "logs": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_logs",
+      "errors": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_errors",
+      "artifacts": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_artifacts",
+      "audit-payloads": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_audit_payloads",
+      "other-tenant": "tests/security/test_observable_surfaces.py::test_credential_canary_absent_from_other_tenant"
     },
     "hostile_fixtures": {
       "traversal": "tests/execution_units/test_sandbox.py::test_sandbox_manager_rejects_parent_traversal_workdirs[../escape]",

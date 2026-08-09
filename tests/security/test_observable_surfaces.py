@@ -27,10 +27,7 @@ from zeroth.service.app import create_app
 CANARY = "github_pat_" + "A" * 82
 
 
-@pytest.mark.asyncio()
-async def test_credential_canary_is_absent_from_every_observable_surface(
-    sqlite_db, tmp_path: Path
-) -> None:
+async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, object]:
     manager = SandboxManager(base_env={"GITHUB_TOKEN": CANARY})
     result = manager.run(
         [
@@ -98,22 +95,68 @@ async def test_credential_canary_is_absent_from_every_observable_surface(
     assert invalid_auth.status_code == 401
     assert foreign_api_read.status_code == 404
 
-    observable = {
+    return {
         "workload-environment": result.environment,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "execution-error": str(timeout.value),
-        "artifact": artifact,
-        "audit-payload": audit.model_dump(mode="json"),
-        "api-response": {
+        "logs": {"stdout": result.stdout, "stderr": result.stderr},
+        "errors": {
+            "execution-error": str(timeout.value),
             "body": invalid_auth.content,
             "headers": dict(invalid_auth.headers),
         },
-        "tenant-b-read": {
+        "artifacts": artifact,
+        "audit-payloads": audit.model_dump(mode="json"),
+        "other-tenant": {
             "artifact-error": str(foreign_read.value),
             "api-body": foreign_api_read.content,
             "api-headers": dict(foreign_api_read.headers),
         },
     }
 
-    assert CredentialLeakScanner([CANARY]).scan(observable, surface="aggregate") == []
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_workload_environment(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert (
+        CredentialLeakScanner([CANARY]).scan(
+            captured["workload-environment"], surface="workload-environment"
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_logs(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert CredentialLeakScanner([CANARY]).scan(captured["logs"], surface="logs") == []
+
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_errors(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert CredentialLeakScanner([CANARY]).scan(captured["errors"], surface="errors") == []
+
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert CredentialLeakScanner([CANARY]).scan(captured["artifacts"], surface="artifacts") == []
+
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_audit_payloads(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert (
+        CredentialLeakScanner([CANARY]).scan(
+            captured["audit-payloads"], surface="audit-payloads"
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio()
+async def test_credential_canary_absent_from_other_tenant(sqlite_db, tmp_path: Path) -> None:
+    captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    assert (
+        CredentialLeakScanner([CANARY]).scan(captured["other-tenant"], surface="other-tenant")
+        == []
+    )

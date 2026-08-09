@@ -83,6 +83,10 @@
     {
       "down_revision": "020",
       "revision": "021"
+    },
+    {
+      "down_revision": "021",
+      "revision": "022"
     }
   ],
   "tables": {
@@ -2517,8 +2521,8 @@
           "default": null,
           "hidden": 0,
           "name": "checkpoint_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 3,
           "type": "TEXT"
         },
         {
@@ -2565,13 +2569,67 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT NOT NULL, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT run_checkpoints_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, checkpoint_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "run_id",
+            "checkpoint_order"
+          ],
+          "name": "idx_run_checkpoints_owner_run",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "thread_id",
+            "checkpoint_order",
+            "checkpoint_id"
+          ],
+          "name": "idx_run_checkpoints_owner_thread",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
             "checkpoint_id"
           ],
           "name": "sqlite_autoindex_run_checkpoints_1",

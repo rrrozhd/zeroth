@@ -8,6 +8,8 @@ from zeroth.runtime.agents.thread_store import (
     RepositoryThreadStateStore,
 )
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
 import pytest
 
 
@@ -159,3 +161,46 @@ async def test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope(sq
     await store_b.checkpoint("shared-state-id", {"owner": "b"})
     assert await store_a.load("shared-state-id") == {"owner": "a"}
     assert await store_b.load("shared-state-id") == {"owner": "b"}
+
+
+async def test_thread_state_checkpoint_owner_survives_shadow_id_and_restart(tmp_path) -> None:
+    database_path = tmp_path / "checkpoint-owner.db"
+    run_migrations(f"sqlite:///{database_path}")
+    first = AsyncSQLiteDatabase(str(database_path))
+    threads = ThreadRepository(first)
+    for tenant in ("tenant-a", "tenant-b"):
+        await threads.resolve(
+            "shadow-id",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+            tenant_id=tenant,
+        )
+    owner = RepositoryThreadStateStore(first, tenant_id="tenant-a", workspace_id=None)
+    checkpoint_id = await owner.checkpoint("shadow-id", {"secret": "tenant-a-only"})
+    await threads.resolve(
+        f"thread-state:shadow-id:{checkpoint_id}",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+    )
+    await threads.resolve(
+        "shadow-id",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+        state_snapshot_refs=[checkpoint_id, "unknown-checkpoint"],
+        checkpoint_refs=[checkpoint_id, "unknown-checkpoint"],
+    )
+    await first.close()
+
+    restarted = AsyncSQLiteDatabase(str(database_path))
+    try:
+        owner_after_restart = RepositoryThreadStateStore(
+            restarted, tenant_id="tenant-a", workspace_id=None
+        )
+        foreign = RepositoryThreadStateStore(restarted, tenant_id="tenant-b", workspace_id=None)
+
+        assert await owner_after_restart.load("shadow-id") == {"secret": "tenant-a-only"}
+        assert await foreign.load("shadow-id") is None
+    finally:
+        await restarted.close()

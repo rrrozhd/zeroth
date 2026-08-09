@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
+from alembic import command
+from alembic.config import Config
 import pytest
+from sqlalchemy import create_engine, text
 
 from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
@@ -20,6 +24,8 @@ from zeroth.governance.approvals import (
 )
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
+from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap.migrations import run_migrations
@@ -29,6 +35,14 @@ def _connection_strings(postgres_container) -> tuple[str, str]:
     url = postgres_container.get_connection_url()
     run_migrations(url.replace("psycopg2", "psycopg"))
     return url.replace("postgresql+psycopg2://", "postgresql://"), uuid4().hex
+
+
+def _migration_config(database_url: str) -> Config:
+    root = Path(__file__).resolve().parents[3]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "src/zeroth/service/_migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
 
 
 @pytest.fixture
@@ -148,6 +162,95 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         assert owner is not None
     finally:
         await restarted.close()
+
+
+@requires_docker
+@pytest.mark.security_rc
+async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) -> None:
+    database, unique = security_postgres
+    store = CheckpointRowStore(database)
+    checkpoint_id = f"security-checkpoint-{unique}"
+    owner = _run(f"checkpoint-a-{unique}", tenant_id="tenant-a", suffix=f"a-{unique}")
+    foreign = _run(f"checkpoint-b-{unique}", tenant_id="tenant-b", suffix=f"b-{unique}")
+
+    async def write(run: Run) -> None:
+        await store.write_row(
+            checkpoint_id=checkpoint_id,
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            checkpoint_order=0,
+            state_json=to_json_value(run.model_dump(mode="json")),
+            created_at=run.updated_at.isoformat(),
+        )
+
+    await asyncio.gather(write(owner), write(foreign))
+    assert (
+        await store.get(checkpoint_id, tenant_id="tenant-a", workspace_id=None)
+    ).run_id == owner.run_id
+    assert (
+        await store.get(checkpoint_id, tenant_id="tenant-b", workspace_id=None)
+    ).run_id == foreign.run_id
+    assert await store.get(checkpoint_id) is None
+
+
+@requires_docker
+@pytest.mark.security_rc
+def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_container) -> None:
+    database_url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
+    config = _migration_config(database_url)
+    command.upgrade(config, "022")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE TABLE run_checkpoints"))
+    engine.dispose()
+    command.downgrade(config, "021")
+    unique = uuid4().hex
+    thread_id = f"migration-thread-{unique}"
+    checkpoint_id = f"migration-checkpoint-{unique}"
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO threads (
+                    thread_id, graph_version_ref, deployment_ref, status,
+                    participating_agent_refs, state_snapshot_refs, checkpoint_refs,
+                    memory_bindings, run_ids, created_at, updated_at, tenant_id,
+                    workspace_id, workspace_scope
+                ) VALUES (:thread_id, 'graph', 'deployment', 'active', '[]', '[]', '[]',
+                          '[]', '[]', '2026-08-09', '2026-08-09', 'tenant-a', NULL, 'null')"""
+            ),
+            {"thread_id": thread_id},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO run_checkpoints (
+                    checkpoint_id, run_id, thread_id, checkpoint_order, state_json, created_at
+                ) VALUES (:checkpoint_id, :run_id, :thread_id, 0, '{}', '2026-08-09')"""
+            ),
+            {
+                "checkpoint_id": checkpoint_id,
+                "run_id": f"migration-run-{unique}",
+                "thread_id": thread_id,
+            },
+        )
+    engine.dispose()
+
+    command.upgrade(config, "022")
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            owner = connection.execute(
+                text(
+                    "SELECT tenant_id, workspace_scope FROM run_checkpoints "
+                    "WHERE checkpoint_id=:checkpoint_id"
+                ),
+                {"checkpoint_id": checkpoint_id},
+            ).one()
+        assert owner == ("tenant-a", "null")
+    finally:
+        engine.dispose()
 
 
 @requires_docker
