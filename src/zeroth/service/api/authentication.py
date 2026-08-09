@@ -72,7 +72,10 @@ _SAFE_CONFIG_VALUE_ERROR_MESSAGES = frozenset(
 
 
 class _HTTPOnlyRedirectHandler(HTTPRedirectHandler):
+    """Reject remote JWKS redirects to non-HTTP protocols."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Follow only HTTP(S) redirects for remote key discovery."""
         if urlsplit(newurl).scheme.lower() not in {"http", "https"}:
             raise HTTPError(req.full_url, code, msg, headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -89,6 +92,7 @@ class CredentialStatusProvider(Protocol):
     """Synchronous source of credential status checked after verification."""
 
     def is_revoked(self, identifier: str) -> bool:
+        """Check one verified identifier against the current snapshot."""
         """Whether a verified credential identifier has been revoked."""
 
 
@@ -158,22 +162,30 @@ def _redacted_config_location_segment(
     """Preserve schema fields and list indices, never mapping keys from caller input."""
     segment = location[index]
     if error_type == "invalid_key":
-        if segment in {
-            _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
-            _REDACTED_CONFIG_KEY,
-            _REDACTED_CONFIG_INDEX,
-        } or segment in _SAFE_CONFIG_LOCATION_SEGMENTS:
+        if (
+            segment
+            in {
+                _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
+                _REDACTED_CONFIG_KEY,
+                _REDACTED_CONFIG_INDEX,
+            }
+            or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+        ):
             return segment
         return _REDACTED_CONFIG_KEY
     if index + 1 < len(location) and location[index + 1] == _PYDANTIC_MAPPING_KEY_LOCATION_MARKER:
         return _REDACTED_CONFIG_KEY
     if isinstance(segment, int):
         return _REDACTED_CONFIG_INDEX
-    if segment in {
-        _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
-        _REDACTED_CONFIG_KEY,
-        _REDACTED_CONFIG_INDEX,
-    } or segment in _SAFE_CONFIG_LOCATION_SEGMENTS:
+    if (
+        segment
+        in {
+            _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
+            _REDACTED_CONFIG_KEY,
+            _REDACTED_CONFIG_INDEX,
+        }
+        or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+    ):
         return segment
     return _REDACTED_CONFIG_LOCATION
 
@@ -237,6 +249,7 @@ class StaticApiKeyCredential(BaseModel):
     @field_validator("credential_id")
     @classmethod
     def _require_credential_id(cls, value: str) -> str:
+        """Require a non-blank stable identifier for revocation checks."""
         if not value.strip():
             raise ValueError("credential_id must be non-empty")
         return value
@@ -255,6 +268,7 @@ class BearerTokenConfig(BaseModel):
 
     @model_validator(mode="after")
     def _require_key_source(self) -> BearerTokenConfig:
+        """Require either embedded or remotely discoverable signing keys."""
         if self.jwks_url is None and self.jwks is None:
             raise ValueError("bearer auth requires jwks_url or jwks")
         return self
@@ -282,6 +296,7 @@ class ServiceAuthConfig(BaseModel):
     @field_validator("revoked_credential_ids", mode="before")
     @classmethod
     def _validate_revoked_credential_ids(cls, value: object) -> frozenset[str]:
+        """Validate and freeze serialized revoked credential identifiers."""
         if not isinstance(value, (list, tuple, set, frozenset)):
             raise ValueError("revoked credential identifiers must be an array of strings")
         if any(not isinstance(identifier, str) or not identifier.strip() for identifier in value):
@@ -293,6 +308,7 @@ class ServiceAuthConfig(BaseModel):
 
     @model_validator(mode="after")
     def _require_unique_api_keys(self) -> ServiceAuthConfig:
+        """Reject ambiguous credential identifiers or shared secrets."""
         credential_ids: set[str] = set()
         secrets: set[str] = set()
         for credential in self.api_keys:
@@ -306,6 +322,7 @@ class ServiceAuthConfig(BaseModel):
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
+        """Load authentication settings from the supported JSON environment fields."""
         source = dict(env or os.environ)
         payload: dict[str, Any] = {}
         if source.get("ZEROTH_SERVICE_API_KEYS_JSON"):
@@ -341,6 +358,7 @@ class JWTBearerTokenVerifier:
         self._next_remote_fetch_at = 0.0
 
     def verify(self, token: str) -> AuthenticatedPrincipal:
+        """Verify a compact token and return its authenticated principal."""
         if jwt is None:
             raise AuthenticationError("invalid bearer token")
         try:
@@ -378,6 +396,7 @@ class JWTBearerTokenVerifier:
         )
 
     def _resolve_remote_signing_key(self, kid: str | None) -> Any:
+        """Resolve a key from the bounded, cooldown-protected remote cache."""
         with self._jwks_lock:
             cached_jwks = self._cached_jwks
             cached_remote_jwks = (
@@ -410,6 +429,7 @@ class JWTBearerTokenVerifier:
             return key
 
     def _load_jwks(self) -> dict[str, Any]:
+        """Fetch and cache one bounded HTTP(S) JSON Web Key Set."""
         if urlsplit(self._config.jwks_url or "").scheme.lower() not in {"http", "https"}:
             raise ValueError("remote JWKS URL must use HTTP(S)")
         with _open_remote_jwks(
@@ -425,6 +445,7 @@ class JWTBearerTokenVerifier:
         return jwks
 
     def _resolve_signing_key(self, kid: str | None, jwks: dict[str, Any]) -> Any:
+        """Resolve a matching signing key from validated JWKS data."""
         if jwt is None:  # pragma: no cover - defensive guard
             raise AuthenticationError("invalid bearer token")
         jwk_set = jwt.PyJWKSet.from_dict(jwks)
@@ -461,6 +482,7 @@ class ServiceAuthenticator:
         return self._credential_status_provider
 
     def _require_active_credential(self, identifier: str) -> None:
+        """Reject a verified credential whose stable identifier is revoked."""
         provider = self._credential_status_provider
         if isinstance(provider, CredentialRevocationRegistry):
             with provider.decision_guard():
@@ -481,6 +503,7 @@ class ServiceAuthenticator:
         return match
 
     def authenticate_headers(self, headers: Mapping[str, str]) -> AuthenticatedPrincipal:
+        """Authenticate API-key or bearer headers and enforce revocation."""
         api_key = headers.get("X-API-Key")
         if api_key:
             credential = self._match_api_key(api_key)

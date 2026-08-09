@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class _ExecutionState:
+    """Mutable lifecycle state for one uniquely identified execution."""
+
     task: asyncio.Task[Any]
     process: asyncio.subprocess.Process | None = None
     cancel_requested: bool = False
@@ -245,6 +247,7 @@ class SidecarExecutor:
         await state.cleanup_done.wait()
 
     async def _finalize(self, execution_id: str, state: _ExecutionState, network_name: str) -> None:
+        """Remove owned network state and retire the active execution entry."""
         if state.owns_network:
             try:
                 await self._run_cmd(self._docker_binary, "network", "rm", network_name)
@@ -259,6 +262,7 @@ class SidecarExecutor:
     async def _await_shielded_task(
         task: asyncio.Task[None], *, propagate_cancellation: bool = True
     ) -> None:
+        """Finish a cleanup task despite repeated caller cancellation."""
         current = asyncio.current_task()
         interrupted = False
         while not task.done():
@@ -273,6 +277,7 @@ class SidecarExecutor:
             raise asyncio.CancelledError
 
     async def _stop_process(self, state: _ExecutionState) -> None:
+        """Kill and reap an active child at most once."""
         async with state.lock:
             process = state.process
             if state.stop_started or process is None or process.returncode is not None:
@@ -282,6 +287,7 @@ class SidecarExecutor:
             await process.wait()
 
     def _persist_cancelled(self, execution_id: str, started_at: float) -> SidecarExecuteResponse:
+        """Persist an immutable cancelled execution result."""
         previous = self._executions.get(execution_id)
         response = SidecarExecuteResponse(
             execution_id=execution_id,
@@ -301,6 +307,7 @@ class SidecarExecutor:
         return response
 
     def _persist_failed(self, execution_id: str, started_at: float) -> SidecarExecuteResponse:
+        """Persist a generic failed execution result without leaking details."""
         response = SidecarExecuteResponse(
             execution_id=execution_id,
             status="failed",
@@ -352,6 +359,7 @@ class SidecarExecutor:
         return stdout, stderr, stdout_truncated, stderr_truncated
 
     async def _read_bounded(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
+        """Drain a stream while retaining no more than the configured cap."""
         retained = bytearray()
         truncated = False
         while chunk := await stream.read(65_536):
