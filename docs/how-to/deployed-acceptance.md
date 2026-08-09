@@ -6,7 +6,18 @@ The deployed acceptance harness tests a selected Zeroth deployment from outside 
 
 Use a tenant whose ID begins with `acceptance-`. The harness rejects `default`, production-looking tenant IDs, URL credentials, non-HTTP URLs, missing role credentials, and candidate identities without an immutable image digest before it makes a network request.
 
-The target must provide the native Zeroth APIs used by the suite and the test-only control endpoints declared in `release/acceptance/contracts/zeroth-v1.json`. Those control endpoints expose deterministic fixture state and lifecycle authority for migrations, runs, streams, approval counts, audit, artifacts, executable-unit failures, restart, drain, and shutdown. They belong on a dedicated acceptance deployment, not a production deployment. Missing endpoints or unsupported Agent Server versions fail the suite; they are never recorded as skips.
+The target serves the native Zeroth APIs and nothing test-only: `release/acceptance/contracts/zeroth-v1.json` targets the same `/health`, `/v1/runs`, `/v1/deployments`, `/v1/retention` and studio routes any client uses. Restart and drain are not routes — they are lifecycle operations a `LifecycleController` performs on the deployment, so the product never ships an endpoint that restarts itself. Missing endpoints or unsupported Agent Server versions fail the suite; they are never recorded as skips.
+
+## The two legs
+
+The suite runs against two targets, and they are authoritative for different scenarios.
+
+| Leg | Target | Proves | Runs |
+|---|---|---|---|
+| Ephemeral | the real service booted by `tests/acceptance/ephemeral.py` against a file-backed database | readiness, authentication, RBAC, migrations, workflow lifecycle, deployment, runs, approvals, audit, artifacts, retention, restart recovery, shutdown | the default test suite, on every change |
+| Remote | a deployed candidate with a live Agent Server behind the gateway | all of the above plus streaming, gateway HTTP and WebSocket, compatibility, and executable-unit failures | the release workflow, bound to the candidate image |
+
+Neither leg skips a scenario. `AcceptanceRunner` records a result for all eighteen every time, and the `remote-acceptance` release gate requires every one of them to pass in the report it consumes. The ephemeral test pins its own partition exactly, so a scenario that quietly stops passing there fails the build rather than disappearing.
 
 The operator, reviewer, and admin credentials must be distinct and must all resolve to the configured tenant. Put credential values in environment variables only:
 

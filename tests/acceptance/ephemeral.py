@@ -16,6 +16,7 @@ before/after anchors for reasons that have nothing to do with durability.
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 import threading
 import time
@@ -30,6 +31,7 @@ from tests.service.helpers import (
     default_service_auth_config,
     deploy_service,
 )
+from zeroth.platform.config import settings as settings_module
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.service.bootstrap import bootstrap_app
 from zeroth.service.bootstrap.migrations import run_migrations
@@ -64,6 +66,7 @@ class EphemeralCandidate:
         # deployment itself publishes, not this process-local number; the counter
         # exists so an in-process test can cross-check what the API reports.
         self.finish_runner = CountingFinishRunner()
+        self._previous_redis_mode: str | None = None
 
     @property
     def base_url(self) -> str:
@@ -71,8 +74,22 @@ class EphemeralCandidate:
             raise CandidateError("candidate has no bound origin yet")
         return f"http://127.0.0.1:{self.port}"
 
+    def _declare_no_redis(self) -> None:
+        """Tell the candidate the truth: it has no Redis.
+
+        `determine_readiness_status` treats a *configured* Redis that will not answer
+        as unhealthy, and `RedisSettings.mode` defaults to "local". Left alone, this
+        candidate advertises a Redis on 127.0.0.1 that does not exist and reports
+        itself unhealthy for a dependency it never had. Declaring it disabled is a
+        statement of fact about the deployment, not a relaxed assertion.
+        """
+        self._previous_redis_mode = os.environ.get("ZEROTH_REDIS__MODE")
+        os.environ["ZEROTH_REDIS__MODE"] = "disabled"
+        settings_module._settings_singleton = None
+
     async def provision(self) -> None:
         """Migrate the database and deploy the approval-gated graph exactly once."""
+        self._declare_no_redis()
         run_migrations(f"sqlite:///{self._db_path}")
         database = AsyncSQLiteDatabase(path=str(self._db_path))
         try:
@@ -168,6 +185,11 @@ class EphemeralCandidate:
 
     async def aclose(self) -> None:
         await self.stop()
+        if self._previous_redis_mode is None:
+            os.environ.pop("ZEROTH_REDIS__MODE", None)
+        else:
+            os.environ["ZEROTH_REDIS__MODE"] = self._previous_redis_mode
+        settings_module._settings_singleton = None
         if self._listener is not None:
             self._listener.close()
             self._listener = None

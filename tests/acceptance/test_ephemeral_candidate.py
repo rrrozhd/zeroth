@@ -13,11 +13,20 @@ This is the foundation the deployed contract runs on. The contract retarget cons
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
 import pytest
 
+from release.acceptance.config import AcceptanceConfig
+from release.acceptance.models import (
+    REQUIRED_SCENARIOS,
+    AcceptanceContract,
+    ScenarioStatus,
+)
+from release.acceptance.runner import AcceptanceRunner
+from release.acceptance.transport import AcceptanceTransport
 from tests.acceptance.ephemeral import FINISH_NODE, EphemeralCandidate
 from tests.service.helpers import TEST_API_KEYS
 
@@ -160,3 +169,79 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
     async with httpx.AsyncClient(base_url=candidate.base_url, timeout=5.0) as client:
         with pytest.raises(httpx.HTTPError):
             await client.get("/health/ready")
+
+
+# The two legs AC1 names are authoritative for different scenarios. Everything that
+# needs a live Agent Server behind the gateway is proven by the remote leg against a
+# real deployment, which is where release-gates.json binds `deployed-suite` to the
+# candidate image. The ephemeral leg proves the rest, on every change.
+AGENT_SERVER_SCENARIOS = frozenset(
+    {
+        "streaming",
+        "gateway_http",
+        "gateway_websocket",
+        "compatibility",
+        "executable_unit_failures",
+    }
+)
+
+
+async def test_the_product_contract_runs_against_the_ephemeral_candidate(
+    candidate: EphemeralCandidate, tmp_path: Path
+) -> None:
+    """Run the shipped contract, and pin exactly which scenarios this leg proves.
+
+    Asserting only the overall status would let this pass while silently losing
+    coverage. The partition below is exact, so a fourteenth failing scenario — or a
+    gateway scenario that quietly stopped being attempted — breaks the test.
+    """
+    identity = tmp_path / "identity.json"
+    identity.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "commit": "a" * 40,
+                "package": {"version": "1", "artifacts": {}},
+                "image": {"candidate": "sha256:" + "b" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = AcceptanceConfig.model_validate(
+        {
+            "schema_version": 1,
+            "base_url": candidate.base_url,
+            "tenant_id": "acceptance-ephemeral-leg",
+            "deployment_ref": candidate.deployment_ref,
+            "candidate_identity": str(identity),
+            "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
+            "poll_deadline_seconds": 30,
+        }
+    ).resolve(
+        {
+            "OP": TEST_API_KEYS["operator"],
+            "REV": TEST_API_KEYS["reviewer"],
+            "ADM": TEST_API_KEYS["admin"],
+        },
+        run_id="ephemeral",
+    )
+    contract = AcceptanceContract.model_validate(
+        json.loads(Path("release/acceptance/contracts/zeroth-v1.json").read_text(encoding="utf-8"))
+    )
+
+    async with AcceptanceTransport(config) as transport:
+        report = await AcceptanceRunner(config, contract, transport, lifecycle=candidate).run()
+
+    results = {item.name: item for item in report.scenarios}
+    assert set(results) == set(REQUIRED_SCENARIOS), "every scenario must be attempted and recorded"
+
+    failed = {name for name, item in results.items() if item.status is not ScenarioStatus.PASSED}
+    detail = {name: results[name].detail for name in sorted(failed - AGENT_SERVER_SCENARIOS)}
+    assert failed == set(AGENT_SERVER_SCENARIOS), (
+        f"scenarios this leg is authoritative for must pass; unexpected failures: {detail}"
+    )
+
+    # Promotion evidence is bound to the candidate regardless of which leg produced it.
+    assert report.candidate_digest == config.candidate_digest
+    assert report.image_identity == config.candidate_identity["image"]
+    assert report.namespace.startswith(f"{report.tenant_id}-")

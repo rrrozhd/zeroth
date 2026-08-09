@@ -1,105 +1,623 @@
 {
   "schema_version": 1,
-  "supported_agent_server_versions": ["0.11.1"],
+  "supported_agent_server_versions": [
+    "0.11.1"
+  ],
   "scenarios": {
     "readiness": {
       "steps": [
-        {"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expected_status":200,"expected_json":{"status":"ok","checks":{"database":{"status":"ok"}}}},
-        {"protocol":"http","role":"operator","method":"GET","path":"/health","expected_status":200,"expected_json":{"deployment_ref":"{deployment_ref}"}}
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/health/ready",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "ok",
+            "checks": {
+              "database": {
+                "status": "ok"
+              }
+            }
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/health",
+          "expected_status": 200,
+          "expected_json": {
+            "deployment_ref": "{deployment_ref}"
+          }
+        }
       ]
     },
     "authentication": {
-      "steps": [{"protocol":"http","role":"anonymous","method":"GET","path":"/v1/runs","expected_status":401}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/v1/runs",
+          "expected_status": 401
+        }
+      ]
     },
     "rbac": {
-      "steps": [{"protocol":"http","role":"reviewer","method":"POST","path":"/api/studio/v1/workflows","payload":{"name":"{namespace}-forbidden"},"expected_status":403}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "POST",
+          "path": "/api/studio/v1/workflows",
+          "payload": {
+            "name": "{namespace}-forbidden"
+          },
+          "expected_status": 403
+        }
+      ]
     },
     "migrations": {
-      "steps": [{"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expected_status":200,"expected_json":{"checks":{"database":{"status":"ok"}}}}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/health/ready",
+          "expected_status": 200,
+          "expected_json": {
+            "checks": {
+              "database": {
+                "status": "ok"
+              }
+            }
+          }
+        }
+      ]
     },
     "workflow_lifecycle": {
       "steps": [
-        {"protocol":"http","role":"admin","method":"POST","path":"/api/studio/v1/workflows","payload":{"name":"{namespace}-workflow"},"expected_status":201,"expected_json":{"name":"{namespace}-workflow","status":"draft"},"owned_capture":{"workflow_id":"id"}},
-        {"protocol":"http","role":"operator","method":"GET","path":"/api/studio/v1/workflows/{workflow_id}","expected_status":200,"expected_json":{"id":"{workflow_id}","name":"{namespace}-workflow"}},
-        {"protocol":"http","role":"admin","method":"POST","path":"/api/studio/v1/workflows/{workflow_id}/publish","expected_status":200,"expected_json":{"status":"published"}}
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "POST",
+          "path": "/api/studio/v1/workflows",
+          "payload": {
+            "name": "{namespace}-workflow"
+          },
+          "expected_status": 201,
+          "expected_json": {
+            "name": "{namespace}-workflow",
+            "status": "draft"
+          },
+          "owned_capture": {
+            "workflow_id": "id"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/api/studio/v1/workflows/{workflow_id}",
+          "expected_status": 200,
+          "expected_json": {
+            "id": "{workflow_id}",
+            "name": "{namespace}-workflow"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "PUT",
+          "path": "/api/studio/v1/workflows/{workflow_id}",
+          "payload": {
+            "nodes": [
+              {
+                "id": "start",
+                "type": "entrypoint",
+                "position": {
+                  "x": -200,
+                  "y": 0
+                },
+                "data": {
+                  "label": "Start",
+                  "input_contract_ref": "contract://input",
+                  "output_contract_ref": "contract://input",
+                  "config": {}
+                }
+              },
+              {
+                "id": "step",
+                "type": "agent",
+                "position": {
+                  "x": 0,
+                  "y": 0
+                },
+                "data": {
+                  "label": "Step",
+                  "input_contract_ref": "contract://input",
+                  "output_contract_ref": "contract://output",
+                  "config": {
+                    "instruction": "Echo the input.",
+                    "model_provider": "openai/gpt-4o-mini"
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "edge-1",
+                "source": "start",
+                "target": "step"
+              }
+            ]
+          },
+          "expected_status": 200,
+          "expected_json": {
+            "entry_step": "start"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "POST",
+          "path": "/api/studio/v1/workflows/{workflow_id}/publish",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "published"
+          }
+        }
       ]
     },
     "deployment": {
-      "steps": [{"protocol":"http","role":"operator","method":"GET","path":"/health","expected_status":200,"expected_json":{"deployment_ref":"{deployment_ref}"}}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/health",
+          "expected_status": 200,
+          "expected_json": {
+            "deployment_ref": "{deployment_ref}"
+          }
+        }
+      ]
     },
     "runs": {
       "steps": [
-        {"protocol":"http","role":"operator","method":"POST","path":"/v1/runs","payload":{"input_payload":{"value":3}},"expected_status":202,"expected_json":{"deployment_ref":"{deployment_ref}"},"capture":{"run_id":"run_id"}},
-        {"protocol":"http","role":"operator","method":"GET","path":"/v1/runs/{run_id}","expected_status":200,"expected_json":{"status":"paused_for_approval"},"poll":true,"capture":{"approval_id":"approval_paused_state.approval_id"}}
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/v1/runs",
+          "payload": {
+            "input_payload": {
+              "value": 3
+            }
+          },
+          "expected_status": 202,
+          "expected_json": {
+            "deployment_ref": "{deployment_ref}"
+          },
+          "capture": {
+            "run_id": "run_id"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "paused_for_approval"
+          },
+          "poll": true,
+          "capture": {
+            "approval_id": "approval_paused_state.approval_id"
+          }
+        }
       ]
     },
     "approvals": {
       "steps": [
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/timeline","expected_status":200,"count_path":"entries","count_where":{"node_id":"finish-step","status":"completed"},"expected_count":0},
-        {"protocol":"http","role":"reviewer","method":"POST","path":"/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve","payload":{"decision":"approve"},"expected_status":200},
-        {"protocol":"http","role":"operator","method":"GET","path":"/v1/runs/{run_id}","expected_status":200,"expected_json":{"status":"succeeded"},"poll":true},
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/timeline","expected_status":200,"count_path":"entries","count_where":{"node_id":"finish-step","status":"completed"},"expected_count":1}
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/timeline",
+          "expected_status": 200,
+          "count_path": "entries",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 0
+        },
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "POST",
+          "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
+          "payload": {
+            "decision": "approve"
+          },
+          "expected_status": 200
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "succeeded"
+          },
+          "poll": true
+        },
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/timeline",
+          "expected_status": 200,
+          "count_path": "entries",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 1
+        }
       ]
     },
     "audit": {
       "steps": [
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/timeline","expected_status":200,"expected_json":{"run_id":"{run_id}","deployment_ref":"{deployment_ref}"},"count_path":"entries","count_where":{"status":"approval_api"},"expected_count":1}
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/timeline",
+          "expected_status": 200,
+          "expected_json": {
+            "run_id": "{run_id}",
+            "deployment_ref": "{deployment_ref}"
+          },
+          "count_path": "entries",
+          "count_where": {
+            "status": "approval_api"
+          },
+          "expected_count": 1
+        }
       ]
     },
     "artifacts": {
       "steps": [
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/evidence","expected_status":200,"count_path":"audits","count_where":{"node_id":"finish-step","status":"completed"},"expected_count":1}
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/evidence",
+          "expected_status": 200,
+          "count_path": "audits",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 1
+        }
       ]
     },
     "retention": {
-      "steps": [{"protocol":"http","role":"admin","method":"GET","path":"/v1/retention/policy","expected_status":200,"expected_json":{"enabled":true}}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "GET",
+          "path": "/v1/retention/policy",
+          "expected_status": 200,
+          "expected_json": {
+            "enabled": true
+          }
+        }
+      ]
     },
     "restart_recovery": {
       "steps": [
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/evidence","expected_status":200,"expected_json":{"run":{"run_id":"{run_id}","status":"succeeded"}},"count_path":"audits","count_where":{"node_id":"finish-step","status":"completed"},"expected_count":1},
-        {"protocol":"lifecycle","role":"admin","operation":"restart"},
-        {"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expected_status":200,"expected_json":{"status":"ok"},"poll":true},
-        {"protocol":"http","role":"reviewer","method":"GET","path":"/v1/runs/{run_id}/evidence","expected_status":200,"expected_json":{"run":{"run_id":"{run_id}","status":"succeeded"}},"count_path":"audits","count_where":{"node_id":"finish-step","status":"completed"},"expected_count":1}
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/evidence",
+          "expected_status": 200,
+          "expected_json": {
+            "run": {
+              "run_id": "{run_id}",
+              "status": "succeeded"
+            }
+          },
+          "count_path": "audits",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 1
+        },
+        {
+          "protocol": "lifecycle",
+          "role": "admin",
+          "operation": "restart"
+        },
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/health/ready",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "ok"
+          },
+          "poll": true
+        },
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/evidence",
+          "expected_status": 200,
+          "expected_json": {
+            "run": {
+              "run_id": "{run_id}",
+              "status": "succeeded"
+            }
+          },
+          "count_path": "audits",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 1
+        }
       ]
     },
     "streaming": {
-      "steps": [{"protocol":"websocket","role":"operator","path":"/threads/{run_id}/stream/events","payload":{"run_id":"{run_id}"},"max_events":3,"ordered_events":["run.started","node.completed","run.completed"]}]
+      "steps": [
+        {
+          "protocol": "websocket",
+          "role": "operator",
+          "path": "/threads/{run_id}/stream/events",
+          "payload": {
+            "run_id": "{run_id}"
+          },
+          "max_events": 3,
+          "ordered_events": [
+            "run.started",
+            "node.completed",
+            "run.completed"
+          ]
+        }
+      ]
     },
     "gateway_http": {
       "steps": [
-        {"protocol":"http","role":"operator","method":"POST","path":"/runs","payload":{"assistant_id":"{namespace}-allow"},"expected_status":200,"expected_json":{"decision":"allow"},"require_correlation":true},
-        {"protocol":"http","role":"operator","method":"POST","path":"/runs","payload":{"assistant_id":"{namespace}-deny"},"expected_status":403,"expected_json":{"decision":"deny"},"require_correlation":true},
-        {"protocol":"http","role":"operator","method":"POST","path":"/runs","payload":{"assistant_id":"{namespace}-approval"},"expected_status":202,"expected_json":{"decision":"approval_required"},"require_correlation":true},
-        {"protocol":"http","role":"reviewer","method":"POST","path":"/runs","payload":{"assistant_id":"{namespace}-resume"},"expected_status":200,"expected_json":{"decision":"resumed"},"require_correlation":true},
-        {"protocol":"http","role":"operator","method":"POST","path":"/runs","payload":{"assistant_id":"{namespace}-upstream-failure"},"expected_status":502,"expected_json":{"decision":"upstream_error"},"require_correlation":true}
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/runs",
+          "payload": {
+            "assistant_id": "{namespace}-allow"
+          },
+          "expected_status": 200,
+          "expected_json": {
+            "decision": "allow"
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/runs",
+          "payload": {
+            "assistant_id": "{namespace}-deny"
+          },
+          "expected_status": 403,
+          "expected_json": {
+            "decision": "deny"
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/runs",
+          "payload": {
+            "assistant_id": "{namespace}-approval"
+          },
+          "expected_status": 202,
+          "expected_json": {
+            "decision": "approval_required"
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "POST",
+          "path": "/runs",
+          "payload": {
+            "assistant_id": "{namespace}-resume"
+          },
+          "expected_status": 200,
+          "expected_json": {
+            "decision": "resumed"
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/runs",
+          "payload": {
+            "assistant_id": "{namespace}-upstream-failure"
+          },
+          "expected_status": 502,
+          "expected_json": {
+            "decision": "upstream_error"
+          },
+          "require_correlation": true
+        }
       ]
     },
     "gateway_websocket": {
       "steps": [
-        {"protocol":"websocket","role":"operator","path":"/threads/{namespace}-allow/stream/events","payload":{"namespace":"{namespace}"},"max_events":3,"ordered_events":["gateway.admitted","gateway.forwarded","gateway.completed"]},
-        {"protocol":"websocket","role":"operator","path":"/threads/{namespace}-deny/stream/events","payload":{"namespace":"{namespace}"},"max_events":2,"ordered_events":["gateway.admitted","gateway.denied"]},
-        {"protocol":"websocket","role":"operator","path":"/threads/{namespace}-approval/stream/events","payload":{"namespace":"{namespace}"},"max_events":2,"ordered_events":["gateway.admitted","gateway.approval_required"]},
-        {"protocol":"websocket","role":"reviewer","path":"/threads/{namespace}-resume/stream/events","payload":{"namespace":"{namespace}"},"max_events":3,"ordered_events":["gateway.resumed","gateway.forwarded","gateway.completed"]},
-        {"protocol":"websocket","role":"operator","path":"/threads/{namespace}-upstream-failure/stream/events","payload":{"namespace":"{namespace}"},"max_events":3,"ordered_events":["gateway.admitted","gateway.forwarded","gateway.upstream_error"]}
+        {
+          "protocol": "websocket",
+          "role": "operator",
+          "path": "/threads/{namespace}-allow/stream/events",
+          "payload": {
+            "namespace": "{namespace}"
+          },
+          "max_events": 3,
+          "ordered_events": [
+            "gateway.admitted",
+            "gateway.forwarded",
+            "gateway.completed"
+          ]
+        },
+        {
+          "protocol": "websocket",
+          "role": "operator",
+          "path": "/threads/{namespace}-deny/stream/events",
+          "payload": {
+            "namespace": "{namespace}"
+          },
+          "max_events": 2,
+          "ordered_events": [
+            "gateway.admitted",
+            "gateway.denied"
+          ]
+        },
+        {
+          "protocol": "websocket",
+          "role": "operator",
+          "path": "/threads/{namespace}-approval/stream/events",
+          "payload": {
+            "namespace": "{namespace}"
+          },
+          "max_events": 2,
+          "ordered_events": [
+            "gateway.admitted",
+            "gateway.approval_required"
+          ]
+        },
+        {
+          "protocol": "websocket",
+          "role": "reviewer",
+          "path": "/threads/{namespace}-resume/stream/events",
+          "payload": {
+            "namespace": "{namespace}"
+          },
+          "max_events": 3,
+          "ordered_events": [
+            "gateway.resumed",
+            "gateway.forwarded",
+            "gateway.completed"
+          ]
+        },
+        {
+          "protocol": "websocket",
+          "role": "operator",
+          "path": "/threads/{namespace}-upstream-failure/stream/events",
+          "payload": {
+            "namespace": "{namespace}"
+          },
+          "max_events": 3,
+          "ordered_events": [
+            "gateway.admitted",
+            "gateway.forwarded",
+            "gateway.upstream_error"
+          ]
+        }
       ]
     },
     "compatibility": {
-      "steps": [{"protocol":"http","role":"operator","method":"GET","path":"/v1/langgraph/deployments/{deployment_ref}/inventories","expected_status":200,"expected_json":{"status":"supported","detected_agent_server":"0.11.1"}}]
+      "steps": [
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "supported",
+            "detected_agent_server": "0.11.1"
+          }
+        }
+      ]
     },
     "executable_unit_failures": {
       "steps": [
-        {"protocol":"http","role":"operator","method":"POST","path":"/v1/runs","payload":{"input_payload":{"artifact":"{namespace}-missing"}},"expected_status":422,"expected_json":{"error_code":"unresolved_project_artifact"}},
-        {"protocol":"http","role":"operator","method":"POST","path":"/v1/runs","payload":{"input_payload":{"artifact":"{namespace}-unstaged"}},"expected_status":422,"expected_json":{"error_code":"unstaged_project_artifact"}}
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/v1/runs",
+          "payload": {
+            "input_payload": {
+              "artifact": "{namespace}-missing"
+            }
+          },
+          "expected_status": 422,
+          "expected_json": {
+            "error_code": "unresolved_project_artifact"
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/v1/runs",
+          "payload": {
+            "input_payload": {
+              "artifact": "{namespace}-unstaged"
+            }
+          },
+          "expected_status": 422,
+          "expected_json": {
+            "error_code": "unstaged_project_artifact"
+          }
+        }
       ]
     },
     "shutdown": {
       "steps": [
-        {"protocol":"lifecycle","role":"admin","operation":"shutdown"},
-        {"protocol":"http","role":"anonymous","method":"GET","path":"/health/ready","expect_unreachable":true}
+        {
+          "protocol": "lifecycle",
+          "role": "admin",
+          "operation": "shutdown"
+        },
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/health/ready",
+          "expect_unreachable": true
+        }
       ]
     }
   },
   "cleanup": [
-    {"protocol":"http","role":"admin","method":"DELETE","path":"/api/studio/v1/workflows/{workflow_id}","expected_status":204,"resource_id":"{workflow_id}"}
+    {
+      "protocol": "http",
+      "role": "admin",
+      "method": "DELETE",
+      "path": "/api/studio/v1/workflows/{workflow_id}",
+      "expected_status": 204,
+      "resource_id": "{workflow_id}"
+    }
   ]
 }
