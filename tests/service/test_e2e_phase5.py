@@ -664,6 +664,8 @@ async def test_phase5_thread_continuity_across_runs_via_api(sqlite_db) -> None:
         sqlite_db, _thread_state_graph(graph_id="graph-phase5-thread")
     )
     thread_store = RepositoryThreadStateStore(
+        tenant_id="default",
+        workspace_id=None,
         run_repository=service.run_repository,
         thread_repository=service.thread_repository,
     )

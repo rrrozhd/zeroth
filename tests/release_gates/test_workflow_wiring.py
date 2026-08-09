@@ -21,6 +21,7 @@ from .conftest import ROOT
 WORKFLOWS = ROOT / ".github/workflows"
 RELEASE_WORKFLOW = WORKFLOWS / "release-zeroth-core.yml"
 GATES_WORKFLOW = WORKFLOWS / "release-gates.yml"
+CI_WORKFLOW = WORKFLOWS / "ci.yml"
 
 #: Jobs that make the candidate available to someone else.
 PROMOTION_JOBS = ("publish-testpypi", "publish-pypi")
@@ -490,6 +491,87 @@ def test_the_gate_matrix_never_runs_on_pull_requests():
 
 def test_the_set_of_pull_request_workflows_is_unchanged():
     assert {path.name for path in _pull_request_workflows()} == BASE_PULL_REQUEST_WORKFLOWS
+
+
+def test_pull_requests_run_only_the_portable_pr_critical_security_tier():
+    jobs = _jobs(CI_WORKFLOW)
+    job = jobs["security-regression"]
+    script = "\n".join(step.get("run", "") for step in _steps(job))
+
+    assert job.get("if") == "github.event_name == 'pull_request'"
+    assert "python -m release.security.pytest_gate" in script
+    assert "--tier pr-critical" in script
+    assert "--tier release-candidate" not in script
+    assert "--results release/evidence/security-pr-outcomes.json" in script
+    assert "--junitxml release/evidence/security-pr-junit.xml" in script
+    assert "--pytest-arg=-q" in script
+    assert "docker" not in script.lower()
+    assert not job.get("services")
+
+
+def test_release_candidate_security_job_has_healthy_redis_and_docker_postgres_access():
+    job = _jobs(GATES_WORKFLOW)["security-regression"]
+    redis = job["services"]["redis"]
+
+    assert redis["image"] == "redis:7.4-alpine"
+    assert "redis-cli ping" in redis["options"]
+    assert job["env"]["ZEROTH_TEST_REDIS_URL"] == "redis://localhost:6379/15"
+    assert job["runs-on"] == "ubuntu-latest", "the RC needs the hosted Docker daemon"
+
+
+def test_release_candidate_security_job_runs_all_checks_then_always_records_and_uploads():
+    jobs = _jobs(GATES_WORKFLOW)
+    job = jobs["security-regression"]
+    run_step = next(step for step in _steps(job) if "SECURITY_GATE_RC" in step.get("run", ""))
+    script = run_step["run"]
+
+    expected = [
+        "python -m release.security.pytest_gate",
+        "--tier release-candidate",
+        "--results release/evidence/security-rc-outcomes.json",
+        "--junitxml release/evidence/security-rc-junit.xml",
+        "matrix verify-coverage",
+        "--output release/evidence/security-coverage.json",
+        "matrix verify-outcomes",
+        "--output release/evidence/security-outcome-verdict.json",
+        "python -m release.security.scan release/evidence",
+        "--output release/evidence/security-scan.json",
+    ]
+    for token in expected:
+        assert token in script
+    assert "set +e" in script
+    assert "set -e" not in script.replace("set +e", "")
+    assert script.index("release.security.scan") < script.index("cli.py record")
+    for code in ("SECURITY_GATE_RC", "COVERAGE_RC", "OUTCOME_RC", "SCAN_RC"):
+        assert f"{code}=$?" in script
+    for result in (
+        "security-matrix=$(status ${SECURITY_GATE_RC})",
+        "coverage-complete=$(status ${COVERAGE_RC})",
+        "distributed-no-skips=$(status ${OUTCOME_RC})",
+        "credential-scan=$(status ${SCAN_RC})",
+    ):
+        assert f'--result "{result}"' in script
+    assert "--kind junit=release/evidence/security-rc-junit.xml" in script
+    assert "--kind security=release/evidence/security-scan.json" in script
+    assert "--output release/evidence/security-regression.json" in script
+
+    uploads = [
+        step
+        for step in _steps(job)
+        if str(step.get("uses", "")).startswith("actions/upload-artifact")
+    ]
+    assert len(uploads) == 1
+    assert uploads[0].get("if") == "always()"
+    paths = str(uploads[0]["with"]["path"])
+    for evidence in (
+        "security-rc-junit.xml",
+        "security-coverage.json",
+        "security-outcome-verdict.json",
+        "security-scan.json",
+        "security-regression.json",
+    ):
+        assert evidence in paths
+    assert "security-regression" in _needs(jobs["evidence-gate"])
 
 
 @pytest.mark.parametrize("path", sorted(WORKFLOWS.glob("*.yml")), ids=lambda p: p.name)

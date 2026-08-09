@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import inspect
 import json
 import os
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 from uuid import uuid4
 
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
@@ -31,10 +33,49 @@ except ImportError:  # pragma: no cover - graceful until dependency is added
 _REMOTE_JWKS_MAX_BYTES = 64 * 1024
 _REMOTE_JWKS_CACHE_SECONDS = 300.0
 _REMOTE_JWKS_REFRESH_COOLDOWN_SECONDS = 5.0
+_REDACTED_CONFIG_VALUE = "[redacted]"
+_REDACTED_CONFIG_LOCATION = "[redacted-field]"
+_REDACTED_CONFIG_KEY = "[redacted-key]"
+_REDACTED_CONFIG_INDEX = "[index]"
+_PYDANTIC_MAPPING_KEY_LOCATION_MARKER = "[key]"
+_SAFE_CONFIG_LOCATION_SEGMENTS = frozenset(
+    {
+        "api_keys",
+        "bearer",
+        "custom_roles",
+        "revoked_credential_ids",
+        "credential_id",
+        "secret",
+        "subject",
+        "roles",
+        "tenant_id",
+        "workspace_id",
+        "issuer",
+        "audience",
+        "jwks_url",
+        "jwks",
+        "algorithms",
+    }
+)
+_SAFE_ENUM_EXPECTED = "'operator', 'reviewer', 'admin' or 'platform_admin'"
+_SAFE_CONFIG_VALUE_ERROR_MESSAGES = frozenset(
+    {
+        "credential_id must be non-empty",
+        "static API key credential IDs must be unique",
+        "static API key secrets must be unique",
+        "revoked credential identifiers must be an array of strings",
+        "revoked credential identifiers must be non-empty strings",
+        "revoked credential identifiers must be unique",
+        "bearer auth requires jwks_url or jwks",
+    }
+)
 
 
 class _HTTPOnlyRedirectHandler(HTTPRedirectHandler):
+    """Reject remote JWKS redirects to non-HTTP protocols."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Follow only HTTP(S) redirects for remote key discovery."""
         if urlsplit(newurl).scheme.lower() not in {"http", "https"}:
             raise HTTPError(req.full_url, code, msg, headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -47,10 +88,146 @@ class AuthenticationError(RuntimeError):
     """Raised when a request cannot be authenticated."""
 
 
+class CredentialStatusProvider(Protocol):
+    """Synchronous source of credential status checked after verification."""
+
+    def is_revoked(self, identifier: str) -> bool:
+        """Whether a verified credential identifier has been revoked."""
+
+
+def _identifier_snapshot(identifiers: Iterable[str]) -> frozenset[str]:
+    """Validate and freeze one revocation identifier collection."""
+    if isinstance(identifiers, (str, bytes)):
+        raise ValueError("credential identifiers must be an iterable of non-empty strings")
+    try:
+        values = tuple(identifiers)
+    except TypeError as exc:
+        raise ValueError("credential identifiers must be an iterable of non-empty strings") from exc
+    if any(not isinstance(identifier, str) or not identifier.strip() for identifier in values):
+        raise ValueError("credential identifiers must be non-empty strings")
+    return frozenset(values)
+
+
+def _redacted_config_validation_error(error: ValidationError, *, title: str) -> ValidationError:
+    """Build a type-valid config error without retaining caller-controlled data."""
+    try:
+        details = [_redacted_config_error_detail(detail) for detail in error.errors()]
+        return ValidationError.from_exception_data(title, details)
+    except Exception:
+        # Do not let reconstruction failures expose the original validation error.
+        return ValidationError.from_exception_data(
+            title,
+            [
+                {
+                    "type": "value_error",
+                    "loc": (),
+                    "input": _REDACTED_CONFIG_VALUE,
+                    "ctx": {"error": ValueError("invalid configuration")},
+                }
+            ],
+        )
+
+
+def _redacted_config_error_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild one Pydantic error detail using only fixed schema data."""
+    error_type = detail["type"]
+    location = tuple(detail.get("loc", ()))
+    safe_detail: dict[str, Any] = {
+        "type": error_type,
+        "loc": tuple(
+            _redacted_config_location_segment(location, index, error_type)
+            for index in range(len(location))
+        ),
+        "input": _REDACTED_CONFIG_VALUE,
+    }
+    if error_type == "enum":
+        expected = detail.get("ctx", {}).get("expected")
+        safe_detail["ctx"] = {
+            "expected": expected if expected == _SAFE_ENUM_EXPECTED else _REDACTED_CONFIG_VALUE
+        }
+    elif error_type == "value_error":
+        message = str(detail.get("ctx", {}).get("error", ""))
+        safe_detail["ctx"] = {
+            "error": ValueError(
+                message if message in _SAFE_CONFIG_VALUE_ERROR_MESSAGES else "invalid configuration"
+            )
+        }
+    return safe_detail
+
+
+def _redacted_config_location_segment(
+    location: tuple[Any, ...], index: int, error_type: str
+) -> str:
+    """Preserve schema fields and list indices, never mapping keys from caller input."""
+    segment = location[index]
+    if error_type == "invalid_key":
+        if (
+            segment
+            in {
+                _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
+                _REDACTED_CONFIG_KEY,
+                _REDACTED_CONFIG_INDEX,
+            }
+            or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+        ):
+            return segment
+        return _REDACTED_CONFIG_KEY
+    if index + 1 < len(location) and location[index + 1] == _PYDANTIC_MAPPING_KEY_LOCATION_MARKER:
+        return _REDACTED_CONFIG_KEY
+    if isinstance(segment, int):
+        return _REDACTED_CONFIG_INDEX
+    if (
+        segment
+        in {
+            _PYDANTIC_MAPPING_KEY_LOCATION_MARKER,
+            _REDACTED_CONFIG_KEY,
+            _REDACTED_CONFIG_INDEX,
+        }
+        or segment in _SAFE_CONFIG_LOCATION_SEGMENTS
+    ):
+        return segment
+    return _REDACTED_CONFIG_LOCATION
+
+
+class CredentialRevocationRegistry:
+    """Thread-safe revocations with linearizable snapshot replacement.
+
+    A replacement linearizes when it acquires the decision lock. Callers that
+    hold :meth:`decision_guard` make one status decision against one immutable
+    snapshot; ``replace_snapshot`` cannot return until those decisions finish.
+    """
+
+    def __init__(self, revoked_credential_ids: Iterable[str] = ()) -> None:
+        self._lock = threading.RLock()
+        self._snapshot = _identifier_snapshot(revoked_credential_ids)
+
+    @contextmanager
+    def decision_guard(self) -> Iterator[None]:
+        """Serialize a complete authentication status decision with replacement."""
+        with self._lock:
+            yield
+
+    def is_revoked(self, identifier: str) -> bool:
+        with self.decision_guard():
+            return identifier in self._snapshot
+
+    @property
+    def snapshot(self) -> frozenset[str]:
+        """Immutable current revocation view, safe to inspect or replace from bootstrap code."""
+        with self._lock:
+            return self._snapshot
+
+    def replace_snapshot(self, identifiers: Iterable[str]) -> None:
+        """Atomically replace the complete revoked-credential identifier set."""
+        snapshot = _identifier_snapshot(identifiers)
+        with self._lock:
+            self._snapshot = snapshot
+
+
 class StaticApiKeyCredential(BaseModel):
     """Static API key credential for service authentication."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     credential_id: str
     secret: str
@@ -58,6 +235,23 @@ class StaticApiKeyCredential(BaseModel):
     roles: list[ServiceRole] = Field(default_factory=list)
     tenant_id: str = "default"
     workspace_id: str | None = None
+
+    def __init__(self, /, **data: Any) -> None:
+        redacted_error: ValidationError | None = None
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            redacted_error = _redacted_config_validation_error(exc, title="StaticApiKeyCredential")
+        if redacted_error is not None:
+            raise redacted_error
+
+    @field_validator("credential_id")
+    @classmethod
+    def _require_credential_id(cls, value: str) -> str:
+        """Require a non-blank stable identifier for revocation checks."""
+        if not value.strip():
+            raise ValueError("credential_id must be non-empty")
+        return value
 
 
 class BearerTokenConfig(BaseModel):
@@ -73,6 +267,7 @@ class BearerTokenConfig(BaseModel):
 
     @model_validator(mode="after")
     def _require_key_source(self) -> BearerTokenConfig:
+        """Require either embedded or remotely discoverable signing keys."""
         if self.jwks_url is None and self.jwks is None:
             raise ValueError("bearer auth requires jwks_url or jwks")
         return self
@@ -81,14 +276,52 @@ class BearerTokenConfig(BaseModel):
 class ServiceAuthConfig(BaseModel):
     """Top-level service authentication configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     api_keys: list[StaticApiKeyCredential] = Field(default_factory=list)
     bearer: BearerTokenConfig | None = None
     custom_roles: dict[str, list[str]] = Field(default_factory=dict)
+    revoked_credential_ids: frozenset[str] = Field(default_factory=frozenset)
+
+    def __init__(self, /, **data: Any) -> None:
+        redacted_error: ValidationError | None = None
+        try:
+            super().__init__(**data)
+        except ValidationError as exc:
+            redacted_error = _redacted_config_validation_error(exc, title="ServiceAuthConfig")
+        if redacted_error is not None:
+            raise redacted_error
+
+    @field_validator("revoked_credential_ids", mode="before")
+    @classmethod
+    def _validate_revoked_credential_ids(cls, value: object) -> frozenset[str]:
+        """Validate and freeze serialized revoked credential identifiers."""
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise ValueError("revoked credential identifiers must be an array of strings")
+        if any(not isinstance(identifier, str) or not identifier.strip() for identifier in value):
+            raise ValueError("revoked credential identifiers must be non-empty strings")
+        identifiers = frozenset(value)
+        if len(identifiers) != len(value):
+            raise ValueError("revoked credential identifiers must be unique")
+        return identifiers
+
+    @model_validator(mode="after")
+    def _require_unique_api_keys(self) -> ServiceAuthConfig:
+        """Reject ambiguous credential identifiers or shared secrets."""
+        credential_ids: set[str] = set()
+        secrets: set[str] = set()
+        for credential in self.api_keys:
+            if credential.credential_id in credential_ids:
+                raise ValueError("static API key credential IDs must be unique")
+            if credential.secret in secrets:
+                raise ValueError("static API key secrets must be unique")
+            credential_ids.add(credential.credential_id)
+            secrets.add(credential.secret)
+        return self
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ServiceAuthConfig:
+        """Load authentication settings from the supported JSON environment fields."""
         source = dict(env or os.environ)
         payload: dict[str, Any] = {}
         if source.get("ZEROTH_SERVICE_API_KEYS_JSON"):
@@ -97,12 +330,20 @@ class ServiceAuthConfig(BaseModel):
             payload["bearer"] = json.loads(source["ZEROTH_SERVICE_BEARER_JSON"])
         if source.get("ZEROTH_SERVICE_ROLES_JSON"):
             payload["custom_roles"] = json.loads(source["ZEROTH_SERVICE_ROLES_JSON"])
-        return cls.model_validate(payload)
+        if source.get("ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"):
+            payload["revoked_credential_ids"] = json.loads(
+                source["ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON"]
+            )
+        return cls(**payload)
 
 
 _auth_parameters = inspect.signature(ServiceAuthConfig).parameters
 ServiceAuthConfig.__signature__ = inspect.signature(ServiceAuthConfig).replace(
-    parameters=[parameter for name, parameter in _auth_parameters.items() if name != "custom_roles"]
+    parameters=[
+        parameter
+        for name, parameter in _auth_parameters.items()
+        if name not in {"custom_roles", "revoked_credential_ids"}
+    ]
 )
 
 
@@ -116,6 +357,7 @@ class JWTBearerTokenVerifier:
         self._next_remote_fetch_at = 0.0
 
     def verify(self, token: str) -> AuthenticatedPrincipal:
+        """Verify a compact token and return its authenticated principal."""
         if jwt is None:
             raise AuthenticationError("invalid bearer token")
         try:
@@ -153,6 +395,7 @@ class JWTBearerTokenVerifier:
         )
 
     def _resolve_remote_signing_key(self, kid: str | None) -> Any:
+        """Resolve a key from the bounded, cooldown-protected remote cache."""
         with self._jwks_lock:
             cached_jwks = self._cached_jwks
             cached_remote_jwks = (
@@ -185,6 +428,7 @@ class JWTBearerTokenVerifier:
             return key
 
     def _load_jwks(self) -> dict[str, Any]:
+        """Fetch and cache one bounded HTTP(S) JSON Web Key Set."""
         if urlsplit(self._config.jwks_url or "").scheme.lower() not in {"http", "https"}:
             raise ValueError("remote JWKS URL must use HTTP(S)")
         with _open_remote_jwks(
@@ -200,6 +444,7 @@ class JWTBearerTokenVerifier:
         return jwks
 
     def _resolve_signing_key(self, kid: str | None, jwks: dict[str, Any]) -> Any:
+        """Resolve a matching signing key from validated JWKS data."""
         if jwt is None:  # pragma: no cover - defensive guard
             raise AuthenticationError("invalid bearer token")
         jwk_set = jwt.PyJWKSet.from_dict(jwks)
@@ -217,12 +462,34 @@ class ServiceAuthenticator:
         config: ServiceAuthConfig | None = None,
         *,
         bearer_verifier: JWTBearerTokenVerifier | None = None,
+        credential_status_provider: CredentialStatusProvider | None = None,
     ) -> None:
         self._config = config or ServiceAuthConfig()
         self._api_keys: tuple[StaticApiKeyCredential, ...] = tuple(self._config.api_keys)
         self._bearer_verifier = bearer_verifier or (
             JWTBearerTokenVerifier(self._config.bearer) if self._config.bearer else None
         )
+        self._credential_status_provider = (
+            credential_status_provider
+            if credential_status_provider is not None
+            else CredentialRevocationRegistry(self._config.revoked_credential_ids)
+        )
+
+    @property
+    def credential_status_provider(self) -> CredentialStatusProvider:
+        """Provider used to make the final credential-status decision."""
+        return self._credential_status_provider
+
+    def _require_active_credential(self, identifier: str) -> None:
+        """Reject a verified credential whose stable identifier is revoked."""
+        provider = self._credential_status_provider
+        if isinstance(provider, CredentialRevocationRegistry):
+            with provider.decision_guard():
+                if provider.is_revoked(identifier):
+                    raise AuthenticationError("authentication required")
+            return
+        if provider.is_revoked(identifier):
+            raise AuthenticationError("authentication required")
 
     def _match_api_key(self, presented: str) -> StaticApiKeyCredential | None:
         """Constant-time lookup of a stored API key credential by presented secret."""
@@ -235,11 +502,13 @@ class ServiceAuthenticator:
         return match
 
     def authenticate_headers(self, headers: Mapping[str, str]) -> AuthenticatedPrincipal:
+        """Authenticate API-key or bearer headers and enforce revocation."""
         api_key = headers.get("X-API-Key")
         if api_key:
             credential = self._match_api_key(api_key)
             if credential is None:
                 raise AuthenticationError("authentication required")
+            self._require_active_credential(credential.credential_id)
             return AuthenticatedPrincipal(
                 subject=credential.subject,
                 auth_method=AuthMethod.API_KEY,
@@ -256,7 +525,15 @@ class ServiceAuthenticator:
                 raise AuthenticationError("authentication required")
             if self._bearer_verifier is None:
                 raise AuthenticationError("authentication required")
-            return self._bearer_verifier.verify(token)
+            principal = self._bearer_verifier.verify(token)
+            jti = principal.claims.get("jti") if principal.claims is not None else None
+            identifier = (
+                jti
+                if isinstance(jti, str) and jti.strip()
+                else "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+            )
+            self._require_active_credential(identifier)
+            return principal
 
         raise AuthenticationError("authentication required")
 

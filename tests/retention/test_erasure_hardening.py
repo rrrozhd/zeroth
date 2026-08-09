@@ -23,7 +23,11 @@ from zeroth.governance.retention.cleanup_manifest import (
     operation_id,
     parse_cleanup_manifest,
 )
-from zeroth.governance.retention.erasure_service import StaleCleanupClaimError
+from zeroth.governance.retention.erasure_service import (
+    StaleCleanupClaimError,
+    _harvest_artifact_keys,
+)
+from zeroth.platform.artifacts.models import generate_artifact_key
 from zeroth.runtime.runs import Run
 
 
@@ -34,6 +38,18 @@ def _artifact_ref(key: str) -> dict[str, object]:
         "content_type": "application/octet-stream",
         "size": 3,
     }
+
+
+def test_artifact_harvest_understands_framed_run_owner() -> None:
+    owned = generate_artifact_key("slash/run", "node")
+    ambiguous_legacy = "slash/run/node/legacy"
+
+    harvested = _harvest_artifact_keys(
+        {"owned": _artifact_ref(owned), "legacy": _artifact_ref(ambiguous_legacy)},
+        run_id="slash/run",
+    )
+
+    assert harvested == {owned}
 
 
 class _TenantRecordingEconEraser:

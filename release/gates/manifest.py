@@ -26,6 +26,7 @@ REQUIRED_GATES = frozenset(
         "source",
         "package",
         "langgraph",
+        "security-regression",
         "untrusted-code",
         "deployment-smoke",
         "remote-acceptance",

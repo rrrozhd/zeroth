@@ -8,6 +8,9 @@ from zeroth.runtime.agents.thread_store import (
     RepositoryThreadStateStore,
 )
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.service.bootstrap.migrations import run_migrations
+import pytest
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
@@ -43,6 +46,37 @@ async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
     assert continued.thread.active_run_id == "run-b"
 
 
+async def test_thread_resolver_prelookup_uses_requested_scope(sqlite_db, monkeypatch) -> None:
+    repository = ThreadRepository(sqlite_db)
+    await repository.resolve(
+        "foreign-or-unknown",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    resolver = RepositoryThreadResolver(repository)
+    calls: list[dict[str, object]] = []
+    original_get = repository.get
+
+    async def recording_get(thread_id: str, **scope):
+        calls.append(scope)
+        return await original_get(thread_id, **scope)
+
+    monkeypatch.setattr(repository, "get", recording_get)
+    resolved = await resolver.resolve(
+        "foreign-or-unknown",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+    )
+
+    assert calls[0] == {"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
+    assert resolved.thread.tenant_id == "tenant-b"
+    assert resolved.thread.workspace_id == "workspace-b"
+
+
 async def test_thread_state_store_checkpoints_and_loads_latest_state(
     sqlite_db,
     monkeypatch,
@@ -60,6 +94,8 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
     )
     store = RepositoryThreadStateStore(
         sqlite_db,
+        tenant_id="default",
+        workspace_id=None,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )
@@ -93,7 +129,7 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
 
 async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
-    store = RepositoryThreadStateStore(sqlite_db)
+    store = RepositoryThreadStateStore(sqlite_db, tenant_id="default", workspace_id=None)
 
     assert (
         await resolver.resolve_optional(
@@ -105,3 +141,66 @@ async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     )
     assert await store.load_optional(None) is None
     assert await store.checkpoint_optional(None, {"step": 1}) is None
+
+
+async def test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope(sqlite_db) -> None:
+    threads = ThreadRepository(sqlite_db)
+    for tenant in ("tenant-a", "tenant-b"):
+        await threads.resolve(
+            "shared-state-id",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+            tenant_id=tenant,
+        )
+    store_a = RepositoryThreadStateStore(sqlite_db, tenant_id="tenant-a", workspace_id=None)
+    store_b = RepositoryThreadStateStore(sqlite_db, tenant_id="tenant-b", workspace_id=None)
+
+    await store_a.checkpoint("shared-state-id", {"owner": "a"})
+    assert await store_a.load("shared-state-id") == {"owner": "a"}
+    assert await store_b.load("shared-state-id") is None
+    await store_b.checkpoint("shared-state-id", {"owner": "b"})
+    assert await store_a.load("shared-state-id") == {"owner": "a"}
+    assert await store_b.load("shared-state-id") == {"owner": "b"}
+
+
+async def test_thread_state_checkpoint_owner_survives_shadow_id_and_restart(tmp_path) -> None:
+    database_path = tmp_path / "checkpoint-owner.db"
+    run_migrations(f"sqlite:///{database_path}")
+    first = AsyncSQLiteDatabase(str(database_path))
+    threads = ThreadRepository(first)
+    for tenant in ("tenant-a", "tenant-b"):
+        await threads.resolve(
+            "shadow-id",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+            tenant_id=tenant,
+        )
+    owner = RepositoryThreadStateStore(first, tenant_id="tenant-a", workspace_id=None)
+    checkpoint_id = await owner.checkpoint("shadow-id", {"secret": "tenant-a-only"})
+    await threads.resolve(
+        f"thread-state:shadow-id:{checkpoint_id}",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+    )
+    await threads.resolve(
+        "shadow-id",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-b",
+        state_snapshot_refs=[checkpoint_id, "unknown-checkpoint"],
+        checkpoint_refs=[checkpoint_id, "unknown-checkpoint"],
+    )
+    await first.close()
+
+    restarted = AsyncSQLiteDatabase(str(database_path))
+    try:
+        owner_after_restart = RepositoryThreadStateStore(
+            restarted, tenant_id="tenant-a", workspace_id=None
+        )
+        foreign = RepositoryThreadStateStore(restarted, tenant_id="tenant-b", workspace_id=None)
+
+        assert await owner_after_restart.load("shadow-id") == {"secret": "tenant-a-only"}
+        assert await foreign.load("shadow-id") is None
+    finally:
+        await restarted.close()

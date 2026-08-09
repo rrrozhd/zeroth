@@ -115,6 +115,28 @@ async def test_write_as_a_not_readable_as_b(backend_name: str, raw: object, scop
     assert await b.read("secret", scope) is None, backend_name
 
 
+@pytest.mark.asyncio
+async def test_memory_write_same_key_collision_is_tenant_scoped() -> None:
+    raw = KeyValueMemoryConnector()
+    tenant_a = _stack(raw, "tenant-a")
+    tenant_b = _stack(raw, "tenant-b")
+    await tenant_a.write("same-key", {"owner": "a"}, MemoryScope.SHARED)
+    await tenant_b.write("same-key", {"owner": "b"}, MemoryScope.SHARED)
+    assert (await tenant_a.read("same-key", MemoryScope.SHARED)).value == {"owner": "a"}
+    assert (await tenant_b.read("same-key", MemoryScope.SHARED)).value == {"owner": "b"}
+
+
+@pytest.mark.asyncio
+async def test_memory_read_foreign_matches_unknown_tenant() -> None:
+    raw = KeyValueMemoryConnector()
+    tenant_a = _stack(raw, "tenant-a")
+    tenant_b = _stack(raw, "tenant-b")
+    unknown = _stack(raw, "tenant-unknown")
+    await tenant_a.write("owner-key", {"secret": True}, MemoryScope.SHARED)
+    assert await tenant_b.read("owner-key", MemoryScope.SHARED) is None
+    assert await unknown.read("owner-key", MemoryScope.SHARED) is None
+
+
 @pytest.mark.parametrize("backend_name,raw", _backends())
 @pytest.mark.asyncio
 async def test_search_is_tenant_isolated(backend_name: str, raw: object):

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20] - 2026-08-09
+
+### Added
+
+- A fail-closed security regression gate binds a reviewed tenant-isolation and
+  hostile-execution matrix to the exact release candidate. Pull requests run the
+  portable critical subset; nightly and release-candidate runs require the full
+  SQLite, PostgreSQL, Redis, Docker-sidecar, restart, concurrency, credential,
+  no-existence-disclosure, and observable-output proofs with no skipped nodes.
+  Credential canaries and GitHub-token shapes are scanned across retained evidence,
+  logs, errors, artifacts, audit payloads, workload environments, and other-tenant
+  views before promotion can proceed.
+- Static API keys and signed bearer tokens now have stable, revocable credential
+  identities. Revocation is checked only after cryptographic or constant-time secret
+  verification, snapshot replacement is linearized with in-flight authentication,
+  and configuration diagnostics retain neither raw secrets nor hostile key names.
+
+### Changed
+
+- Tenant scope is enforced centrally across deployments, runs, threads, artifacts,
+  audit records, approvals, connectors, manifests, caches, rate-limit buckets, and
+  execution results. Foreign and guessed identifiers follow the same not-found path,
+  including across worker claims and repository reconstruction after restart.
+- Artifact ownership is physically namespaced and framed by tenant and workspace,
+  with idempotent erasure receipts and atomic cleanup. Redis cleanup now requires a
+  standalone Redis 7+ deployment (not Redis Cluster), performs an ACL preflight, and
+  refuses operations that would delete more than 1,000 physical keys; larger runs
+  require an operator-managed offline migration or cleanup procedure.
+- Untrusted execution no longer inherits the host process environment. Local,
+  container, and hardened sidecar paths use the explicit sandbox environment and
+  fail closed on traversal, symlink, mount, network, process, resource, output,
+  timeout, cancellation, duplicate-execution, and finalization races.
+- Repository installations, checkouts, and GitHub App endpoints remain absent public
+  ingress. Project execution now refuses checkout-backed manifests when no trusted
+  materializer is configured; adding repository ingress or a materializer invalidates
+  this absence proof and requires new tenant-scoped matrix coverage before promotion.
+
 ## [0.19.1.4] - 2026-08-08
 
 ### Fixed

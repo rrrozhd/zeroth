@@ -344,9 +344,106 @@ jobs:
           name: gate-untrusted-code
           path: release/evidence/untrusted*
 
+  security-regression:
+    name: Gate — security regression
+    needs: [candidate]
+    runs-on: ubuntu-latest
+    env:
+      ZEROTH_TEST_REDIS_URL: redis://localhost:6379/15
+      ZEROTH_SECURITY_CANARIES: '["zeroth-security-regression-canary-7f3a"]'
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate identity
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-identity
+          path: release/evidence
+
+      - name: Run the complete matrix and always record every independent result
+        shell: bash
+        run: |
+          # GitHub invokes bash with -e. Disable it explicitly so a failed test,
+          # verifier, or scanner cannot prevent the candidate-bound record from
+          # being emitted and retained for diagnosis.
+          set +e
+          set -uo pipefail
+          mkdir -p release/evidence
+          uv sync --all-groups --all-extras
+          uv run python -m release.security.pytest_gate \
+            --matrix release/security/security-matrix.json \
+            --tier release-candidate \
+            --results release/evidence/security-rc-outcomes.json \
+            --junitxml release/evidence/security-rc-junit.xml \
+            --pytest-arg=-q
+          SECURITY_GATE_RC=$?
+          uv run python -m release.security.matrix verify-coverage \
+            --tier release-candidate \
+            --outcomes release/evidence/security-rc-outcomes.json \
+            --output release/evidence/security-coverage.json
+          COVERAGE_RC=$?
+          uv run python -m release.security.matrix verify-outcomes \
+            --tier release-candidate \
+            --outcomes release/evidence/security-rc-outcomes.json \
+            --output release/evidence/security-outcome-verdict.json
+          OUTCOME_RC=$?
+          uv run python -m release.security.scan release/evidence \
+            --output release/evidence/security-scan.json
+          SCAN_RC=$?
+
+          status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
+          python release/gates/cli.py record --gate security-regression \
+            --identity release/evidence/candidate-identity.json \
+            --result "security-matrix=$(status ${SECURITY_GATE_RC})" \
+            --result "coverage-complete=$(status ${COVERAGE_RC})" \
+            --result "distributed-no-skips=$(status ${OUTCOME_RC})" \
+            --result "credential-scan=$(status ${SCAN_RC})" \
+            --kind junit=release/evidence/security-rc-junit.xml \
+            --kind security=release/evidence/security-scan.json \
+            --output release/evidence/security-regression.json
+          RECORD_RC=$?
+          cat release/evidence/security-regression.json
+          if [ "${SECURITY_GATE_RC}" -ne 0 ] || [ "${COVERAGE_RC}" -ne 0 ] || \
+             [ "${OUTCOME_RC}" -ne 0 ] || [ "${SCAN_RC}" -ne 0 ] || \
+             [ "${RECORD_RC}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Upload security regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-security-regression
+          path: |
+            release/evidence/security-rc-junit.xml
+            release/evidence/security-rc-outcomes.json
+            release/evidence/security-coverage.json
+            release/evidence/security-outcome-verdict.json
+            release/evidence/security-scan.json
+            release/evidence/security-regression.json
+
   evidence-gate:
     name: Validate evidence and publish the verdict
-    needs: [candidate, source, package, langgraph, untrusted-code]
+    needs: [candidate, source, package, langgraph, untrusted-code, security-regression]
     if: always()
     runs-on: ubuntu-latest
     steps:

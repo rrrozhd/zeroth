@@ -57,6 +57,7 @@ from zeroth.governance.retention.manifests import (
 from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
+from zeroth.platform.artifacts.models import artifact_key_owner
 from zeroth.platform.dispatch.operations import erase_operations_for_run
 
 if TYPE_CHECKING:
@@ -106,8 +107,7 @@ def _harvest_artifact_keys(payload: Any, *, run_id: str) -> set[str]:
     """Collect fully validated artifact refs owned by ``run_id``'s key namespace."""
     keys = {ref.key for ref in extract_artifact_refs({"payload": payload})}
     keys |= _captured_artifact_keys(payload)
-    prefix = f"{run_id}/"
-    return {key for key in keys if key.startswith(prefix)}
+    return {key for key in keys if artifact_key_owner(key) == run_id}
 
 
 def _audit_cleanup_payloads(record: Any) -> tuple[Any, ...]:

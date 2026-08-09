@@ -30,6 +30,7 @@ zeroth_live.db-shm
 zeroth_live.db-wal
 econ_plane.db
 .zeroth/
+release/evidence/
 
 # Regenerated at docs-build time by scripts/dump_openapi.py
 docs/assets/openapi/
