@@ -237,6 +237,46 @@
           "expected_count": 0
         },
         {
+          "protocol": "lifecycle",
+          "role": "admin",
+          "operation": "restart"
+        },
+        {
+          "protocol": "http",
+          "role": "anonymous",
+          "method": "GET",
+          "path": "/health/ready",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "ok"
+          },
+          "poll": true
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}",
+          "expected_status": 200,
+          "expected_json": {
+            "status": "paused_for_approval"
+          },
+          "poll": true
+        },
+        {
+          "protocol": "http",
+          "role": "reviewer",
+          "method": "GET",
+          "path": "/v1/runs/{run_id}/timeline",
+          "expected_status": 200,
+          "count_path": "entries",
+          "count_where": {
+            "node_id": "finish-step",
+            "status": "completed"
+          },
+          "expected_count": 0
+        },
+        {
           "protocol": "http",
           "role": "reviewer",
           "method": "POST",

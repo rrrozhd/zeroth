@@ -357,7 +357,11 @@ class AcceptanceContract(BaseModel):
         # The claim is about executions, so the evidence has to be a count of records
         # the deployment published — not a field it was asked to report.
         counting = [step for step in self.scenarios["approvals"].steps if step.count_path]
-        if [step.expected_count for step in counting] != [0, 1]:
+        counts = [step.expected_count for step in counting]
+        # Zero may be established more than once — proving it still holds after a
+        # restart taken while the approval is pending is the strongest form of this
+        # evidence — but the sequence has to end at exactly one.
+        if len(counts) < 2 or set(counts[:-1]) != {0} or counts[-1] != 1:
             raise ValueError(
                 "approvals must count zero executions before approval and exactly one after"
             )
