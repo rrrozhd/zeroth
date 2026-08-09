@@ -137,6 +137,22 @@ def test_invalid_credentials_do_not_query_revocation_provider() -> None:
     assert provider.calls == 0
 
 
+def test_falsey_revocation_provider_is_injected_and_honored() -> None:
+    class FalseyProvider:
+        def __bool__(self) -> bool:
+            return False
+
+        def is_revoked(self, identifier: str) -> bool:
+            return identifier == "deploy-key"
+
+    authenticator = ServiceAuthenticator(
+        _static_config(), credential_status_provider=FalseyProvider()
+    )
+
+    with pytest.raises(AuthenticationError, match="^authentication required$"):
+        authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})
+
+
 def test_registry_snapshot_replacement_is_a_deterministic_revocation_barrier() -> None:
     registry = CredentialRevocationRegistry()
     authenticator = ServiceAuthenticator(_static_config(), credential_status_provider=registry)
@@ -156,12 +172,20 @@ def test_registry_snapshot_replacement_is_a_deterministic_revocation_barrier() -
 
 
 def test_revocations_round_trip_through_environment_config() -> None:
-    config = ServiceAuthConfig.from_env(
-        {"ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON": '["deploy-key"]'}
-    )
-    authenticator = ServiceAuthenticator(
-        _static_config(revoked=config.revoked_credential_ids)
-    )
+    environment = {
+        "ZEROTH_SERVICE_API_KEYS_JSON": json.dumps(
+            [
+                {
+                    "credential_id": "deploy-key",
+                    "secret": "once-valid-secret",
+                    "subject": "operator",
+                    "roles": [ServiceRole.OPERATOR.value],
+                }
+            ]
+        ),
+        "ZEROTH_SERVICE_REVOKED_CREDENTIAL_IDS_JSON": '["deploy-key"]',
+    }
+    authenticator = ServiceAuthenticator(ServiceAuthConfig.from_env(environment))
 
     with pytest.raises(AuthenticationError, match="^authentication required$"):
         authenticator.authenticate_headers({"X-API-Key": "once-valid-secret"})

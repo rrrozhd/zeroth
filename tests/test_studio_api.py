@@ -233,6 +233,15 @@ class TestListNodeTypes:
                 assert "direction" in port
                 assert "label" in port
 
+    def test_standalone_magicmock_bootstrap_does_not_fabricate_a_deployment_scope(self) -> None:
+        app = _make_app()
+
+        with TestClient(app) as client:
+            response = client.get("/api/studio/v1/node-types")
+
+        assert response.status_code == 200
+        assert "deployment" not in vars(app.state.bootstrap).get("_mock_children", {})
+
 
 class TestStructuralAuthoring:
     """PUT persists real executable nodes/edges (not just visual metadata)."""

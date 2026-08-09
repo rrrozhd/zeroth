@@ -279,7 +279,8 @@ class ServiceAuthenticator:
         )
         self._credential_status_provider = (
             credential_status_provider
-            or CredentialRevocationRegistry(self._config.revoked_credential_ids)
+            if credential_status_provider is not None
+            else CredentialRevocationRegistry(self._config.revoked_credential_ids)
         )
 
     @property

@@ -129,6 +129,16 @@ class RoleRegistry:
 DEFAULT_ROLE_REGISTRY = RoleRegistry()
 
 
+def _configured_deployment(bootstrap: object | None) -> object | None:
+    """Read an explicitly configured deployment without mock ``__getattr__`` fallback."""
+    if bootstrap is None:
+        return None
+    try:
+        return object.__getattribute__(bootstrap, "deployment")
+    except AttributeError:
+        return None
+
+
 def _role_registry(request: Request) -> RoleRegistry:
     bootstrap = getattr(request.app.state, "bootstrap", None)
     registry = getattr(bootstrap, "role_registry", None)
@@ -141,7 +151,7 @@ async def require_permission(request: Request, permission: Permission) -> Authen
     allowed = _role_registry(request).permissions_for(principal.roles)
     if permission in allowed:
         bootstrap = getattr(request.app.state, "bootstrap", None)
-        deployment = getattr(bootstrap, "deployment", None)
+        deployment = _configured_deployment(bootstrap)
         if deployment is not None:
             await require_deployment_scope(request, deployment)
         return principal
