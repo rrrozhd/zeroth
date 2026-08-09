@@ -64,6 +64,7 @@
         "tests/integrations/persistence/runs/test_thread_repository.py::test_unscoped_thread_run_link_rejects_foreign_run_without_mutation[run-repository-set-active]",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_valid_thread_run_link_survives_repository_restart",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_set_active_addresses_duplicate_logical_thread_ids",
+        "tests/service/test_run_api.py::test_explicit_foreign_tenant_thread_id_matches_unknown_scope_local_create",
         "tests/storage/test_migration_thread_scope.py::test_thread_scope_migration_preserves_legacy_rows_and_allows_scoped_duplicates",
         "tests/storage/test_migration_thread_scope.py::test_upgrade_canonicalizes_legacy_null_tenant_before_rebuild",
         "tests/storage/test_migration_thread_scope.py::test_upgrade_preflight_failure_leaves_legacy_schema_retryable",
@@ -164,7 +165,10 @@
       "id": "checkpointer-read-identifier-guessing",
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
-      "test_nodes": ["tests/security/test_persistence_isolation.py::test_checkpoint_guessing_is_hidden_by_owning_run_tenant"]
+      "test_nodes": [
+        "tests/security/test_persistence_isolation.py::test_checkpoint_guessing_is_hidden_by_owning_run_tenant",
+        "tests/agent_runtime/test_thread_store.py::test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope"
+      ]
     },
     {
       "id": "restarts-workers-and-execution-results",

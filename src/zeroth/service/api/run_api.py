@@ -221,12 +221,16 @@ async def _validate_thread_id(bootstrap: RunApiBootstrapLike, thread_id: str | N
     if thread_id is None:
         return None
 
-    thread = await bootstrap.thread_repository.get(thread_id)
+    deployment_tenant_id = getattr(bootstrap.deployment, "tenant_id", "default")
+    deployment_workspace_id = getattr(bootstrap.deployment, "workspace_id", None)
+    thread = await bootstrap.thread_repository.get(
+        thread_id,
+        tenant_id=deployment_tenant_id,
+        workspace_id=deployment_workspace_id,
+    )
     if thread is None:
         # A brand-new explicit thread ID is allowed and will become the new conversation key.
         return thread_id
-    deployment_tenant_id = getattr(bootstrap.deployment, "tenant_id", "default")
-    deployment_workspace_id = getattr(bootstrap.deployment, "workspace_id", None)
     if (
         thread.deployment_ref != bootstrap.deployment.deployment_ref
         or thread.graph_version_ref != bootstrap.deployment.graph_version_ref

@@ -53,6 +53,8 @@ async def test_checkpoints_do_not_persist_raw_secret_values(tmp_path: Path) -> N
     )
     store = RepositoryThreadStateStore(
         database,
+        tenant_id="default",
+        workspace_id=None,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )

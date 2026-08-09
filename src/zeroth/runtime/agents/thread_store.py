@@ -74,11 +74,15 @@ class RepositoryThreadResolver:
         status: ThreadStatus | None = None,
     ) -> ThreadResolution:
         """Look up a thread by ID, or create one if it does not exist yet."""
-        created = thread_id is None or await self.thread_repository.get(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        ) is None
+        created = (
+            thread_id is None
+            or await self.thread_repository.get(
+                thread_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+            is None
+        )
         thread = await self.thread_repository.resolve(
             thread_id,
             graph_version_ref=graph_version_ref,
@@ -115,6 +119,8 @@ class RepositoryThreadStateStore:
         self,
         database: AsyncDatabase | None = None,
         *,
+        tenant_id: str,
+        workspace_id: str | None,
         run_repository: RunRepository | None = None,
         thread_repository: ThreadRepository | None = None,
     ) -> None:
@@ -128,14 +134,22 @@ class RepositoryThreadStateStore:
         self._run_repository = run_repository
         self._thread_repository = thread_repository
         self._database: AsyncDatabase | None = database
+        self._tenant_id = tenant_id
+        self._workspace_id = workspace_id
 
     async def load(self, thread_id: str) -> dict[str, Any] | None:
         """Load the most recent state snapshot for a thread from the database."""
-        thread = await self._thread_repository.get(thread_id)
+        thread = await self._thread_repository.get(
+            thread_id, tenant_id=self._tenant_id, workspace_id=self._workspace_id
+        )
         if thread is None:
             return None
         for checkpoint_id in reversed(thread.state_snapshot_refs or thread.checkpoint_refs):
-            checkpoint = await self._run_repository.get_checkpoint(checkpoint_id)
+            checkpoint = await self._run_repository.get_checkpoint(
+                checkpoint_id,
+                tenant_id=self._tenant_id,
+                workspace_id=self._workspace_id,
+            )
             if checkpoint is None:
                 continue
             if not self._is_thread_state_checkpoint(checkpoint):
@@ -151,7 +165,9 @@ class RepositoryThreadStateStore:
 
     async def checkpoint(self, thread_id: str, state: dict[str, Any]) -> str:
         """Save a state snapshot for the thread and return the checkpoint ID."""
-        thread = await self._thread_repository.get(thread_id)
+        thread = await self._thread_repository.get(
+            thread_id, tenant_id=self._tenant_id, workspace_id=self._workspace_id
+        )
         if thread is None:
             raise KeyError(thread_id)
 

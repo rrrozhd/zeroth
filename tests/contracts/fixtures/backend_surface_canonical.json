@@ -714,7 +714,7 @@
       ],
       "module": "zeroth.runtime.agents",
       "name": "RepositoryThreadStateStore",
-      "signature": "(database: 'AsyncDatabase | None' = None, *, run_repository: 'RunRepository | None' = None, thread_repository: 'ThreadRepository | None' = None) -> 'None'"
+      "signature": "(database: 'AsyncDatabase | None' = None, *, tenant_id: 'str', workspace_id: 'str | None', run_repository: 'RunRepository | None' = None, thread_repository: 'ThreadRepository | None' = None) -> 'None'"
     },
     {
       "evidence": [

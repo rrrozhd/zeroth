@@ -925,10 +925,16 @@ class RunRepository:
         return await self._store.write_checkpoint(run)
 
     async def get_checkpoint(
-        self, checkpoint_id: str, *, tenant_id: str | None = None
+        self,
+        checkpoint_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Run | None:
         """Load a checkpoint, optionally constrained by its run tenant."""
-        return await self._store.checkpoints.get(checkpoint_id, tenant_id=tenant_id)
+        return await self._store.checkpoints.get(
+            checkpoint_id, tenant_id=tenant_id, workspace_id=workspace_id
+        )
 
     async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a thread."""

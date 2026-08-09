@@ -92,6 +92,8 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
     )
     store = RepositoryThreadStateStore(
         sqlite_db,
+        tenant_id="default",
+        workspace_id=None,
         run_repository=run_repository,
         thread_repository=thread_repository,
     )
@@ -125,7 +127,7 @@ async def test_thread_state_store_checkpoints_and_loads_latest_state(
 
 async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
-    store = RepositoryThreadStateStore(sqlite_db)
+    store = RepositoryThreadStateStore(sqlite_db, tenant_id="default", workspace_id=None)
 
     assert (
         await resolver.resolve_optional(
@@ -137,3 +139,23 @@ async def test_thread_store_noop_helpers_without_thread_id(sqlite_db) -> None:
     )
     assert await store.load_optional(None) is None
     assert await store.checkpoint_optional(None, {"step": 1}) is None
+
+
+async def test_thread_state_store_same_id_isolated_by_tenant_checkpoint_scope(sqlite_db) -> None:
+    threads = ThreadRepository(sqlite_db)
+    for tenant in ("tenant-a", "tenant-b"):
+        await threads.resolve(
+            "shared-state-id",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+            tenant_id=tenant,
+        )
+    store_a = RepositoryThreadStateStore(sqlite_db, tenant_id="tenant-a", workspace_id=None)
+    store_b = RepositoryThreadStateStore(sqlite_db, tenant_id="tenant-b", workspace_id=None)
+
+    await store_a.checkpoint("shared-state-id", {"owner": "a"})
+    assert await store_a.load("shared-state-id") == {"owner": "a"}
+    assert await store_b.load("shared-state-id") is None
+    await store_b.checkpoint("shared-state-id", {"owner": "b"})
+    assert await store_a.load("shared-state-id") == {"owner": "a"}
+    assert await store_b.load("shared-state-id") == {"owner": "b"}
