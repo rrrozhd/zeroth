@@ -160,7 +160,10 @@
           "expected_json": {
             "status": "succeeded"
           },
-          "poll": true
+          "poll": true,
+          "capture": {
+            "artifact_key": "terminal_output.artifact.key"
+          }
         }
       ]
     },
@@ -236,6 +239,13 @@
           "capture": {
             "artifact_id": "artifact_id"
           }
+        },
+        {
+          "protocol": "http",
+          "role": "operator",
+          "method": "GET",
+          "path": "/__acceptance/artifacts/blob/{artifact_key}",
+          "expected_status": 200
         }
       ]
     },

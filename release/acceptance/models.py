@@ -313,6 +313,14 @@ class AcceptanceContract(BaseModel):
             lambda step: step.method == "GET" and step.poll and "status" in step.expected_json,
             "observe the submitted run settle to a named status",
         )
+        # Counting audit records says a node ran, not that anything retrievable came
+        # out of it. R4 is about the artifact path, so the scenario has to fetch the
+        # bytes through the deployment's own retrieval route.
+        require(
+            "artifacts",
+            lambda step: step.method == "GET" and "/artifacts/" in step.path,
+            "retrieve a produced artifact through the deployment",
+        )
         require(
             "retention",
             lambda step: step.expected_json.get("enabled") is True,

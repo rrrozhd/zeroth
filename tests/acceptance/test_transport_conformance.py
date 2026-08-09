@@ -72,8 +72,12 @@ def _fixture_app() -> FastAPI:
         "/__acceptance/ready-compat": {"checks": {"agent_server": {"status": "supported"}}},
     }
     by_prefix: dict[str, Any] = {
-        "/__acceptance/runs/": {"status": "succeeded"},
+        "/__acceptance/runs/": {
+            "status": "succeeded",
+            "terminal_output": {"value": 9, "artifact": {"key": "acceptance-tenant-blob"}},
+        },
         "/__acceptance/audit/": {"tenant_id": "acceptance-tenant", "causally_ordered": True},
+        "/__acceptance/artifacts/blob/": {"bytes": "present"},
         "/__acceptance/artifacts/": {
             "artifact_id": "server-artifact-id",
             "system_produced": True,

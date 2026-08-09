@@ -131,6 +131,8 @@ class EphemeralCandidate:
         # exists so an in-process test can cross-check what the API reports.
         self.finish_runner = ArtifactEmittingRunner()
         self._previous_redis_mode: str | None = None
+        self._previous_settings: Any = None
+        self._settings_saved = False
 
     @property
     def base_url(self) -> str:
@@ -148,6 +150,12 @@ class EphemeralCandidate:
         statement of fact about the deployment, not a relaxed assertion.
         """
         self._previous_redis_mode = os.environ.get("ZEROTH_REDIS__MODE")
+        # Restoring the exact object, not just clearing the cache: dropping the
+        # singleton makes the next reader re-derive settings from whatever the
+        # environment looks like then, which is not necessarily what the rest of the
+        # suite started with. Putting the original back leaves no trace.
+        self._previous_settings = settings_module._settings_singleton
+        self._settings_saved = True
         os.environ["ZEROTH_REDIS__MODE"] = "disabled"
         settings_module._settings_singleton = None
 
@@ -292,7 +300,9 @@ class EphemeralCandidate:
             os.environ.pop("ZEROTH_REDIS__MODE", None)
         else:
             os.environ["ZEROTH_REDIS__MODE"] = self._previous_redis_mode
-        settings_module._settings_singleton = None
+        if self._settings_saved:
+            settings_module._settings_singleton = self._previous_settings
+            self._settings_saved = False
         if self._listener is not None:
             self._listener.close()
             self._listener = None

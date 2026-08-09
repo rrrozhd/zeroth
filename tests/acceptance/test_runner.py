@@ -64,6 +64,7 @@ def _step(path: str, **overrides: object) -> dict[str, object]:
 
 def _contract() -> dict[str, object]:
     scenarios = {name: {"steps": [_step(f"/{name}")]} for name in REQUIRED_SCENARIOS}
+    scenarios["artifacts"] = {"steps": [_step("/artifacts"), _step("/v1/artifacts/{artifact_key}")]}
     scenarios["readiness"] = {
         "steps": [
             _step("/readiness", expected_json={"status": "ok"}),
@@ -92,7 +93,12 @@ def _contract() -> dict[str, object]:
                 expected_status=202,
                 expected_json={"tenant_id": "{tenant_id}"},
             ),
-            _step("/runs/settled", expected_json={"status": "succeeded"}, poll=True),
+            _step(
+                "/runs/settled",
+                expected_json={"status": "succeeded"},
+                poll=True,
+                capture={"artifact_key": "terminal_output.artifact.key"},
+            ),
         ]
     }
     scenarios["retention"] = {"steps": [_step("/retention", expected_json={"enabled": True})]}
@@ -278,7 +284,11 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/deployment": HttpObservation(200, {"deployment_ref": "dep"}, "corr-deployment"),
         "/readiness": HttpObservation(200, {"status": "ok"}, "corr-ready"),
         "/runs": HttpObservation(202, {"tenant_id": config.tenant_id}, "corr-run"),
-        "/runs/settled": HttpObservation(200, {"status": "succeeded"}, "corr-run-done"),
+        "/runs/settled": HttpObservation(
+            200,
+            {"status": "succeeded", "terminal_output": {"artifact": {"key": "blob-1"}}},
+            "corr-run-done",
+        ),
         "/retention": HttpObservation(200, {"enabled": True}, "corr-retention"),
         "/gateway/allow": HttpObservation(200, {"forwarded": True}, "corr-gateway"),
         "/gateway/deny": HttpObservation(403, {"code": "zeroth.policy_denied"}, "corr-gateway"),
@@ -374,7 +384,10 @@ async def test_owned_capture_refuses_server_identifier_outside_namespace(tmp_pat
             payload={"name": "{namespace}-artifact"},
             expected_json={"name": "{namespace}-artifact"},
             owned_capture={"artifact_id": "id"},
-        )
+        ),
+        # The scenario still has to satisfy the retrieval invariant; this probe is
+        # about ownership, not about weakening what artifacts must prove.
+        _step("/v1/artifacts/{artifact_id}"),
     ]
     transport = FakeTransport({"/create": HttpObservation(200, {"id": "production"}, "corr")})
 
