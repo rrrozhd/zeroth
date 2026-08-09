@@ -272,12 +272,34 @@ jobs:
             exit 1
           fi
           mkdir -p release/evidence
+          # `--extra-index-url` gives no index priority: pip considers every
+          # candidate and picks the "best" one, so an existing same-version
+          # artifact on PyPI could be what actually got installed. Fetch the
+          # distribution from TestPyPI alone and hash it, so the evidence names
+          # the bytes that were accepted rather than just a version string.
+          pip download --no-deps --dest /tmp/rc-dist \
+            --index-url https://test.pypi.org/simple/ "zeroth-core==${VERSION}"
           {
-            echo "index: https://test.pypi.org/simple/"
+            echo "index: https://test.pypi.org/simple/ (sole index for the primary dist)"
             echo "requested-version: ${VERSION}"
             echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
             echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
+            for dist in /tmp/rc-dist/*; do
+              echo "accepted-artifact: $(basename "${dist}") sha256:$(shasum -a 256 "${dist}" | cut -d' ' -f1)"
+            done
           } > release/evidence/remote-acceptance-log.txt
+          # The digests must be the ones this run built and identified.
+          python - <<'PY' || { echo "::error::published artifact is not the candidate"; exit 1; }
+          import json, pathlib, re
+          identity = json.loads(
+              pathlib.Path("release/evidence/candidate-identity-full.json").read_text()
+          )
+          expected = set(identity["package"]["artifacts"].values())
+          log = pathlib.Path("release/evidence/remote-acceptance-log.txt").read_text()
+          accepted = set(re.findall(r"accepted-artifact: \S+ (sha256:[0-9a-f]{64})", log))
+          assert accepted and accepted <= expected, f"{accepted} not among {expected}"
+          print("published artifact matches the candidate:", sorted(accepted))
+          PY
           if [ -n "${OPENAI_API_KEY:-}" ]; then
             echo "OPENAI_API_KEY present — running examples/00_hello.py end-to-end"
             python examples/00_hello.py 2>&1 | tee -a release/evidence/remote-acceptance-log.txt

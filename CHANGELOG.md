@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1.1] - 2026-08-08
+
+### Fixed
+
+- Remote acceptance now proves it accepted *this* build. The install combined TestPyPI
+  with PyPI through `--extra-index-url`, and pip gives indexes no priority — it considers
+  every candidate and picks the best one, so an existing same-version artifact on PyPI
+  could be what was actually exercised. The primary distribution is now fetched from
+  TestPyPI as the sole index, hashed, and checked against the candidate's package
+  digests, so the gate names the bytes it accepted rather than only a version string.
+
 ## [0.19.1] - 2026-08-08
 
 ### Fixed
