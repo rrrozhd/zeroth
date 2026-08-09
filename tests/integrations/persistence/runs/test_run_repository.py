@@ -135,6 +135,24 @@ async def test_racing_tenants_get_exactly_one_same_run_id_winner(
     assert persisted.tenant_id in {"tenant-a", "tenant-b"}
 
 
+async def test_replayed_same_run_id_is_refused_without_mutating_owner(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    repository = RunRepository(sqlite_db)
+    original = _make_run("replayed-run", tenant_id="tenant-a")
+    original.metadata = {"request": "first"}
+    await repository.create(original)
+
+    replay = original.model_copy(deep=True)
+    replay.metadata = {"request": "replayed"}
+    with pytest.raises(KeyError, match="run already exists"):
+        await repository.create(replay)
+
+    persisted = await repository.get("replayed-run", tenant_id="tenant-a")
+    assert persisted is not None
+    assert persisted.metadata == {"request": "first"}
+
+
 async def test_transition_records_the_new_status(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:

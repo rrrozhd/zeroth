@@ -289,6 +289,49 @@ async def test_restart_keeps_filesystem_scope_and_missing_errors_logical(tmp_pat
     assert await restarted.retrieve("run/node/key") == b"persisted"
 
 
+def _scoped_filesystem_pair(tmp_path: Path):
+    backend = _filesystem_store(tmp_path)
+    return (
+        TenantScopedArtifactStore(backend, tenant_id="tenant-a", workspace_id="workspace"),
+        TenantScopedArtifactStore(backend, tenant_id="tenant-b", workspace_id="workspace"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_artifact_write_same_key_is_scoped(tmp_path: Path) -> None:
+    owner, foreign = _scoped_filesystem_pair(tmp_path)
+    await owner.store("same/key", b"owner", "text/plain")
+    await foreign.store("same/key", b"foreign", "text/plain")
+    assert await owner.retrieve("same/key") == b"owner"
+    assert await foreign.retrieve("same/key") == b"foreign"
+
+
+@pytest.mark.asyncio
+async def test_artifact_read_foreign_matches_unknown(tmp_path: Path) -> None:
+    owner, foreign = _scoped_filesystem_pair(tmp_path)
+    await owner.store("owner/key", b"owner", "text/plain")
+    assert await foreign.exists("owner/key") is False
+    assert await foreign.exists("unknown/key") is False
+
+
+@pytest.mark.asyncio
+async def test_artifact_retrieve_foreign_matches_unknown(tmp_path: Path) -> None:
+    owner, foreign = _scoped_filesystem_pair(tmp_path)
+    await owner.store("owner/key", b"owner", "text/plain")
+    for key in ("owner/key", "unknown/key"):
+        with pytest.raises(ArtifactNotFoundError):
+            await foreign.retrieve(key)
+
+
+@pytest.mark.asyncio
+async def test_artifact_delete_foreign_matches_unknown(tmp_path: Path) -> None:
+    owner, foreign = _scoped_filesystem_pair(tmp_path)
+    await owner.store("owner/key", b"owner", "text/plain")
+    assert await foreign.delete("owner/key", idempotency_key="foreign") is False
+    assert await foreign.delete("unknown/key", idempotency_key="unknown") is False
+    assert await owner.retrieve("owner/key") == b"owner"
+
+
 def test_scope_digest_uses_exact_canonical_json() -> None:
     store = TenantScopedArtifactStore(object(), tenant_id="tenant", workspace_id=None)
     canonical = json.dumps(

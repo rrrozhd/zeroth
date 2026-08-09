@@ -1589,7 +1589,7 @@
       ],
       "module": "zeroth.governance.audit",
       "name": "AuditQuery",
-      "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None) -> None"
+      "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None, workspace_id: str | None = None, workspace_scoped: bool = False) -> None"
     },
     {
       "evidence": [
@@ -1792,7 +1792,7 @@
       ],
       "module": "zeroth.governance.audit.models",
       "name": "AuditQuery",
-      "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None) -> None"
+      "signature": "(*, run_id: str | None = None, thread_id: str | None = None, node_id: str | None = None, graph_version_ref: str | None = None, deployment_ref: str | None = None, tenant_id: str | None = None, workspace_id: str | None = None, workspace_scoped: bool = False) -> None"
     },
     {
       "evidence": [
@@ -2691,7 +2691,7 @@
       ],
       "module": "zeroth.runtime.orchestration.run_worker",
       "name": "RunWorker",
-      "signature": "(deployment_ref: 'str', run_repository: 'RunRepository', orchestrator: 'RuntimeOrchestrator', graph: 'Graph', lease_manager: 'LeaseManager', max_concurrency: 'int' = 8, poll_interval: 'float' = 0.5, worker_id: 'str' = <factory>, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, shutdown_timeout: 'float' = 30.0) -> None"
+      "signature": "(deployment_ref: 'str', run_repository: 'RunRepository', orchestrator: 'RuntimeOrchestrator', graph: 'Graph', lease_manager: 'LeaseManager', tenant_id: 'str | None' = None, workspace_id: 'str | None' = None, max_concurrency: 'int' = 8, poll_interval: 'float' = 0.5, worker_id: 'str' = <factory>, dead_letter_manager: 'DeadLetterManager | None' = None, metrics_collector: 'MetricsCollector | None' = None, shutdown_timeout: 'float' = 30.0) -> None"
     },
     {
       "evidence": [
@@ -4268,7 +4268,7 @@
       ],
       "module": "zeroth.integrations.execution",
       "name": "DockerSandboxConfig",
-      "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None) -> None"
+      "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None, max_output_bytes: 'int' = 1048576) -> None"
     },
     {
       "evidence": [
@@ -4445,7 +4445,7 @@
       ],
       "module": "zeroth.integrations.execution",
       "name": "ExecutableUnitRunner",
-      "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None) -> 'None'"
+      "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None, project_materializer: 'ProjectMaterializer | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -4873,7 +4873,7 @@
       ],
       "module": "zeroth.integrations.execution",
       "name": "SandboxExecutionResult",
-      "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None) -> None"
+      "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None, stdout_truncated: 'bool' = False, stderr_truncated: 'bool' = False) -> None"
     },
     {
       "evidence": [
@@ -4888,7 +4888,7 @@
       ],
       "module": "zeroth.integrations.execution",
       "name": "SandboxManager",
-      "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
+      "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, process_factory: 'Callable[..., subprocess.Popen[bytes]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -5561,7 +5561,7 @@
       ],
       "module": "zeroth.integrations.execution.runner",
       "name": "ExecutableUnitRunner",
-      "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None) -> 'None'"
+      "signature": "(registry: 'ExecutableUnitRegistry | None' = None, *, sandbox_manager: 'SandboxManager | None' = None, python_adapter: 'PythonRuntimeAdapter | None' = None, secret_resolver: 'SecretResolver | None' = None, admission_controller: 'AdmissionController | None' = None, project_materializer: 'ProjectMaterializer | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -5573,7 +5573,7 @@
       ],
       "module": "zeroth.integrations.execution.sandbox",
       "name": "DockerSandboxConfig",
-      "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None) -> None"
+      "signature": "(container_name: 'str' = 'zeroth-sandbox', docker_binary: 'str' = 'docker', workspace_root: 'str' = '/tmp/zeroth-sandbox', hardened: 'bool' = True, run_as_user: 'str | None' = None, max_output_bytes: 'int' = 1048576) -> None"
     },
     {
       "evidence": [
@@ -5646,7 +5646,7 @@
       ],
       "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxExecutionResult",
-      "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None) -> None"
+      "signature": "(command: 'tuple[str, ...]', returncode: 'int', stdout: 'str', stderr: 'str', workdir: 'str', environment: 'dict[str, str]', timed_out: 'bool' = False, duration_seconds: 'float | None' = None, cache_key: 'str | None' = None, backend: 'str' = 'local', container_name: 'str | None' = None, stdout_truncated: 'bool' = False, stderr_truncated: 'bool' = False) -> None"
     },
     {
       "evidence": [
@@ -5658,7 +5658,7 @@
       ],
       "module": "zeroth.integrations.execution.sandbox",
       "name": "SandboxManager",
-      "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
+      "signature": "(*, base_env: 'Mapping[str, str] | None' = None, cache_manager: 'EnvironmentCacheManager | None' = None, config: 'SandboxConfig | None' = None, command_runner: 'Callable[..., subprocess.CompletedProcess[str]] | None' = None, process_factory: 'Callable[..., subprocess.Popen[bytes]] | None' = None, container_inspector: 'Callable[[str], bool] | None' = None, sidecar_client: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -8870,7 +8870,7 @@
       ],
       "module": "zeroth.integrations.sandbox.executor",
       "name": "SidecarExecutor",
-      "signature": "(*, docker_binary: 'str' = 'docker') -> 'None'"
+      "signature": "(*, docker_binary: 'str' = 'docker', max_output_bytes: 'int' = 1048576) -> 'None'"
     },
     {
       "evidence": [
@@ -8896,7 +8896,7 @@
       ],
       "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarExecuteResponse",
-      "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False) -> None"
+      "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False, stdout_truncated: bool = False, stderr_truncated: bool = False) -> None"
     },
     {
       "evidence": [
@@ -8922,7 +8922,7 @@
       ],
       "module": "zeroth.integrations.sandbox.models",
       "name": "SidecarStatusResponse",
-      "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False) -> None"
+      "signature": "(*, execution_id: str, status: str, returncode: int | None = None, stdout: str = '', stderr: str = '', duration_seconds: float | None = None, timed_out: bool = False, stdout_truncated: bool = False, stderr_truncated: bool = False) -> None"
     },
     {
       "evidence": [

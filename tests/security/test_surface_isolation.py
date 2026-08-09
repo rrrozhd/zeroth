@@ -8,9 +8,14 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from zeroth.governance.approvals.models import ApprovalRecord
+import pytest
+
+from zeroth.governance.approvals.models import ApprovalDecision, ApprovalRecord
 from zeroth.governance.approvals.repository import ApprovalRepository
+from zeroth.governance.approvals.service import ApprovalService
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.governance.audit.models import AuditQuery
+from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.integrations.execution.models import (
     CommandArtifactSource,
@@ -26,6 +31,7 @@ from zeroth.integrations.execution.runner import (
     ExecutableUnitRunner,
 )
 from zeroth.integrations.execution.sandbox import SandboxManager
+from zeroth.integrations.persistence.runs import RunRepository
 
 
 class _Input(BaseModel):
@@ -36,7 +42,7 @@ class _Output(BaseModel):
     value: str
 
 
-def _audit(audit_id: str, tenant_id: str) -> NodeAuditRecord:
+def _audit(audit_id: str, tenant_id: str, *, workspace_id: str | None = None) -> NodeAuditRecord:
     return NodeAuditRecord(
         audit_id=audit_id,
         run_id=f"run-{tenant_id}",
@@ -44,6 +50,7 @@ def _audit(audit_id: str, tenant_id: str) -> NodeAuditRecord:
         graph_version_ref="graph:v1",
         deployment_ref="deployment",
         tenant_id=tenant_id,
+        workspace_id=workspace_id,
         status="completed",
         started_at=datetime(2026, 8, 9, tzinfo=UTC),
         completed_at=datetime(2026, 8, 9, 0, 0, 1, tzinfo=UTC),
@@ -128,7 +135,7 @@ async def test_audit_retrieve_foreign_id_matches_unknown(sqlite_db) -> None:
     assert foreign is unknown is None
 
 
-async def test_approval_enumerate_and_retrieve_are_tenant_scoped(sqlite_db) -> None:
+async def test_approval_retrieve_foreign_matches_unknown(sqlite_db) -> None:
     repository = ApprovalRepository(sqlite_db)
     await repository.write(
         ApprovalRecord(
@@ -138,6 +145,7 @@ async def test_approval_enumerate_and_retrieve_are_tenant_scoped(sqlite_db) -> N
             graph_version_ref="graph:v1",
             deployment_ref="deployment",
             tenant_id="tenant-a",
+            workspace_id="workspace-a",
             summary="owner only",
             rationale="owner only",
         )
@@ -145,7 +153,93 @@ async def test_approval_enumerate_and_retrieve_are_tenant_scoped(sqlite_db) -> N
 
     foreign = await repository.get("owner-approval", tenant_id="tenant-b")
     unknown = await repository.get("unknown-approval", tenant_id="tenant-b")
-    listed = await repository.list_pending(tenant_id="tenant-b")
-
     assert foreign is unknown is None
-    assert listed == []
+
+
+async def test_approval_enumerate_is_query_scoped_by_tenant_and_workspace(sqlite_db) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    await repository.write(
+        ApprovalRecord(
+            approval_id="owner-approval-list",
+            run_id="owner-run",
+            node_id="node",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            summary="owner only",
+            rationale="owner only",
+        )
+    )
+
+    foreign = await repository.list_pending(
+        tenant_id="tenant-a",
+        workspace_id="workspace-b",
+        deployment_ref="deployment",
+        graph_version_ref="graph:v1",
+    )
+    unknown = await repository.list_pending(
+        tenant_id="tenant-a",
+        workspace_id="workspace-unknown",
+        deployment_ref="deployment",
+        graph_version_ref="graph:v1",
+    )
+
+    assert foreign == unknown == []
+
+
+async def test_approval_resolve_foreign_matches_unknown_before_mutation(sqlite_db) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    await repository.write(
+        ApprovalRecord(
+            approval_id="owner-approval-resolve",
+            run_id="owner-run",
+            node_id="node",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            summary="owner only",
+            rationale="owner only",
+        )
+    )
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
+
+    for approval_id in ("owner-approval-resolve", "unknown-approval"):
+        with pytest.raises(KeyError):
+            await service.resolve(
+                approval_id,
+                decision=ApprovalDecision.APPROVE,
+                actor=actor,
+                tenant_id="tenant-a",
+                workspace_id="workspace-b",
+                deployment_ref="deployment",
+                graph_version_ref="graph:v1",
+            )
+    owner = await repository.get("owner-approval-resolve", tenant_id="tenant-a")
+    assert owner is not None and owner.status.value == "pending"
+
+
+async def test_audit_enumerate_is_query_scoped_by_tenant_and_workspace(sqlite_db) -> None:
+    repository = AuditRepository(sqlite_db)
+    await repository.write(_audit("owner-workspace-audit", "tenant-a", workspace_id="workspace-a"))
+
+    foreign = await repository.list(
+        AuditQuery(
+            run_id="run-tenant-a",
+            tenant_id="tenant-a",
+            workspace_id="workspace-b",
+            deployment_ref="deployment",
+        )
+    )
+    unknown = await repository.list(
+        AuditQuery(
+            run_id="unknown-run",
+            tenant_id="tenant-a",
+            workspace_id="workspace-b",
+            deployment_ref="deployment",
+        )
+    )
+
+    assert foreign == unknown == []

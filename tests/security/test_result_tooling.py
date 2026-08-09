@@ -26,8 +26,8 @@ def _record(nodeid: str, phase: str, outcome: str = "passed", **extra: object) -
         "nodeid": nodeid,
         "phase": phase,
         "outcome": outcome,
-        "skip": None,
-        "wasxfail": None,
+        "skip": False,
+        "wasxfail": False,
         **extra,
     }
 
@@ -141,8 +141,10 @@ def test_plugin_records_wasxfail_for_strict_xfail_and_nonstrict_xpass(tmp_path: 
         for record in json.loads(output.read_text(encoding="utf-8"))["records"]
         if record["phase"] == "call"
     }
-    assert calls["test_strict_xfail"]["wasxfail"] == "strict-reason"
-    assert calls["test_nonstrict_xpass"]["wasxfail"] == "xpass-reason"
+    assert calls["test_strict_xfail"]["wasxfail"] is True
+    assert calls["test_nonstrict_xpass"]["wasxfail"] is True
+    assert "strict-reason" not in output.read_text(encoding="utf-8")
+    assert "xpass-reason" not in output.read_text(encoding="utf-8")
 
 
 def test_plugin_atomically_leaves_parseable_evidence_after_setup_error(tmp_path: Path) -> None:
@@ -211,8 +213,8 @@ def test_plugin_leaves_parseable_evidence_after_keyboard_interrupt(tmp_path: Pat
             "nodeid": "test_interrupt.py::test_interrupt",
             "phase": "setup",
             "outcome": "passed",
-            "skip": None,
-            "wasxfail": None,
+            "skip": False,
+            "wasxfail": False,
         }
     ]
 
@@ -249,6 +251,128 @@ def test_collection_rejects_xfail_on_a_matrix_bound_node(tmp_path: Path) -> None
 
     assert result.returncode != 0
     assert "matrix-bound security test may not use xfail" in (result.stdout + result.stderr)
+
+
+def test_plugin_never_serializes_skip_or_xfail_reason_text(tmp_path: Path) -> None:
+    sentinel = "SENTINEL-SECRET-REASON"
+    test_file = tmp_path / "test_reasons.py"
+    test_file.write_text(
+        "import pytest\n"
+        f"@pytest.mark.skip(reason='{sentinel}')\ndef test_skip(): pass\n"
+        f"@pytest.mark.xfail(reason='{sentinel}')\ndef test_xfail(): assert False\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "outcomes.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "release.security.pytest_plugin",
+            f"--security-results={output}",
+            str(test_file),
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        check=False,
+    )
+
+    raw = output.read_text(encoding="utf-8")
+    assert sentinel not in raw
+    records = json.loads(raw)["records"]
+    assert any(record["skip"] is True for record in records)
+    assert any(record["wasxfail"] is True for record in records)
+
+
+def test_collection_fails_for_missing_matrix(tmp_path: Path) -> None:
+    test_file = tmp_path / "test_pass.py"
+    test_file.write_text("def test_pass(): pass\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "release.security.pytest_plugin",
+            f"--security-matrix={tmp_path / 'missing.json'}",
+            str(test_file),
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "security matrix is unavailable" in result.stdout + result.stderr
+
+
+def test_collection_fails_when_a_bound_node_is_not_collected(tmp_path: Path) -> None:
+    test_file = tmp_path / "test_pass.py"
+    test_file.write_text("def test_pass(): pass\n", encoding="utf-8")
+    matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+    matrix["cases"][0]["test_nodes"] = ["test_missing.py::test_never_collected"]
+    matrix["cases"][1]["test_nodes"] = ["test_pass.py::test_pass"]
+    matrix["cases"][1]["refusal_test"] = "test_pass.py::test_pass"
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "release.security.pytest_plugin",
+            f"--security-matrix={matrix_path}",
+            str(test_file),
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "matrix-bound nodes were not collected" in result.stdout + result.stderr
+
+
+def test_collection_matches_exact_parameterized_node_ids(tmp_path: Path) -> None:
+    test_file = tmp_path / "test_params.py"
+    test_file.write_text(
+        "import pytest\n"
+        "@pytest.mark.parametrize('value', [1, 2], ids=['one', 'two'])\n"
+        "def test_param(value): assert value > 0\n",
+        encoding="utf-8",
+    )
+    matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+    matrix["cases"][0]["test_nodes"] = ["test_params.py::test_param[one]"]
+    matrix["cases"][1]["test_nodes"] = ["test_params.py::test_param[two]"]
+    matrix["cases"][1]["refusal_test"] = "test_params.py::test_param[two]"
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "release.security.pytest_plugin",
+            f"--security-matrix={matrix_path}",
+            str(test_file),
+        ],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
@@ -296,7 +420,7 @@ def test_verify_outcomes_rejects_every_nonpassing_terminal_state(
     nodeid = "tests/security/test_matrix_contract.py::test_fixture_behavioral_binding"
     records = _passing_records(nodeid)
     if mutation == "skip":
-        records[0] = _record(nodeid, "setup", "skipped", skip="requires redis")
+        records[0] = _record(nodeid, "setup", "skipped", skip=True)
     elif mutation == "failure":
         records[1] = _record(nodeid, "call", "failed")
     elif mutation == "setup-error":
@@ -305,9 +429,9 @@ def test_verify_outcomes_rejects_every_nonpassing_terminal_state(
     elif mutation == "teardown-error":
         records[2] = _record(nodeid, "teardown", "failed")
     elif mutation == "xfail":
-        records[1] = _record(nodeid, "call", "skipped", wasxfail="known bug")
+        records[1] = _record(nodeid, "call", "skipped", wasxfail=True)
     elif mutation == "xpass":
-        records[1] = _record(nodeid, "call", "passed", wasxfail="unexpected pass")
+        records[1] = _record(nodeid, "call", "passed", wasxfail=True)
     elif mutation == "incomplete":
         records.pop()
 

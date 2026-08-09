@@ -21,7 +21,7 @@ from zeroth.governance.approvals.models import (
     ApprovalStatus,
 )
 from zeroth.governance.approvals.notifications import ApprovalNotification, Notifier
-from zeroth.governance.approvals.repository import ApprovalRepository
+from zeroth.governance.approvals.repository import _UNSCOPED, ApprovalRepository
 from zeroth.governance.audit import (
     ApprovalActionRecord,
     AuditRedactionConfig,
@@ -162,9 +162,23 @@ class ApprovalService:
         except Exception:
             logger.exception("approval notification failed for %s", record.approval_id)
 
-    async def get(self, approval_id: str) -> ApprovalRecord | None:
+    async def get(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> ApprovalRecord | None:
         """Fetch a single approval record by its ID. Returns None if not found."""
-        return await self.repository.get(approval_id)
+        return await self.repository.get(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
 
     async def list_pending(
         self,
@@ -172,6 +186,9 @@ class ApprovalService:
         run_id: str | None = None,
         thread_id: str | None = None,
         deployment_ref: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        graph_version_ref: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return all approvals that are still waiting for a human decision.
 
@@ -181,6 +198,9 @@ class ApprovalService:
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            graph_version_ref=graph_version_ref,
         )
 
     async def list(
@@ -189,12 +209,18 @@ class ApprovalService:
         run_id: str | None = None,
         thread_id: str | None = None,
         deployment_ref: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        graph_version_ref: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return approval records for a run, thread, or deployment."""
         return await self.repository.list(
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            graph_version_ref=graph_version_ref,
         )
 
     async def escalate(self, approval_id: str) -> ApprovalRecord:
@@ -280,6 +306,10 @@ class ApprovalService:
         decision: ApprovalDecision,
         actor: ActorIdentity,
         edited_payload: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
     ) -> ApprovalRecord:
         """Record a human's decision on a pending approval.
 
@@ -290,7 +320,13 @@ class ApprovalService:
         Raises ValueError if the approval is already resolved with a different
         decision, or if the chosen decision is not in the allowed actions list.
         """
-        record = await self._require(approval_id)
+        record = await self._require(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
         if record.status is ApprovalStatus.RESOLVED:
             current = record.resolution
             if current is None:
@@ -452,9 +488,23 @@ class ApprovalService:
         except Exception:
             logger.exception("failed to emit %s webhook", event_type)
 
-    async def _require(self, approval_id: str) -> ApprovalRecord:
+    async def _require(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> ApprovalRecord:
         """Fetch an approval record by ID, raising KeyError if it does not exist."""
-        record = await self.repository.get(approval_id)
+        record = await self.repository.get(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
         if record is None:
             raise KeyError(approval_id)
         return record

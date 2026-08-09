@@ -66,9 +66,11 @@ class MemoryConnectorConfigRepository:
         params_json = json.dumps(params, sort_keys=True, separators=(",", ":"))
         async with self._database.transaction() as connection:
             existing = await connection.fetch_one(
-                "SELECT ref FROM memory_connector_configs WHERE ref = ? AND tenant_id = ?",
-                (ref, tenant_id),
+                "SELECT tenant_id FROM memory_connector_configs WHERE ref = ?",
+                (ref,),
             )
+            if existing is not None and existing["tenant_id"] != tenant_id:
+                raise KeyError(ref)
             if existing is None:
                 await connection.execute(
                     """

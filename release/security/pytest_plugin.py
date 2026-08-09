@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from release.security.matrix import load_matrix
+from release.security.matrix import MatrixError, load_matrix
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -19,8 +19,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--security-matrix",
         type=Path,
-        default=Path("release/security/security-matrix.json"),
-        help="matrix whose bound nodes may not use xfail",
+        help="matrix whose exact bound node set must be collected",
+    )
+    group.addoption(
+        "--security-tier",
+        choices=("pr-critical", "release-candidate"),
+        help="limit exact collection enforcement to one matrix tier",
     )
 
 
@@ -32,10 +36,19 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    matrix_path = config.getoption("--security-matrix")
-    if not matrix_path.exists():
+    matrix_path: Path | None = config.getoption("--security-matrix")
+    if matrix_path is None:
         return
-    bound = {nodeid for case in load_matrix(matrix_path).cases for nodeid in case.test_nodes}
+    try:
+        matrix = load_matrix(matrix_path)
+    except (OSError, MatrixError) as error:
+        raise pytest.UsageError(f"security matrix is unavailable: {error}") from error
+    tier = config.getoption("--security-tier")
+    bound = (
+        set(matrix.nodes(tier))
+        if tier is not None
+        else {nodeid for case in matrix.cases for nodeid in case.test_nodes}
+    )
     invalid = sorted(
         item.nodeid for item in items if item.nodeid in bound and item.get_closest_marker("xfail")
     )
@@ -43,6 +56,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         raise pytest.UsageError(
             "matrix-bound security test may not use xfail: " + ", ".join(invalid)
         )
+    collected = [item.nodeid for item in items]
+    duplicate = sorted(nodeid for nodeid in set(collected) if collected.count(nodeid) != 1)
+    missing = sorted(bound - set(collected))
+    unbound = sorted(set(collected) - bound)
+    if duplicate:
+        raise pytest.UsageError(
+            "matrix-bound node collected more than once: " + ", ".join(duplicate)
+        )
+    if missing:
+        raise pytest.UsageError("matrix-bound nodes were not collected: " + ", ".join(missing))
+    if unbound:
+        raise pytest.UsageError("collected nodes are not matrix-bound: " + ", ".join(unbound))
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -52,17 +77,13 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[Any]):
     output = item.config.getoption("--security-results")
     if output is None:
         return
-    skip: str | None = None
-    if report.skipped:
-        longrepr = report.longrepr
-        skip = str(longrepr[2]) if isinstance(longrepr, tuple) and len(longrepr) == 3 else "skipped"
     wasxfail = getattr(report, "wasxfail", None)
     record = {
         "nodeid": report.nodeid,
         "phase": report.when,
         "outcome": report.outcome,
-        "skip": skip,
-        "wasxfail": str(wasxfail) if wasxfail is not None else None,
+        "skip": bool(report.skipped),
+        "wasxfail": wasxfail is not None,
     }
     records = item.config.stash[_RECORDS_KEY]
     records.append(record)

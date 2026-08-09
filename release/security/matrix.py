@@ -293,10 +293,10 @@ def _load_outcomes(path: Path) -> list[dict[str, Any]]:
             raise MatrixError(f"outcomes.records[{index}].phase", "unknown phase")
         if record["outcome"] not in {"passed", "failed", "skipped"}:
             raise MatrixError(f"outcomes.records[{index}].outcome", "unknown outcome")
-        if record["skip"] is not None and not isinstance(record["skip"], str):
-            raise MatrixError(f"outcomes.records[{index}].skip", "must be null or a string")
-        if record["wasxfail"] is not None and not isinstance(record["wasxfail"], str):
-            raise MatrixError(f"outcomes.records[{index}].wasxfail", "must be null or a string")
+        if not isinstance(record["skip"], bool):
+            raise MatrixError(f"outcomes.records[{index}].skip", "must be a boolean")
+        if not isinstance(record["wasxfail"], bool):
+            raise MatrixError(f"outcomes.records[{index}].wasxfail", "must be a boolean")
     return records
 
 
@@ -351,11 +351,11 @@ def verify_outcomes(matrix_path: Path, tier: str, outcomes_path: Path, output: P
                 )
                 continue
             report = reports[0]
-            if report["wasxfail"] is not None:
+            if report["wasxfail"]:
                 reason = "xfail-or-xpass"
             elif report["outcome"] != "passed":
                 reason = str(report["outcome"])
-            elif report["skip"] is not None:
+            elif report["skip"]:
                 reason = "skip"
             else:
                 continue

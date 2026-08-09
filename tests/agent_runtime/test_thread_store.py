@@ -8,6 +8,7 @@ from zeroth.runtime.agents.thread_store import (
     RepositoryThreadStateStore,
 )
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+import pytest
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
@@ -41,6 +42,36 @@ async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
     assert continued.thread.checkpoint_refs == ["checkpoint-a", "checkpoint-b"]
     assert continued.thread.last_run_id == "run-b"
     assert continued.thread.active_run_id == "run-b"
+
+
+async def test_thread_resolver_prelookup_uses_requested_scope(sqlite_db, monkeypatch) -> None:
+    repository = ThreadRepository(sqlite_db)
+    await repository.resolve(
+        "foreign-or-unknown",
+        graph_version_ref="graph:v1",
+        deployment_ref="deployment:v1",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    resolver = RepositoryThreadResolver(repository)
+    calls: list[dict[str, object]] = []
+    original_get = repository.get
+
+    async def recording_get(thread_id: str, **scope):
+        calls.append(scope)
+        return await original_get(thread_id, **scope)
+
+    monkeypatch.setattr(repository, "get", recording_get)
+    with pytest.raises(KeyError):
+        await resolver.resolve(
+            "foreign-or-unknown",
+            graph_version_ref="graph:v1",
+            deployment_ref="deployment:v1",
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        )
+
+    assert calls[0] == {"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
 
 
 async def test_thread_state_store_checkpoints_and_loads_latest_state(

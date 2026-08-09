@@ -113,25 +113,32 @@ class ThreadRepository:
         if thread_id is None:
             thread_id = run_id or uuid4().hex
 
-        existing = await self.get(thread_id)
+        existing = await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
         if existing is None:
-            return await self.create(
-                Thread(
-                    thread_id=thread_id,
-                    graph_version_ref=graph_version_ref,
-                    deployment_ref=deployment_ref,
-                    tenant_id=tenant_id,
-                    workspace_id=workspace_id,
-                    participating_agent_refs=list(participating_agent_refs or []),
-                    state_snapshot_refs=list(state_snapshot_refs or []),
-                    checkpoint_refs=list(checkpoint_refs or []),
-                    memory_bindings=list(memory_bindings or []),
-                    run_ids=[run_id] if run_id else [],
-                    active_run_id=run_id,
-                    last_run_id=run_id,
-                    status=status or ThreadStatus.ACTIVE,
+            try:
+                return await self.create(
+                    Thread(
+                        thread_id=thread_id,
+                        graph_version_ref=graph_version_ref,
+                        deployment_ref=deployment_ref,
+                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
+                        participating_agent_refs=list(participating_agent_refs or []),
+                        state_snapshot_refs=list(state_snapshot_refs or []),
+                        checkpoint_refs=list(checkpoint_refs or []),
+                        memory_bindings=list(memory_bindings or []),
+                        run_ids=[run_id] if run_id else [],
+                        active_run_id=run_id,
+                        last_run_id=run_id,
+                        status=status or ThreadStatus.ACTIVE,
+                    )
                 )
-            )
+            except KeyError as error:
+                raise KeyError("thread could not be resolved") from error
 
         if (
             existing.graph_version_ref != graph_version_ref
@@ -155,7 +162,14 @@ class ThreadRepository:
             existing.status = status
         existing.updated_at = utc_now()
         await self._store.save_thread(existing)
-        return await self.get(thread_id)
+        resolved = await self.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        if resolved is None:  # pragma: no cover - concurrent delete guard
+            raise KeyError("thread could not be resolved")
+        return resolved
 
     async def attach_run(
         self,
@@ -173,6 +187,15 @@ class ThreadRepository:
         )
         if thread is None:
             raise KeyError(thread_id)
+        if tenant_id is not None or workspace_id is not _UNSCOPED_WORKSPACE:
+            run = await self._store.get_run(
+                run_id,
+                tenant_id=tenant_id,
+                workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
+                workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
+            )
+            if run is None:
+                raise KeyError(run_id)
         if run_id not in thread.run_ids:
             thread.run_ids.append(run_id)
         thread.active_run_id = run_id

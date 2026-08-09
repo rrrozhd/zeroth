@@ -7,6 +7,7 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tests.service.helpers import approval_resume_graph, deploy_service
 from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
@@ -15,6 +16,7 @@ from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 
 
 def _run(run_id: str, *, tenant_id: str, thread_id: str, deployment_ref: str = "deployment") -> Run:
@@ -93,6 +95,36 @@ async def test_execution_result_guessing_stays_hidden_after_restart(tmp_path: Pa
         await restarted.close()
 
 
+async def test_sqlite_deployment_repository_reconstruction_preserves_scope(tmp_path: Path) -> None:
+    database_path = tmp_path / "deployment-restart.db"
+    run_migrations(f"sqlite:///{database_path}")
+    first = AsyncSQLiteDatabase(str(database_path))
+    await deploy_service(
+        first,
+        approval_resume_graph(graph_id="restart-deployment-graph").model_copy(
+            update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+        ),
+        deployment_ref="restart-deployment",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    await first.close()
+
+    restarted = AsyncSQLiteDatabase(str(database_path))
+    try:
+        repository = SQLiteDeploymentRepository(restarted)
+        foreign = await repository.get(
+            "restart-deployment", tenant_id="tenant-b", workspace_id="workspace-b"
+        )
+        unknown = await repository.get(
+            "unknown-deployment", tenant_id="tenant-b", workspace_id="workspace-b"
+        )
+        assert foreign is unknown is None
+        assert await repository.list(tenant_id="tenant-b", workspace_id="workspace-b") == []
+    finally:
+        await restarted.close()
+
+
 async def test_checkpoint_guessing_is_hidden_by_owning_run_tenant(sqlite_db) -> None:
     repository = RunRepository(sqlite_db)
     owner = await repository.create(
@@ -140,9 +172,13 @@ async def test_worker_claims_only_its_tenant_pending_runs(sqlite_db) -> None:
     assert foreign.status is RunStatus.PENDING
 
 
-async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
-    leases = LeaseManager(sqlite_db)
+async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "worker-restart.db"
+    run_migrations(f"sqlite:///{database_path}")
+    first = AsyncSQLiteDatabase(str(database_path))
+    repository = RunRepository(first)
     for tenant in ("tenant-a", "tenant-b"):
         await repository.create(
             _run(
@@ -152,6 +188,12 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(sql
                 deployment_ref="restarted-worker-deployment",
             )
         )
+    await first.close()
+
+    restarted = AsyncSQLiteDatabase(str(database_path))
+    repository = RunRepository(restarted)
+    leases = LeaseManager(restarted)
+    transition_committed = asyncio.Event()
 
     class _Orchestrator:
         def __init__(self) -> None:
@@ -159,7 +201,9 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(sql
 
         async def _drive(self, _graph, run) -> Run:
             self.driven.append(run.run_id)
-            return await repository.transition(run.run_id, RunStatus.COMPLETED)
+            completed = await repository.transition(run.run_id, RunStatus.COMPLETED)
+            transition_committed.set()
+            return completed
 
     orchestrator = _Orchestrator()
     worker = RunWorker(
@@ -174,10 +218,7 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(sql
     )
     task = asyncio.create_task(worker.poll_loop())
     try:
-        for _ in range(100):
-            if orchestrator.driven:
-                break
-            await asyncio.sleep(0.01)
+        await asyncio.wait_for(transition_committed.wait(), timeout=2)
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -188,3 +229,4 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(sql
     tenant_b = await repository.get("tenant-b-worker-run")
     assert tenant_a is not None and tenant_a.status is RunStatus.COMPLETED
     assert tenant_b is not None and tenant_b.status is RunStatus.PENDING
+    await restarted.close()

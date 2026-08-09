@@ -11,13 +11,22 @@
       "id": "workflows-read-write-enumerate-delete-sql-404",
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
-      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_graph_foreign_tenant_is_404_across_studio_api"]
+      "test_nodes": [
+        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_read_foreign_matches_unknown",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_write_foreign_matches_unknown",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_enumerate_matches_empty_unknown_tenant",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_delete_foreign_matches_unknown"
+      ]
     },
     {
       "id": "deployments-read-enumerate-create-collision-sql",
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
-      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_deployment_repository_is_tenant_scoped"]
+      "test_nodes": [
+        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_read_foreign_matches_unknown",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_enumerate_matches_empty_unknown_scope",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_create_collision_preserves_owner"
+      ]
     },
     {
       "id": "runs-execute-read-result-guessing-404",
@@ -34,7 +43,8 @@
       "coverage": "behavioral",
       "test_nodes": [
         "tests/integrations/persistence/runs/test_run_repository.py::test_create_rejects_foreign_tenant_same_id_without_overwriting_owner",
-        "tests/integrations/persistence/runs/test_run_repository.py::test_racing_tenants_get_exactly_one_same_run_id_winner"
+        "tests/integrations/persistence/runs/test_run_repository.py::test_racing_tenants_get_exactly_one_same_run_id_winner",
+        "tests/integrations/persistence/runs/test_run_repository.py::test_replayed_same_run_id_is_refused_without_mutating_owner"
       ]
     },
     {
@@ -43,10 +53,10 @@
       "coverage": "behavioral",
       "test_nodes": [
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_get_hides_foreign_thread_like_unknown",
-        "tests/integrations/persistence/runs/test_thread_repository.py::test_create_rejects_foreign_same_thread_id_without_overwriting_owner",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_list_excludes_other_tenant_and_workspace",
         "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_hides_foreign_thread_like_unknown",
-        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_active_run_helpers_hide_foreign_thread"
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_attach_rejects_foreign_and_unknown_runs_identically",
+        "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_resolve_never_merges_a_foreign_thread"
       ]
     },
     {
@@ -54,7 +64,10 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/artifacts/test_tenant_scoped_store.py::test_shared_backend_isolates_full_artifact_lifecycle[filesystem]",
+        "tests/artifacts/test_tenant_scoped_store.py::test_artifact_write_same_key_is_scoped",
+        "tests/artifacts/test_tenant_scoped_store.py::test_artifact_read_foreign_matches_unknown",
+        "tests/artifacts/test_tenant_scoped_store.py::test_artifact_retrieve_foreign_matches_unknown",
+        "tests/artifacts/test_tenant_scoped_store.py::test_artifact_delete_foreign_matches_unknown",
         "tests/artifacts/test_tenant_scoped_store.py::test_restart_keeps_filesystem_scope_and_missing_errors_logical",
         "tests/service/test_tenant_isolation.py::test_foreign_tenant_artifact_retrieval_is_hidden_before_store_lookup"
       ]
@@ -64,7 +77,7 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/service/test_cross_tenant_leak_matrix.py::test_audit_query_is_tenant_scoped",
+        "tests/security/test_surface_isolation.py::test_audit_enumerate_is_query_scoped_by_tenant_and_workspace",
         "tests/security/test_surface_isolation.py::test_audit_retrieve_foreign_id_matches_unknown"
       ]
     },
@@ -73,7 +86,9 @@
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/security/test_surface_isolation.py::test_approval_enumerate_and_retrieve_are_tenant_scoped",
+        "tests/security/test_surface_isolation.py::test_approval_enumerate_is_query_scoped_by_tenant_and_workspace",
+        "tests/security/test_surface_isolation.py::test_approval_retrieve_foreign_matches_unknown",
+        "tests/security/test_surface_isolation.py::test_approval_resolve_foreign_matches_unknown_before_mutation",
         "tests/service/test_tenant_isolation.py::test_cross_tenant_approval_resolution_is_hidden",
         "tests/service/test_approval_api.py::test_approval_api_duplicate_resolution_is_idempotent"
       ]
@@ -82,7 +97,11 @@
       "id": "connectors-enumerate-write-delete-sql",
       "tiers": ["pr-critical", "release-candidate"],
       "coverage": "behavioral",
-      "test_nodes": ["tests/service/test_cross_tenant_leak_matrix.py::test_connector_config_repository_is_tenant_scoped"]
+      "test_nodes": [
+        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_enumerate_matches_empty_unknown_tenant",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_write_collision_preserves_owner",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_delete_foreign_matches_unknown"
+      ]
     },
     {
       "id": "manifests-enumerate-404",
@@ -129,6 +148,7 @@
       "test_nodes": [
         "tests/security/test_persistence_isolation.py::test_sqlite_repository_reconstruction_preserves_scope_predicates",
         "tests/security/test_persistence_isolation.py::test_execution_result_guessing_stays_hidden_after_restart",
+        "tests/security/test_persistence_isolation.py::test_sqlite_deployment_repository_reconstruction_preserves_scope",
         "tests/security/test_persistence_isolation.py::test_worker_claims_only_its_tenant_pending_runs",
         "tests/security/test_persistence_isolation.py::test_restarted_dispatch_worker_executes_only_its_deployment_tenant"
       ]
@@ -175,10 +195,16 @@
       ]
     },
     {
-      "id": "postgres-sql-predicates-race-and-pool-restart",
+      "id": "postgres-graph-run-audit-race-and-pool-restart",
       "tiers": ["release-candidate"],
       "coverage": "behavioral",
-      "test_nodes": ["tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_predicates_race_and_pool_restart"]
+      "test_nodes": [
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_graph_scope_predicate",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_run_scope_predicate",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_audit_scope_predicate",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_same_id_tenant_race",
+        "tests/security/distributed/test_postgres_tenant_isolation.py::test_security_rc_postgres_pool_restart_preserves_scope"
+      ]
     },
     {
       "id": "redis-memory-kv-thread-reconnect",

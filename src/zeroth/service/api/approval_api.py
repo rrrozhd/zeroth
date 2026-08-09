@@ -78,12 +78,11 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
             run_id=run_id,
             thread_id=thread_id,
             deployment_ref=deployment.deployment_ref,
+            graph_version_ref=deployment.graph_version_ref,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
         )
-        return [
-            approval
-            for approval in approvals
-            if _approval_visible_to_deployment(approval, deployment)
-        ]
+        return approvals
 
     @app.get(
         "/deployments/{deployment_ref}/approvals/{approval_id}",
@@ -122,6 +121,10 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                 decision=payload.decision,
                 actor=principal.to_actor(),
                 edited_payload=payload.edited_payload,
+                tenant_id=deployment.tenant_id,
+                workspace_id=deployment.workspace_id,
+                deployment_ref=deployment.deployment_ref,
+                graph_version_ref=deployment.graph_version_ref,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -131,7 +134,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        run = await bootstrap.run_repository.get(resolved.run_id)
+        run = await bootstrap.run_repository.get(resolved.run_id, tenant_id=deployment.tenant_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 
@@ -157,7 +160,9 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
 
                     for _ in range(100):  # up to ~5 s
                         await _asyncio.sleep(0.05)
-                        current = await bootstrap.run_repository.get(run.run_id)
+                        current = await bootstrap.run_repository.get(
+                            run.run_id, tenant_id=deployment.tenant_id
+                        )
                         if current is not None and current.status not in {
                             RunStatus.PENDING,
                             RunStatus.RUNNING,
@@ -165,7 +170,9 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                             run = current
                             break
                     else:
-                        current = await bootstrap.run_repository.get(run.run_id)
+                        current = await bootstrap.run_repository.get(
+                            run.run_id, tenant_id=deployment.tenant_id
+                        )
                         if current is not None:
                             run = current
                 else:
@@ -213,8 +220,14 @@ async def _require_visible_approval(
     deployment: object,
     approval_id: str,
 ) -> ApprovalRecord:
-    record = await bootstrap.approval_service.get(approval_id)
-    if record is None or not _approval_visible_to_deployment(record, deployment):
+    record = await bootstrap.approval_service.get(
+        approval_id,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+        deployment_ref=deployment.deployment_ref,
+        graph_version_ref=deployment.graph_version_ref,
+    )
+    if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
     await require_resource_scope(
         request=request,

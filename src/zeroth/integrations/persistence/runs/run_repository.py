@@ -379,7 +379,14 @@ class _RunThreadStore:
         if insert_only and row is None:
             raise KeyError(f"thread already exists: {thread.thread_id}")
 
-    async def get_run(self, run_id: str, *, tenant_id: str | None = None) -> Run | None:
+    async def get_run(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        workspace_scoped: bool = False,
+    ) -> Run | None:
         """Load a run from the database by its ID, or return None if not found.
 
         WS-B: when ``tenant_id`` is supplied, a run owned by another tenant is
@@ -392,6 +399,12 @@ class _RunThreadStore:
         if tenant_id is not None:
             sql += " AND tenant_id = ?"
             params = (run_id, tenant_id)
+        if workspace_scoped:
+            if workspace_id is None:
+                sql += " AND workspace_id IS NULL"
+            else:
+                sql += " AND workspace_id = ?"
+                params += (workspace_id,)
         async with self.database.transaction() as connection:
             row = await connection.fetch_one(sql, params)
         if row is None:

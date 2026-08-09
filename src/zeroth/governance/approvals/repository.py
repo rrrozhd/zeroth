@@ -12,6 +12,8 @@ from zeroth.governance.approvals.models import ApprovalRecord, ApprovalStatus
 from zeroth.platform.storage import AsyncDatabase
 from zeroth.platform.storage.json import load_typed_value, to_json_value
 
+_UNSCOPED = object()
+
 
 class ApprovalRepository:
     """Saves and loads approval records from an async database.
@@ -87,15 +89,34 @@ class ApprovalRepository:
             )
         return await self.get(record.approval_id)
 
-    async def get(self, approval_id: str, *, tenant_id: str | None = None) -> ApprovalRecord | None:
-        """Look up one approval, optionally constrained by tenant in SQL."""
+    async def get(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> ApprovalRecord | None:
+        """Look up one approval with every supplied scope predicate in SQL."""
         sql = "SELECT record_json FROM approvals WHERE approval_id = ?"
-        params = (approval_id,)
-        if tenant_id is not None:
-            sql += " AND tenant_id = ?"
-            params = (approval_id, tenant_id)
+        params: list[str] = [approval_id]
+        for field, value in (
+            ("tenant_id", tenant_id),
+            ("deployment_ref", deployment_ref),
+            ("graph_version_ref", graph_version_ref),
+        ):
+            if value is not None:
+                sql += f" AND {field} = ?"
+                params.append(value)
+        if workspace_id is not _UNSCOPED:
+            if workspace_id is None:
+                sql += " AND workspace_id IS NULL"
+            else:
+                sql += " AND workspace_id = ?"
+                params.append(str(workspace_id))
         async with self._database.transaction() as connection:
-            row = await connection.fetch_one(sql, params)
+            row = await connection.fetch_one(sql, tuple(params))
         if row is None:
             return None
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
@@ -107,6 +128,8 @@ class ApprovalRepository:
         thread_id: str | None = None,
         deployment_ref: str | None = None,
         tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        graph_version_ref: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return all approval records that are still waiting for a decision.
 
@@ -120,11 +143,18 @@ class ApprovalRepository:
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
             ("tenant_id", tenant_id),
+            ("graph_version_ref", graph_version_ref),
         ):
             if value is None:
                 continue
             clauses.append(f"{key} = ?")
             params.append(value)
+        if workspace_id is not _UNSCOPED:
+            if workspace_id is None:
+                clauses.append("workspace_id IS NULL")
+            else:
+                clauses.append("workspace_id = ?")
+                params.append(str(workspace_id))
         sql = "SELECT record_json FROM approvals WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at, approval_id"
         async with self._database.transaction() as connection:
@@ -141,6 +171,8 @@ class ApprovalRepository:
         thread_id: str | None = None,
         deployment_ref: str | None = None,
         tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        graph_version_ref: str | None = None,
     ) -> list[ApprovalRecord]:
         """Return approval records, optionally filtered by run, thread, or deployment."""
         clauses: list[str] = []
@@ -150,11 +182,18 @@ class ApprovalRepository:
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
             ("tenant_id", tenant_id),
+            ("graph_version_ref", graph_version_ref),
         ):
             if value is None:
                 continue
             clauses.append(f"{key} = ?")
             params.append(value)
+        if workspace_id is not _UNSCOPED:
+            if workspace_id is None:
+                clauses.append("workspace_id IS NULL")
+            else:
+                clauses.append("workspace_id = ?")
+                params.append(str(workspace_id))
         sql = "SELECT record_json FROM approvals"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)

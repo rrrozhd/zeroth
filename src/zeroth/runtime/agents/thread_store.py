@@ -74,7 +74,11 @@ class RepositoryThreadResolver:
         status: ThreadStatus | None = None,
     ) -> ThreadResolution:
         """Look up a thread by ID, or create one if it does not exist yet."""
-        created = thread_id is None or await self.thread_repository.get(thread_id) is None
+        created = thread_id is None or await self.thread_repository.get(
+            thread_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        ) is None
         thread = await self.thread_repository.resolve(
             thread_id,
             graph_version_ref=graph_version_ref,
