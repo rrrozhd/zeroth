@@ -476,3 +476,59 @@ class TestFilesystemArtifactStore:
         """Key containing '..' raises ArtifactStorageError (path traversal prevention)."""
         with pytest.raises(ArtifactStorageError, match="path traversal"):
             await store.store("run1/../../../etc/passwd", b"evil", "text/plain")
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("key", ["/tmp/absolute-artifact", "run1/node1/bad\x00key"])
+    async def test_unsafe_key_rejected(self, store: FilesystemArtifactStore, key: str) -> None:
+        with pytest.raises(ArtifactStorageError, match="unsafe artifact key"):
+            await store.store(key, b"evil", "text/plain")
+
+    @pytest.mark.asyncio()
+    async def test_data_symlink_escape_rejected_before_write(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-data"
+        outside.mkdir()
+        (tmp_path / "run1").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+            await store.store("run1/node1/key", b"evil", "text/plain")
+
+        assert not (outside / "node1" / "key").exists()
+
+    @pytest.mark.asyncio()
+    async def test_metadata_symlink_escape_rejected_before_read(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        await store.store("run1/node1/key", b"inside", "text/plain")
+        meta_path = tmp_path / "run1" / "node1" / "key.meta.json"
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-meta.json"
+        outside.write_text(meta_path.read_text())
+        meta_path.unlink()
+        meta_path.symlink_to(outside)
+
+        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+            await store.retrieve("run1/node1/key")
+
+    @pytest.mark.asyncio()
+    async def test_receipt_symlink_escape_rejected_before_write(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        await store.store("run1/node1/key", b"inside", "text/plain")
+        outside = tmp_path.parent / f"{tmp_path.name}-outside-receipts"
+        outside.mkdir()
+        (tmp_path / ".erasure-receipts").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ArtifactStorageError, match="escapes artifact base"):
+            await store.delete("run1/node1/key", idempotency_key="delete-key")
+
+        assert not (outside / "delete-key.json").exists()
+
+    @pytest.mark.asyncio()
+    async def test_symlink_loop_is_rejected_as_storage_error(
+        self, store: FilesystemArtifactStore, tmp_path: Path
+    ) -> None:
+        (tmp_path / "loop").symlink_to(tmp_path / "loop")
+
+        with pytest.raises(ArtifactStorageError, match="resolve artifact path"):
+            await store.exists("loop/key")

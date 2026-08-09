@@ -276,7 +276,11 @@ class RedisArtifactStore:
         receipt = await self._client.get(receipt_key)
         redis_keys = [key async for key in self._client.scan_iter(match=pattern, count=100)]
         if receipt is None:
-            count = len(redis_keys)
+            count = sum(
+                1
+                for key in redis_keys
+                if not (key.endswith(b":meta") if isinstance(key, bytes) else key.endswith(":meta"))
+            )
             await self._client.set(receipt_key, str(count), nx=True)
             receipt = await self._client.get(receipt_key)
             stable_count = count if receipt is None else int(receipt)
@@ -311,7 +315,7 @@ class FilesystemArtifactStore:
         self._max_size = max_size
 
     def _validate_key(self, key: str) -> None:
-        """Reject keys containing path traversal sequences.
+        """Reject keys that cannot be safely resolved below the artifact base.
 
         Args:
             key: Artifact key to validate.
@@ -322,24 +326,44 @@ class FilesystemArtifactStore:
         if ".." in key.split("/"):
             msg = f"Rejected key with path traversal: {key}"
             raise ArtifactStorageError(msg)
+        if not key or "\x00" in key or Path(key).is_absolute():
+            raise ArtifactStorageError("Rejected unsafe artifact key")
+
+    def _contained_path(self, relative_path: str) -> Path:
+        """Resolve a path and reject existing symlinks that leave the base."""
+        try:
+            base = self._base_dir.resolve()
+            candidate = (base / relative_path).resolve()
+        except (OSError, RuntimeError):
+            raise ArtifactStorageError("Unable to safely resolve artifact path") from None
+        try:
+            candidate.relative_to(base)
+        except ValueError:
+            raise ArtifactStorageError("Resolved path escapes artifact base") from None
+        return candidate
 
     def _file_path(self, key: str) -> Path:
         """Resolve the filesystem path for an artifact key."""
-        return self._base_dir / key
+        self._validate_key(key)
+        return self._contained_path(key)
 
     def _meta_path(self, key: str) -> Path:
         """Resolve the filesystem path for an artifact's sidecar metadata."""
-        return self._base_dir / f"{key}.meta.json"
+        self._validate_key(key)
+        return self._contained_path(f"{key}.meta.json")
 
     def _receipt_path(self, idempotency_key: str) -> Path:
         """Resolve the filesystem path for an erasure-operation replay receipt."""
-        return self._base_dir / ".erasure-receipts" / f"{idempotency_key}.json"
+        self._validate_key(idempotency_key)
+        return self._contained_path(f".erasure-receipts/{idempotency_key}.json")
 
     def _write_receipt(self, idempotency_key: str, payload: dict[str, Any]) -> None:
         """Persist a replay receipt atomically (temp file + rename)."""
         path = self._receipt_path(idempotency_key)
         path.parent.mkdir(parents=True, exist_ok=True)
+        path = self._receipt_path(idempotency_key)
         temporary = path.with_suffix(".tmp")
+        self._contained_path(str(temporary.relative_to(self._base_dir.resolve())))
         temporary.write_text(json.dumps(payload, sort_keys=True))
         temporary.replace(path)
 
@@ -353,6 +377,8 @@ class FilesystemArtifactStore:
         file_path = self._file_path(key)
         meta_path = self._meta_path(key)
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path = self._file_path(key)
+        meta_path = self._meta_path(key)
         file_path.write_bytes(data)
         meta_path.write_text(json.dumps(meta))
 
@@ -573,7 +599,8 @@ class FilesystemArtifactStore:
 
         def _cleanup() -> int:
             """Synchronous idempotent run-tree removal for use with asyncio.to_thread."""
-            run_dir = self._base_dir / run_id
+            self._validate_key(run_id)
+            run_dir = self._file_path(run_id)
             receipt = self._read_receipt(idempotency_key)
             if receipt is None:
                 count = (

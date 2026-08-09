@@ -370,6 +370,14 @@ async def bootstrap_service(
             f"Unknown artifact store backend: {artifact_settings.backend!r}. "
             "Must be 'filesystem' or 'redis'."
         )
+    if artifact_store is not None:
+        from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+
+        artifact_store = TenantScopedArtifactStore(
+            artifact_store,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
     orchestrator.artifact_store = artifact_store
 
     # WS-F: reuse the caller's process-wide secret provider when supplied

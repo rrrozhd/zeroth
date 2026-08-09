@@ -1,0 +1,265 @@
+"""Tenant-scoped artifact namespace regression tests."""
+
+from __future__ import annotations
+
+import fnmatch
+import base64
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from zeroth.platform.artifacts.errors import ArtifactNotFoundError, ArtifactStorageError
+from zeroth.platform.artifacts.store import FilesystemArtifactStore, RedisArtifactStore
+from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+
+
+class _Pipeline:
+    def __init__(self, redis: _MemoryRedis) -> None:
+        self.redis = redis
+        self.operations: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def __aenter__(self) -> _Pipeline:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def set(self, *args: Any) -> None:
+        self.operations.append(("set", args))
+
+    def setex(self, *args: Any) -> None:
+        self.operations.append(("set", (args[0], args[2])))
+
+    def delete(self, *args: Any) -> None:
+        self.operations.append(("delete", args))
+
+    def expire(self, *args: Any) -> None:
+        self.operations.append(("expire", args))
+
+    async def execute(self) -> list[object]:
+        return [await getattr(self.redis, operation)(*args) for operation, args in self.operations]
+
+
+class _MemoryRedis:
+    """Small shared Redis fake faithful to the methods used by the backend."""
+
+    def __init__(self, values: dict[str, bytes] | None = None) -> None:
+        self.values = values if values is not None else {}
+        self.scan_patterns: list[str] = []
+
+    def pipeline(self, *, transaction: bool = True) -> _Pipeline:
+        assert transaction is True
+        return _Pipeline(self)
+
+    async def get(self, key: str) -> bytes | None:
+        return self.values.get(key)
+
+    async def set(self, key: str, value: object, *, nx: bool = False) -> bool:
+        if nx and key in self.values:
+            return False
+        self.values[key] = str(value).encode() if not isinstance(value, bytes) else value
+        return True
+
+    async def setex(self, key: str, _ttl: int, value: bytes) -> bool:
+        self.values[key] = value
+        return True
+
+    async def delete(self, *keys: str | bytes) -> int:
+        count = 0
+        for raw_key in keys:
+            key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+            count += int(self.values.pop(key, None) is not None)
+        return count
+
+    async def exists(self, key: str) -> int:
+        return int(key in self.values)
+
+    async def expire(self, key: str, _ttl: int) -> int:
+        return int(key in self.values)
+
+    async def scan_iter(self, *, match: str, count: int = 100):
+        assert count == 100
+        self.scan_patterns.append(match)
+        for key in tuple(self.values):
+            if fnmatch.fnmatchcase(key, match):
+                yield key.encode()
+
+
+def _filesystem_store(path: Path) -> FilesystemArtifactStore:
+    return FilesystemArtifactStore(path, default_ttl=3600)
+
+
+def _redis_store(values: dict[str, bytes]) -> tuple[RedisArtifactStore, _MemoryRedis]:
+    client = _MemoryRedis(values)
+    return RedisArtifactStore("", prefix="shared", client=client), client
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("backend", ["filesystem", "redis"])
+async def test_shared_backend_isolates_full_artifact_lifecycle(
+    backend: str, tmp_path: Path
+) -> None:
+    shared_values: dict[str, bytes] = {}
+    if backend == "filesystem":
+        underlying_a = underlying_b = _filesystem_store(tmp_path)
+    else:
+        underlying_a, _ = _redis_store(shared_values)
+        underlying_b, _ = _redis_store(shared_values)
+
+    tenant_a = TenantScopedArtifactStore(underlying_a, tenant_id="tenant-a", workspace_id=None)
+    tenant_b = TenantScopedArtifactStore(underlying_b, tenant_id="tenant-b", workspace_id=None)
+    key = "run-1/node/artifact"
+    ref_a = await tenant_a.store(key, b"A", "text/plain", ttl=60)
+    ref_b = await tenant_b.store(key, b"B", "text/plain", ttl=60)
+
+    assert ref_a.key == ref_b.key == key
+    assert "scopes/v1" not in ref_a.key
+    assert await tenant_a.retrieve(key) == b"A"
+    assert await tenant_b.retrieve(key) == b"B"
+    assert await tenant_a.exists(key) and await tenant_b.exists(key)
+    assert await tenant_a.refresh_ttl(key, 120)
+    assert await tenant_a.delete(key, idempotency_key="same-receipt") is True
+    assert await tenant_a.delete(key, idempotency_key="same-receipt") is True
+    assert await tenant_b.exists(key)
+    assert await tenant_b.delete(key, idempotency_key="same-receipt") is True
+
+    await tenant_a.store("cleanup-run/n1/a", b"a", "text/plain")
+    await tenant_a.store("cleanup-run/n2/b", b"b", "text/plain")
+    await tenant_b.store("cleanup-run/n1/a", b"foreign", "text/plain")
+    assert await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup") == 2
+    assert await tenant_a.cleanup_run("cleanup-run", idempotency_key="same-cleanup") == 2
+    assert await tenant_b.retrieve("cleanup-run/n1/a") == b"foreign"
+
+
+@pytest.mark.asyncio()
+async def test_restart_keeps_filesystem_scope_and_missing_errors_logical(tmp_path: Path) -> None:
+    first = TenantScopedArtifactStore(
+        _filesystem_store(tmp_path), tenant_id="tenant", workspace_id="workspace"
+    )
+    await first.store("run/node/key", b"persisted", "text/plain")
+
+    restarted = TenantScopedArtifactStore(
+        _filesystem_store(tmp_path), tenant_id="tenant", workspace_id="workspace"
+    )
+    foreign = TenantScopedArtifactStore(
+        _filesystem_store(tmp_path), tenant_id="tenant", workspace_id=None
+    )
+    assert await restarted.retrieve("run/node/key") == b"persisted"
+    with pytest.raises(ArtifactNotFoundError, match=r"run/node/key") as exc_info:
+        await foreign.retrieve("run/node/key")
+    assert "scopes/v1" not in str(exc_info.value)
+    assert await foreign.delete("run/node/key", idempotency_key="foreign-delete") is False
+    assert await restarted.retrieve("run/node/key") == b"persisted"
+
+
+def test_scope_digest_uses_exact_canonical_json() -> None:
+    store = TenantScopedArtifactStore(object(), tenant_id="tenant", workspace_id=None)
+    canonical = json.dumps(
+        {"tenant_id": "tenant", "workspace_id": None},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode()
+    expected = hashlib.sha256(b"zeroth-artifact-scope-v1\0" + canonical).hexdigest()
+    assert store.scope_digest == expected
+
+
+@pytest.mark.asyncio()
+async def test_physical_segments_and_receipt_id_use_exact_encoding(tmp_path: Path) -> None:
+    wrapper = TenantScopedArtifactStore(
+        _filesystem_store(tmp_path), tenant_id="tenant", workspace_id="workspace"
+    )
+    logical_key = "run/n\u00f8de/.."
+    logical_receipt = "delete/*?[]\\"
+
+    await wrapper.store(logical_key, b"value", "text/plain")
+    await wrapper.delete(logical_key, idempotency_key=logical_receipt)
+
+    def encode(segment: str) -> str:
+        raw = segment.encode("utf-8")
+        return f"{len(raw)}-{base64.urlsafe_b64encode(raw).rstrip(b'=').decode()}"
+
+    object_path = (
+        tmp_path
+        / "scopes"
+        / "v1"
+        / wrapper.scope_digest
+        / "objects"
+        / "v1"
+        / encode("run")
+        / encode("n\u00f8de")
+        / encode("..")
+    )
+    receipt_digest = hashlib.sha256(logical_receipt.encode()).hexdigest()
+    receipt_path = (
+        tmp_path
+        / ".erasure-receipts"
+        / f"scope-v1-{wrapper.scope_digest}-receipt-{receipt_digest}.json"
+    )
+    assert not object_path.exists()
+    assert receipt_path.exists()
+
+
+@pytest.mark.asyncio()
+async def test_adversarial_scopes_and_keys_have_distinct_opaque_paths(tmp_path: Path) -> None:
+    scopes = [
+        ("tenant/../*?[x]\\", None),
+        ("tenant/../*?[x]\\", ""),
+        ("tenant/../*?[x]\\", "null"),
+        ("e\u0301", "workspace"),
+        ("\u00e9", "workspace"),
+    ]
+    wrappers = [
+        TenantScopedArtifactStore(_filesystem_store(tmp_path), tenant_id=t, workspace_id=w)
+        for t, w in scopes
+    ]
+    key = "run*?[]\\/../n\u00f8de/e\u0301"
+    for index, wrapper in enumerate(wrappers):
+        await wrapper.store(key, str(index).encode(), "text/plain")
+
+    assert [await wrapper.retrieve(key) for wrapper in wrappers] == [
+        str(index).encode() for index in range(len(wrappers))
+    ]
+    object_dirs = list((tmp_path / "scopes" / "v1").glob("*/objects/v1"))
+    assert len(object_dirs) == len(scopes)
+    all_paths = "\n".join(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    for raw in ("tenant", "workspace", "run", "n\u00f8de", "e\u0301", "\u00e9"):
+        assert raw not in all_paths
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "workspace_id"),
+    [("bad\x00tenant", None), ("tenant", "bad\x00workspace")],
+)
+def test_scope_rejects_nul(tenant_id: str, workspace_id: str | None) -> None:
+    with pytest.raises(ArtifactStorageError, match="NUL"):
+        TenantScopedArtifactStore(object(), tenant_id=tenant_id, workspace_id=workspace_id)
+
+
+@pytest.mark.asyncio()
+async def test_logical_identifiers_reject_nul(tmp_path: Path) -> None:
+    wrapper = TenantScopedArtifactStore(_filesystem_store(tmp_path), tenant_id="t")
+    with pytest.raises(ArtifactStorageError, match="NUL"):
+        await wrapper.store("run/bad\x00key", b"x", "text/plain")
+    with pytest.raises(ArtifactStorageError, match="NUL"):
+        await wrapper.cleanup_run("bad\x00run", idempotency_key="receipt")
+    with pytest.raises(ArtifactStorageError, match="NUL"):
+        await wrapper.delete("run/key", idempotency_key="bad\x00receipt")
+
+
+@pytest.mark.asyncio()
+async def test_redis_cleanup_pattern_contains_only_encoded_run() -> None:
+    values: dict[str, bytes] = {}
+    backend, client = _redis_store(values)
+    wrapper = TenantScopedArtifactStore(backend, tenant_id="tenant/*?[]\\")
+    run_id = "run*?[]\\"
+    await wrapper.store(f"{run_id}/node/key", b"x", "text/plain")
+
+    assert await wrapper.cleanup_run(run_id, idempotency_key="receipt*?[]\\") == 1
+    pattern = client.scan_patterns[-1]
+    assert run_id not in pattern
+    assert "tenant" not in pattern
+    assert pattern.endswith("/*")
