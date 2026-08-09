@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from zeroth.integrations.execution.sandbox import (
     SandboxManager,
     SandboxPolicyViolationError,
     SandboxStrictnessMode,
+    SandboxTimeoutError,
 )
 
 
@@ -116,6 +118,7 @@ def test_build_docker_resource_flags_translates_supported_constraints() -> None:
 
 def test_run_in_docker_applies_resource_constraint_flags() -> None:
     calls: list[list[str]] = []
+    process = _FakeDockerProcess(stdout=b"docker-ok", stderr=b"")
 
     def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         calls.append(list(command))
@@ -132,6 +135,7 @@ def test_run_in_docker_applies_resource_constraint_flags() -> None:
             strictness_mode=SandboxStrictnessMode.STANDARD,
         ),
         command_runner=fake_runner,
+        process_factory=lambda command, **_kwargs: calls.append(list(command)) or process,
         container_inspector=lambda _name: True,
     )
 
@@ -153,6 +157,130 @@ def test_run_in_docker_applies_resource_constraint_flags() -> None:
     assert "--pids-limit" in docker_run
     assert "--network" in docker_run
     assert "python:3.12" in docker_run
+
+
+@pytest.mark.parametrize(
+    ("constraints", "expected_network"),
+    [
+        (None, "none"),
+        (ResourceConstraints(network_access=None), "none"),
+        (ResourceConstraints(network_access=False), "none"),
+        (ResourceConstraints(network_access=True), "bridge"),
+    ],
+)
+def test_strict_docker_denies_network_unless_explicitly_authorized(
+    constraints: ResourceConstraints | None, expected_network: str
+) -> None:
+    calls: list[list[str]] = []
+    process = _FakeDockerProcess(stdout=b"ok", stderr=b"")
+
+    def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append(list(command))
+        if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
+            return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        ),
+        command_runner=fake_runner,
+        process_factory=lambda command, **_kwargs: calls.append(list(command)) or process,
+        container_inspector=lambda _name: True,
+    )
+
+    manager.run(["echo", "ok"], resource_constraints=constraints)
+
+    docker_run = next(command for command in calls if command[:2] == ["docker", "run"])
+    index = docker_run.index("--network")
+    assert docker_run[index + 1] == expected_network
+    assert docker_run.count("--network") == 1
+
+
+class _FakeDockerProcess:
+    def __init__(self, *, stdout: bytes, stderr: bytes, times_out: bool = False) -> None:
+        self.stdout = BytesIO(stdout)
+        self.stderr = BytesIO(stderr)
+        self.stdin = BytesIO()
+        self.returncode: int | None = None
+        self.times_out = times_out
+        self.killed = False
+        self.wait_calls = 0
+
+    def wait(self, timeout=None) -> int:
+        self.wait_calls += 1
+        if self.times_out and not self.killed:
+            raise subprocess.TimeoutExpired(["docker", "run"], timeout)
+        self.returncode = -9 if self.killed else 0
+        return self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "cap", "expected_stdout", "expected_stderr", "flags"),
+    [
+        (b"stdout-overflow", b"ok", 6, "stdout", "ok", (True, False)),
+        (b"ok", b"stderr-overflow", 6, "ok", "stderr", (False, True)),
+        ("ééé".encode(), b"", 5, "éé", "", (True, False)),
+    ],
+)
+def test_hardened_docker_bounds_output_without_splitting_utf8(
+    stdout: bytes,
+    stderr: bytes,
+    cap: int,
+    expected_stdout: str,
+    expected_stderr: str,
+    flags: tuple[bool, bool],
+) -> None:
+    process = _FakeDockerProcess(stdout=stdout, stderr=stderr)
+
+    def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            docker=DockerSandboxConfig(max_output_bytes=cap),
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        ),
+        command_runner=fake_runner,
+        process_factory=lambda *_args, **_kwargs: process,
+        container_inspector=lambda _name: True,
+    )
+
+    result = manager.run(["echo", "output"])
+
+    assert result.stdout == expected_stdout
+    assert result.stderr == expected_stderr
+    assert (result.stdout_truncated, result.stderr_truncated) == flags
+    assert len(result.stdout.encode()) <= cap
+    assert len(result.stderr.encode()) <= cap
+
+
+def test_hardened_docker_timeout_kills_and_waits_for_child() -> None:
+    process = _FakeDockerProcess(stdout=b"partial", stderr=b"", times_out=True)
+
+    def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        ),
+        command_runner=fake_runner,
+        process_factory=lambda *_args, **_kwargs: process,
+        container_inspector=lambda _name: True,
+    )
+
+    with pytest.raises(SandboxTimeoutError):
+        manager.run(["sleep"], timeout_seconds=0.01)
+
+    assert process.killed is True
+    assert process.wait_calls == 2
 
 
 def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> None:

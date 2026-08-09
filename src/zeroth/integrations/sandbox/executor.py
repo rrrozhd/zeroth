@@ -16,7 +16,10 @@ from zeroth.integrations.execution.constraints import (
     ResourceConstraints,
     build_docker_resource_flags,
 )
-from zeroth.integrations.execution.sandbox import build_docker_hardening_flags
+from zeroth.integrations.execution.sandbox import (
+    build_docker_hardening_flags,
+    validate_docker_image_reference,
+)
 from zeroth.integrations.sandbox.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,
@@ -46,6 +49,7 @@ class SidecarExecutor:
 
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
+        validate_docker_image_reference(request.image)
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
         execution_task = asyncio.current_task()

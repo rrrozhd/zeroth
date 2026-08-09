@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
+import threading
 import time
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -140,6 +142,11 @@ class DockerSandboxConfig:
     # Off by default: the bind-mounted workspace is host-owned, so forcing a
     # non-root user breaks images whose units write outputs there.
     run_as_user: str | None = None
+    max_output_bytes: int = 1_048_576
+
+    def __post_init__(self) -> None:
+        if self.max_output_bytes < 0:
+            raise ValueError("max_output_bytes must be non-negative")
 
 
 class SandboxStrictnessMode(StrEnum):
@@ -177,6 +184,63 @@ def _docker_hardening_flags(docker: DockerSandboxConfig) -> list[str]:
         hardened=docker.hardened,
         run_as_user=docker.run_as_user,
     )
+
+
+_IMAGE_COMPONENT = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*\Z")
+_IMAGE_REGISTRY = re.compile(
+    r"(?:localhost|[a-z0-9]+(?:[.-][a-z0-9]+)*)(?::(?:[1-9][0-9]{0,4}))?\Z"
+)
+_IMAGE_TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
+_IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def validate_docker_image_reference(image: str) -> str:
+    """Reject option-like or ambiguous image references before Docker argv assembly."""
+
+    def reject() -> None:
+        raise SandboxPolicyViolationError("sandbox image reference violates execution policy")
+
+    if (
+        not image
+        or len(image) > 255
+        or image.startswith("-")
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in image
+        )
+        or image.count("@") > 1
+    ):
+        reject()
+
+    name_and_tag, separator, digest = image.partition("@")
+    if separator:
+        if not _IMAGE_DIGEST.fullmatch(digest):
+            reject()
+        if ":" in name_and_tag.rsplit("/", 1)[-1]:
+            reject()
+
+    last_component = name_and_tag.rsplit("/", 1)[-1]
+    if ":" in last_component:
+        repository, tag = name_and_tag.rsplit(":", 1)
+        if not _IMAGE_TAG.fullmatch(tag):
+            reject()
+    else:
+        repository = name_and_tag
+
+    components = repository.split("/")
+    if any(not component for component in components):
+        reject()
+    if len(components) > 1 and (
+        "." in components[0] or ":" in components[0] or components[0] == "localhost"
+    ):
+        registry, *components = components
+        if not _IMAGE_REGISTRY.fullmatch(registry):
+            reject()
+        if ":" in registry and int(registry.rsplit(":", 1)[1]) > 65_535:
+            reject()
+    if not components or any(not _IMAGE_COMPONENT.fullmatch(item) for item in components):
+        reject()
+    return image
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +393,7 @@ class SandboxManager:
         cache_manager: EnvironmentCacheManager | None = None,
         config: SandboxConfig | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        process_factory: Callable[..., subprocess.Popen[bytes]] | None = None,
         container_inspector: Callable[[str], bool] | None = None,
         sidecar_client: Any | None = None,
     ) -> None:
@@ -336,6 +401,7 @@ class SandboxManager:
         self._cache_manager = cache_manager or EnvironmentCacheManager()
         self._config = config or SandboxConfig()
         self._command_runner = command_runner or subprocess.run
+        self._process_factory = process_factory or subprocess.Popen
         self._container_inspector = container_inspector
         self._sidecar_client = sidecar_client
 
@@ -618,49 +684,137 @@ class SandboxManager:
             for item in command
         ]
         image_ref = self._docker_image_for(container_name)
+        validate_docker_image_reference(image_ref)
+        constraints = resource_constraints or ResourceConstraints()
+        if constraints.network_access is None:
+            constraints = ResourceConstraints(
+                cpu_cores=constraints.cpu_cores,
+                memory_mb=constraints.memory_mb,
+                disk_mb=constraints.disk_mb,
+                max_processes=constraints.max_processes,
+                network_access=False,
+            )
 
         started_at = time.perf_counter()
+        docker_command = [
+            docker.docker_binary,
+            "run",
+            "--rm",
+            *_docker_hardening_flags(docker),
+            "-v",
+            f"{sandbox_root}:{container_root}",
+            *build_docker_resource_flags(constraints),
+            *self._docker_env_flags(translated_env),
+            "-w",
+            str(container_cwd),
+            image_ref,
+            *translated_command,
+        ]
+        process = self._process_factory(
+            docker_command,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         try:
-            started = self._command_runner(
-                [
-                    docker.docker_binary,
-                    "run",
-                    "--rm",
-                    *_docker_hardening_flags(docker),
-                    "-v",
-                    f"{sandbox_root}:{container_root}",
-                    *build_docker_resource_flags(resource_constraints),
-                    *self._docker_env_flags(translated_env),
-                    "-w",
-                    str(container_cwd),
-                    image_ref,
-                    *translated_command,
-                ],
-                input=input_text,
-                text=True,
-                capture_output=True,
-                timeout=timeout_seconds,
-                check=False,
+            stdout_bytes, stderr_bytes, stdout_truncated, stderr_truncated = (
+                self._communicate_bounded_process(
+                    process,
+                    input_text=input_text,
+                    timeout_seconds=timeout_seconds,
+                    max_output_bytes=docker.max_output_bytes,
+                )
             )
         except subprocess.TimeoutExpired as exc:
             raise SandboxTimeoutError(
                 command=command,
                 timeout_seconds=timeout_seconds,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=self._decode_capped_output(exc.stdout or b"", docker.max_output_bytes),
+                stderr=self._decode_capped_output(exc.stderr or b"", docker.max_output_bytes),
             ) from exc
         return SandboxExecutionResult(
             command=tuple(translated_command),
-            returncode=started.returncode,
-            stdout=started.stdout,
-            stderr=started.stderr,
+            returncode=process.returncode if process.returncode is not None else 1,
+            stdout=self._decode_capped_output(stdout_bytes, docker.max_output_bytes),
+            stderr=self._decode_capped_output(stderr_bytes, docker.max_output_bytes),
             workdir=str(container_cwd),
             environment=dict(translated_env),
             duration_seconds=time.perf_counter() - started_at,
             cache_key=environment.cache_key,
             backend=SandboxBackendMode.DOCKER.value,
             container_name=container_name,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
+
+    def _communicate_bounded_process(
+        self,
+        process: subprocess.Popen[bytes],
+        *,
+        input_text: str | None,
+        timeout_seconds: float | None,
+        max_output_bytes: int,
+    ) -> tuple[bytes, bytes, bool, bool]:
+        """Drain Docker output concurrently while retaining bounded byte prefixes."""
+        assert process.stdout is not None
+        assert process.stderr is not None
+        stdout_result: list[tuple[bytes, bool]] = []
+        stderr_result: list[tuple[bytes, bool]] = []
+        stdout_thread = threading.Thread(
+            target=lambda: stdout_result.append(
+                self._read_bounded_stream(process.stdout, max_output_bytes)
+            ),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=lambda: stderr_result.append(
+                self._read_bounded_stream(process.stderr, max_output_bytes)
+            ),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        if input_text is not None and process.stdin is not None:
+            try:
+                process.stdin.write(input_text.encode())
+                process.stdin.flush()
+            except BrokenPipeError:
+                pass
+            finally:
+                process.stdin.close()
+        try:
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
+            stdout_thread.join()
+            stderr_thread.join()
+            exc.stdout = stdout_result[0][0] if stdout_result else b""
+            exc.stderr = stderr_result[0][0] if stderr_result else b""
+            raise
+        stdout_thread.join()
+        stderr_thread.join()
+        stdout, stdout_truncated = stdout_result[0]
+        stderr, stderr_truncated = stderr_result[0]
+        return stdout, stderr, stdout_truncated, stderr_truncated
+
+    @staticmethod
+    def _read_bounded_stream(stream: Any, max_output_bytes: int) -> tuple[bytes, bool]:
+        retained = bytearray()
+        truncated = False
+        while chunk := stream.read(65_536):
+            raw = chunk.encode() if isinstance(chunk, str) else chunk
+            remaining = max_output_bytes - len(retained)
+            if remaining > 0:
+                retained.extend(raw[:remaining])
+            if len(raw) > remaining:
+                truncated = True
+        return bytes(retained), truncated
+
+    @staticmethod
+    def _decode_capped_output(value: bytes | str, max_output_bytes: int) -> str:
+        raw = value.encode() if isinstance(value, str) else value
+        return raw[:max_output_bytes].decode(errors="ignore")
 
     def _run_via_sidecar(
         self,
@@ -839,4 +993,5 @@ __all__ = [
     "build_sandbox_environment",
     "compute_environment_cache_key",
     "docker_container_running",
+    "validate_docker_image_reference",
 ]

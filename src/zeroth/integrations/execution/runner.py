@@ -639,6 +639,7 @@ class ExecutableUnitRunner:
             cache_manager=self.sandbox_manager.cache_manager,
             config=replace(config, strictness_mode=sandbox_strictness_mode),
             command_runner=getattr(self.sandbox_manager, "_command_runner", None),
+            process_factory=getattr(self.sandbox_manager, "_process_factory", None),
             container_inspector=getattr(self.sandbox_manager, "_container_inspector", None),
         )
 

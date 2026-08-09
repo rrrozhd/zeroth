@@ -8,6 +8,7 @@ import pytest
 
 from zeroth.integrations.sandbox.executor import SidecarExecutor
 from zeroth.integrations.sandbox.models import SidecarExecuteRequest
+from zeroth.integrations.execution.sandbox import SandboxPolicyViolationError
 
 
 class _FakeProc:
@@ -92,3 +93,72 @@ async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeyp
     assert [token for token in cmd if token.startswith("--network")] == [
         "--network=zeroth-sandbox-hardened"
     ]
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "--volume=/host:/host",
+        "--privileged",
+        " python:3.12",
+        "python:3.12\n--privileged",
+        "UPPER/repository:tag",
+        "repository//image:tag",
+        "repository:image@sha256:" + "a" * 64,
+        "repository@sha256:abc",
+        "repository::tag",
+        "registry.example.com:65536/repository",
+    ],
+)
+async def test_sidecar_rejects_noncanonical_image_before_docker_spawn(
+    monkeypatch, image: str
+) -> None:
+    executor = SidecarExecutor()
+    run_cmd = AsyncMock()
+    spawn = AsyncMock(return_value=_FakeProc())
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec", spawn
+    )
+
+    with pytest.raises(SandboxPolicyViolationError, match="image reference") as exc_info:
+        await executor.execute(
+            SidecarExecuteRequest(execution_id="image-policy", image=image, command=["python:3.12"])
+        )
+
+    assert image not in str(exc_info.value)
+    run_cmd.assert_not_awaited()
+    spawn.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("request_kwargs", "internal"),
+    [({}, True), ({"network_access": False}, True), ({"network_access": True}, False)],
+)
+async def test_sidecar_network_is_internal_unless_explicitly_authorized(
+    monkeypatch, request_kwargs, internal
+) -> None:
+    network_calls: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        network_calls.append(args)
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_FakeProc()),
+    )
+
+    await executor.execute(
+        SidecarExecuteRequest(
+            execution_id="network-policy",
+            image="python:3.12",
+            command=["echo"],
+            **request_kwargs,
+        )
+    )
+
+    create = next(call for call in network_calls if call[1:3] == ("network", "create"))
+    assert ("--internal" in create) is internal

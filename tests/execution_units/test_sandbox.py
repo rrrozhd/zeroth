@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -177,6 +178,20 @@ def test_environment_cache_manager_hits_misses_and_cache_keys_are_stable() -> No
 def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
     calls: list[list[str]] = []
 
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = BytesIO()
+            self.stdout = BytesIO(b"docker-ok")
+            self.stderr = BytesIO()
+            self.returncode: int | None = None
+
+        def wait(self, timeout=None) -> int:
+            self.returncode = 0
+            return 0
+
+        def kill(self) -> None:
+            self.returncode = -9
+
     def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         calls.append(list(command))
         if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
@@ -192,6 +207,7 @@ def test_sandbox_manager_auto_selects_provisioned_docker_backend() -> None:
             docker=DockerSandboxConfig(container_name="zeroth-sandbox"),
         ),
         command_runner=fake_runner,
+        process_factory=lambda command, **_kwargs: calls.append(list(command)) or FakeProcess(),
         container_inspector=lambda name: name == "zeroth-sandbox",
     )
 
