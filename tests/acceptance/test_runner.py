@@ -10,6 +10,7 @@ from release.acceptance.config import AcceptanceConfig
 from release.acceptance.models import (
     REQUIRED_SCENARIOS,
     AcceptanceContract,
+    AcceptanceStep,
     ScenarioStatus,
 )
 from release.acceptance.runner import AcceptanceRunner
@@ -387,3 +388,70 @@ async def test_owned_capture_refuses_server_identifier_outside_namespace(tmp_pat
     artifact = next(item for item in report.scenarios if item.name == "artifacts")
     assert artifact.status is ScenarioStatus.FAILED
     assert "body.name is missing" in artifact.detail
+
+
+class _EventTransport:
+    """Serve one fixed WebSocket frame list, so ordering rules can be probed."""
+
+    def __init__(self, events: list[dict]) -> None:
+        self.events = events
+
+    async def request(self, role, method, path, *, json_body=None):
+        return HttpObservation(200, {}, "corr")
+
+    async def websocket_events(self, role, path, payload, *, max_events):
+        return self.events
+
+
+def _stream_step(**overrides) -> dict[str, object]:
+    step = {
+        "protocol": "websocket",
+        "role": "operator",
+        "path": "/stream",
+        "payload": {},
+        "max_events": 2,
+        "ordered_events": ["metadata", "values"],
+    }
+    step.update(overrides)
+    return step
+
+
+@pytest.mark.parametrize(
+    ("events", "expected"),
+    [
+        # A stream that numbers nothing is the normal case for a proxied gateway.
+        ([{"event": "metadata"}, {"event": "values"}], None),
+        (
+            [{"event": "metadata", "sequence": 1}, {"event": "values", "sequence": 2}],
+            None,
+        ),
+        (
+            [{"event": "metadata", "sequence": 2}, {"event": "values", "sequence": 1}],
+            "not uniquely causally ordered",
+        ),
+        (
+            [{"event": "metadata", "sequence": 1}, {"event": "values", "sequence": 1}],
+            "not uniquely causally ordered",
+        ),
+        # Numbering some frames and not others hides a gap.
+        ([{"event": "metadata", "sequence": 1}, {"event": "values"}], "only some"),
+        ([{"event": "values"}, {"event": "metadata"}], "expected ordered events"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_ordering_holds_numbered_streams_to_their_numbers(
+    tmp_path: Path, events: list[dict], expected: str | None
+) -> None:
+    config = _config(tmp_path)
+    contract = _contract()
+    contract["scenarios"]["streaming"] = {"steps": [_stream_step()]}
+    runner = AcceptanceRunner(
+        config, AcceptanceContract.model_validate(contract), _EventTransport(events)
+    )
+    result = await runner._scenario("streaming", [AcceptanceStep.model_validate(_stream_step())])
+
+    if expected is None:
+        assert result.status is ScenarioStatus.PASSED, result.detail
+    else:
+        assert result.status is ScenarioStatus.FAILED
+        assert expected in result.detail

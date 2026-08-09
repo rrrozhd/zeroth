@@ -229,11 +229,22 @@ class AcceptanceRunner:
             raise AssertionError(
                 f"{path} expected ordered events {step.ordered_events!r}, got {names!r}"
             )
-        sequences = [event.get("sequence") for event in events if isinstance(event, dict)]
-        if not all(isinstance(value, int) for value in sequences) or sequences != sorted(
-            set(sequences)
-        ):
-            raise AssertionError(f"{path} events are not uniquely causally ordered")
+        # Arrival order on one WebSocket connection *is* causal order, so the check
+        # above already carries the ordering claim. An explicit sequence number is an
+        # extra guarantee only some streams publish: the Zeroth gateway bridges
+        # upstream frames without adding one, so demanding it unconditionally would
+        # make this scenario satisfiable by a synthetic server and by nothing else.
+        # Where a stream does number its frames, hold it to them.
+        sequences = [
+            event["sequence"] for event in events if isinstance(event, dict) and "sequence" in event
+        ]
+        if sequences:
+            if len(sequences) != len(events):
+                raise AssertionError(f"{path} numbered only some of its events")
+            if not all(isinstance(value, int) for value in sequences):
+                raise AssertionError(f"{path} event sequence numbers are not integers")
+            if sequences != sorted(set(sequences)):
+                raise AssertionError(f"{path} events are not uniquely causally ordered")
         return StepObservation(protocol="websocket", path=path, event_count=len(events))
 
     async def _scenario(self, name: str, steps: list[AcceptanceStep]) -> ScenarioResult:
