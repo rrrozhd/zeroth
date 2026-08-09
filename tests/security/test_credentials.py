@@ -455,7 +455,7 @@ def test_invalid_role_enum_is_sanitized_without_losing_enum_guidance() -> None:
         assert error.__cause__ is None
         detail = error.errors()[0]
         assert detail["type"] == "enum"
-        assert detail["loc"] == ("api_keys", 0, "roles", 0)
+        assert detail["loc"] == ("api_keys", "[index]", "roles", "[index]")
         assert "operator" in detail["msg"]
 
 
@@ -491,6 +491,38 @@ def test_config_validation_redacts_numeric_mapping_keys_from_locations(
 
         _assert_secret_absent_from_exception_chain(excinfo.value, raw_key)
         _assert_secret_absent_from_exception_chain(excinfo.value, raw_value)
+
+
+@pytest.mark.parametrize(
+    "custom_role_value",
+    [
+        [{"secret": "SENTINEL_NUMERIC_CUSTOM_ROLE_ITEM"}],
+        "SENTINEL_NUMERIC_CUSTOM_ROLE_NON_LIST",
+    ],
+)
+def test_custom_role_numeric_key_errors_never_retain_numeric_locations(
+    custom_role_value: object,
+) -> None:
+    raw_key = 987654321012345678
+    payload = {"custom_roles": {raw_key: custom_role_value}}
+    loaders = (
+        lambda: ServiceAuthConfig(**payload),
+        lambda: ServiceAuthConfig.model_validate(payload),
+    )
+
+    for load in loaders:
+        with pytest.raises(ValidationError) as excinfo:
+            load()
+
+        error = excinfo.value
+        _assert_secret_absent_from_exception_chain(error, str(raw_key))
+        _assert_secret_absent_from_exception_chain(error, str(custom_role_value))
+        assert all(
+            not isinstance(segment, int)
+            for detail in error.errors()
+            for segment in detail["loc"]
+        )
+        assert any("[index]" in str(detail["loc"]) for detail in error.errors())
 
 
 def test_invalid_key_locations_redact_numeric_keys_across_supported_model_boundaries() -> None:
@@ -581,7 +613,7 @@ def test_config_validation_preserves_nonzero_api_key_and_role_list_indices() -> 
 
     detail = excinfo.value.errors()[0]
     assert detail["type"] == "enum"
-    assert detail["loc"] == ("api_keys", 1, "roles", 0)
+    assert detail["loc"] == ("api_keys", "[index]", "roles", "[index]")
 
 
 def _config_environment(payload: dict[str, object]) -> dict[str, str]:
