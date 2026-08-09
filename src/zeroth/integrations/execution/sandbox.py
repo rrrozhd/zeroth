@@ -21,6 +21,7 @@ import threading
 import time
 import warnings
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
@@ -817,24 +818,42 @@ class SandboxManager:
         )
         stdout_thread.start()
         stderr_thread.start()
+        stdin_thread: threading.Thread | None = None
         if input_text is not None and process.stdin is not None:
-            try:
-                process.stdin.write(input_text.encode())
-                process.stdin.flush()
-            except BrokenPipeError:
-                pass
-            finally:
-                process.stdin.close()
+
+            def pump_stdin() -> None:
+                try:
+                    process.stdin.write(input_text.encode())
+                    process.stdin.flush()
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+                finally:
+                    with suppress(OSError):
+                        process.stdin.close()
+
+            stdin_thread = threading.Thread(
+                target=pump_stdin,
+                name="zeroth-docker-stdin",
+                daemon=True,
+            )
+            stdin_thread.start()
         try:
             process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             process.kill()
+            if process.stdin is not None:
+                with suppress(OSError):
+                    process.stdin.close()
             process.wait()
+            if stdin_thread is not None:
+                stdin_thread.join()
             stdout_thread.join()
             stderr_thread.join()
             exc.stdout = stdout_result[0][0] if stdout_result else b""
             exc.stderr = stderr_result[0][0] if stderr_result else b""
             raise
+        if stdin_thread is not None:
+            stdin_thread.join()
         stdout_thread.join()
         stderr_thread.join()
         stdout, stdout_truncated = stdout_result[0]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -281,6 +283,50 @@ def test_hardened_docker_timeout_kills_and_waits_for_child() -> None:
 
     assert process.killed is True
     assert process.wait_calls == 2
+
+
+def test_hardened_docker_blocked_stdin_obeys_timeout_and_joins_pump() -> None:
+    class BlockingStdin:
+        def __init__(self) -> None:
+            self.entered = threading.Event()
+            self.released = threading.Event()
+
+        def write(self, _value: bytes) -> None:
+            self.entered.set()
+            self.released.wait()
+            raise BrokenPipeError
+
+        def flush(self) -> None:
+            pass
+
+        def close(self) -> None:
+            self.released.set()
+
+    process = _FakeDockerProcess(stdout=b"", stderr=b"", times_out=True)
+    blocked = BlockingStdin()
+    process.stdin = blocked
+
+    def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            strictness_mode=SandboxStrictnessMode.STRICT,
+        ),
+        command_runner=fake_runner,
+        process_factory=lambda *_args, **_kwargs: process,
+        container_inspector=lambda _name: True,
+    )
+    started = time.monotonic()
+
+    with pytest.raises(SandboxTimeoutError):
+        manager.run(["blocked-input"], input_text="x" * 1_000_000, timeout_seconds=0.01)
+
+    assert time.monotonic() - started < 0.5
+    assert blocked.entered.is_set() and blocked.released.is_set()
+    assert process.killed and process.wait_calls == 2
+    assert not any(thread.name == "zeroth-docker-stdin" for thread in threading.enumerate())
 
 
 def test_policy_violation_is_raised_when_required_isolation_cannot_be_met() -> None:

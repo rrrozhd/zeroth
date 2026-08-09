@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
+import pytest
+
 from zeroth.integrations.sandbox.executor import SidecarExecutor
 from zeroth.integrations.sandbox.models import SidecarExecuteRequest
+from zeroth.integrations.execution.sandbox import SandboxPolicyViolationError
 
 
 class _ChunkStream:
@@ -127,6 +130,10 @@ async def test_sidecar_cancel_stops_active_child_persists_status_and_cleans_netw
     monkeypatch.setattr(executor, "_run_cmd", run_cmd)
     monkeypatch.setattr(
         "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_ActiveProcess()),
+    )
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
         AsyncMock(return_value=process),
     )
     execution = asyncio.create_task(
@@ -163,3 +170,109 @@ async def test_sidecar_cancel_does_not_rewrite_completed_execution(monkeypatch) 
     status = await executor.get_status("done")
     assert completed.status == "completed"
     assert status is not None and status.status == "completed"
+
+
+async def test_external_task_cancellation_reaps_child_and_cleans_state(monkeypatch) -> None:
+    process = _ActiveProcess()
+    commands: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        commands.append(args)
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=process),
+    )
+    task = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(execution_id="external", image="python", command=["sleep"])
+        )
+    )
+    await process.started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed and process.waited
+    assert commands.count(("docker", "network", "rm", "zeroth-sandbox-external")) == 1
+    assert executor._states == {}
+    status = await executor.get_status("external")
+    assert status is not None and status.status == "cancelled"
+
+
+async def test_cancel_before_spawn_prevents_child_creation(monkeypatch) -> None:
+    network_entered = asyncio.Event()
+    release_network = asyncio.Event()
+    commands: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        commands.append(args)
+        if args[1:3] == ("network", "create"):
+            network_entered.set()
+            await release_network.wait()
+        return b"", b""
+
+    spawn = AsyncMock(return_value=_ActiveProcess())
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec", spawn
+    )
+    execution = asyncio.create_task(
+        executor.execute(SidecarExecuteRequest(execution_id="pre", image="python", command=["run"]))
+    )
+    await network_entered.wait()
+    cancellation = asyncio.create_task(executor.cancel("pre"))
+    await asyncio.sleep(0)
+    release_network.set()
+
+    response = await execution
+    await cancellation
+
+    assert response.status == "cancelled"
+    spawn.assert_not_awaited()
+    assert commands.count(("docker", "network", "rm", "zeroth-sandbox-pre")) == 1
+    assert executor._states == {}
+
+
+async def test_duplicate_active_execution_id_is_rejected_before_side_effects(monkeypatch) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    commands: list[tuple[str, ...]] = []
+
+    async def run_cmd(*args: str):
+        commands.append(args)
+        if args[1:3] == ("network", "create"):
+            entered.set()
+            await release.wait()
+        return b"", b""
+
+    executor = SidecarExecutor()
+    monkeypatch.setattr(executor, "_run_cmd", run_cmd)
+    monkeypatch.setattr(
+        "zeroth.integrations.sandbox.executor.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=_ActiveProcess()),
+    )
+    first = asyncio.create_task(
+        executor.execute(
+            SidecarExecuteRequest(execution_id="duplicate", image="python", command=["run"])
+        )
+    )
+    await entered.wait()
+
+    with pytest.raises(SandboxPolicyViolationError, match="execution request"):
+        await executor.execute(
+            SidecarExecuteRequest(execution_id="duplicate", image="python", command=["other"])
+        )
+
+    assert len([call for call in commands if call[1:3] == ("network", "create")]) == 1
+    cancellation = asyncio.create_task(executor.cancel("duplicate"))
+    await asyncio.sleep(0)
+    release.set()
+    await cancellation
+    await first
+    assert executor._states == {}

@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Any
 
 from zeroth.integrations.execution.constraints import (
@@ -17,6 +19,7 @@ from zeroth.integrations.execution.constraints import (
     build_docker_resource_flags,
 )
 from zeroth.integrations.execution.sandbox import (
+    SandboxPolicyViolationError,
     build_docker_hardening_flags,
     validate_docker_image_reference,
 )
@@ -27,6 +30,17 @@ from zeroth.integrations.sandbox.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _ExecutionState:
+    task: asyncio.Task[Any]
+    process: asyncio.subprocess.Process | None = None
+    cancel_requested: bool = False
+    stop_started: bool = False
+    cleanup_required: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cleanup_done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class SidecarExecutor:
@@ -43,9 +57,8 @@ class SidecarExecutor:
         self._docker_binary = docker_binary
         self._max_output_bytes = max_output_bytes
         self._executions: dict[str, SidecarExecuteResponse] = {}
-        self._active_processes: dict[str, asyncio.subprocess.Process] = {}
-        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
-        self._cancelled: set[str] = set()
+        self._states: dict[str, _ExecutionState] = {}
+        self._registry_lock = asyncio.Lock()
 
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
@@ -53,8 +66,12 @@ class SidecarExecutor:
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
         execution_task = asyncio.current_task()
-        if execution_task is not None:
-            self._active_tasks[request.execution_id] = execution_task
+        assert execution_task is not None
+        async with self._registry_lock:
+            if request.execution_id in self._states:
+                raise SandboxPolicyViolationError("sandbox execution request violates policy")
+            state = _ExecutionState(task=execution_task)
+            self._states[request.execution_id] = state
         self._executions[request.execution_id] = SidecarExecuteResponse(
             execution_id=request.execution_id,
             status="running",
@@ -78,6 +95,7 @@ class SidecarExecutor:
         try:
             # Step 1: Create isolated network
             network_flags = ["--internal"] if not request.network_access else []
+            state.cleanup_required = True
             await self._run_cmd(
                 self._docker_binary,
                 "network",
@@ -85,6 +103,8 @@ class SidecarExecutor:
                 *network_flags,
                 network_name,
             )
+            if state.cancel_requested:
+                return self._persist_cancelled(request.execution_id, started_at)
 
             # Step 2: Build docker run command
             resource_flags = build_docker_resource_flags(constraints)
@@ -115,7 +135,11 @@ class SidecarExecutor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                self._active_processes[request.execution_id] = proc
+                async with state.lock:
+                    state.process = proc
+                if state.cancel_requested:
+                    await self._stop_process(state)
+                    return self._persist_cancelled(request.execution_id, started_at)
                 stdin_bytes = request.input_text.encode() if request.input_text else None
                 (
                     stdout_bytes,
@@ -129,12 +153,7 @@ class SidecarExecutor:
                 returncode = proc.returncode
             except TimeoutError:
                 timed_out = True
-                # Try to kill the process
-                try:
-                    proc.kill()  # type: ignore[possibly-undefined]
-                    await proc.wait()  # type: ignore[possibly-undefined]
-                except Exception:  # noqa: BLE001
-                    pass
+                await self._stop_process(state)
                 stdout_bytes = b""
                 stderr_bytes = b"Execution timed out"
                 stdout_truncated = False
@@ -145,7 +164,7 @@ class SidecarExecutor:
             status = "completed" if returncode == 0 else "failed"
             if timed_out:
                 status = "failed"
-            if request.execution_id in self._cancelled:
+            if state.cancel_requested:
                 status = "cancelled"
 
             stdout = stdout_bytes.decode(errors="replace")
@@ -163,23 +182,32 @@ class SidecarExecutor:
                 stderr_truncated=stderr_truncated,
             )
             self._executions[request.execution_id] = response
-            self._cancelled.discard(request.execution_id)
             return response
 
+        except asyncio.CancelledError:
+            state.cancel_requested = True
+            await asyncio.shield(self._stop_process(state))
+            self._persist_cancelled(request.execution_id, started_at)
+            raise
+
         finally:
-            self._active_processes.pop(request.execution_id, None)
             # Step 4: Cleanup network
-            try:
-                await self._run_cmd(
-                    self._docker_binary,
-                    "network",
-                    "rm",
-                    network_name,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning("Failed to remove network %s", network_name)
-            if self._active_tasks.get(request.execution_id) is execution_task:
-                self._active_tasks.pop(request.execution_id, None)
+            if state.cleanup_required:
+                try:
+                    await asyncio.shield(
+                        self._run_cmd(
+                            self._docker_binary,
+                            "network",
+                            "rm",
+                            network_name,
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed to remove network %s", network_name)
+            state.cleanup_done.set()
+            async with self._registry_lock:
+                if self._states.get(request.execution_id) is state:
+                    self._states.pop(request.execution_id, None)
 
     async def get_status(self, execution_id: str) -> SidecarStatusResponse | None:
         """Return the status of a previously submitted execution."""
@@ -200,31 +228,42 @@ class SidecarExecutor:
 
     async def cancel(self, execution_id: str) -> None:
         """Stop an active execution and persist an observable cancelled status."""
-        process = self._active_processes.get(execution_id)
-        response = self._executions.get(execution_id)
-        if process is None and response is None:
+        async with self._registry_lock:
+            state = self._states.get(execution_id)
+        if state is None:
             return
-        if process is None and response is not None and response.status != "running":
-            return
-        self._cancelled.add(execution_id)
-        if process is not None and process.returncode is None:
+        state.cancel_requested = True
+        await self._stop_process(state)
+        self._persist_cancelled(execution_id, time.perf_counter())
+        if state.task is not asyncio.current_task():
+            with suppress(asyncio.CancelledError):
+                await asyncio.shield(state.task)
+        await state.cleanup_done.wait()
+
+    async def _stop_process(self, state: _ExecutionState) -> None:
+        async with state.lock:
+            process = state.process
+            if state.stop_started or process is None or process.returncode is not None:
+                return
+            state.stop_started = True
             process.kill()
             await process.wait()
-        if response is not None:
-            self._executions[execution_id] = SidecarExecuteResponse(
-                execution_id=execution_id,
-                status="cancelled",
-                returncode=response.returncode,
-                stdout=response.stdout,
-                stderr=response.stderr,
-                duration_seconds=response.duration_seconds,
-                timed_out=response.timed_out,
-                stdout_truncated=response.stdout_truncated,
-                stderr_truncated=response.stderr_truncated,
-            )
-        execution_task = self._active_tasks.get(execution_id)
-        if execution_task is not None and execution_task is not asyncio.current_task():
-            await asyncio.shield(execution_task)
+
+    def _persist_cancelled(self, execution_id: str, started_at: float) -> SidecarExecuteResponse:
+        previous = self._executions.get(execution_id)
+        response = SidecarExecuteResponse(
+            execution_id=execution_id,
+            status="cancelled",
+            returncode=previous.returncode if previous else None,
+            stdout=previous.stdout if previous else "",
+            stderr=previous.stderr if previous else "",
+            duration_seconds=time.perf_counter() - started_at,
+            timed_out=previous.timed_out if previous else False,
+            stdout_truncated=previous.stdout_truncated if previous else False,
+            stderr_truncated=previous.stderr_truncated if previous else False,
+        )
+        self._executions[execution_id] = response
+        return response
 
     async def _communicate_bounded(
         self,
