@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1.1] - 2026-08-10
+
+### Added
+
+- A conformance test pinning that the acceptance transport puts *every* frame of an
+  opening sequence on the wire, in order. The real proof is `gateway_websocket` against
+  a live Agent Server, but that only holds if the transport actually sends the frames;
+  this fails directly instead of surfacing as an ordering mismatch layers up.
+
 ## [0.22.1] - 2026-08-10
 
 ### Added

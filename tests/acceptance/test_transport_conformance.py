@@ -41,20 +41,37 @@ _IDENTITY = {
 _CANDIDATE_DIGEST = identity_digest(_IDENTITY)
 
 
+async def _stream_fixture(websocket: WebSocket, path: str) -> None:
+    """Answer a stream the way the contract under test expects it to be answered."""
+    await websocket.accept()
+    first = await websocket.receive_json()
+    if "sequence" in path:
+        # Echo the whole opening sequence back so a caller can prove every frame
+        # reached the wire, in order, rather than only the first or only the last.
+        second = await websocket.receive_json()
+        frames = [first, second]
+        for sequence, frame in enumerate(frames, start=1):
+            await websocket.send_json(
+                {"type": "event", "sequence": sequence, "event": frame.get("method")}
+            )
+        await websocket.close()
+        return
+    names = (
+        ["metadata", "values"]
+        if "gateway" in path
+        else ["run.started", "node.completed", "run.completed"]
+    )
+    for sequence, name in enumerate(names, start=1):
+        await websocket.send_json({"event": name, "sequence": sequence})
+    await websocket.close()
+
+
 def _fixture_app() -> FastAPI:
     app = FastAPI()
 
     @app.websocket("/{path:path}")
     async def websocket_fixture(websocket: WebSocket, path: str) -> None:
-        await websocket.accept()
-        await websocket.receive_json()
-        if "gateway" in path:
-            names = ["metadata", "values"]
-        else:
-            names = ["run.started", "node.completed", "run.completed"]
-        for sequence, name in enumerate(names, start=1):
-            await websocket.send_json({"event": name, "sequence": sequence})
-        await websocket.close()
+        await _stream_fixture(websocket, path)
 
     done_audit = [{"node_id": "finish-step", "status": "completed"}]
     # A dispatch table rather than a branch ladder: the mock's job is to answer the
@@ -248,3 +265,38 @@ async def test_the_runner_drives_a_whole_contract_over_real_sockets(
     assert not failed, failed
     assert report.status is ScenarioStatus.PASSED
     assert len(report.scenarios) == 17
+
+
+async def test_the_transport_sends_every_frame_of_an_opening_sequence_in_order(
+    deployed_fixture: str, tmp_path: Path
+) -> None:
+    """A stream protocol is a conversation, so every frame must reach the wire, in order.
+
+    The shipped `gateway_websocket` scenario proves this against a real Agent Server,
+    which is the stronger evidence — but only if the transport genuinely sends all the
+    frames. This pins that on its own, so a change that sent just the first or just the
+    last one fails here rather than surfacing as a confusing ordering mismatch layers up.
+    """
+    identity_path = tmp_path / "identity.json"
+    identity_path.write_text(json.dumps(_IDENTITY), encoding="utf-8")
+    config = AcceptanceConfig.model_validate(
+        {
+            "schema_version": 1,
+            "base_url": deployed_fixture,
+            "tenant_id": "acceptance-tenant",
+            "deployment_ref": "candidate",
+            "candidate_identity": str(identity_path),
+            "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
+        }
+    ).resolve({"OP": "operator", "REV": "reviewer", "ADM": "admin"}, run_id="01234567")
+
+    async with AcceptanceTransport(config) as transport:
+        events = await transport.websocket_events(
+            "operator",
+            "/sequence",
+            None,
+            max_events=2,
+            frames=[{"id": 1, "method": "first"}, {"id": 2, "method": "second"}],
+        )
+
+    assert [event["event"] for event in events] == ["first", "second"]
