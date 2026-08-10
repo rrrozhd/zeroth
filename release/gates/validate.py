@@ -302,6 +302,45 @@ def _binding_result(
     return None
 
 
+def _identity_result(
+    gate: dict[str, Any], report: dict[str, Any], candidate: dict[str, Any]
+) -> GateResult | None:
+    """Tie the report to its candidate record, then to what actually answered.
+
+    The digest and image checks compare the report against the identity artifact it was
+    produced from, so they establish provenance — this report belongs to this candidate
+    record — and not what was running at the URL. A binding to the serving *image*
+    additionally needs a platform receipt naming the digest it deployed; until one
+    exists this is the strongest available, and a gate that overstates what it proves is
+    worse than one that proves less, because the first is trusted.
+    """
+    if report.get("candidate_digest") != identity_digest(candidate):
+        return GateResult(
+            gate["id"],
+            MISMATCHED,
+            "deployed acceptance candidate digest belongs to a different build",
+        )
+    if canonical(report.get("image_identity")) != canonical(candidate.get("image")):
+        return GateResult(
+            gate["id"],
+            MISMATCHED,
+            "deployed acceptance image identity belongs to a different build",
+        )
+    observed = report.get("observed_deployment")
+    if not isinstance(observed, dict) or not observed.get("deployment_ref"):
+        return GateResult(
+            gate["id"], PARTIAL, "report records nothing the deployment said about itself"
+        )
+    if observed.get("deployment_ref") != report.get("deployment_ref"):
+        return GateResult(
+            gate["id"],
+            MISMATCHED,
+            "the deployment served a different reference than the suite targeted: "
+            f"{observed.get('deployment_ref')!r} vs {report.get('deployment_ref')!r}",
+        )
+    return None
+
+
 def _deployed_acceptance_result(
     gate: dict[str, Any],
     record: dict[str, Any],
@@ -318,18 +357,9 @@ def _deployed_acceptance_result(
         return GateResult(gate["id"], PARTIAL, f"deployed acceptance report is unreadable: {error}")
     if not isinstance(report, dict) or report.get("schema_version") != 1:
         return GateResult(gate["id"], PARTIAL, "deployed acceptance report schema is invalid")
-    if report.get("candidate_digest") != identity_digest(candidate):
-        return GateResult(
-            gate["id"],
-            MISMATCHED,
-            "deployed acceptance candidate digest belongs to a different build",
-        )
-    if canonical(report.get("image_identity")) != canonical(candidate.get("image")):
-        return GateResult(
-            gate["id"],
-            MISMATCHED,
-            "deployed acceptance image identity belongs to a different build",
-        )
+    identity = _identity_result(gate, report, candidate)
+    if identity is not None:
+        return identity
     tenant = report.get("tenant_id")
     namespace = report.get("namespace")
     if not isinstance(tenant, str) or not tenant.startswith("acceptance-"):

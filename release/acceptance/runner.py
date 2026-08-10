@@ -83,6 +83,7 @@ class AcceptanceRunner:
             "candidate_digest": config.candidate_digest,
         }
         self._observed_compatibility: dict[str, Any] | None = None
+        self._observed_deployment: dict[str, Any] | None = None
         self._scenario_name = ""
         self._owned_resources: set[str] = set()
 
@@ -254,6 +255,15 @@ class AcceptanceRunner:
             self._owned_resources.add(owned)
         if self._scenario_name == "compatibility" and isinstance(body, dict):
             self._record_compatibility(body)
+        if self._scenario_name == "deployment" and isinstance(body, dict):
+            # What the deployment says it is, in its own words. The report otherwise
+            # carries only what the harness was configured with, which cannot disagree
+            # with itself and so cannot fail.
+            self._observed_deployment = {
+                key: body[key]
+                for key in ("deployment_ref", "deployment_version", "graph_version_ref")
+                if key in body
+            }
 
     def _record_compatibility(self, body: dict[str, Any]) -> None:
         """Lift the Agent Server verdict out of whatever response carried it.
@@ -358,6 +368,7 @@ class AcceptanceRunner:
             candidate_digest=self.config.candidate_digest,
             image_identity=self.config.candidate_identity["image"],
             observed_compatibility=self._observed_compatibility,
+            observed_deployment=self._observed_deployment,
             started_at=started,
             finished_at=datetime.now(UTC),
             scenarios=scenarios,

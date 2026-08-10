@@ -491,6 +491,7 @@ class AcceptanceReport(BaseModel):
     candidate_digest: str
     image_identity: dict[str, str]
     observed_compatibility: dict[str, Any] | None = None
+    observed_deployment: dict[str, Any] | None = None
     started_at: datetime
     finished_at: datetime
     scenarios: list[ScenarioResult]

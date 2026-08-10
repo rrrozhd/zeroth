@@ -143,3 +143,38 @@ def test_deployed_acceptance_marker_is_deselected_by_default() -> None:
 
     assert "deployed_acceptance:" in project
     assert "not deployed_acceptance" in project
+
+
+def test_the_gate_needs_a_fact_the_deployment_stated_about_itself(
+    manifest, candidate, evidence
+) -> None:
+    """Provenance is not the same claim as "this is what was running".
+
+    The digest and image checks compare the report against the identity artifact it was
+    produced from, so they can only ever agree — useful for provenance, worthless as
+    evidence about the target. The gate additionally requires something the deployment
+    said in its own words, and this proves that requirement can fail rather than merely
+    being present.
+    """
+    from gates.validate import validate_gate
+
+    gate = next(item for item in manifest["gates"] if item["id"] == "remote-acceptance")
+    record = json.loads((evidence / gate["record"]).read_text(encoding="utf-8"))
+    report_path = evidence / record["kinds"]["deployment"]
+    original = json.loads(report_path.read_text(encoding="utf-8"))
+
+    # A report that observed nothing cannot claim to have reached anything.
+    silent = dict(original)
+    silent.pop("observed_deployment", None)
+    report_path.write_text(json.dumps(silent), encoding="utf-8")
+    result = validate_gate(gate, candidate, evidence)
+    assert result.status == "partial"
+    assert "nothing the deployment said" in result.reason
+
+    # A deployment serving something other than the target the suite aimed at.
+    elsewhere = dict(original)
+    elsewhere["observed_deployment"] = {"deployment_ref": "some-other-deployment"}
+    report_path.write_text(json.dumps(elsewhere), encoding="utf-8")
+    result = validate_gate(gate, candidate, evidence)
+    assert result.status == "mismatched"
+    assert "served a different reference" in result.reason

@@ -133,6 +133,11 @@ def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
                         "status": "supported",
                         "detected_agent_server": "0.11.1",
                     },
+                    "observed_deployment": {
+                        "deployment_ref": "candidate",
+                        "deployment_version": 1,
+                        "graph_version_ref": "graph@1",
+                    },
                     "started_at": "2026-08-08T12:00:00Z",
                     "finished_at": "2026-08-08T12:01:00Z",
                     "scenarios": [
