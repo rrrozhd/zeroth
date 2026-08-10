@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.5] - 2026-08-10
+
+### Fixed
+
+- Constructor fields hidden from the protected-surface gate are recorded in one
+  shrink-only list, checked in both directions. Ten classes assign `__signature__` to drop
+  parameters; nothing named the total, so the gate reported the surface as pinned while
+  `PolicyDefinition` had grown to fifteen fields behind eight parameters (ZER-41 / A03-14).
+- The Agent Server conformance manifest declares which pinned upstream operations the
+  gateway does not implement. `projected >= claimed` cannot see an operation the gateway
+  silently stops implementing, because dropping a claim still satisfies the relation
+  (ZER-41 / A10-10).
+
 ## [0.22.2.4] - 2026-08-10
 
 ### Fixed

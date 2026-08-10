@@ -703,3 +703,78 @@ def test_a_failed_console_install_is_recorded_as_a_failed_console_suite() -> Non
     )
 
     assert 'if [ "${NPM_CI}" -ne 0 ]; then VITEST=1; fi' in script
+
+
+# ---------------------------------------------------------------------------
+# R14, R17 -- exemptions applied in code, recorded nowhere
+# ---------------------------------------------------------------------------
+
+
+def test_unsupported_operations_are_declared_rather_than_inferred() -> None:
+    """A superset assertion is blind in one direction, so the difference is named.
+
+    ``projected >= claimed`` catches a claim the upstream cannot honour. It
+    cannot catch an operation the gateway silently stops implementing: dropping
+    a claim only makes the claimed set smaller, which still satisfies the
+    relation. Before ZER-41 there was no ``KNOWN_UNSUPPORTED`` sibling anywhere.
+    """
+    pytest.importorskip("langgraph", reason="requires the gateway-conformance group")
+    from tests.langgraph_gateway.conformance.cases import (
+        CLAIMED_OPERATIONS,
+        KNOWN_UNSUPPORTED_OPERATIONS,
+    )
+
+    projection = json.loads(
+        (ROOT / "tests/langgraph_gateway/fixtures/openapi-0.11.1.operations.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    projected = {(method, path) for method, path, _ in projection["operations"]}
+    projected.add(("GET", "/openapi.json"))
+
+    assert KNOWN_UNSUPPORTED_OPERATIONS
+    assert projected - CLAIMED_OPERATIONS == KNOWN_UNSUPPORTED_OPERATIONS
+    # The two sets partition the projection: nothing is both claimed and declared
+    # unsupported, and nothing falls outside both.
+    assert not (CLAIMED_OPERATIONS & KNOWN_UNSUPPORTED_OPERATIONS)
+    assert projected == CLAIMED_OPERATIONS | KNOWN_UNSUPPORTED_OPERATIONS
+
+
+def test_dropping_a_claimed_operation_is_visible_to_the_exact_assertion() -> None:
+    """The shape the superset relation could not see, exercised directly."""
+    pytest.importorskip("langgraph", reason="requires the gateway-conformance group")
+    from tests.langgraph_gateway.conformance.cases import (
+        CLAIMED_OPERATIONS,
+        KNOWN_UNSUPPORTED_OPERATIONS,
+    )
+
+    projected = CLAIMED_OPERATIONS | KNOWN_UNSUPPORTED_OPERATIONS
+    dropped = sorted(CLAIMED_OPERATIONS)[0]
+    reduced = CLAIMED_OPERATIONS - {dropped}
+
+    # A superset assertion still holds after the drop -- which is the defect.
+    assert projected >= reduced
+    # The exact assertion does not.
+    assert projected - reduced != KNOWN_UNSUPPORTED_OPERATIONS
+
+
+def test_every_hidden_constructor_field_is_recorded() -> None:
+    """Ten classes hide fields from the protected-surface gate; all are written down.
+
+    ``PolicyDefinition`` reports eight constructor parameters and carries fifteen
+    fields. The idiom is deliberate -- the canonical surface fixture pins
+    signatures -- but nothing recorded the total, so the gate reported the surface
+    as pinned while the constructor had grown.
+    """
+    import importlib
+
+    from tests.contracts.test_signature_exclusions import (
+        HIDDEN_CONSTRUCTOR_FIELDS,
+        hidden_fields,
+    )
+
+    assert HIDDEN_CONSTRUCTOR_FIELDS
+    for reference, recorded in HIDDEN_CONSTRUCTOR_FIELDS.items():
+        module, _, name = reference.partition(":")
+        target = getattr(importlib.import_module(module), name)
+        assert hidden_fields(target) == set(recorded), reference
