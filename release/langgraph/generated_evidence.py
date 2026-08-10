@@ -77,6 +77,34 @@ def _sha256(value: Any) -> bool:
     return re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is not None
 
 
+def _digest_bound_to_the_daemon(image: dict[str, Any]) -> bool:
+    """Whether the recorded digest is tied to a value ``docker image inspect`` produced.
+
+    The application image's digest used to be read out of the SBOM, so a digest
+    tampered *consistently* across the SBOM, this file and the package evidence
+    validated clean: every check compared the SBOM with itself, and agreeing with
+    itself was all a forged digest had to do.
+
+    The binding has to survive that tamper, which means resting on the one field
+    it leaves alone -- ``id``, the config digest the daemon reports and the SBOM
+    never supplies. Two rules, by the image's role:
+
+    * **the application image** is built by the release workflow and *not pushed*
+      before this evidence is generated, so the daemon has no registry digest for
+      it. Its ``repo_digests`` must therefore be empty and its digest must equal
+      its ``id``. If the pipeline ever pushes first, this fails loudly and the
+      change becomes a decision rather than a silent hole.
+    * **a base image** is pulled, so it must carry the registry digest it was
+      pulled by, and the recorded digest must be one of them. Recording a base
+      image with no registry digest at all used to be accepted.
+    """
+    digest = str(image.get("digest"))
+    repo_digests = image.get("repo_digests") or []
+    if str(image.get("reference", "")).startswith("zeroth-core:"):
+        return not repo_digests and digest == str(image.get("id"))
+    return any(str(entry).endswith(f"@{digest}") for entry in repo_digests)
+
+
 def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
     value = _json_file(path, "image compatibility evidence", errors)
     images = value.get("images") if value else None
@@ -90,6 +118,7 @@ def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
             and _sha256(image.get("id"))
             and _sha256(image.get("digest"))
             and isinstance(image.get("repo_digests"), list)
+            and _digest_bound_to_the_daemon(image)
             for image in images or []
         )
     )

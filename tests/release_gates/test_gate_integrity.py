@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -404,3 +405,87 @@ def test_the_errexit_guard_reports_a_deliberately_broken_block(script: str, expe
 def test_the_errexit_guard_accepts_the_correct_shapes(script: str) -> None:
     """A guard that rejected the working shapes would be unusable, not strict."""
     assert errexit_capture_problems(script) == []
+
+
+# ---------------------------------------------------------------------------
+# R5 -- the image digest comes from the daemon, not from the SBOM
+# ---------------------------------------------------------------------------
+
+
+def _release_langgraph_module(name: str):
+    import importlib
+
+    path = str(ROOT / "release/langgraph")
+    if path not in sys.path:
+        sys.path.insert(0, path)
+    return importlib.import_module(name)
+
+
+def _sbom_claiming(tmp_path: Path, reference: str, digest: str) -> Path:
+    path = tmp_path / "image.spdx.json"
+    path.write_text(
+        json.dumps(
+            {
+                "packages": [
+                    {
+                        "name": reference,
+                        "primaryPackagePurpose": "CONTAINER",
+                        "versionInfo": digest,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_image_digest_producer_refuses_an_sbom_that_names_another_image(tmp_path: Path) -> None:
+    """The producer stops copying the SBOM's claim and starts checking it.
+
+    Before this, the application image's recorded digest *was* ``_spdx_digest``'s
+    return value, so a forged SBOM decided what the release said it had built.
+    """
+    smoke = _release_langgraph_module("runtime_smoke")
+    reference = "zeroth-core:v0.0.0"
+    inspected = {"Id": "sha256:" + "a" * 64, "RepoDigests": []}
+
+    honest = _sbom_claiming(tmp_path, reference, inspected["Id"])
+    assert smoke._bound_application_digest(inspected, honest, reference) == inspected["Id"]
+
+    forged = _sbom_claiming(tmp_path, reference, "sha256:" + "9" * 64)
+
+    with pytest.raises(RuntimeError, match="does not describe the built image"):
+        smoke._bound_application_digest(inspected, forged, reference)
+
+
+def test_image_digest_producer_prefers_a_registry_digest_when_one_exists(tmp_path: Path) -> None:
+    """A pushed image has a registry digest, and that is the supply-chain reference."""
+    smoke = _release_langgraph_module("runtime_smoke")
+    registry = "sha256:" + "b" * 64
+    inspected = {"Id": "sha256:" + "a" * 64, "RepoDigests": [f"zeroth-core@{registry}"]}
+
+    assert smoke._resolved_digest(inspected) == registry
+
+
+def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
+    """`docker image inspect` really has `Id` and `RepoDigests`, on this machine.
+
+    The producer's contract is with the daemon, not with a fixture, so one live
+    call keeps the stubs above honest. Skipped where Docker is unavailable, which
+    is the only reason a stubbed contract would ever drift unnoticed.
+    """
+    if shutil.which("docker") is None:  # pragma: no cover - environment dependent
+        pytest.skip("docker is not installed")
+    listing = subprocess.run(
+        ["docker", "image", "ls", "--quiet"], check=False, capture_output=True, text=True
+    )
+    if listing.returncode != 0 or not listing.stdout.strip():  # pragma: no cover
+        pytest.skip("no local image to inspect")
+
+    smoke = _release_langgraph_module("runtime_smoke")
+    inspected = smoke._inspect_image(listing.stdout.split()[0])
+
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(inspected["Id"]))
+    assert isinstance(inspected.get("RepoDigests", []), list)
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", smoke._resolved_digest(inspected))

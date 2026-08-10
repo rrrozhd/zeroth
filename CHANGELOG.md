@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.2] - 2026-08-10
+
+### Fixed
+
+- Performance thresholds no longer derive from the baseline they police. They are literals
+  now, the baseline file is pinned by SHA-256, and a test recomputes each literal from the
+  pinned content so the derivation stays checked. Scaling every baseline metric by ten used
+  to scale every threshold by ten and validate clean (ZER-41 / A15-3, A15-6).
+- The application image's digest comes from `docker image inspect`, and the SBOM is checked
+  against it rather than supplying it. A digest forged consistently across `image.spdx.json`,
+  `image-compatibility.json` and `image-packages.json` used to validate clean, because every
+  check compared the SBOM with itself (ZER-41 / A15-4).
+- A base image recorded with no registry digest is rejected instead of being accepted with
+  an arbitrary `sha256:<64hex>` (ZER-41 / A15-10).
+
 ## [0.22.2.1] - 2026-08-10
 
 ### Fixed

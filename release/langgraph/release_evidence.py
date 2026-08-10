@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any
 
 from generated_evidence import validate_generated
 from langgraph_benchmark import (
+    BASELINE_DIGEST,
     CURRENT_RELEASE,
     DISTRIBUTION_NAMES,
     PREVIOUS_RELEASE,
@@ -158,6 +160,25 @@ def _validate_compatibility(path: Path, errors: list[str]) -> dict[str, Any] | N
 
 
 def _validate_baseline(path: Path, errors: list[str]) -> dict[str, Any] | None:
+    # The schema check below constrains keys, the release name, the sample count,
+    # the hardware and the provenance -- but never the metric *values*. Scaling
+    # every metric by ten produced an empty error list, and (before the thresholds
+    # became literals) scaled every threshold by ten with it. The digest is what
+    # makes the baseline a fixed reference rather than an input the candidate can
+    # move: it is pinned next to the thresholds it produced, so the two can only
+    # be changed together.
+    try:
+        actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        errors.append(f"performance baseline is unreadable: {error}")
+        return None
+    if actual != BASELINE_DIGEST:
+        errors.append(
+            "performance baseline does not match the digest the thresholds were derived "
+            f"from: expected {BASELINE_DIGEST}, found {actual}"
+        )
+        return None
+
     value = _json_file(path, "performance baseline", errors)
     expected_keys = {
         "schema_version",
