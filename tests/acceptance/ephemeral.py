@@ -16,6 +16,7 @@ before/after anchors for reasons that have nothing to do with durability.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import secrets
 import socket
@@ -51,6 +52,8 @@ ARTIFACT_CONTRACT = "contract://acceptance-artifact-output"
 DEPLOYMENT_REF = "acceptance-candidate"
 TENANT_ID = "acceptance-ephemeral-leg"
 SHELL_GRAPH = "release.langgraph.shell_graph:graph"
+POLICY_ID = "acceptance-assistant-allowlist"
+ALLOWED_ASSISTANT = "shell"
 _START_DEADLINE_SECONDS = 20.0
 _AGENT_SERVER_DEADLINE_SECONDS = 60.0
 _STOP_DEADLINE_SECONDS = 20.0
@@ -143,6 +146,7 @@ class EphemeralCandidate:
         # scenarios that need something upstream to govern should pay for it.
         self.with_agent_server = with_agent_server
         self._agent_server: subprocess.Popen | None = None
+        self._agent_server_port: int | None = None
         self.agent_server_url: str | None = None
         self.deployment_ref = deployment_ref
         self.tenant_id = tenant_id
@@ -202,6 +206,9 @@ class EphemeralCandidate:
         )
 
     def _start_agent_server(self) -> None:
+        self._start_agent_server_on(_free_port())
+
+    def _start_agent_server_on(self, port: int) -> None:
         """Run the real Agent Server on the shell application.
 
         The same recipe the conformance harness uses, which is green in CI on every
@@ -210,7 +217,7 @@ class EphemeralCandidate:
         against a pinned hash, and a hand-written server can only pass that by being
         handed the answer.
         """
-        port = _free_port()
+        self._agent_server_port = port
         environment = os.environ.copy()
         environment.update(
             {
@@ -261,6 +268,14 @@ class EphemeralCandidate:
                 "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL": str(self.agent_server_url),
                 "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE": "acceptance-shell",
                 "ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF": self.deployment_ref,
+                # A real policy, evaluated by the real guard. The allow-list omits the
+                # -deny assistant, so the refusal comes from admission logic rather
+                # than from anything this harness returns. There is no denied_assistants
+                # field: admission denies by absence from an allow-list.
+                "ZEROTH_LANGGRAPH_GATEWAY__POLICY_BINDINGS": json.dumps([POLICY_ID]),
+                "ZEROTH_POLICY__DEFINITIONS": json.dumps(
+                    [{"policy_id": POLICY_ID, "allowed_assistants": [ALLOWED_ASSISTANT]}]
+                ),
                 # Bootstrap refuses to build a gateway behind a NullSigner, and it is
                 # right to: an unsigned deployment cannot attest anything it proxies.
                 "SIGNING_DEPLOYMENT": secrets.token_hex(32),
@@ -434,6 +449,15 @@ class EphemeralCandidate:
         # uvicorn closed the descriptor it was serving on; drop our handle so the
         # next boot binds a fresh socket to the same port.
         self._listener = None
+
+    async def start_upstream(self) -> None:
+        """Put the Agent Server back on the port the gateway is configured for."""
+        if self._agent_server is not None:
+            return
+        self._start_agent_server_on(self._agent_server_port)
+
+    async def stop_upstream(self) -> None:
+        await self.stop_agent_server()
 
     async def stop_agent_server(self) -> None:
         """Take the upstream away, for real.

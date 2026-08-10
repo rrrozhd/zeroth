@@ -29,6 +29,14 @@ class LifecycleController(Protocol):
         """Begin draining and return once readiness has been withdrawn."""
         ...
 
+    async def stop_upstream(self) -> None:
+        """Remove the governed upstream, so the gateway must discover it is gone."""
+        ...
+
+    async def start_upstream(self) -> None:
+        """Put the governed upstream back."""
+        ...
+
 
 class HttpLifecycleController:
     """Drive platform-owned lifecycle endpoints on the deployment's own origin."""
@@ -49,3 +57,12 @@ class HttpLifecycleController:
 
     async def shutdown(self) -> None:
         await self._post(self._config.shutdown_url, self._config.shutdown_status)
+
+    async def stop_upstream(self) -> None:
+        raise LifecycleError(
+            "this platform exposes no way to remove the upstream; the 502 path needs a "
+            "controller that owns the Agent Server"
+        )
+
+    async def start_upstream(self) -> None:
+        raise LifecycleError("this platform exposes no way to restore the upstream")

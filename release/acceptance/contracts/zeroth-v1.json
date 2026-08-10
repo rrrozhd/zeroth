@@ -474,40 +474,62 @@
           "protocol": "http",
           "role": "operator",
           "method": "POST",
-          "path": "/runs",
+          "path": "/runs/wait",
           "payload": {
-            "assistant_id": "{namespace}-allow"
+            "assistant_id": "shell",
+            "input": {
+              "value": 1
+            }
           },
           "expected_status": 200,
+          "expected_json": {
+            "echoed": "1"
+          },
           "require_correlation": true
         },
         {
           "protocol": "http",
           "role": "operator",
           "method": "POST",
-          "path": "/runs",
+          "path": "/runs/wait",
           "payload": {
-            "assistant_id": "{namespace}-deny"
+            "assistant_id": "{namespace}-deny",
+            "input": {
+              "value": 1
+            }
           },
           "expected_status": 403,
-          "require_correlation": true,
           "expected_json": {
             "code": "zeroth.policy_denied"
-          }
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "lifecycle",
+          "role": "admin",
+          "operation": "stop_upstream"
         },
         {
           "protocol": "http",
           "role": "operator",
           "method": "POST",
-          "path": "/runs",
+          "path": "/runs/wait",
           "payload": {
-            "assistant_id": "{namespace}-upstream-failure"
+            "assistant_id": "shell",
+            "input": {
+              "value": 1
+            }
           },
           "expected_status": 502,
-          "require_correlation": true,
           "expected_json": {
             "code": "zeroth.upstream_unavailable"
-          }
+          },
+          "require_correlation": true
+        },
+        {
+          "protocol": "lifecycle",
+          "role": "admin",
+          "operation": "start_upstream"
         }
       ]
     },

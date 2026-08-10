@@ -177,10 +177,13 @@ class AcceptanceRunner:
         return await self._execute_websocket(step, path)
 
     async def _execute_lifecycle(self, step: AcceptanceStep) -> StepObservation:
-        if step.operation == "restart":
-            await self.lifecycle.restart()
-        else:
-            await self.lifecycle.shutdown()
+        operations = {
+            "restart": self.lifecycle.restart,
+            "shutdown": self.lifecycle.shutdown,
+            "stop_upstream": self.lifecycle.stop_upstream,
+            "start_upstream": self.lifecycle.start_upstream,
+        }
+        await operations[str(step.operation)]()
         return StepObservation(protocol="lifecycle", path=step.operation or "")
 
     async def _execute_http(self, step: AcceptanceStep, path: str) -> StepObservation:

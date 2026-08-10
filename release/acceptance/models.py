@@ -94,7 +94,7 @@ class AcceptanceStep(BaseModel):
     max_events: int | None = None
     ordered_events: list[str] = Field(default_factory=list)
     resource_id: str | None = None
-    operation: Literal["restart", "shutdown"] | None = None
+    operation: Literal["restart", "shutdown", "stop_upstream", "start_upstream"] | None = None
     poll: bool = False
     count_path: str | None = None
     count_where: dict[str, Any] = Field(default_factory=dict)
@@ -360,8 +360,10 @@ class AcceptanceContract(BaseModel):
         the `approvals` scenario proves them against the real approval API.
         """
         steps = self.scenarios["gateway_http"].steps
-        if not all(step.require_correlation for step in steps):
-            raise ValueError("gateway_http must require a correlation id on every step")
+        # Every request must be correlated. Lifecycle steps are platform actions, not
+        # requests, so they carry no correlation and are not held to it.
+        if not all(step.require_correlation for step in steps if step.protocol == "http"):
+            raise ValueError("gateway_http must require a correlation id on every request")
         if not any(200 <= (step.expected_status or 0) < 300 for step in steps):
             raise ValueError("gateway_http must prove an admitted request reaches upstream")
 

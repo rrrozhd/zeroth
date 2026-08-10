@@ -211,7 +211,6 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
 # cannot produce. Those are product questions, not missing fixtures.
 AGENT_SERVER_SCENARIOS = frozenset(
     {
-        "gateway_http",
         "gateway_websocket",
     }
 )
