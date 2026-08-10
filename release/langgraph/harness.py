@@ -14,7 +14,7 @@ from runtime_smoke import (
     gateway_smoke,
     installed_package_evidence,
     resolved_image_evidence,
-    serve_mock_upstream,
+    serve_shell_agent_server,
     smoke,
 )
 
@@ -38,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     gateway_probe = commands.add_parser("gateway-smoke")
     gateway_probe.add_argument("--url", default="http://127.0.0.1:8000/assistants/release-smoke")
     gateway_probe.add_argument("--api-key", required=True)
-    fixture = commands.add_parser("mock-upstream")
+    fixture = commands.add_parser("shell-agent-server")
     fixture.add_argument("--host", default="0.0.0.0")
     fixture.add_argument("--port", type=int, default=8123)
     images = commands.add_parser("image-evidence")
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             installed_package_evidence(args.image, args.compatibility, args.image_evidence),
         )
         return 0
-    serve_mock_upstream(args.host, args.port)
+    serve_shell_agent_server(args.host, args.port)
     return 0
 
 
