@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1.1.1] - 2026-08-10
+
+### Fixed
+
+- Regenerated `docs/reference/configuration.md` for `ZEROTH_POLICY__DEFINITIONS`, added in
+  v0.22 without refreshing the generated reference. The docs drift gate caught it.
+
 ## [0.22.1.1] - 2026-08-10
 
 ### Added
