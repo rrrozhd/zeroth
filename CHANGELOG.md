@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.1] - 2026-08-10
+
+### Fixed
+
+- Workflow steps that record a gate result now clear errexit before capturing an exit
+  status. GitHub's `shell: bash` runs with `-e` and `set -uo pipefail` does not clear it,
+  so a failing command aborted the step before its `VAR=$?` ran: every recorded status
+  could only ever be 0 and the gate result was decided by whichever command failed first.
+  Eight blocks across `release-gates.yml` and `release-zeroth-core.yml` were affected
+  (ZER-41 / A11-1, A11-2, A11-11).
+- The final release verdict now seals the evidence manifest as its comment always claimed.
+  Errexit aborted the step at the `verdict` call, so a blocked release was never sealed.
+
 ## [0.22.2] - 2026-08-10
 
 ### Fixed

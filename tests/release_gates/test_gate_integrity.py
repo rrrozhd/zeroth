@@ -12,6 +12,7 @@ makes the negative case fail by also breaking the honest case is caught here.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -237,3 +238,169 @@ def test_verify_outcomes_rejects_a_skipped_bound_node(tmp_path: Path) -> None:
         json.dumps({"schema_version": 1, "records": records}), encoding="utf-8"
     )
     assert verify_outcomes(SECURITY_MATRIX, "pr-critical", outcomes, output) == 0
+
+
+# ---------------------------------------------------------------------------
+# R6 -- a captured exit status must actually be captured
+# ---------------------------------------------------------------------------
+
+#: A status capture, in both shapes the workflows use: trailing on the command
+#: (``cmd; RC=$?``) and standing alone on the next line (``RC=$?``).
+_CAPTURE = re.compile(r"(?:^|;)\s*([A-Za-z_][A-Za-z0-9_]*)=\$\?\s*$")
+
+#: ``set`` invocations that toggle errexit. ``set -uo pipefail`` matches neither,
+#: which is the whole point: it leaves the inherited ``-e`` in place.
+_CLEARS_ERREXIT = re.compile(r"^set\b[^#]*\+[a-z]*e")
+_SETS_ERREXIT = re.compile(r"^set\b[^#]*-[a-z]*e")
+
+
+def _errexit_state(stripped: str, cleared: bool) -> bool:
+    """Whether errexit is cleared after ``stripped`` runs, given it was ``cleared``."""
+    if _CLEARS_ERREXIT.match(stripped):
+        return True
+    if _SETS_ERREXIT.match(stripped):
+        return False
+    return cleared
+
+
+def _uncapturable(script: str) -> tuple[list[str], dict[str, int], bool]:
+    """Captures made while errexit is enabled, every capture, and the closing state."""
+    problems: list[str] = []
+    captures: dict[str, int] = {}
+    cleared = False
+    for number, line in enumerate(script.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        cleared = _errexit_state(stripped, cleared)
+        match = _CAPTURE.search(stripped)
+        if match is None:
+            continue
+        captures.setdefault(match.group(1), number)
+        if not cleared:
+            problems.append(
+                f"line {number}: captures ${{{match.group(1)}}} with errexit still "
+                "enabled, so the capture never runs when the command fails"
+            )
+    return problems, captures, cleared
+
+
+def errexit_capture_problems(script: str) -> list[str]:
+    """Report ways a ``run:`` block's exit-status captures cannot mean what they say.
+
+    Three rules, named exactly -- this is a ratchet, not a proof that the script
+    is correct:
+
+    1. **The capture must run.** GitHub's ``shell: bash`` is invoked with ``-e``
+       and ``set -uo pipefail`` does not clear it, so a failing command aborts the
+       step *before* the following ``VAR=$?``. Every captured status could then
+       only ever be 0, and the recorded gate result was decided by whichever
+       command failed first rather than by the results being recorded.
+    2. **The capture must be used.** Clearing errexit and then discarding the
+       status is the same silence by a different route.
+    3. **The block must decide its own status.** Once errexit is cleared it has to
+       be restored, or the block has to ``exit`` explicitly; otherwise the step
+       succeeds on the exit code of whatever ran last.
+    """
+    problems, captures, cleared = _uncapturable(script)
+    if not captures:
+        return problems
+
+    problems.extend(
+        f"line {number}: captures ${{{name}}} and never reads it"
+        for name, number in captures.items()
+        if not re.search(rf"\$\{{{name}\}}|\${name}\b", script)
+    )
+    if cleared and not re.search(r"^\s*exit\b", script, re.MULTILINE):
+        problems.append(
+            "clears errexit and neither restores it nor exits explicitly, so the step "
+            "succeeds on whatever ran last"
+        )
+    return problems
+
+
+def _run_blocks() -> list[tuple[str, str]]:
+    """Every ``run:`` script in every workflow, as (where, script)."""
+    blocks: list[tuple[str, str]] = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                script = step.get("run")
+                if isinstance(script, str):
+                    blocks.append((f"{path.name}:{job_name}:{step.get('name')}", script))
+    return blocks
+
+
+def test_every_workflow_capture_site_can_actually_capture() -> None:
+    """The eight blocks A11-1, A11-2 and A11-11 name, plus any added later.
+
+    Measured before the fix: ``set -uo pipefail; false; echo REACHED`` under an
+    inherited ``-e`` printed nothing and exited 1, and so did the repo's exact
+    ``(subshell); VAR=$?`` shape. Every recorded gate result on those paths was
+    therefore decided by the first failure, not by the results.
+    """
+    problems = [
+        f"{where}: {problem}"
+        for where, script in _run_blocks()
+        for problem in errexit_capture_problems(script)
+    ]
+
+    assert not problems, "workflow status captures that cannot mean what they say:\n  " + (
+        "\n  ".join(problems)
+    )
+
+
+def test_at_least_one_workflow_block_is_actually_examined() -> None:
+    """A guard that inspects nothing passes for the wrong reason."""
+    examined = [where for where, script in _run_blocks() if "=$?" in script]
+
+    assert len(examined) >= 8, examined
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param(
+            "set -uo pipefail\nmake thing; RC=$?\nexit $RC\n",
+            "errexit still enabled",
+            id="errexit_left_enabled_before_the_capture",
+        ),
+        pytest.param(
+            "set -uo pipefail\nmake thing\nRC=$?\nexit $RC\n",
+            "errexit still enabled",
+            id="errexit_left_enabled_before_a_standalone_capture",
+        ),
+        pytest.param(
+            "set -uo pipefail\nset +e\nmake thing; RC=$?\nset -e\nrecord --result ok\n",
+            "never reads it",
+            id="errexit_cleared_but_the_status_is_discarded",
+        ),
+        pytest.param(
+            "set -uo pipefail\nset +e\nmake thing; RC=$?\nrecord --result $RC\n",
+            "neither restores it nor exits",
+            id="errexit_cleared_and_never_restored",
+        ),
+    ],
+)
+def test_the_errexit_guard_reports_a_deliberately_broken_block(script: str, expected: str) -> None:
+    """The guard fed the exact shapes it exists to catch."""
+    problems = errexit_capture_problems(script)
+
+    assert problems, script
+    assert any(expected in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "set -uo pipefail\nset +e\nmake thing; RC=$?\nset -e\nrecord --result $RC\n",
+        "set -uo pipefail\nset +e\nmake thing; RC=$?\ncat report\nexit \"${RC}\"\n",
+        'set +e\nmake a; A=$?\nmake b\nB=$?\n'
+        'if [ "${A}" -ne 0 ] || [ "${B}" -ne 0 ]; then\nexit 1\nfi\n',
+        "set -euo pipefail\nmake thing\nrecord --result ok\n",
+    ],
+)
+def test_the_errexit_guard_accepts_the_correct_shapes(script: str) -> None:
+    """A guard that rejected the working shapes would be unusable, not strict."""
+    assert errexit_capture_problems(script) == []
