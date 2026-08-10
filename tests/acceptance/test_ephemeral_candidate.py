@@ -64,6 +64,18 @@ async def _finish_node_executions(client: httpx.AsyncClient, run_id: str) -> int
 
 
 @pytest.fixture
+async def governed_candidate(tmp_path: Path):
+    """A candidate whose real gateway fronts a real Agent Server on the shell app."""
+    instance = EphemeralCandidate(tmp_path, with_agent_server=True)
+    await instance.provision()
+    await instance.serve()
+    try:
+        yield instance
+    finally:
+        await instance.aclose()
+
+
+@pytest.fixture
 async def candidate(tmp_path: Path):
     instance = EphemeralCandidate(tmp_path)
     await instance.provision()
@@ -190,20 +202,23 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
 # The two legs AC1 names are authoritative for different scenarios. Only what needs a
 # live Agent Server behind the gateway belongs to the remote leg, against a real
 # deployment, which is where release-gates.json binds `deployed-suite` to the candidate
-# image. Everything else the ephemeral leg proves on every change — including the
-# executable-unit failure path, which turns out to need no Agent Server at all: a run
-# whose input cannot be resolved against the deployment's contract is rejected outright.
+# image. Everything else the ephemeral leg proves on every change — including
+# compatibility, which a live shell Agent Server now settles here rather than remotely,
+# and the executable-unit failure path, which needs no Agent Server at all.
+#
+# What is left needs more than an upstream: gateway_http's 403 is unreachable while the
+# PolicyRegistry ships empty, and its 502 needs a transport failure a healthy server
+# cannot produce. Those are product questions, not missing fixtures.
 AGENT_SERVER_SCENARIOS = frozenset(
     {
         "gateway_http",
         "gateway_websocket",
-        "compatibility",
     }
 )
 
 
 async def test_the_product_contract_runs_against_the_ephemeral_candidate(
-    candidate: EphemeralCandidate, tmp_path: Path
+    governed_candidate: EphemeralCandidate, tmp_path: Path
 ) -> None:
     """Run the shipped contract, and pin exactly which scenarios this leg proves.
 
@@ -226,9 +241,9 @@ async def test_the_product_contract_runs_against_the_ephemeral_candidate(
     config = AcceptanceConfig.model_validate(
         {
             "schema_version": 1,
-            "base_url": candidate.base_url,
-            "tenant_id": candidate.tenant_id,
-            "deployment_ref": candidate.deployment_ref,
+            "base_url": governed_candidate.base_url,
+            "tenant_id": governed_candidate.tenant_id,
+            "deployment_ref": governed_candidate.deployment_ref,
             "candidate_identity": str(identity),
             "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
             "poll_deadline_seconds": 30,
@@ -246,21 +261,28 @@ async def test_the_product_contract_runs_against_the_ephemeral_candidate(
     )
 
     async with AcceptanceTransport(config) as transport:
-        report = await AcceptanceRunner(config, contract, transport, lifecycle=candidate).run()
+        report = await AcceptanceRunner(
+            config, contract, transport, lifecycle=governed_candidate
+        ).run()
 
     results = {item.name: item for item in report.scenarios}
     assert set(results) == set(REQUIRED_SCENARIOS), "every scenario must be attempted and recorded"
 
     failed = {name for name, item in results.items() if item.status is not ScenarioStatus.PASSED}
-    detail = {name: results[name].detail for name in sorted(failed - AGENT_SERVER_SCENARIOS)}
-    assert failed == set(AGENT_SERVER_SCENARIOS), (
-        f"scenarios this leg is authoritative for must pass; unexpected failures: {detail}"
+    regressed = {name: results[name].detail for name in sorted(failed - AGENT_SERVER_SCENARIOS)}
+    # Both directions matter. A scenario that unexpectedly PASSES means the partition
+    # is stale and this leg is now proving more than it claims — silently under-claiming
+    # coverage is how the remote leg ends up carrying work it no longer needs to.
+    newly_passing = sorted(set(AGENT_SERVER_SCENARIOS) - failed)
+    assert not regressed, f"scenarios this leg is authoritative for must pass: {regressed}"
+    assert not newly_passing, (
+        f"these now pass and should leave AGENT_SERVER_SCENARIOS: {newly_passing}"
     )
 
-    # Promotion evidence is bound to the candidate regardless of which leg produced it.
+    # Promotion evidence is bound to the governed_candidate regardless of which leg produced it.
     assert report.candidate_digest == config.candidate_digest
     assert report.image_identity == config.candidate_identity["image"]
     assert report.namespace.startswith(f"{report.tenant_id}-")
     # The tenant is only meaningful because the deployment echoed it back on the run
     # it actually created; see the `runs` scenario's tenant_id assertion.
-    assert report.tenant_id == candidate.tenant_id
+    assert report.tenant_id == governed_candidate.tenant_id

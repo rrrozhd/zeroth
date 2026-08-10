@@ -17,9 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import socket
+import subprocess
+import sys
+import tempfile
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,7 +50,9 @@ FINISH_NODE = "finish-step"
 ARTIFACT_CONTRACT = "contract://acceptance-artifact-output"
 DEPLOYMENT_REF = "acceptance-candidate"
 TENANT_ID = "acceptance-ephemeral-leg"
+SHELL_GRAPH = "release.langgraph.shell_graph:graph"
 _START_DEADLINE_SECONDS = 20.0
+_AGENT_SERVER_DEADLINE_SECONDS = 60.0
 _STOP_DEADLINE_SECONDS = 20.0
 
 
@@ -100,6 +107,17 @@ class ArtifactEmittingRunner:
         )
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _free_port() -> int:
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
 class CandidateError(RuntimeError):
     """The ephemeral candidate did not reach a usable serving state."""
 
@@ -119,7 +137,13 @@ class EphemeralCandidate:
         *,
         deployment_ref: str = DEPLOYMENT_REF,
         tenant_id: str = TENANT_ID,
+        with_agent_server: bool = False,
     ) -> None:
+        # Off by default: booting an Agent Server costs real seconds, and only the
+        # scenarios that need something upstream to govern should pay for it.
+        self.with_agent_server = with_agent_server
+        self._agent_server: subprocess.Popen | None = None
+        self.agent_server_url: str | None = None
         self.deployment_ref = deployment_ref
         self.tenant_id = tenant_id
         self._db_path = workspace / "candidate.db"
@@ -130,7 +154,11 @@ class EphemeralCandidate:
         # deployment itself publishes, not this process-local number; the counter
         # exists so an in-process test can cross-check what the API reports.
         self.finish_runner = ArtifactEmittingRunner()
-        self._previous_redis_mode: str | None = None
+        # Every environment key this candidate touches, with the value it had before.
+        # Restoring one variable and forgetting the rest is how a candidate leaks its
+        # configuration into the rest of the suite: enabling the gateway mounts a
+        # catch-all route, so a leaked flag changes what unrelated tests are talking to.
+        self._environment_before: dict[str, str | None] = {}
         self._previous_settings: Any = None
         self._settings_saved = False
 
@@ -149,19 +177,105 @@ class EphemeralCandidate:
         itself unhealthy for a dependency it never had. Declaring it disabled is a
         statement of fact about the deployment, not a relaxed assertion.
         """
-        self._previous_redis_mode = os.environ.get("ZEROTH_REDIS__MODE")
         # Restoring the exact object, not just clearing the cache: dropping the
         # singleton makes the next reader re-derive settings from whatever the
         # environment looks like then, which is not necessarily what the rest of the
         # suite started with. Putting the original back leaves no trace.
-        self._previous_settings = settings_module._settings_singleton
-        self._settings_saved = True
-        os.environ["ZEROTH_REDIS__MODE"] = "disabled"
+        if not self._settings_saved:
+            self._previous_settings = settings_module._settings_singleton
+            self._settings_saved = True
+        self._set_environment({"ZEROTH_REDIS__MODE": "disabled"})
+
+    def _start_agent_server(self) -> None:
+        """Run the real Agent Server on the shell application.
+
+        The same recipe the conformance harness uses, which is green in CI on every
+        push. Deliberately the real `langgraph_api` package rather than something that
+        answers like it: the gateway fingerprints the upstream's OpenAPI document
+        against a pinned hash, and a hand-written server can only pass that by being
+        handed the answer.
+        """
+        port = _free_port()
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "LANGSMITH_TRACING": "false",
+                "LANGCHAIN_TRACING_V2": "false",
+                "LANGGRAPH_CLOUD_LICENSE_KEY": "",
+                "PYTHONPATH": os.pathsep.join(
+                    filter(None, (str(_REPO_ROOT), environment.get("PYTHONPATH")))
+                ),
+            }
+        )
+        script = (
+            "from langgraph_api.cli import run_server; "
+            f"run_server(host='127.0.0.1', port={port}, reload=False, "
+            f"graphs={{'shell': '{SHELL_GRAPH}'}}, "
+            "disable_persistence=True, open_browser=False, server_level='ERROR')"
+        )
+        # Its own cwd: the server writes state beside itself, and the repository root
+        # has a residue tripwire that treats stray files as cross-test contamination.
+        workdir = tempfile.mkdtemp(prefix="zeroth-agent-server-")
+        self._agent_server = subprocess.Popen(
+            [sys.executable, "-c", script],
+            cwd=workdir,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.agent_server_url = f"http://127.0.0.1:{port}"
+        deadline = time.monotonic() + _AGENT_SERVER_DEADLINE_SECONDS
+        while True:
+            if self._agent_server.poll() is not None:
+                raise CandidateError("the Agent Server exited before serving")
+            if time.monotonic() >= deadline:
+                raise CandidateError(
+                    f"Agent Server did not answer /ok within {_AGENT_SERVER_DEADLINE_SECONDS:g}s"
+                )
+            try:
+                with urllib.request.urlopen(f"{self.agent_server_url}/ok", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.25)
+
+    def _declare_gateway(self) -> None:
+        """Point the candidate's real gateway at the Agent Server we just started."""
+        self._set_environment(
+            {
+                "ZEROTH_LANGGRAPH_GATEWAY__ENABLED": "true",
+                "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL": str(self.agent_server_url),
+                "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE": "acceptance-shell",
+                "ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF": self.deployment_ref,
+                # Bootstrap refuses to build a gateway behind a NullSigner, and it is
+                # right to: an unsigned deployment cannot attest anything it proxies.
+                "SIGNING_DEPLOYMENT": secrets.token_hex(32),
+            }
+        )
+
+    def _set_environment(self, values: dict[str, str]) -> None:
+        """Apply environment overrides, remembering what to put back."""
+        for key, value in values.items():
+            self._environment_before.setdefault(key, os.environ.get(key))
+            os.environ[key] = value
         settings_module._settings_singleton = None
+
+    def _restore_environment(self) -> None:
+        for key, previous in self._environment_before.items():
+            if previous is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = previous
+        self._environment_before.clear()
+        if self._settings_saved:
+            settings_module._settings_singleton = self._previous_settings
+            self._settings_saved = False
 
     async def provision(self) -> None:
         """Migrate the database and deploy the approval-gated graph exactly once."""
         self._declare_no_redis()
+        if self.with_agent_server:
+            self._start_agent_server()
+            self._declare_gateway()
         run_migrations(f"sqlite:///{self._db_path}")
         database = AsyncSQLiteDatabase(path=str(self._db_path))
         try:
@@ -296,13 +410,14 @@ class EphemeralCandidate:
 
     async def aclose(self) -> None:
         await self.stop()
-        if self._previous_redis_mode is None:
-            os.environ.pop("ZEROTH_REDIS__MODE", None)
-        else:
-            os.environ["ZEROTH_REDIS__MODE"] = self._previous_redis_mode
-        if self._settings_saved:
-            settings_module._settings_singleton = self._previous_settings
-            self._settings_saved = False
+        if self._agent_server is not None:
+            self._agent_server.terminate()
+            try:
+                self._agent_server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self._agent_server.kill()
+            self._agent_server = None
+        self._restore_environment()
         if self._listener is not None:
             self._listener.close()
             self._listener = None
