@@ -374,7 +374,10 @@ def test_standard_local_without_constraints_still_runs() -> None:
 
 
 def test_docker_hardening_flags_applied_by_default() -> None:
-    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import (
+        DockerSandboxConfig,
+        _docker_hardening_flags,
+    )
 
     flags = _docker_hardening_flags(DockerSandboxConfig())
     assert "--read-only" in flags
@@ -385,8 +388,87 @@ def test_docker_hardening_flags_applied_by_default() -> None:
 
 
 def test_docker_hardening_flags_disabled_and_user_override() -> None:
-    from zeroth.integrations.execution.sandbox import DockerSandboxConfig, _docker_hardening_flags
+    from zeroth.integrations.execution.sandbox import (
+        DockerSandboxConfig,
+        _docker_hardening_flags,
+    )
 
     assert _docker_hardening_flags(DockerSandboxConfig(hardened=False)) == []
     flags = _docker_hardening_flags(DockerSandboxConfig(hardened=False, run_as_user="65534:65534"))
     assert flags == ["--user", "65534:65534"]
+
+
+def _docker_run_argv(*, hardened: bool = True, run_as_user: str | None = None) -> list[str]:
+    """The argv the manager really hands to ``docker run``."""
+    calls: list[list[str]] = []
+    process = _FakeDockerProcess(stdout=b"ok", stderr=b"")
+
+    def fake_runner(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append(list(command))
+        if command[:4] == ["docker", "inspect", "-f", "{{.Config.Image}}"]:
+            return subprocess.CompletedProcess(command, 0, stdout="python:3.12\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    manager = SandboxManager(
+        config=SandboxConfig(
+            backend=SandboxBackendMode.DOCKER,
+            docker=DockerSandboxConfig(hardened=hardened, run_as_user=run_as_user),
+            strictness_mode=SandboxStrictnessMode.STANDARD,
+        ),
+        command_runner=fake_runner,
+        process_factory=lambda command, **_kwargs: calls.append(list(command)) or process,
+        container_inspector=lambda _name: True,
+    )
+
+    manager.run(["echo", "ok"])
+
+    return next(command for command in calls if command[:2] == ["docker", "run"])
+
+
+def test_docker_hardening_flags_reach_the_argv_the_sandbox_executes() -> None:
+    """The splice, not just the helper.
+
+    Measured before this test existed: deleting ``*_docker_hardening_flags(docker),``
+    from the argv in ``sandbox.py`` left the whole 76-test module passing. Both
+    hardening tests called the helper directly and never observed what the
+    manager actually ran, so nothing in the suite noticed that untrusted code
+    would execute writable, with every capability, in a container that could
+    gain privileges.
+    """
+    argv = _docker_run_argv()
+
+    assert "--read-only" in argv
+    assert argv[argv.index("--cap-drop") + 1] == "ALL"
+    assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
+    assert argv[argv.index("--tmpfs") + 1] == "/tmp"
+
+
+def test_docker_hardening_flags_precede_the_image_and_the_workload() -> None:
+    """A flag after the image reference is an argument to the workload, not to Docker."""
+    argv = _docker_run_argv()
+    image = argv.index("python:3.12")
+
+    for flag in ("--read-only", "--cap-drop", "--security-opt", "--tmpfs"):
+        assert argv.index(flag) < image, flag
+
+
+def test_the_run_as_user_override_reaches_the_argv() -> None:
+    """The configured user is applied where it takes effect."""
+    argv = _docker_run_argv(run_as_user="10001:10001")
+
+    assert argv[argv.index("--user") + 1] == "10001:10001"
+    assert "--read-only" in argv
+
+
+def test_disabling_hardening_really_removes_the_flags_from_the_argv() -> None:
+    """The negative direction, so the assertions above cannot pass by accident.
+
+    A test that only checks flags are present passes against an argv that always
+    contains them regardless of configuration.
+    """
+    argv = _docker_run_argv(hardened=False)
+
+    assert "--read-only" not in argv
+    assert "--cap-drop" not in argv
+    assert "--security-opt" not in argv
+    assert "--tmpfs" not in argv

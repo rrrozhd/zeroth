@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.4] - 2026-08-10
+
+### Fixed
+
+- The sandbox hardening flags are asserted on the argv the manager actually executes, not
+  only on the helper that builds them. Deleting the splice from `docker run` left all 76
+  tests in the module passing, so nothing noticed that untrusted code would run writable,
+  with every capability, in a container that could gain privileges (ZER-41 / A10-1).
+- The guard suite covers TypeScript: every `*.test.ts`/`*.test.tsx` file under
+  `frontend/app` must be collected by `vitest.config.ts`, so a narrowed `include` reduces
+  console coverage loudly instead of silently (ZER-41).
+
 ## [0.22.2.3] - 2026-08-10
 
 ### Fixed

@@ -578,3 +578,128 @@ def test_no_constant_assertion_survives_in_the_tests_tree() -> None:
     ]
 
     assert offenders == []
+
+
+# ---------------------------------------------------------------------------
+# R10 -- the guard suite covers TypeScript
+# ---------------------------------------------------------------------------
+
+FRONTEND = ROOT / "frontend"
+
+
+def _vitest_include_globs() -> list[str]:
+    """The ``test.include`` globs declared in ``frontend/vitest.config.ts``.
+
+    Read with a regex rather than by running node: the guard has to work in a
+    Python-only CI job, and the failure it exists to catch is a *declaration*
+    changing, which is visible in the source.
+    """
+    source = (FRONTEND / "vitest.config.ts").read_text(encoding="utf-8")
+    block = re.search(r"include:\s*\[(.*?)\]", source, re.DOTALL)
+    assert block, "vitest.config.ts declares no test.include"
+    return re.findall(r"[\"']([^\"']+)[\"']", block.group(1))
+
+
+def _discovered_typescript_tests(root: Path = FRONTEND) -> list[Path]:
+    return sorted(
+        path
+        for pattern in ("*.test.ts", "*.test.tsx")
+        for path in (root / "app").rglob(pattern)
+        if "node_modules" not in path.parts
+    )
+
+
+def uncollected_typescript_tests(root: Path, globs: list[str]) -> list[str]:
+    """TypeScript test files present in ``root`` that ``globs`` would not collect.
+
+    Expanding each glob against the tree, rather than matching each path against
+    each glob: ``PurePath.match`` does not let ``**`` span directories before
+    Python 3.13, so a nested test would look unmatched when vitest collects it.
+    """
+    collected = {path for glob in globs for path in root.glob(glob)}
+    return sorted(
+        path.relative_to(root).as_posix()
+        for path in _discovered_typescript_tests(root)
+        if path not in collected
+    )
+
+
+def test_every_typescript_test_file_is_matched_by_the_vitest_include() -> None:
+    """A console test the runner never collects is a test that cannot fail.
+
+    This is the cross-owner coupling the ticket names: ZER-53's frontend test
+    work lands into this config, and an ``include`` that stops matching -- a
+    ``.test.tsx`` component test against a ``.test.ts``-only glob, say -- would
+    silently reduce coverage while every gate stayed green.
+    """
+    globs = _vitest_include_globs()
+
+    assert _discovered_typescript_tests(), "no TypeScript tests -- the guard would be vacuous"
+    assert uncollected_typescript_tests(FRONTEND, globs) == [], globs
+
+
+@pytest.mark.parametrize(
+    ("globs", "expected"),
+    [
+        pytest.param(
+            ["app/**/*.test.ts"],
+            ["app/components/Panel.test.tsx"],
+            id="a_component_test_against_a_ts_only_glob",
+        ),
+        pytest.param(
+            ["app/lib/*.test.ts"],
+            ["app/components/Panel.test.tsx", "app/lib/deep/nested.test.ts"],
+            id="a_glob_narrowed_to_one_directory",
+        ),
+        pytest.param([], ["app/components/Panel.test.tsx", "app/lib/deep/nested.test.ts",
+                          "app/lib/plain.test.ts"], id="include_emptied_entirely"),
+    ],
+)
+def test_the_typescript_guard_reports_a_config_that_stops_collecting(
+    tmp_path: Path, globs: list[str], expected: list[str]
+) -> None:
+    """The guard fed the shapes a frontend config change would take."""
+    for relative in ("app/lib/plain.test.ts", "app/lib/deep/nested.test.ts",
+                     "app/components/Panel.test.tsx"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    assert uncollected_typescript_tests(tmp_path, globs) == expected
+
+
+def test_the_typescript_guard_accepts_a_config_that_collects_everything(tmp_path: Path) -> None:
+    """A guard that reported every config would be noise, not a check."""
+    for relative in ("app/lib/plain.test.ts", "app/components/Panel.test.tsx"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    assert uncollected_typescript_tests(tmp_path, ["app/**/*.test.ts", "app/**/*.test.tsx"]) == []
+
+
+def test_the_typescript_suite_is_recorded_as_a_release_gate_result() -> None:
+    """Running the console tests is not enough; the outcome has to be recorded."""
+    script = "\n".join(
+        str(step.get("run", ""))
+        for job in _workflow("release-gates.yml")["jobs"].values()
+        for step in job.get("steps") or []
+    )
+
+    assert "vitest run" in script
+    assert "frontend-unit=$(status ${VITEST})" in script
+
+
+def test_a_failed_console_install_is_recorded_as_a_failed_console_suite() -> None:
+    """``npm ci`` failing means the suite never ran, which is not a pass.
+
+    Without this the console result would be whatever the uninitialised or
+    stale variable held, which is the same silence in a different place.
+    """
+    script = "\n".join(
+        str(step.get("run", ""))
+        for job in _workflow("release-gates.yml")["jobs"].values()
+        for step in job.get("steps") or []
+    )
+
+    assert 'if [ "${NPM_CI}" -ne 0 ]; then VITEST=1; fi' in script
