@@ -9,8 +9,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from generated_evidence import LABEL_KEYS, PACKAGE_KEYS
-from langgraph_benchmark import CURRENT_RELEASE
+from release.langgraph.generated_evidence import LABEL_KEYS, PACKAGE_KEYS
+from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 ROOT = Path(__file__).resolve().parents[2]
 

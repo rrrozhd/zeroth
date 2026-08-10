@@ -8,9 +8,9 @@ import json
 import sys
 from pathlib import Path
 
-from langgraph_benchmark import benchmark
-from release_evidence import validate_manifest
-from runtime_smoke import (
+from release.langgraph.langgraph_benchmark import benchmark
+from release.langgraph.release_evidence import validate_manifest
+from release.langgraph.runtime_smoke import (
     gateway_smoke,
     installed_package_evidence,
     resolved_image_evidence,

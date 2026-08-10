@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.6] - 2026-08-10
+
+### Fixed
+
+- `release/langgraph` modules import through their package path, so nothing needs a
+  `sys.path` prepend to use them. The bare sibling imports were what forced it, not the
+  absent `__init__.py` (ZER-41 / A15-17).
+- The container version label and compose tag are checked against the evidence release
+  instead of being asserted as the same literal the Dockerfile contains, and a gap between
+  that release and the package version must be recorded with the reason that clears it
+  (ZER-41 / A14-10).
+- `validate_manifest` and the release guide stop presenting evidence resolution as
+  manifest-driven. The manifest is validated, never followed: every artifact resolves from
+  the hardcoded requirement set (ZER-41 / A15-14).
+- The absence of container evidence on the pull-request path is a declared, checked
+  exclusion rather than an unstated gap (ZER-41 / A14-13).
+
 ## [0.22.2.5] - 2026-08-10
 
 ### Fixed

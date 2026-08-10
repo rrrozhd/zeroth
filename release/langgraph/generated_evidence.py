@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from langgraph_benchmark import CURRENT_RELEASE
+from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 REQUIRED_TESTCASES = {
     (

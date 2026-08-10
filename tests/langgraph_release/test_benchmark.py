@@ -68,14 +68,15 @@ def test_benchmark_records_release_metrics_and_rejects_regression(tmp_path: Path
 
 
 def _benchmark_module():
-    """Import the benchmark module the way the harness does."""
-    import importlib
-    import sys as _sys
+    """Import the benchmark module through its package path.
 
-    path = str(ROOT / "release/langgraph")
-    if path not in _sys.path:
-        _sys.path.insert(0, path)
-    return importlib.import_module("langgraph_benchmark")
+    No ``sys.path`` prepend: the bare sibling imports that forced one were
+    qualified in ZER-41, so ``release.langgraph.*`` resolves the way any other
+    consumer would import it.
+    """
+    import importlib
+
+    return importlib.import_module("release.langgraph.langgraph_benchmark")
 
 
 def test_threshold_independent_of_the_committed_baseline(tmp_path: Path) -> None:
@@ -96,6 +97,8 @@ def test_threshold_independent_of_the_committed_baseline(tmp_path: Path) -> None
     # the literals, which is true either way.
     package = tmp_path / "release/langgraph"
     package.mkdir(parents=True)
+    (tmp_path / "release/__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text("", encoding="utf-8")
     shutil.copy2(ROOT / "release/langgraph/langgraph_benchmark.py", package)
     source = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
     original = json.loads(source.read_text(encoding="utf-8"))
@@ -145,12 +148,8 @@ def test_threshold_literals_still_equal_their_documented_derivation() -> None:
 def test_an_edited_baseline_is_detected_by_its_pinned_digest(tmp_path: Path) -> None:
     """A tampered baseline fails validation instead of being absorbed."""
     import importlib
-    import sys as _sys
 
-    path = str(ROOT / "release/langgraph")
-    if path not in _sys.path:
-        _sys.path.insert(0, path)
-    release_evidence = importlib.import_module("release_evidence")
+    release_evidence = importlib.import_module("release.langgraph.release_evidence")
     source = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
 
     honest_errors: list[str] = []

@@ -413,12 +413,10 @@ def test_the_errexit_guard_accepts_the_correct_shapes(script: str) -> None:
 
 
 def _release_langgraph_module(name: str):
+    """Import a release module through its package path, with no ``sys.path`` edit."""
     import importlib
 
-    path = str(ROOT / "release/langgraph")
-    if path not in sys.path:
-        sys.path.insert(0, path)
-    return importlib.import_module(name)
+    return importlib.import_module(f"release.langgraph.{name}")
 
 
 def _sbom_claiming(tmp_path: Path, reference: str, digest: str) -> Path:
@@ -778,3 +776,118 @@ def test_every_hidden_constructor_field_is_recorded() -> None:
         module, _, name = reference.partition(":")
         target = getattr(importlib.import_module(module), name)
         assert hidden_fields(target) == set(recorded), reference
+
+
+# ---------------------------------------------------------------------------
+# R16 -- what the pull-request path does not cover, stated rather than assumed
+# ---------------------------------------------------------------------------
+
+#: Evidence classes that no pull-request workflow produces, and why.
+#:
+#: Every `docker` invocation in the repository lives in `release-zeroth-core.yml`,
+#: gated on `release: [published]`; `release-gates.yml` is nightly cron plus
+#: `workflow_dispatch` and deliberately has no `pull_request` trigger. So a
+#: change to the Dockerfile, the compose file, or the hardening flags reaches a
+#: real container for the first time at release. That is a deliberate trade --
+#: a container build on every PR is slow and needs a daemon -- but it was
+#: nowhere written down, so it read as coverage rather than as a gap.
+#:
+#: **This record may only shrink.** Moving one of these onto the PR path means
+#: deleting its line (ZER-41 / A14-13).
+NOT_COVERED_ON_PULL_REQUESTS = {
+    "docker": "no PR workflow builds or runs a container; every docker step is release-gated",
+}
+
+
+def _pull_request_workflows() -> list[str]:
+    """Workflow files with a ``pull_request`` trigger.
+
+    ``on`` is parsed as the boolean ``True`` by PyYAML's 1.1 rules, so both keys
+    are read; the trigger block is a mapping in every workflow here but a list is
+    also valid YAML for it.
+    """
+    names = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        document = _workflow(path.name)
+        triggers = document.get(True) or document.get("on") or {}
+        if isinstance(triggers, dict | list) and "pull_request" in triggers:
+            names.append(path.name)
+    return names
+
+
+def test_the_pull_request_container_gap_is_declared_and_still_real() -> None:
+    """The record has to describe the workflows as they are, not as they were.
+
+    If a PR workflow starts building a container the entry must go, and if one
+    never does the entry must stay: either way the gap is a checked statement
+    rather than something a reader has to reconstruct from eight files.
+    """
+    assert NOT_COVERED_ON_PULL_REQUESTS
+
+    # Comment lines are stripped: `verify-extras.yml` explains in prose why its
+    # gate stops short of the Docker CLI, and a substring search over the raw
+    # script would read that explanation as an invocation.
+    invoking = [
+        f"{name}: {line.strip()}"
+        for name in _pull_request_workflows()
+        for job in _workflow(name)["jobs"].values()
+        for step in job.get("steps") or []
+        for line in str(step.get("run", "")).splitlines()
+        if not line.strip().startswith("#") and re.search(r"\bdocker\b", line)
+    ]
+
+    assert invoking == [], (
+        "a pull-request workflow now runs docker; remove the 'docker' entry from "
+        f"NOT_COVERED_ON_PULL_REQUESTS: {invoking}"
+    )
+
+
+def test_the_container_evidence_really_is_release_gated() -> None:
+    """The other half of the same claim: the coverage exists, just not on PRs."""
+    release = _workflow("release-zeroth-core.yml")
+    triggers = release.get(True) or release.get("on") or {}
+    scripts = "\n".join(
+        str(step.get("run", ""))
+        for job in release["jobs"].values()
+        for step in job.get("steps") or []
+    )
+
+    assert "release" in triggers
+    assert "docker build" in scripts
+
+
+# ---------------------------------------------------------------------------
+# R18 -- two findings whose stated consequence rests on a flag nobody passes
+# ---------------------------------------------------------------------------
+
+
+def test_no_configured_pytest_invocation_passes_dash_x() -> None:
+    """A10-14 and A10-15 both rest on `-x`, and nothing sets it.
+
+    Each finding's primary consequence was "under ``-x`` this masks the tests
+    that never ran". That is false as configured: ``pyproject.toml``'s addopts
+    carries no ``-x`` and no workflow passes one, so a failure stops one test and
+    the rest still run. The measured halves -- a 1.1s wall-clock sleep against a
+    1s window, and six independent expensive setups -- are real; the stated
+    consequence is not, and this pins the fact the rebuttal rests on.
+    """
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = config["tool"]["pytest"]["ini_options"]["addopts"]
+
+    assert " -x" not in f" {addopts}"
+    assert "--exitfirst" not in addopts
+
+    invocations = [
+        line
+        for path in sorted(WORKFLOWS.glob("*.yml"))
+        for job in (_workflow(path.name).get("jobs") or {}).values()
+        for step in job.get("steps") or []
+        for line in str(step.get("run", "")).splitlines()
+        if "pytest" in line
+    ]
+
+    assert invocations, "no pytest invocation found -- the assertion would be vacuous"
+    for line in invocations:
+        assert " -x" not in line and "--exitfirst" not in line, line
