@@ -54,6 +54,33 @@ jobs:
             --junitxml release/evidence/security-pr-junit.xml \
             --pytest-arg=-q
 
+      # pytest_gate's exit code is not the whole verdict: a bound node that was
+      # collected and then skipped at run time leaves the process at 0. These two
+      # steps read the outcomes file the job already produced -- coverage proves
+      # every bound node reported, outcomes proves each one actually passed -- so a
+      # skipped security test fails the pull request instead of being uploaded
+      # unchecked. `if: always()` so the verdict is computed even when the subset
+      # itself failed, which is when the evidence matters most.
+      - name: Verify the PR-critical bindings were covered
+        if: always()
+        run: |
+          uv run python -m release.security.matrix \
+            --matrix release/security/security-matrix.json \
+            verify-coverage \
+            --tier pr-critical \
+            --outcomes release/evidence/security-pr-outcomes.json \
+            --output release/evidence/security-pr-coverage.json
+
+      - name: Verify no PR-critical node was skipped, xfailed, or failed
+        if: always()
+        run: |
+          uv run python -m release.security.matrix \
+            --matrix release/security/security-matrix.json \
+            verify-outcomes \
+            --tier pr-critical \
+            --outcomes release/evidence/security-pr-outcomes.json \
+            --output release/evidence/security-pr-verdict.json
+
       - name: Upload PR security evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,3 +89,5 @@ jobs:
           path: |
             release/evidence/security-pr-junit.xml
             release/evidence/security-pr-outcomes.json
+            release/evidence/security-pr-coverage.json
+            release/evidence/security-pr-verdict.json

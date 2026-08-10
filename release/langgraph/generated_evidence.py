@@ -280,17 +280,30 @@ def _validate_junit(path: Path, errors: list[str]) -> None:
         tests = sum(int(suite.get("tests", "0")) for suite in suites)
         failures = sum(int(suite.get("failures", "0")) for suite in suites)
         error_count = sum(int(suite.get("errors", "0")) for suite in suites)
+        skipped = sum(int(suite.get("skipped", "0")) for suite in suites)
     except ValueError:
-        tests, failures, error_count = 0, 1, 1
+        tests, failures, error_count, skipped = 0, 1, 1, 1
     identities = {
         (str(case.get("classname")), str(case.get("name"))) for case in root.findall(".//testcase")
+    }
+    # A required test that was collected but never executed proves nothing, so a
+    # skip is as disqualifying as a failure. Both the suite-level counter and the
+    # per-identity element are checked: the counter alone can be under-reported by
+    # a hand-edited or partially-written document, and the element alone misses a
+    # suite that skipped a test it never emitted a ``testcase`` for.
+    skipped_identities = {
+        (str(case.get("classname")), str(case.get("name")))
+        for case in root.findall(".//testcase")
+        if case.find("skipped") is not None
     }
     if (
         tests < len(REQUIRED_TESTCASES)
         or failures
         or error_count
+        or skipped
         or not any(suite.get("name") == "pytest" for suite in suites)
         or not REQUIRED_TESTCASES.issubset(identities)
+        or skipped_identities & REQUIRED_TESTCASES
     ):
         errors.append("JUnit does not prove the expected release test identities passed")
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-08-10
+
+### Fixed
+
+- Release evidence validation rejects a skipped required test. `_validate_junit` read
+  `tests`, `failures` and `errors` but never `skipped`, so a final-phase gate certified a
+  release in which none of the required tests actually ran (ZER-41 / A15-1, A15-15).
+- A matrix-bound security test may no longer carry `skip` or `skipif`, which suppress
+  execution exactly as the already-refused `xfail` does. A skipped bound node stayed
+  *collected*, so the exact-collection guard was satisfied and the tier exited 0
+  (ZER-41 / A15-2).
+- The pull-request path now verifies the security outcomes file it already produced.
+  `verify-coverage` and `verify-outcomes` run on every pull request, so a node skipped at
+  run time fails the job instead of being uploaded unchecked (ZER-41 / A11-5).
+
 ## [0.22.1.1.1] - 2026-08-10
 
 ### Fixed

@@ -349,6 +349,65 @@ def test_final_release_evidence_rejects_wrong_junit_identity(tmp_path: Path) -> 
     assert "expected release test identities" in result.stderr
 
 
+def _junit_with_skips(*skipped: tuple[str, str]) -> str:
+    """A JUnit document whose named identities carry a ``<skipped>`` element.
+
+    The suite counter is set from the number of skips, so the document is
+    internally consistent -- exactly what a real ``pytest`` run emits when a
+    required test is skipped rather than executed.
+    """
+    marked = set(skipped)
+    cases = "".join(
+        (
+            f'<testcase classname="{classname}" name="{name}">'
+            '<skipped type="pytest.skip" message="docker unavailable"/></testcase>'
+            if (classname, name) in marked
+            else f'<testcase classname="{classname}" name="{name}"/>'
+        )
+        for classname, name in sorted(REQUIRED_TESTS)
+    )
+    return (
+        f'<testsuites name="pytest tests"><testsuite name="pytest" tests="{len(REQUIRED_TESTS)}" '
+        f'failures="0" errors="0" skipped="{len(marked)}">{cases}</testsuite></testsuites>'
+    )
+
+
+def test_final_release_evidence_rejects_skipped_required_tests(tmp_path: Path) -> None:
+    """A required test that was skipped never ran, so it cannot certify a release.
+
+    Three documents, each of which validated clean before this gate existed: one
+    required identity skipped, all of them skipped, and a suite counter reporting
+    a skip with no ``<skipped>`` element to match it.
+    """
+    evidence_root, manifest = _final_tree(tmp_path)
+    junit = evidence_root / "release/langgraph/junit.xml"
+    one = sorted(REQUIRED_TESTS)[0]
+
+    junit.write_text(_junit_with_skips(one), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+    junit.write_text(_junit_with_skips(*REQUIRED_TESTS), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+    junit.write_text(_junit_xml().replace('errors="0"', 'errors="0" skipped="1"'), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+
+def test_final_release_evidence_accepts_the_unskipped_document(tmp_path: Path) -> None:
+    """The skip rejection must not have made the honest document unacceptable."""
+    evidence_root, manifest = _final_tree(tmp_path)
+    junit = evidence_root / "release/langgraph/junit.xml"
+    junit.write_text(_junit_with_skips(), encoding="utf-8")
+
+    assert _validate(manifest, evidence_root, "final").returncode == 0
+
+
 def test_final_release_evidence_rejects_unbound_spdx(tmp_path: Path) -> None:
     evidence_root, manifest = _final_tree(tmp_path)
     path = evidence_root / "release/langgraph/image.spdx.json"
