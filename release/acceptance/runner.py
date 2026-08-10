@@ -108,6 +108,18 @@ class AcceptanceRunner:
         collection = _read(body, str(step.count_path))
         if not isinstance(collection, list):
             raise AssertionError(f"{path}.{step.count_path} is not a collection")
+        if step.count_flatten is not None:
+            # Count members of a nested list rather than the records holding them.
+            # `_subset` compares lists by equality on purpose, so matching one member
+            # of `tool_calls` cannot be expressed by loosening it — that would quietly
+            # weaken every list assertion in every contract. Descending explicitly
+            # keeps the strict comparison and says which level is being counted.
+            nested: list[Any] = []
+            for record in collection:
+                members = record.get(step.count_flatten) if isinstance(record, dict) else None
+                if isinstance(members, list):
+                    nested.extend(members)
+            collection = nested
         pattern = self._format(step.count_where)
         matched = 0
         for item in collection:
@@ -117,8 +129,13 @@ class AcceptanceRunner:
                 continue
             matched += 1
         if matched != step.expected_count:
+            where = (
+                f"{step.count_path}[].{step.count_flatten}"
+                if step.count_flatten
+                else str(step.count_path)
+            )
             raise AssertionError(
-                f"{path}.{step.count_path} matching {pattern!r} expected "
+                f"{path}.{where} matching {pattern!r} expected "
                 f"{step.expected_count} record(s), got {matched}"
             )
 

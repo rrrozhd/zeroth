@@ -518,3 +518,48 @@ async def test_correlation_must_be_propagated_not_merely_present(tmp_path: Path)
 
     assert result.status is ScenarioStatus.FAILED
     assert "not propagated" in result.detail
+
+
+@pytest.mark.parametrize(
+    ("records", "expected_count", "should_pass"),
+    [
+        ([{"tool_calls": [{"name": "send"}]}], 1, True),
+        ([{"tool_calls": []}, {"tool_calls": [{"name": "send"}]}], 1, True),
+        # Two entries each holding one call is two executions, not two entries.
+        ([{"tool_calls": [{"name": "send"}]}] * 2, 1, False),
+        ([{"tool_calls": [{"name": "other"}]}], 1, False),
+        # A record without the nested field contributes nothing rather than erroring.
+        ([{"status": "completed"}], 0, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_counting_descends_into_a_nested_collection(
+    tmp_path: Path, records: list[dict], expected_count: int, should_pass: bool
+) -> None:
+    """Tool executions live inside audit records, so the count has to reach them."""
+    config = _config(tmp_path)
+
+    class Fixed:
+        async def request(self, role, method, path, *, json_body=None):
+            return HttpObservation(200, {"entries": records}, "corr")
+
+        async def websocket_events(self, *args, **kwargs):
+            return []
+
+    runner = AcceptanceRunner(config, AcceptanceContract.model_validate(_contract()), Fixed())
+    step = AcceptanceStep.model_validate(
+        _step(
+            "/timeline",
+            count_path="entries",
+            count_flatten="tool_calls",
+            count_where={"name": "send"},
+            expected_count=expected_count,
+        )
+    )
+    result = await runner._scenario("audit", [step])
+
+    if should_pass:
+        assert result.status is ScenarioStatus.PASSED, result.detail
+    else:
+        assert result.status is ScenarioStatus.FAILED
+        assert "entries[].tool_calls" in result.detail

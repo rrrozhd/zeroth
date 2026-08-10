@@ -100,6 +100,7 @@ class AcceptanceStep(BaseModel):
     count_where: dict[str, Any] = Field(default_factory=dict)
     expected_count: int | None = None
     expect_unreachable: bool = False
+    count_flatten: str | None = None
 
     @model_validator(mode="after")
     def _protocol_shape(self) -> AcceptanceStep:
@@ -158,11 +159,15 @@ class AcceptanceStep(BaseModel):
         if self.count_path is None:
             if self.count_where:
                 raise ValueError("count_where requires count_path")
+            if self.count_flatten is not None:
+                raise ValueError("count_flatten requires count_path")
             return
         if self.protocol != "http":
             raise ValueError("only HTTP steps can count response collections")
         if self.expected_count is not None and self.expected_count < 0:
             raise ValueError("expected_count cannot be negative")
+        if self.count_flatten is not None and not self.count_flatten:
+            raise ValueError("count_flatten must name a field")
 
     def _lifecycle_shape(self) -> AcceptanceStep:
         """A lifecycle step names a platform operation, never an application route.
