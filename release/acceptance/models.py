@@ -93,6 +93,17 @@ class AcceptanceStep(BaseModel):
     owned_capture: dict[str, str] = Field(default_factory=dict)
     max_events: int | None = None
     ordered_events: list[str] = Field(default_factory=list)
+    # Real stream protocols are conversations, not a single shout. The Agent Server
+    # will not emit anything until a subscription exists, so a scenario has to be able
+    # to state an ordered opening sequence rather than one payload.
+    frames: list[Any] = Field(default_factory=list)
+    # Where a frame keeps its event name, its ordering number, and what marks a frame
+    # as an event at all. These are facts about the wire protocol under test, so the
+    # contract states them; the runner stays protocol-agnostic and enforces the same
+    # ordering claim either way.
+    event_name_key: str = "event"
+    event_sequence_key: str = "sequence"
+    event_selector: dict[str, Any] = Field(default_factory=dict)
     resource_id: str | None = None
     operation: Literal["restart", "shutdown", "stop_upstream", "start_upstream"] | None = None
     poll: bool = False
@@ -121,13 +132,17 @@ class AcceptanceStep(BaseModel):
         if self.protocol == "http":
             if self.method is None or self.expected_status is None:
                 raise ValueError("HTTP steps require method and expected_status")
-            if self.max_events is not None or self.ordered_events:
+            if self.max_events is not None or self.ordered_events or self.frames:
                 raise ValueError("HTTP steps cannot declare WebSocket assertions")
             return
         if self.method is not None or self.expected_status is not None:
             raise ValueError("WebSocket steps cannot declare HTTP assertions")
         if self.max_events is None or not self.ordered_events:
             raise ValueError("WebSocket steps require max_events and ordered_events")
+        if self.payload is not None and self.frames:
+            raise ValueError("WebSocket steps send either one payload or a frame sequence")
+        if self.payload is None and not self.frames:
+            raise ValueError("WebSocket steps require a payload or a frame sequence")
         if self.poll:
             raise ValueError("WebSocket steps cannot be polled")
 

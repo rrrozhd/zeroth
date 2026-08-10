@@ -172,10 +172,17 @@ class AcceptanceTransport:
         payload: Any,
         *,
         max_events: int,
+        frames: list[Any] | None = None,
     ) -> list[Any]:
-        """Send one WebSocket message and collect a bounded number of events."""
+        """Send an ordered opening sequence and collect a bounded number of events.
+
+        A stream protocol worth testing is a conversation: the Agent Server emits
+        nothing until a subscription exists, so a caller must be able to send several
+        ordered frames before the events it is waiting for can arrive at all.
+        """
         if max_events < 1 or max_events > 10_000:
             raise TransportError("max_events must be between 1 and 10000")
+        outgoing = list(frames) if frames else [payload]
         events: list[Any] = []
         try:
             async with asyncio.timeout(self.config.timeout_seconds):
@@ -184,7 +191,8 @@ class AcceptanceTransport:
                     additional_headers=self._headers(role, self._next_correlation_id()),
                     max_size=self._max_response_bytes,
                 ) as socket:
-                    await socket.send(json.dumps(payload, separators=(",", ":")))
+                    for message in outgoing:
+                        await socket.send(json.dumps(message, separators=(",", ":")))
                     async for raw in socket:
                         if isinstance(raw, bytes) and len(raw) > self._max_response_bytes:
                             raise TransportError("WebSocket event exceeds acceptance size limit")

@@ -536,16 +536,54 @@
     "gateway_websocket": {
       "steps": [
         {
+          "protocol": "http",
+          "role": "operator",
+          "method": "POST",
+          "path": "/threads",
+          "payload": {},
+          "expected_status": 200,
+          "require_correlation": true,
+          "capture": {
+            "thread": "thread_id"
+          }
+        },
+        {
           "protocol": "websocket",
           "role": "operator",
-          "path": "/threads/{namespace}-stream/stream/events",
-          "payload": {
-            "namespace": "{namespace}"
+          "path": "/threads/{thread}/stream/events",
+          "frames": [
+            {
+              "id": 1,
+              "method": "subscription.subscribe",
+              "params": {
+                "channels": [
+                  "lifecycle",
+                  "values"
+                ]
+              }
+            },
+            {
+              "id": 2,
+              "method": "run.start",
+              "params": {
+                "assistant_id": "shell",
+                "input": {
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "max_events": 6,
+          "event_selector": {
+            "type": "event"
           },
-          "max_events": 2,
+          "event_name_key": "method",
+          "event_sequence_key": "seq",
           "ordered_events": [
-            "metadata",
-            "values"
+            "lifecycle",
+            "values",
+            "values",
+            "lifecycle"
           ]
         }
       ]

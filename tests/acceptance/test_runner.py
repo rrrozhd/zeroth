@@ -266,7 +266,7 @@ class FakeTransport:
         self.requested.append((role, method, path))
         return self.responses.get(path, HttpObservation(200, {}, "corr"))
 
-    async def websocket_events(self, role, path, payload, *, max_events):
+    async def websocket_events(self, role, path, payload, *, max_events, frames=None):
         if path.startswith("/gateway-ws/"):
             return [
                 {"event": "metadata", "sequence": 1},
@@ -438,7 +438,7 @@ class _EventTransport:
     async def request(self, role, method, path, *, json_body=None):
         return HttpObservation(200, {}, "corr")
 
-    async def websocket_events(self, role, path, payload, *, max_events):
+    async def websocket_events(self, role, path, payload, *, max_events, frames=None):
         return self.events
 
 

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-08-10
+
+### Added
+
+- Acceptance WebSocket steps send an ordered opening sequence rather than a single
+  message, and name the wire protocol's own event, ordering, and selector keys in the
+  contract. A stream worth testing is a conversation: the LangGraph Agent Server emits
+  nothing until a subscription exists, so a single payload could never reach the events
+  the scenario was claiming to observe.
+
+### Changed
+
+- `gateway_websocket` now drives a real thread through the gateway's WebSocket bridge —
+  `POST /threads` for a genuine id, `subscription.subscribe`, then `run.start` — and
+  asserts the frame ordering the real Agent Server actually produces. It previously
+  streamed from a fabricated thread id with invented event names, and could pass against
+  no working stream at all.
+- **The ephemeral leg now proves all 17 scenarios.** `AGENT_SERVER_SCENARIOS` is empty:
+  every scenario in the shipped contract runs against the real service with a real Agent
+  Server behind its gateway, on every change.
+
 ## [0.22] - 2026-08-10
 
 ### Added

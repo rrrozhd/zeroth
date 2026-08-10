@@ -209,11 +209,11 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
 # What is left needs more than an upstream: gateway_http's 403 is unreachable while the
 # PolicyRegistry ships empty, and its 502 needs a transport failure a healthy server
 # cannot produce. Those are product questions, not missing fixtures.
-AGENT_SERVER_SCENARIOS = frozenset(
-    {
-        "gateway_websocket",
-    }
-)
+# Empty, and that is the point. Every scenario in the shipped contract now runs against
+# the real service with a real Agent Server behind its gateway, so this leg is
+# authoritative for all of them. Adding a name back here is a claim that the ephemeral
+# stack genuinely cannot prove that scenario — never a way to quiet a failing one.
+AGENT_SERVER_SCENARIOS: frozenset[str] = frozenset()
 
 
 async def test_the_product_contract_runs_against_the_ephemeral_candidate(
@@ -222,8 +222,8 @@ async def test_the_product_contract_runs_against_the_ephemeral_candidate(
     """Run the shipped contract, and pin exactly which scenarios this leg proves.
 
     Asserting only the overall status would let this pass while silently losing
-    coverage. The partition below is exact, so a fourteenth failing scenario — or a
-    gateway scenario that quietly stopped being attempted — breaks the test.
+    coverage. The partition below is exact, so any failing scenario — or one that
+    quietly stopped being attempted — breaks the test.
     """
     identity = tmp_path / "identity.json"
     identity.write_text(

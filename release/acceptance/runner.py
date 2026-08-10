@@ -28,7 +28,13 @@ class AcceptanceTransportLike(Protocol):
     ) -> Any: ...
 
     async def websocket_events(
-        self, role: str, path: str, payload: Any, *, max_events: int
+        self,
+        role: str,
+        path: str,
+        payload: Any,
+        *,
+        max_events: int,
+        frames: list[Any] | None = None,
     ) -> list[Any]: ...
 
 
@@ -298,8 +304,18 @@ class AcceptanceRunner:
             path,
             self._format(step.payload),
             max_events=step.max_events or 1,
+            frames=[self._format(frame) for frame in step.frames],
         )
-        names = [event.get("event") for event in events if isinstance(event, dict)]
+        # A conversation carries command acknowledgements as well as events. The
+        # contract says which frames are events; everything else is protocol noise
+        # this scenario does not make claims about.
+        events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and all(event.get(key) == value for key, value in step.event_selector.items())
+        ]
+        names = [event.get(step.event_name_key) for event in events]
         if names != step.ordered_events:
             raise AssertionError(
                 f"{path} expected ordered events {step.ordered_events!r}, got {names!r}"
@@ -311,7 +327,9 @@ class AcceptanceRunner:
         # make this scenario satisfiable by a synthetic server and by nothing else.
         # Where a stream does number its frames, hold it to them.
         sequences = [
-            event["sequence"] for event in events if isinstance(event, dict) and "sequence" in event
+            event[step.event_sequence_key]
+            for event in events
+            if isinstance(event, dict) and step.event_sequence_key in event
         ]
         if sequences:
             if len(sequences) != len(events):

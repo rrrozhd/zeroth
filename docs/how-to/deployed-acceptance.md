@@ -14,8 +14,10 @@ The suite runs against two targets, and they are authoritative for different sce
 
 | Leg | Target | Proves | Runs |
 |---|---|---|---|
-| Ephemeral | the real service booted by `tests/acceptance/ephemeral.py` against a file-backed database | readiness, authentication, RBAC, migrations, workflow lifecycle, deployment, runs, approvals, audit, artifacts, retention, executable-unit failures, restart recovery, shutdown — fourteen of the seventeen | the default test suite, on every change |
-| Remote | a deployed candidate with a live Agent Server behind the gateway | all seventeen, adding gateway HTTP, gateway WebSocket, and Agent Server compatibility | the release workflow, bound to the candidate image |
+| Ephemeral | the real service booted by `tests/acceptance/ephemeral.py` against a file-backed database, with a real LangGraph Agent Server serving `release/langgraph/shell_graph.py` behind its gateway | **all seventeen** — including gateway HTTP admission, policy denial and upstream failure, the gateway WebSocket bridge, and Agent Server compatibility | the default test suite, on every change |
+| Remote | a deployed candidate provisioned from the release image | all seventeen, against the artifact actually being promoted | the release workflow, bound to the candidate image |
+
+The legs differ in *what they are evidence about*, not in coverage. The ephemeral leg proves the behaviour on every change; the remote leg proves the deployed image exhibits it.
 
 Neither leg skips a scenario. `AcceptanceRunner` records a result for all seventeen every time, and the `remote-acceptance` release gate requires every one of them to pass in the report it consumes. The ephemeral test pins its own partition exactly, so a scenario that quietly stops passing there fails the build rather than disappearing.
 
