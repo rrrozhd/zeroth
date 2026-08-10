@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.6.1] - 2026-08-10
+
+### Fixed
+
+- A release manifest that names an artifact the validator does not resolve fails, and the
+  release guide's manifest-driven wording is asserted gone (ZER-41 / A15-14).
+
 ## [0.22.2.6] - 2026-08-10
 
 ### Fixed

@@ -130,3 +130,40 @@ def test_the_drift_detector_sees_a_moved_label() -> None:
     assert match is not None
     assert match.group(1) == "9.9.9"
     assert match.group(1) != _evidence_release()
+
+
+def test_a_manifest_that_disagrees_with_the_requirement_set_fails() -> None:
+    """The manifest is validated, not followed -- and disagreement is caught.
+
+    Every artifact ``validate_manifest`` checks resolves from the module-level
+    ``REQUIRED_EVIDENCE`` dict or a literal path; the ``manifest`` binding is read
+    by one schema check and never again. So the file cannot express anything the
+    validator does not already hardcode. That is deliberate -- a manifest that
+    drove resolution would let a candidate choose the evidence it is judged on --
+    but it means the file's only power is to disagree, and disagreeing must fail.
+    """
+    import importlib
+    import tempfile
+
+    release_evidence = importlib.import_module("release.langgraph.release_evidence")
+    source = ROOT / "release/langgraph/release-manifest.json"
+
+    assert release_evidence.validate_manifest(source, phase="source") == []
+
+    manifest = json.loads(source.read_text(encoding="utf-8"))
+    manifest["evidence"]["performance"]["artifacts"].append("release/langgraph/invented.json")
+    with tempfile.TemporaryDirectory() as directory:
+        edited = Path(directory) / "release-manifest.json"
+        edited.write_text(json.dumps(manifest), encoding="utf-8")
+
+        errors = release_evidence.validate_manifest(edited, phase="source")
+
+    assert errors == ["manifest schema or release is invalid"]
+
+
+def test_the_release_guide_does_not_present_resolution_as_manifest_driven() -> None:
+    """The docs said "manifest" where the code says "hardcoded requirement set"."""
+    guide = (ROOT / "docs/how-to/deployment/langgraph-release.md").read_text(encoding="utf-8")
+
+    assert "validated, not followed" in guide
+    assert "REQUIRED_EVIDENCE" in guide
