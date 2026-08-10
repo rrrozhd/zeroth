@@ -147,6 +147,7 @@ class EphemeralCandidate:
         self.deployment_ref = deployment_ref
         self.tenant_id = tenant_id
         self._db_path = workspace / "candidate.db"
+        self._artifacts_dir = workspace / "artifacts"
         self._listener: socket.socket | None = None
         self._running: _Server | None = None
         self.port: int | None = None
@@ -184,7 +185,21 @@ class EphemeralCandidate:
         if not self._settings_saved:
             self._previous_settings = settings_module._settings_singleton
             self._settings_saved = True
-        self._set_environment({"ZEROTH_REDIS__MODE": "disabled"})
+        self._set_environment(
+            {
+                "ZEROTH_REDIS__MODE": "disabled",
+                # Own the artifact storage too. The candidate resets the settings
+                # singleton so the service re-reads its configuration, and a store
+                # left on its default writes .zeroth/ into the repository root, where
+                # it outlives the session and trips the residue guard on whichever
+                # unrelated test runs next.
+                "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR": str(self._artifacts_dir),
+                # Same reasoning for the econ plane, which binds its database URL when
+                # its module is first imported — and enabling the gateway is what
+                # imports it, via the budget enforcer.
+                "ECP_DATABASE_URL": f"sqlite+pysqlite:///{self._artifacts_dir}/econ_plane.db",
+            }
+        )
 
     def _start_agent_server(self) -> None:
         """Run the real Agent Server on the shell application.
@@ -272,6 +287,7 @@ class EphemeralCandidate:
 
     async def provision(self) -> None:
         """Migrate the database and deploy the approval-gated graph exactly once."""
+        self._artifacts_dir.mkdir(parents=True, exist_ok=True)
         self._declare_no_redis()
         if self.with_agent_server:
             self._start_agent_server()
@@ -360,23 +376,48 @@ class EphemeralCandidate:
             raise CandidateError("candidate was never provisioned")
         if self._listener is None:
             self._bind()
-        app = await self._build_app()
-        server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
         listener = self._listener
-        thread = threading.Thread(
-            target=lambda: asyncio.run(server.serve(sockets=[listener])),
-            daemon=True,
-        )
+        # Build the app on the loop that will serve it. Bootstrap creates loop-bound
+        # objects — the gateway's HTTP client among them — so constructing here and
+        # serving on the thread's loop makes the first proxied request fail with
+        # "bound to a different event loop", which the gateway reports as a 503
+        # misconfiguration. The blame lands on the product for a fault in the harness.
+        started: dict[str, uvicorn.Server | BaseException] = {}
+
+        def serve_forever() -> None:
+            async def run() -> None:
+                try:
+                    app = await self._build_app()
+                    server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+                    started["server"] = server
+                except BaseException as error:  # noqa: BLE001 - reported to the caller
+                    started["error"] = error
+                    return
+                await server.serve(sockets=[listener])
+
+            asyncio.run(run())
+
+        thread = threading.Thread(target=serve_forever, daemon=True)
         thread.start()
+        server = await self._await_serving(started, thread)
+        self._running = _Server(server=server, thread=thread)
+
+    async def _await_serving(self, started: dict, thread: threading.Thread):
+        """Block until the thread reports a serving server, or explain why not."""
         deadline = time.monotonic() + _START_DEADLINE_SECONDS
-        while not server.started:
+        while True:
+            error = started.get("error")
+            if error is not None:
+                raise CandidateError(f"candidate failed to build: {error}") from error
+            server = started.get("server")
+            if server is not None and getattr(server, "started", False):
+                return server
             if not thread.is_alive() or time.monotonic() >= deadline:
                 raise CandidateError(
                     f"candidate did not start within {_START_DEADLINE_SECONDS:g}s "
                     f"(thread alive: {thread.is_alive()})"
                 )
             await asyncio.sleep(0.02)
-        self._running = _Server(server=server, thread=thread)
 
     async def stop(self) -> None:
         """Stop the serving process, leaving the database intact."""
@@ -393,6 +434,25 @@ class EphemeralCandidate:
         # uvicorn closed the descriptor it was serving on; drop our handle so the
         # next boot binds a fresh socket to the same port.
         self._listener = None
+
+    async def stop_agent_server(self) -> None:
+        """Take the upstream away, for real.
+
+        The 502 the contract asserts is `zeroth.upstream_unavailable`, which the proxy
+        raises when the transport cannot reach the Agent Server at all. A healthy server
+        cannot produce it and no response body can fake it, so the only honest way to
+        exercise that path is to genuinely remove the upstream and let the gateway
+        discover it is gone.
+        """
+        if self._agent_server is None:
+            raise CandidateError("no Agent Server is running")
+        self._agent_server.terminate()
+        try:
+            self._agent_server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._agent_server.kill()
+            self._agent_server.wait(timeout=10)
+        self._agent_server = None
 
     # LifecycleController -------------------------------------------------
 
