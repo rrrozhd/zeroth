@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.3] - 2026-08-10
+
+### Fixed
+
+- The vacuity guard rejects an assertion over a truthy literal. It implemented three rules
+  and none inspected `ast.Constant`, so it ran green while `assert True` was live in the
+  tree it polices (ZER-41 / A10-11).
+- `F841` and `B017` are enforced on tests instead of being muted tree-wide. Two of the three
+  unused locals were latent test bugs, and the bare `pytest.raises(Exception)` passed whether
+  or not the production setting it named was configured (ZER-41 / A10-12, A10-13).
+
 ## [0.22.2.2] - 2026-08-10
 
 ### Fixed

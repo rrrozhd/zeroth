@@ -489,3 +489,92 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(inspected["Id"]))
     assert isinstance(inspected.get("RepoDigests", []), list)
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", smoke._resolved_digest(inspected))
+
+
+# ---------------------------------------------------------------------------
+# R7, R8 -- the suite's own vacuity guards
+# ---------------------------------------------------------------------------
+
+#: Rules the tests tree is held to. They were muted tree-wide, which is how a
+#: provably unreferenced local and a bare ``pytest.raises(Exception)`` survived.
+#: This list may only shrink: adding a rule back is a decision, and the debt it
+#: hides has to be paid first.
+ENFORCED_TEST_RULES = ("F841", "B017")
+
+
+def _test_per_file_ignores() -> list[str]:
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
+    return list(ignores["tests/**/*.py"])
+
+
+@pytest.mark.parametrize("rule", ENFORCED_TEST_RULES)
+def test_lint_exemption_for_tests_no_longer_hides_the_rule(rule: str) -> None:
+    """The exemption is gone, and the tree is clean without it.
+
+    Two assertions, because either alone can be satisfied dishonestly: removing
+    the exemption while the violations remain would make the gate red, and
+    fixing the violations while the exemption stands leaves nothing enforcing it.
+    """
+    assert rule not in _test_per_file_ignores()
+
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "tests", "--select", rule, "--quiet"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_enforced_rule_list_can_only_shrink() -> None:
+    """A rule named here may not quietly return to the exemption list."""
+    exempt = set(_test_per_file_ignores())
+
+    assert not exempt & set(ENFORCED_TEST_RULES)
+
+
+def test_vacuity_guard_rejects_a_constant_assertion() -> None:
+    """``assert True`` cannot fail, and the guard that exists to say so did not.
+
+    Measured: the guard reported ``1 passed`` while ``assert True`` was live in
+    ``tests/test_docs_phase30.py``. It implemented three rules -- empty
+    parametrization, self-comparison, repeated sibling assertion -- and none
+    inspects ``ast.Constant``.
+    """
+    import ast
+
+    from tests.architecture.test_legacy_surface_removed import _constant_assertion
+
+    def parsed(source: str) -> ast.stmt:
+        return ast.parse(source).body[0]
+
+    assert _constant_assertion(parsed("assert True"))
+    assert _constant_assertion(parsed("assert 1"))
+    assert _constant_assertion(parsed('assert "a reason"'))
+    # `assert False` always fails, which is a deliberate unreachable marker
+    # rather than vacuity, so it is deliberately not reported.
+    assert not _constant_assertion(parsed("assert False"))
+    assert not _constant_assertion(parsed("assert value"))
+    assert not _constant_assertion(parsed("assert compute() == 3"))
+
+
+def test_no_constant_assertion_survives_in_the_tests_tree() -> None:
+    """The guard runs green because the tree is clean, not because it is blind."""
+    import ast
+
+    from tests.architecture.test_legacy_surface_removed import _constant_assertion
+
+    offenders = [
+        f"{path.relative_to(ROOT).as_posix()}:{node.lineno}"
+        for path in sorted((ROOT / "tests").rglob("*.py"))
+        if "__pycache__" not in path.parts
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if _constant_assertion(node)
+    ]
+
+    assert offenders == []

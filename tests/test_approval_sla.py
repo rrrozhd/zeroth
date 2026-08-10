@@ -258,15 +258,13 @@ class TestApprovalServiceEscalate:
             escalation_action="auto_reject",
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
         )
-        repo.get = AsyncMock(return_value=original)
-
-        # resolve needs to re-fetch the record
-        resolved_record = _make_record(
-            status=ApprovalStatus.RESOLVED,
-            sla_deadline=original.sla_deadline,
-            escalation_action="auto_reject",
-        )
-        # First call to _require (via escalate), second call within resolve
+        # `resolve` re-fetches, and the record it must find is still the
+        # unresolved one: `service.resolve` raises "approval already resolved"
+        # when the fetch returns a RESOLVED record. A discarded local built a
+        # RESOLVED record here beside a comment claiming resolve would receive
+        # it -- supplying it really does fail, so the comment described an
+        # intent the service rejects. Returning `original` for both fetches is
+        # the behaviour under test.
         repo.get = AsyncMock(return_value=original)
         repo.write = AsyncMock(side_effect=lambda r: r)
 
