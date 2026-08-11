@@ -5,15 +5,15 @@ from statistics import mean, pstdev
 from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.capabilities.models import Capability
+from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.costing.service import estimate_cost_for_period
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.service import (
     bootstrap_interval,
     build_confidence_breakdown,
@@ -25,6 +25,18 @@ from zeroth.econ.plane.statistics.service import (
 
 _DRIFT_WARNING = 0.15
 _DRIFT_CRITICAL = 0.3
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("counterfactual persistence requires an exact ScopedSession")
+    return db
+
+
+def _bound_tenant(db: ScopedSession) -> str:
+    if db.scope is None:
+        raise ValueError("counterfactual evaluation requires a tenant-bound scope")
+    return db.scope.tenant_id
 
 
 def _drift_state(score: float) -> str:
@@ -143,12 +155,33 @@ def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, fl
     return arms
 
 
-def run_evaluation(db: Session, payload: EvaluationRunRequest) -> ValueEstimate:
-    capability = db.execute(select(Capability).where(Capability.id == payload.capability_id)).scalar_one_or_none()
-    valuation_config = capability.valuation_config if capability else {}
-    tenant_id = capability.tenant_id if capability else settings.default_tenant_id
+def run_evaluation(db: ScopedSession, payload: EvaluationRunRequest) -> ValueEstimate:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    capability = db.execute(
+        select(Capability).where(
+            Capability.tenant_id == tenant_id,
+            Capability.id == payload.capability_id,
+        )
+    ).scalar_one_or_none()
+    if capability is None:
+        raise ValueError("capability does not exist in the bound tenant")
+    if payload.implementation_id:
+        implementation = db.execute(
+            select(Implementation).where(
+                Implementation.tenant_id == tenant_id,
+                Implementation.id == payload.implementation_id,
+                Implementation.capability_id == payload.capability_id,
+            )
+        ).scalar_one_or_none()
+        if implementation is None:
+            raise ValueError(
+                "implementation does not belong to the capability in the bound tenant"
+            )
+    valuation_config = capability.valuation_config
 
     exec_stmt = select(ExecutionEvent).where(
+        ExecutionEvent.tenant_id == tenant_id,
         ExecutionEvent.capability_id == payload.capability_id,
         ExecutionEvent.timestamp >= payload.period_start,
         ExecutionEvent.timestamp <= payload.period_end,
@@ -160,6 +193,7 @@ def run_evaluation(db: Session, payload: EvaluationRunRequest) -> ValueEstimate:
     outcomes = list(
         db.execute(
             select(OutcomeEvent).where(
+                OutcomeEvent.tenant_id == tenant_id,
                 OutcomeEvent.capability_id == payload.capability_id,
                 OutcomeEvent.occurred_at >= payload.period_start,
                 OutcomeEvent.occurred_at <= payload.period_end,
@@ -305,16 +339,30 @@ def run_evaluation(db: Session, payload: EvaluationRunRequest) -> ValueEstimate:
     return estimate
 
 
-def latest_estimate(db: Session, capability_id: str) -> Optional[ValueEstimate]:
+def latest_estimate(db: ScopedSession, capability_id: str) -> Optional[ValueEstimate]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
     stmt = (
         select(ValueEstimate)
-        .where(ValueEstimate.capability_id == capability_id)
+        .where(
+            ValueEstimate.tenant_id == tenant_id,
+            ValueEstimate.capability_id == capability_id,
+        )
         .order_by(ValueEstimate.id.desc())
         .limit(1)
     )
     return db.execute(stmt).scalar_one_or_none()
 
 
-def estimate_history(db: Session, capability_id: str) -> list[ValueEstimate]:
-    stmt = select(ValueEstimate).where(ValueEstimate.capability_id == capability_id).order_by(ValueEstimate.id.desc())
+def estimate_history(db: ScopedSession, capability_id: str) -> list[ValueEstimate]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    stmt = (
+        select(ValueEstimate)
+        .where(
+            ValueEstimate.tenant_id == tenant_id,
+            ValueEstimate.capability_id == capability_id,
+        )
+        .order_by(ValueEstimate.id.desc())
+    )
     return list(db.execute(stmt).scalars())

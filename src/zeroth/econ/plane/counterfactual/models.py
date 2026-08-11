@@ -18,7 +18,7 @@ class ValuationRun(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     capability_id: Mapped[str] = mapped_column(ForeignKey("capabilities.id"), index=True)
     implementation_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     mode: Mapped[str] = mapped_column(String(32), index=True)
@@ -35,7 +35,7 @@ class ValueEstimate(Base):
     __table_args__ = (Index("ix_value_estimate_capability_period", "capability_id", "period_start"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     valuation_run_id: Mapped[int] = mapped_column(ForeignKey("valuation_runs.id"), index=True)
     capability_id: Mapped[str] = mapped_column(ForeignKey("capabilities.id"), index=True)
     implementation_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)

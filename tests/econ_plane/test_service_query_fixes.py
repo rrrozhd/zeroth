@@ -29,6 +29,7 @@ def econ_session():
 
 def _value_estimate(cap_id: str, value: float) -> ValueEstimate:
     return ValueEstimate(
+        tenant_id="default",
         valuation_run_id=1,
         capability_id=cap_id,
         period_start=_NOW,
