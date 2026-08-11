@@ -509,7 +509,8 @@ def _raw_session_violations(root: Path) -> set[str]:
     return violations
 
 
-# Existing service signatures remain route-bound to raw Session until ZER-44 Task 5.
+# Remaining service signatures stay on the shrink-only compatibility boundary
+# until their owning ZER-44 migration task converts them to ScopedSession.
 # This exact allowlist is shrink-only: deleting a violation requires deleting its entry,
 # while any new import, reference, construction, or raw-only API use fails this test.
 _ALLOWED_SESSION_REFERENCES = {
@@ -526,22 +527,6 @@ _ALLOWED_SESSION_REFERENCES = {
         "list_capabilities",
         "list_experiments",
     },
-    "connectors/service.py": {
-        "_attempt_send",
-        "_enabled_connectors",
-        "_record_delivery",
-        "configure_connector",
-        "connector_status",
-        "enqueue_connector_event",
-        "get_or_create_connector_config",
-        "list_connector_configs",
-        "list_outbox",
-        "outbox_counts",
-        "process_outbox_batch",
-        "render_prometheus_metrics",
-        "retry_outbox_item",
-        "set_connector_enabled",
-    },
     "costing/service.py": {
         "_lookup_pricing",
         "create_cost_profile",
@@ -550,7 +535,6 @@ _ALLOWED_SESSION_REFERENCES = {
         "get_cost_profile",
         "latest_cost_estimate",
     },
-    "counterfactual/service.py": {"estimate_history", "latest_estimate", "run_evaluation"},
     "dashboard/service.py": {
         "action_suppression",
         "calibration_trend",
@@ -577,7 +561,6 @@ _ALLOWED_SESSION_REFERENCES = {
         "list_policy_actions",
         "upsert_tenant_budget",
     },
-    "instrumentation/service.py": {"ingest_execution", "ingest_outcome", "query_outcomes"},
     "performance/service.py": {"calculate_snapshots", "latest_snapshots"},
 }
 _RAW_SESSION_ALLOWLIST = (

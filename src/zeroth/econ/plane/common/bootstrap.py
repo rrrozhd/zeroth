@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy import text
 
 from zeroth.econ.plane.auth.models import Role
-from zeroth.econ.plane.database import Base, SessionLocal, engine
+from zeroth.econ.plane.database import Base, SessionLocal, _ensure_sqlite_compat, engine
 
 
 def bootstrap() -> None:
@@ -56,9 +56,9 @@ def _ensure_schema_compat() -> None:
         ensure_col("implementations", "config_json", "config_json JSON DEFAULT '{}'")
         ensure_col("implementations", "status", "status VARCHAR(32) DEFAULT 'ACTIVE'")
 
-        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("execution_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
-        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")
@@ -66,7 +66,7 @@ def _ensure_schema_compat() -> None:
         ensure_col("outcome_events", "ingested_at", "ingested_at DATETIME")
         ensure_col("outcome_events", "provenance", "provenance VARCHAR(16) DEFAULT 'MEASURED'")
 
-        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("value_estimates", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("value_estimates", "relative_interval_width", "relative_interval_width FLOAT DEFAULT 0.0")
         ensure_col("value_estimates", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 0")
@@ -76,10 +76,11 @@ def _ensure_schema_compat() -> None:
         ensure_col("value_estimates", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
         ensure_col("value_estimates", "interval_method", "interval_method VARCHAR(32) DEFAULT 'hierarchical'")
 
-        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("valuation_runs", "implementation_id", "implementation_id VARCHAR(128)")
 
         ensure_col("performance_snapshots", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("performance_snapshots", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("performance_snapshots", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 1")
         ensure_col("performance_snapshots", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
+    _ensure_sqlite_compat()

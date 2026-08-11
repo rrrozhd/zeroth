@@ -29,7 +29,7 @@ def _outcome_out(row: object) -> OutcomeQueryResponse:
     return OutcomeQueryResponse.model_validate(
         {
             "id": getattr(row, "id"),
-            "tenant_id": getattr(row, "tenant_id", "tenant_default"),
+            "tenant_id": getattr(row, "tenant_id"),
             "join_key": getattr(row, "join_key", None) or getattr(row, "execution_id"),
             "capability_id": getattr(row, "capability_id"),
             "implementation_id": getattr(row, "implementation_id", None),

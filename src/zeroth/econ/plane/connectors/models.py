@@ -21,7 +21,7 @@ class ConnectorConfig(Base):
     __table_args__ = (Index("ix_connector_configs_tenant_type_enabled", "tenant_id", "connector_type", "enabled"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     connector_type: Mapped[str] = mapped_column(String(64), index=True)
     enabled: Mapped[bool] = mapped_column(default=False)
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -41,7 +41,7 @@ class ConnectorOutbox(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     event_type: Mapped[str] = mapped_column(String(128), index=True)
     event_key: Mapped[str] = mapped_column(String(255), index=True)
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -62,7 +62,7 @@ class ConnectorDeliveryLog(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     outbox_id: Mapped[int] = mapped_column(index=True)
     connector_type: Mapped[str] = mapped_column(String(64), index=True)
     attempt: Mapped[int] = mapped_column(default=1)

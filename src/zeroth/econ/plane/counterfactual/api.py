@@ -28,7 +28,13 @@ def run_async(
     payload: EvaluationRunRequest,
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> APIMessage:
-    run_evaluation_async.send(payload.model_dump(mode="json"))
+    run_evaluation_async.send(
+        {
+            "request": payload.model_dump(mode="json"),
+            "tenant_id": _user.tenant_id,
+            "workspace_id": _user.workspace_id,
+        }
+    )
     return APIMessage(message="queued")
 
 

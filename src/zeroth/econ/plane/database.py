@@ -59,7 +59,6 @@ def _ensure_sqlite_compat() -> None:
         tenant_ownership_tables = (
             "users",
             "deployment_implementations",
-            "connector_delivery_log",
             "cost_profiles",
             "cost_estimates",
             "ground_truth_costs",
@@ -72,6 +71,7 @@ def _ensure_sqlite_compat() -> None:
         )
         for table in tenant_ownership_tables:
             ensure_col(table, "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("connector_delivery_log", "tenant_id", "tenant_id VARCHAR(128)")
 
         ensure_col("users", "workspace_id", "workspace_id VARCHAR(128)")
         if conn.execute(
@@ -100,9 +100,9 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("implementations", "config_json", "config_json JSON DEFAULT '{}'")
         ensure_col("implementations", "status", "status VARCHAR(32) DEFAULT 'ACTIVE'")
 
-        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("execution_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
-        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")
@@ -117,13 +117,38 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("value_estimates", "value_data_quality", "value_data_quality VARCHAR(32) DEFAULT 'measured'")
         ensure_col("value_estimates", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
         ensure_col("value_estimates", "interval_method", "interval_method VARCHAR(32) DEFAULT 'hierarchical'")
-        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("value_estimates", "implementation_id", "implementation_id VARCHAR(128)")
 
-        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("valuation_runs", "implementation_id", "implementation_id VARCHAR(128)")
 
         ensure_col("performance_snapshots", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 1")
         ensure_col("performance_snapshots", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("performance_snapshots", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("performance_snapshots", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
+
+        # Converge pre-Alembic/create_all compatibility databases on the same
+        # ownership constraints as revision 20260811_05.  Loading the revision
+        # in a fresh module mirrors Alembic's own migration test harness and
+        # avoids sharing its module-level Operations proxy across startups.
+        import importlib.util
+        from pathlib import Path
+
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+
+        migration_path = (
+            Path(__file__).parent
+            / "_migrations/versions/20260811_05_tenant_scope.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_zeroth_runtime_20260811_05_tenant_scope",
+            migration_path,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("unable to load econ tenant-scope compatibility migration")
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        migration.op = Operations(MigrationContext.configure(conn))
+        migration.upgrade()

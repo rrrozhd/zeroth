@@ -3,14 +3,61 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
+from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.capabilities.service import active_experiment, pick_ab_arm
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
-from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
+from zeroth.econ.plane.scoped_session import ScopedSession
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("instrumentation persistence requires an exact ScopedSession")
+    return db
+
+
+def _bound_tenant(db: ScopedSession) -> str:
+    if db.scope is None:
+        raise ValueError("instrumentation requires a tenant-bound scope")
+    return db.scope.tenant_id
+
+
+def _assert_requested_tenant(requested: str | None, tenant_id: str) -> None:
+    normalized = "default" if requested == "tenant_default" else requested
+    if normalized is not None and normalized != tenant_id:
+        raise ValueError("tenant ownership does not match the bound scope")
+
+
+def _require_capability_and_implementation(
+    db: ScopedSession,
+    *,
+    tenant_id: str,
+    capability_id: str,
+    implementation_id: str | None,
+) -> Capability:
+    capability = db.execute(
+        select(Capability).where(
+            Capability.tenant_id == tenant_id,
+            Capability.id == capability_id,
+        )
+    ).scalar_one_or_none()
+    if capability is None:
+        raise ValueError("capability does not exist in the bound tenant")
+    if implementation_id is None:
+        return capability
+    implementation = db.execute(
+        select(Implementation).where(
+            Implementation.tenant_id == tenant_id,
+            Implementation.id == implementation_id,
+            Implementation.capability_id == capability_id,
+        )
+    ).scalar_one_or_none()
+    if implementation is None:
+        raise ValueError("implementation does not belong to the capability in the bound tenant")
+    return capability
 
 
 def _derive_join_key_from_metadata(metadata: dict) -> str:
@@ -21,19 +68,40 @@ def _derive_join_key_from_metadata(metadata: dict) -> str:
     return ""
 
 
-def ingest_execution(db: Session, payload: ExecutionEventCreate) -> tuple[str, ExecutionEvent]:
+def ingest_execution(
+    db: ScopedSession, payload: ExecutionEventCreate
+) -> tuple[str, ExecutionEvent]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
     metadata = dict(payload.metadata)
+    _assert_requested_tenant(payload.tenant_id, tenant_id)
+    metadata_tenant = metadata.get("tenant_id")
+    _assert_requested_tenant(
+        str(metadata_tenant) if metadata_tenant is not None else None,
+        tenant_id,
+    )
+    metadata["tenant_id"] = tenant_id
     join_key = payload.join_key or _derive_join_key_from_metadata(metadata) or payload.execution_id
     if settings.strict_join_key_enforcement and not join_key:
         raise ValueError("join_key is required for execution ingestion")
 
-    existing = db.execute(select(ExecutionEvent).where(ExecutionEvent.execution_id == payload.execution_id)).scalar_one_or_none()
+    _require_capability_and_implementation(
+        db,
+        tenant_id=tenant_id,
+        capability_id=payload.capability_id,
+        implementation_id=payload.implementation_id,
+    )
+    existing = db.execute(
+        select(ExecutionEvent).where(
+            ExecutionEvent.tenant_id == tenant_id,
+            ExecutionEvent.execution_id == payload.execution_id,
+        )
+    ).scalar_one_or_none()
     if existing:
         if existing.join_key != join_key:
             raise ValueError("execution_id already exists with a different join_key")
         return "duplicate", existing
 
-    tenant_id = resolve_tenant_id(payload.tenant_id or metadata.get("tenant_id"))
     experiment = active_experiment(db, payload.capability_id, mode="AB")
     if experiment is not None and join_key:
         assignment_input = join_key
@@ -95,11 +163,26 @@ def ingest_execution(db: Session, payload: ExecutionEventCreate) -> tuple[str, E
     return "inserted", row
 
 
-def ingest_outcome(db: Session, payload: OutcomeEventCreate) -> OutcomeEvent:
-    tenant_id = resolve_tenant_id(payload.tenant_id)
+def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEvent:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    _assert_requested_tenant(payload.tenant_id, tenant_id)
+    _require_capability_and_implementation(
+        db,
+        tenant_id=tenant_id,
+        capability_id=payload.capability_id,
+        implementation_id=payload.implementation_id,
+    )
     linked_execution = None
     if payload.execution_id:
-        linked_execution = db.execute(select(ExecutionEvent).where(ExecutionEvent.execution_id == payload.execution_id)).scalar_one_or_none()
+        linked_execution = db.execute(
+            select(ExecutionEvent).where(
+                ExecutionEvent.tenant_id == tenant_id,
+                ExecutionEvent.execution_id == payload.execution_id,
+            )
+        ).scalar_one_or_none()
+        if linked_execution is None:
+            raise ValueError("execution_id was not found in the bound tenant")
 
     join_key = payload.join_key or (linked_execution.join_key if linked_execution else "") or payload.execution_id or ""
     if settings.strict_join_key_enforcement and not join_key:
@@ -162,14 +245,16 @@ def ingest_outcome(db: Session, payload: OutcomeEventCreate) -> OutcomeEvent:
 
 
 def query_outcomes(
-    db: Session,
+    db: ScopedSession,
     capability_id: str | None = None,
     implementation_id: str | None = None,
     outcome_type: str | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> list[OutcomeEvent]:
-    stmt = select(OutcomeEvent)
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    stmt = select(OutcomeEvent).where(OutcomeEvent.tenant_id == tenant_id)
     if capability_id:
         stmt = stmt.where(OutcomeEvent.capability_id == capability_id)
     if implementation_id:
