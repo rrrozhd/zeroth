@@ -1,24 +1,32 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
+from zeroth.econ.plane.auth.schemas import UserClaims
 from zeroth.econ.plane.costing.models import GroundTruthCost
 from zeroth.econ.plane.costing.service import add_ground_truth_rows, compute_calibration_summary
-from zeroth.econ.plane.database import get_db
 from zeroth.econ.plane.reconciliation.schemas import GroundTruthImportRequest
+from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.schemas import CalibrationSummary
 
 router = APIRouter(tags=["reconciliation"])
 
 
 @router.post("/reconciliation/ground-truth-import")
-def import_ground_truth(payload: GroundTruthImportRequest, db: Session = Depends(get_db)) -> dict[str, int]:
+def import_ground_truth(
+    payload: GroundTruthImportRequest,
+    db: ScopedSession = Depends(get_current_scoped_db),
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
+) -> dict[str, int]:
     rows = [GroundTruthCost(**row.model_dump()) for row in payload.rows]
     inserted = add_ground_truth_rows(db, rows)
     return {"inserted": inserted}
 
 
 @router.get("/reconciliation/calibration-summary", response_model=list[CalibrationSummary])
-def calibration_summary(db: Session = Depends(get_db)) -> list[CalibrationSummary]:
+def calibration_summary(
+    db: ScopedSession = Depends(get_current_scoped_db),
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
+) -> list[CalibrationSummary]:
     rows = compute_calibration_summary(db)
     return [
         CalibrationSummary(
