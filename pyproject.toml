@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.22.2.10.3"
+version = "0.22.3"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -188,6 +188,7 @@ markers = [
     "legacy_engine: explicit compatibility gates for sequential_join_enabled=False",
     "postgres: marks tests exercising PostgreSQL-specific coordination",
     "langgraph_conformance: pinned Agent Server compatibility release gate",
+    "dev_toolchain: needs a dev-group tool absent from a wheel-only venv by design",
 ]
 
 [tool.ruff]

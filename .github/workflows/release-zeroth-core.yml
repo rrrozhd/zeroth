@@ -123,6 +123,11 @@ jobs:
       - name: Checkout (for tests/)
         uses: actions/checkout@v4
 
+      # On the runner, not in the test venv: tests/architecture/test_wheel_packaging.py
+      # shells out to `uv build` to inspect the distribution's contents.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -146,9 +151,16 @@ jobs:
           # runtime extra) needed by the Docker-gated postgres backend tests, which
           # run on the Docker-enabled GitHub runner.
           pip install "$(ls dist/zeroth_core-*.whl)[all,langgraph]" pytest pytest-asyncio "testcontainers[postgres]"
-          # Run the suite against the INSTALLED wheel, not src mode
-          # -m "not live" respects the pyproject.toml marker convention
-          pytest tests/ -v --no-header -ra -m "not live" --junitxml=release/langgraph/junit.xml
+          # Run the suite against the INSTALLED wheel, not src mode.
+          # `-m` REPLACES pyproject's addopts expression rather than extending it,
+          # so every marker the project deselects by default is repeated here --
+          # otherwise this job silently re-selects the conformance and
+          # deployed-acceptance suites. dev_toolchain covers tools a wheel-only
+          # venv omits by design; tests/release_gates/test_marker_integrity.py
+          # executes this expression and checks what it admits.
+          pytest tests/ -v --no-header -ra \
+            -m "not live and not langgraph_conformance and not deployed_acceptance and not dev_toolchain" \
+            --junitxml=release/langgraph/junit.xml
 
       - name: Upload JUnit release evidence
         uses: actions/upload-artifact@v4

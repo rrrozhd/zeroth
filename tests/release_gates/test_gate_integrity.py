@@ -604,6 +604,7 @@ def _ruff_is_installed() -> bool:
     )
 
 
+@pytest.mark.dev_toolchain
 def test_the_lint_gate_environment_really_has_ruff() -> None:
     """Where the developer and the lint gate run, Ruff must be present.
 
@@ -611,6 +612,19 @@ def test_the_lint_gate_environment_really_has_ruff() -> None:
     check would quietly vanish and the suite would still be green. ``uv sync
     --all-groups`` installs the dev group, so a failure here means the gate's own
     environment is wrong.
+
+    Marked ``dev_toolchain``, because the two wheel-venv jobs are the one place
+    where its own message -- "if this is the wheel-venv job that is expected" --
+    is true, and an assertion that excuses itself in prose still fails. Landing
+    unmarked in ZER-41, it would have failed the next nightly for exactly the
+    reason this ticket exists to remove: absent dev tooling reported as a defect.
+    No nightly has recorded it, because run 31469899049 tested 7249ca04, one
+    commit before ZER-41 merged.
+
+    The marker does not weaken it. ``tests/release_gates/test_marker_integrity.py``
+    proves it still runs wherever the project default applies, which is both
+    places the lint gate actually runs: ``ci.yml:verify`` and
+    ``release-gates.yml:source``.
     """
     assert _ruff_is_installed(), (
         "Ruff is not importable, so every lint-enforcement check would skip. If this "

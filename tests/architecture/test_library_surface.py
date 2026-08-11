@@ -15,11 +15,13 @@ import inspect
 import json
 import re
 import warnings
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 FIXTURES = Path(__file__).parents[1] / "contracts" / "fixtures"
 REPO_ROOT = Path(__file__).parents[2]
@@ -164,6 +166,110 @@ def _signature(value: object) -> str | None:
         return "<not-inspectable>"
 
 
+# A settings class inherits its constructor's leading parameters from
+# ``pydantic_settings.BaseSettings``, and those belong to that library, not to
+# Zeroth.
+#
+# ``pyproject.toml`` declares ``pydantic-settings>=2.13`` with no upper bound, so
+# ``uv sync`` resolves the lock (2.13.1) while a fresh ``pip install`` of the
+# wheel resolves the newest release. Measured on nightly 31469899049: the wheel
+# venv installed 2.15.0, which adds ``_cli_show_env_vars`` to
+# ``BaseSettings.__init__``, and the package gate reported the protected surface
+# of ``ZerothSettings`` as changed. Nothing about Zeroth had changed. The gate
+# named a Zeroth capability and meant an upstream library's private CLI keyword.
+#
+# Pinning an upper bound would make the gate green by constraining every consumer
+# to the version this repository happens to have locked, over a parameter no
+# consumer can pass meaningfully. Instead the comparison drops exactly the
+# parameters the installed base class contributes -- derived from that class, not
+# listed here, so it tracks the library rather than a snapshot of it -- and
+# ``test_the_upstream_exclusion_never_reaches_a_zeroth_owned_field`` refuses any
+# derivation that would reach Zeroth's own fields.
+def _upstream_owned_parameters(value: object) -> frozenset[str]:
+    """Constructor parameter names ``value`` inherits from ``BaseSettings``."""
+    if not (isinstance(value, type) and issubclass(value, BaseSettings)):
+        return frozenset()
+    inherited = set(inspect.signature(BaseSettings).parameters)
+    return frozenset(inherited - set(value.model_fields))
+
+
+def _bracket_depths(text: str) -> Iterator[tuple[int, str, int]]:
+    """Each character with its bracket depth; anything inside quotes reports ``-1``.
+
+    One state machine, so the two questions asked of it below -- where does the
+    parameter list end, and which commas separate parameters -- cannot disagree
+    about which brackets and quotes are real.
+    """
+    depth = 0
+    quote = ""
+    for position, character in enumerate(text):
+        if quote:
+            quote = "" if character == quote else quote
+            yield position, character, -1
+            continue
+        if character in "\"'":
+            quote = character
+            yield position, character, -1
+            continue
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+        yield position, character, depth
+
+
+def split_parameters(signature: str) -> tuple[list[str], str]:
+    """A signature's parameter texts and everything after them.
+
+    Splitting on ``", "`` is wrong here: annotations carry commas of their own --
+    ``"bool | Literal['dual', 'toggle'] | None"`` and
+    ``'Mapping[str, str | list[str]] | None'`` both appear in the real signature --
+    so the split tracks bracket depth and quoting.
+
+    Inside the outer parentheses the depth is 1, so a separating comma is a comma
+    at depth 1 and the closing parenthesis is the ``)`` that returns to 0.
+    """
+    if not signature.startswith("("):
+        return [], signature
+    parameters: list[str] = []
+    current = ""
+    for position, character, depth in _bracket_depths(signature):
+        if depth == 0 and character == ")":
+            parameters.append(current)
+            return [item.strip() for item in parameters if item.strip()], signature[position:]
+        if depth == 1 and character == ",":
+            parameters.append(current)
+            current = ""
+            continue
+        if position:
+            current += character
+    return [item.strip() for item in parameters if item.strip()], ""
+
+
+def parameter_name(parameter: str) -> str:
+    """The bare name of one rendered parameter, without ``*``, annotation or default."""
+    name = parameter.lstrip("*").strip()
+    for separator in (":", "="):
+        name = name.split(separator, 1)[0]
+    return name.strip()
+
+
+def without_parameters(signature: str, names: frozenset[str]) -> str:
+    """``signature`` with every parameter in ``names`` removed."""
+    if not names:
+        return signature
+    parameters, suffix = split_parameters(signature)
+    kept = [item for item in parameters if parameter_name(item) not in names]
+    return "(" + ", ".join(kept) + suffix
+
+
+def _pinned(signature: str | None, upstream: frozenset[str]) -> str | None:
+    """The part of a signature Zeroth owns, in comparable form."""
+    if signature is None:
+        return None
+    return _comparable(without_parameters(signature, upstream))
+
+
 def test_comparable_signature_drops_the_defining_module_of_zeroth_types() -> None:
     """Capability identity must not depend on where a type happens to live.
 
@@ -177,6 +283,100 @@ def test_comparable_signature_drops_the_defining_module_of_zeroth_types() -> Non
 
     assert _comparable(relocated) == _comparable(original)
     assert _comparable(original) == "(*, who: ActorIdentity) -> None"
+
+
+def test_the_upstream_exclusion_never_reaches_a_zeroth_owned_field() -> None:
+    """The derivation may drop what the library owns and nothing else.
+
+    ``ZerothSettings`` declares 22 fields of its own and inherits 28 constructor
+    parameters from ``BaseSettings``. If those sets ever overlapped -- a Zeroth
+    field named like an upstream keyword, or a future ``BaseSettings`` that
+    promotes one -- the exclusion would silently stop pinning a real capability,
+    which is the loophole this normalization could otherwise become.
+    """
+    from zeroth.platform.config import ZerothSettings
+
+    upstream = _upstream_owned_parameters(ZerothSettings)
+
+    assert upstream, "nothing excluded -- the derivation is not finding the base class"
+    assert upstream.isdisjoint(set(ZerothSettings.model_fields)), sorted(
+        upstream & set(ZerothSettings.model_fields)
+    )
+    assert _upstream_owned_parameters(BaseModel) == frozenset()
+
+
+def test_a_zeroth_owned_field_change_is_still_reported() -> None:
+    """The pin still pins. Fed the change it exists to catch, on the real class.
+
+    Renaming one of Zeroth's own settings groups must fail the comparison even
+    though the upstream parameters are being dropped from both sides.
+    """
+    from zeroth.platform.config import ZerothSettings
+
+    upstream = _upstream_owned_parameters(ZerothSettings)
+    actual = _signature(ZerothSettings)
+    assert actual is not None
+    assert actual.count(", retention: ") == 1, "the field this mutates is no longer unique"
+    renamed = actual.replace(", retention: ", ", retention_v2: ")
+    assert _pinned(actual, upstream) != _pinned(renamed, upstream)
+
+
+def test_an_upstream_parameter_appearing_is_tolerated() -> None:
+    """The exact divergence measured in the wheel venv, reproduced as a fixture.
+
+    ``pydantic-settings`` 2.15.0 adds ``_cli_show_env_vars`` to
+    ``BaseSettings.__init__``. Both sides drop the parameters the *installed*
+    base class owns, so the side that has it and the side that does not compare
+    equal -- and the two Zeroth fields around it stay pinned.
+    """
+    upstream = frozenset({"_cli_prefix", "_cli_show_env_vars"})
+    without = (
+        "(_cli_prefix: 'str | None' = None, *, database: DatabaseSettings = <factory>) -> None"
+    )
+    with_added = (
+        "(_cli_show_env_vars: 'bool | None' = None, _cli_prefix: 'str | None' = None, "
+        "*, database: DatabaseSettings = <factory>) -> None"
+    )
+
+    assert _pinned(without, upstream) == _pinned(with_added, upstream)
+    assert _pinned(without, frozenset()) != _pinned(with_added, frozenset())
+    assert "database: DatabaseSettings" in str(_pinned(with_added, upstream))
+
+
+@pytest.mark.parametrize(
+    ("signature", "expected"),
+    [
+        pytest.param(
+            "(a: int = 1, b: str = 'x') -> None",
+            ["a: int = 1", "b: str = 'x'"],
+            id="plain_parameters",
+        ),
+        pytest.param(
+            "(mode: \"bool | Literal['dual', 'toggle'] | None\" = None, b: int = 2) -> None",
+            ["mode: \"bool | Literal['dual', 'toggle'] | None\" = None", "b: int = 2"],
+            id="a_comma_inside_a_quoted_annotation",
+        ),
+        pytest.param(
+            "(shortcuts: 'Mapping[str, str | list[str]] | None' = None) -> None",
+            ["shortcuts: 'Mapping[str, str | list[str]] | None' = None"],
+            id="a_comma_inside_brackets",
+        ),
+        pytest.param("(*, a: int, **rest: Any) -> None", ["*", "a: int", "**rest: Any"],
+                     id="markers_and_var_keyword"),
+        pytest.param("() -> None", [], id="no_parameters"),
+    ],
+)
+def test_the_parameter_splitter_survives_the_shapes_this_signature_takes(
+    signature: str, expected: list[str]
+) -> None:
+    """A naive ``", "`` split mangles three of these five, and would drop real fields."""
+    assert split_parameters(signature)[0] == expected
+
+
+def test_the_parameter_splitter_keeps_the_return_annotation() -> None:
+    """Dropping the suffix would make two different return types compare equal."""
+    assert split_parameters("(a: int) -> Run")[1] == ") -> Run"
+    assert without_parameters("(a: int, b: str) -> Run", frozenset({"a"})) == "(b: str) -> Run"
 
 
 def test_comparable_signature_preserves_non_zeroth_qualifiers() -> None:
@@ -252,7 +452,8 @@ _REPOSITORY_SYMBOLS = [entry for entry in _CANONICAL_SYMBOLS if "repository_path
 def test_every_canonical_symbol_imports_and_matches_its_signature(entry: dict[str, Any]) -> None:
     """The evolving canonical fixture is executable import documentation."""
     value = _import_symbol(entry)
-    assert _comparable(_signature(value)) == _comparable(entry["signature"])
+    upstream = _upstream_owned_parameters(value)
+    assert _pinned(_signature(value), upstream) == _pinned(entry["signature"], upstream)
 
 
 def test_every_canonical_entry_is_either_importable_or_a_repository_file() -> None:
