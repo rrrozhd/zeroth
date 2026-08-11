@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+import ast
+import importlib
+import pkgutil
+from pathlib import Path
+
+from sqlalchemy import inspect
+
+from zeroth.econ.plane import __path__ as econ_plane_paths
+from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScope,
+    ResourceScopeDefinition,
+    ResourceScopeRegistry,
+)
+
+_ECON_PLANE_ROOT = Path(econ_plane_paths[0])
+_GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_roles"}
+
+
+def _import_econ_model_modules() -> None:
+    for module in pkgutil.walk_packages(econ_plane_paths, prefix="zeroth.econ.plane."):
+        if module.name.endswith(".models"):
+            importlib.import_module(module.name)
+
+
+def _econ_mapper_classes() -> list[type]:
+    _import_econ_model_modules()
+    return sorted(
+        (
+            mapper.class_
+            for mapper in Base.registry.mappers
+            if mapper.class_.__module__.startswith("zeroth.econ.plane.")
+            and mapper.class_.__module__.endswith(".models")
+        ),
+        key=lambda cls: cls.__tablename__,
+    )
+
+
+def test_every_econ_mapper_has_exactly_one_valid_scope_definition() -> None:
+    definitions: list[ResourceScopeDefinition] = []
+    for model in _econ_mapper_classes():
+        declared = vars(model).get("scope_definition")
+        assert type(declared) is ResourceScopeDefinition, model
+        assert declared.table_name == model.__tablename__, model
+        assert declared.operations == frozenset(ResourceOperation), model
+        definitions.append(declared)
+
+    registry = ResourceScopeRegistry(definitions)
+    assert len(registry.definitions) == len(_econ_mapper_classes())
+
+
+def test_econ_scope_classifications_match_product_semantics() -> None:
+    definitions = {model.__tablename__: model.scope_definition for model in _econ_mapper_classes()}
+
+    assert {
+        name for name, item in definitions.items() if item.scope is ResourceScope.GLOBAL
+    } == _GLOBAL_TABLES
+    for model in _econ_mapper_classes():
+        definition = definitions[model.__tablename__]
+        columns = inspect(model).columns
+        if definition.scope is ResourceScope.TENANT_SCOPED:
+            assert "tenant_id" in columns, model
+        else:
+            assert "tenant_id" not in columns, model
+        if definition.workspace_scoped:
+            assert "workspace_id" in columns, model
+
+    assert definitions["users"].scope is ResourceScope.TENANT_SCOPED
+
+
+class _RawSessionVisitor(ast.NodeVisitor):
+    def __init__(self, relative_path: str) -> None:
+        self.relative_path = relative_path
+        self.function = "<module>"
+        self.violations: list[str] = []
+        self._counts: dict[tuple[str, str], int] = {}
+
+    def _record(self, kind: str, detail: str) -> None:
+        key = (kind, f"{self.function}:{detail}")
+        ordinal = self._counts.get(key, 0) + 1
+        self._counts[key] = ordinal
+        self.violations.append(f"{self.relative_path}::{kind}::{key[1]}#{ordinal}")
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        previous = self.function
+        self.function = node.name
+        self.generic_visit(node)
+        self.function = previous
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self.visit_FunctionDef(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "sqlalchemy.orm" and any(alias.name == "Session" for alias in node.names):
+            self._record("import", "sqlalchemy.orm.Session")
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id == "Session" and not isinstance(node.ctx, ast.Store):
+            parent = getattr(node, "_scope_guard_parent", None)
+            if not isinstance(parent, (ast.alias, ast.ImportFrom)):
+                self._record("reference", "Session")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Name) and node.func.id == "Session":
+            self._record("construction", "Session")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in {"bind", "connection", "get_bind", "query"}:
+            self._record("raw-access", node.attr)
+        self.generic_visit(node)
+
+
+def _raw_session_violations(root: Path) -> set[str]:
+    violations: set[str] = set()
+    for path in sorted(root.rglob("service.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                child._scope_guard_parent = parent
+        visitor = _RawSessionVisitor(path.relative_to(root).as_posix())
+        visitor.visit(tree)
+        violations.update(visitor.violations)
+    return violations
+
+
+# Existing service signatures remain route-bound to raw Session until ZER-44 Task 5.
+# This exact allowlist is shrink-only: deleting a violation requires deleting its entry,
+# while any new import, reference, construction, or raw-only API use fails this test.
+_ALLOWED_SESSION_REFERENCES = {
+    "auth/service.py": {"issue_token"},
+    "capabilities/service.py": {
+        "active_experiment",
+        "create_capability",
+        "create_deployment",
+        "create_experiment",
+        "create_implementation",
+        "deployment_active_impl_ids",
+        "get_capability",
+        "get_deployment",
+        "get_implementation",
+        "list_capabilities",
+        "list_experiments",
+    },
+    "connectors/service.py": {
+        "_attempt_send",
+        "_enabled_connectors",
+        "_record_delivery",
+        "configure_connector",
+        "connector_status",
+        "enqueue_connector_event",
+        "get_or_create_connector_config",
+        "list_connector_configs",
+        "list_outbox",
+        "outbox_counts",
+        "process_outbox_batch",
+        "render_prometheus_metrics",
+        "retry_outbox_item",
+        "set_connector_enabled",
+    },
+    "costing/service.py": {
+        "_lookup_pricing",
+        "add_ground_truth_rows",
+        "compute_calibration_summary",
+        "create_cost_profile",
+        "create_pricing_catalog",
+        "estimate_cost_for_period",
+        "get_cost_profile",
+        "latest_cost_estimate",
+    },
+    "counterfactual/service.py": {"estimate_history", "latest_estimate", "run_evaluation"},
+    "dashboard/service.py": {
+        "action_suppression",
+        "calibration_trend",
+        "capability_ranking",
+        "capital_destroyers",
+        "confidence_gate_status",
+        "confidence_trend",
+        "data_quality_mix",
+        "drift_timeline",
+        "efficiency_trend",
+        "estimated_vs_ground_truth_cost",
+        "implementation_compare",
+        "kpis",
+        "policy_timeline",
+        "top_creators",
+    },
+    "enforcement/service.py": {
+        "_apply_traffic_policy",
+        "_propose_policy_action",
+        "create_action",
+        "decide_action",
+        "get_budget_status",
+        "list_actions",
+        "list_policy_actions",
+        "upsert_tenant_budget",
+    },
+    "instrumentation/service.py": {"ingest_execution", "ingest_outcome", "query_outcomes"},
+    "performance/service.py": {"calculate_snapshots", "latest_snapshots"},
+}
+_RAW_SESSION_ALLOWLIST = (
+    {f"{path}::import::<module>:sqlalchemy.orm.Session#1" for path in _ALLOWED_SESSION_REFERENCES}
+    | {
+        f"{path}::reference::{function}:Session#1"
+        for path, functions in _ALLOWED_SESSION_REFERENCES.items()
+        for function in functions
+    }
+    | {"capabilities/service.py::raw-access::create_deployment:query#1"}
+)
+
+
+def test_raw_session_allowlist_is_exact_and_shrink_only() -> None:
+    assert _raw_session_violations(_ECON_PLANE_ROOT) == _RAW_SESSION_ALLOWLIST
+
+
+def test_raw_session_guard_reports_a_new_scoped_service_violation(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "from sqlalchemy.orm import Session\n\n"
+        "def unsafe(db: Session):\n"
+        "    return db.query(object).all()\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("::import::" in violation for violation in violations)
+    assert any("::reference::" in violation for violation in violations)
+    assert any("::raw-access::" in violation for violation in violations)
