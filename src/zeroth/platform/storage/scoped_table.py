@@ -19,6 +19,38 @@ from zeroth.platform.storage.scoping import (
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _OWNERSHIP_COLUMNS = frozenset({"tenant_id", "workspace_id"})
 
+ASYNC_PERSISTENCE_MODULES = frozenset(
+    {
+        "contracts/graph/repository.py",
+        "contracts/graph/storage.py",
+        "contracts/registry/registry.py",
+        "governance/approvals/repository.py",
+        "governance/attestations/store.py",
+        "governance/audit/coordination.py",
+        "governance/audit/repository.py",
+        "governance/decisions/repository.py",
+        "governance/retention/audit_log_repository.py",
+        "governance/retention/claims.py",
+        "governance/retention/cleanup_state_repository.py",
+        "governance/retention/coordination.py",
+        "governance/retention/legal_hold_repository.py",
+        "governance/retention/policy_repository.py",
+        "integrations/memory/config_repository.py",
+        "integrations/persistence/runs/checkpoint_store.py",
+        "integrations/persistence/runs/retention_queries.py",
+        "integrations/persistence/runs/run_repository.py",
+        "integrations/persistence/runs/thread_repository.py",
+        "integrations/persistence/runs/token_snapshot_store.py",
+        "platform/artifacts/store.py",
+        "platform/secrets/vault.py",
+        "runtime/agents/thread_store.py",
+        "service/deployments/repository.py",
+        "service/langgraph_gateway/enforcement_store.py",
+        "service/webhooks/repository.py",
+    }
+)
+"""Production persistence modules that must use structured storage gateways."""
+
 _SERVICE_TABLES = (
     "approvals",
     "audit_chain_heads",
