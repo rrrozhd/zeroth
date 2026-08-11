@@ -678,6 +678,32 @@ def test_the_probe_set_covers_exactly_what_the_exemption_stopped_covering() -> N
     )
 
 
+#: One source violating every enforced rule at once, so the exhaustive sweep
+#: below costs one Ruff invocation per path rather than one per (path, rule).
+COMBINED_PROBE = (
+    "import pytest\n\n\ndef test_probe():\n    unused = 1\n"
+    "    with pytest.raises(Exception):\n        pass\n"
+)
+
+
+def _reported_rules(source: str, filename: str) -> set[str]:
+    """Every enforced rule Ruff reports for ``source`` at ``filename``."""
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--stdin-filename", filename,
+         "--output-format", "concise", "--no-cache", "-"],
+        cwd=ROOT,
+        input=source,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return {
+        rule
+        for rule in RULE_PROBES
+        if re.search(rf":\d+:\d+:\s+{re.escape(rule)}\b", result.stdout)
+    }
+
+
 @pytest.mark.parametrize("rule", sorted(RULE_PROBES))
 def test_the_rules_this_task_enforced_are_reported_on_a_real_violation(rule: str) -> None:
     """The property itself: a violating test file is flagged.
@@ -688,6 +714,44 @@ def test_the_rules_this_task_enforced_are_reported_on_a_real_violation(rule: str
     assert rule_is_reported(rule, RULE_PROBES[rule]), (
         f"{rule} is not reported for a file under tests/; something in the Ruff "
         "configuration is exempting it again"
+    )
+
+
+def test_every_enforced_rule_is_in_force_at_every_test_path() -> None:
+    """Exhaustive, because the set of paths is finite and enumerable.
+
+    A single representative filename is not the property. A ``per-file-ignores``
+    entry naming one exact path suppresses the rules there while every probe at
+    another path stays green and the file still appears in ``--show-files``;
+    measured, and it is why this sweep exists rather than a scoped-out residual.
+
+    The set of test files is enumerable, so the check is too. One Ruff call per
+    path with a source violating every enforced rule at once -- about 12 s
+    serially over 515 files, a few seconds across a pool.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    paths = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "tests").rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
+
+    assert paths, "no test files found -- the sweep would be vacuous"
+
+    expected = set(RULE_PROBES)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        observed = list(pool.map(lambda path: _reported_rules(COMBINED_PROBE, path), paths))
+
+    suppressed = {
+        path: sorted(expected - reported)
+        for path, reported in zip(paths, observed, strict=True)
+        if reported != expected
+    }
+
+    assert suppressed == {}, (
+        "these test paths do not have every enforced rule in force: "
+        f"{dict(sorted(suppressed.items())[:10])}"
     )
 
 

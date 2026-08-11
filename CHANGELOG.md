@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.10] - 2026-08-10
+
+### Fixed
+
+- Lint enforcement is checked at every test path, not at one representative filename. A
+  `per-file-ignores` entry naming a single exact path suppressed both rules there while
+  every probe elsewhere stayed green. The set of test files is finite, so the sweep is too:
+  one Ruff call per path with a source violating both rules, ~2.7s over 515 files
+  (ZER-41 / ZER41-G01-001).
+
 ## [0.22.2.9.4] - 2026-08-10
 
 ### Fixed
