@@ -20,16 +20,17 @@ replace that discovery mechanism without losing the before-state.
 
 from __future__ import annotations
 
-import ast
-import inspect
 import json
 import os
 from pathlib import Path
-import textwrap
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+from zeroth.service.api.route_authorization import (
+    PUBLIC_ROUTE_NAMES,
+    permission_for_route_name,
+)
 from zeroth.service.app import create_app
 
 FIXTURE = (
@@ -54,43 +55,19 @@ def current_route_inventory() -> list[dict[str, Any]]:
         )
     inventory: list[dict[str, Any]] = []
     for route in app.routes:
+        name = getattr(route, "name", None)
+        permission = permission_for_route_name(name)
         inventory.append(
             {
                 "kind": type(route).__name__,
                 "path": getattr(route, "path", None),
                 "methods": sorted(getattr(route, "methods", None) or []),
-                "name": getattr(route, "name", None),
-                "permission": _permission_used_by(getattr(route, "endpoint", None)),
+                "name": name,
+                "permission": permission.value if permission is not None else None,
+                "public": name in PUBLIC_ROUTE_NAMES,
             }
         )
     return inventory
-
-
-def _permission_used_by(endpoint: object) -> str | None:
-    """Return the one explicit ``Permission`` referenced by an endpoint body."""
-    if not callable(endpoint):
-        return None
-    try:
-        source = textwrap.dedent(inspect.getsource(endpoint))
-    except (OSError, TypeError):
-        return None
-    references = {
-        node.attr
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "Permission"
-    }
-    if len(references) > 1:
-        raise AssertionError(
-            f"route endpoint {getattr(endpoint, '__name__', endpoint)!r} "
-            f"references multiple permissions: {sorted(references)}"
-        )
-    if not references:
-        return None
-    from zeroth.service.api.authorization import Permission
-
-    return Permission[next(iter(references))].value
 
 
 def test_route_inventory_matches_ordered_snapshot() -> None:
