@@ -129,12 +129,63 @@ class ResourceScopeDefinition:
 type ScopeBinding = ScopeContext | TenantWideScopeContext | None
 
 
+@dataclass(frozen=True, slots=True)
+class _ResourceScopeSnapshot:
+    """Private primitive snapshot of one validated resource definition."""
+
+    resource_name: str
+    table_name: str
+    operations: frozenset[ResourceOperation]
+    scope: ResourceScope
+    workspace_scoped: bool
+    direct_scope_ready: bool
+
+    @classmethod
+    def from_definition(cls, definition: ResourceScopeDefinition) -> _ResourceScopeSnapshot:
+        validated = ResourceScopeDefinition(
+            resource_name=definition.resource_name,
+            table_name=definition.table_name,
+            operations=definition.operations,
+            scope=definition.scope,
+            workspace_scoped=definition.workspace_scoped,
+            direct_scope_ready=definition.direct_scope_ready,
+        )
+        normalized = ResourceScopeDefinition(
+            resource_name=str(validated.resource_name),
+            table_name=str(validated.table_name),
+            operations=frozenset(validated.operations),
+            scope=validated.scope,
+            workspace_scoped=validated.workspace_scoped,
+            direct_scope_ready=validated.direct_scope_ready,
+        )
+        return cls(
+            resource_name=normalized.resource_name,
+            table_name=normalized.table_name,
+            operations=normalized.operations,
+            scope=normalized.scope,
+            workspace_scoped=normalized.workspace_scoped,
+            direct_scope_ready=normalized.direct_scope_ready,
+        )
+
+    def to_definition(self) -> ResourceScopeDefinition:
+        return ResourceScopeDefinition(
+            resource_name=self.resource_name,
+            table_name=self.table_name,
+            operations=self.operations,
+            scope=self.scope,
+            workspace_scoped=self.workspace_scoped,
+            direct_scope_ready=self.direct_scope_ready,
+        )
+
+
 class ResourceScopeRegistry:
     """Registry of stable logical resources and their physical tables."""
 
+    __slots__ = ("__by_resource", "__by_table")
+
     def __init__(self, definitions: Iterable[ResourceScopeDefinition] = ()) -> None:
-        self._by_resource: dict[str, ResourceScopeDefinition] = {}
-        self._by_table: dict[str, ResourceScopeDefinition] = {}
+        self.__by_resource: dict[str, _ResourceScopeSnapshot] = {}
+        self.__by_table: dict[str, _ResourceScopeSnapshot] = {}
         for definition in definitions:
             self.register(definition)
 
@@ -142,25 +193,26 @@ class ResourceScopeRegistry:
         """Register a definition, rejecting either kind of duplicate identity."""
         if type(definition) is not ResourceScopeDefinition:
             raise TypeError("definition must be a ResourceScopeDefinition")
-        if definition.resource_name in self._by_resource:
-            raise ValueError(f"duplicate resource_name: {definition.resource_name!r}")
-        if definition.table_name in self._by_table:
-            raise ValueError(f"duplicate table_name: {definition.table_name!r}")
-        self._by_resource[definition.resource_name] = definition
-        self._by_table[definition.table_name] = definition
+        snapshot = _ResourceScopeSnapshot.from_definition(definition)
+        if snapshot.resource_name in self.__by_resource:
+            raise ValueError(f"duplicate resource_name: {snapshot.resource_name!r}")
+        if snapshot.table_name in self.__by_table:
+            raise ValueError(f"duplicate table_name: {snapshot.table_name!r}")
+        self.__by_resource[snapshot.resource_name] = snapshot
+        self.__by_table[snapshot.table_name] = snapshot
 
     def definition_for_resource(self, resource_name: str) -> ResourceScopeDefinition:
         """Return the definition for a stable logical resource name."""
-        return self._by_resource[resource_name]
+        return self.__by_resource[resource_name].to_definition()
 
     def definition_for_table(self, table_name: str) -> ResourceScopeDefinition:
         """Return the definition for a physical table name."""
-        return self._by_table[table_name]
+        return self.__by_table[table_name].to_definition()
 
     @property
     def definitions(self) -> tuple[ResourceScopeDefinition, ...]:
         """Return an insertion-ordered immutable snapshot of all definitions."""
-        return tuple(self._by_resource.values())
+        return tuple(snapshot.to_definition() for snapshot in self.__by_resource.values())
 
     def validate_binding(
         self,
@@ -170,12 +222,12 @@ class ResourceScopeRegistry:
         operation: ResourceOperation | None = None,
     ) -> ResourceScopeDefinition:
         """Validate an ordinary resource operation and return its definition."""
-        definition = self.definition_for_resource(resource_name)
+        definition = self.__by_resource[resource_name]
         self._validate_operation(definition, operation)
         if definition.scope is ResourceScope.GLOBAL:
             if context is not None:
                 raise ValueError("global resources do not accept a tenant context")
-            return definition
+            return definition.to_definition()
         if not definition.direct_scope_ready:
             raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
         if context is None:
@@ -184,7 +236,7 @@ class ResourceScopeRegistry:
             raise TypeError("context must be a recognized scope context")
         if definition.workspace_scoped and type(context) is TenantWideScopeContext:
             raise ValueError("workspace-scoped resources require a workspace context")
-        return definition
+        return definition.to_definition()
 
     def validate_privileged_tenant_wide_binding(
         self,
@@ -196,17 +248,17 @@ class ResourceScopeRegistry:
         """Explicitly validate privileged tenant-wide access to a tenant resource."""
         if type(context) is not TenantWideScopeContext:
             raise TypeError("context must be a TenantWideScopeContext")
-        definition = self.definition_for_resource(resource_name)
+        definition = self.__by_resource[resource_name]
         self._validate_operation(definition, operation)
         if definition.scope is ResourceScope.GLOBAL:
             raise ValueError("global resources do not accept a tenant context")
         if not definition.direct_scope_ready:
             raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
-        return definition
+        return definition.to_definition()
 
     @staticmethod
     def _validate_operation(
-        definition: ResourceScopeDefinition,
+        definition: _ResourceScopeSnapshot,
         operation: ResourceOperation | None,
     ) -> None:
         if operation is None:

@@ -175,7 +175,7 @@ def test_econ_migration_head_reuses_mapper_definitions_without_duplicates(
         "alembic_version",
         "_zeroth_20260811_04_auth_scope",
     }:
-        assert registry.definition_for_table(table_name) is next(
+        assert registry.definition_for_table(table_name) == next(
             definition for definition in mapper_definitions if definition.table_name == table_name
         )
     assert {definition.table_name for definition in ECON_MIGRATION_SCOPE_DEFINITIONS} == {

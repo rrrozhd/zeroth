@@ -215,7 +215,7 @@ class _StructuredTable:
         if type(registry) is not ResourceScopeRegistry:
             raise TypeError("registry must be a ResourceScopeRegistry")
         canonical = registry.definition_for_resource(definition.resource_name)
-        if canonical is not definition:
+        if canonical != definition:
             raise ValueError("definition must be the canonical registry definition")
         self.__database = database
         self.__registry = registry
@@ -237,7 +237,7 @@ class _StructuredTable:
         self,
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
-    ) -> None:
+    ) -> ResourceScopeDefinition:
         raise NotImplementedError
 
     def _scope_items(
@@ -296,8 +296,10 @@ class _StructuredTable:
         joins: tuple[ScopedJoin, ...] = (),
     ) -> list[dict[str, Any]]:
         """Return scoped rows selected through structured equality predicates."""
-        definition = self._canonical_definition()
-        self._validate_operation(ResourceOperation.ENUMERATE, definition)
+        definition = self._validate_operation(
+            ResourceOperation.ENUMERATE,
+            self._canonical_definition(),
+        )
         table_name = _definition_table_name(definition)
         selected = _columns(columns, qualifier=table_name if joins else None)
         sql = f"SELECT {selected} FROM {table_name}"
@@ -317,8 +319,10 @@ class _StructuredTable:
                 raise ValueError("global tables cannot join through a scoped gateway")
             assert isinstance(self, ScopedTable)
             self._validate_join(join.table)
-            joined_definition = join.table._canonical_definition()
-            join.table._validate_operation(ResourceOperation.ENUMERATE, joined_definition)
+            joined_definition = join.table._validate_operation(
+                ResourceOperation.ENUMERATE,
+                join.table._canonical_definition(),
+            )
             alias = f"j{index}"
             joined_name = _definition_table_name(joined_definition)
             sql += (
@@ -344,8 +348,10 @@ class _StructuredTable:
         columns: tuple[str, ...] = ("*",),
     ) -> dict[str, Any] | None:
         """Return one scoped row or ``None``."""
-        definition = self._canonical_definition()
-        self._validate_operation(ResourceOperation.READ, definition)
+        definition = self._validate_operation(
+            ResourceOperation.READ,
+            self._canonical_definition(),
+        )
         table_name = _definition_table_name(definition)
         predicates, params = self._where(where, definition=definition)
         sql = (
@@ -358,8 +364,10 @@ class _StructuredTable:
 
     async def insert(self, values: dict[str, Any]) -> None:
         """Insert a row after filling and validating its ownership columns."""
-        definition = self._canonical_definition()
-        self._validate_operation(ResourceOperation.CREATE, definition)
+        definition = self._validate_operation(
+            ResourceOperation.CREATE,
+            self._canonical_definition(),
+        )
         table_name = _definition_table_name(definition)
         rendered = self._validate_values(values, create=True, definition=definition)
         columns = tuple(rendered)
@@ -372,8 +380,10 @@ class _StructuredTable:
 
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update rows selected by caller predicates plus the bound scope."""
-        definition = self._canonical_definition()
-        self._validate_operation(ResourceOperation.UPDATE, definition)
+        definition = self._validate_operation(
+            ResourceOperation.UPDATE,
+            self._canonical_definition(),
+        )
         table_name = _definition_table_name(definition)
         if not where:
             raise ValueError("update requires a non-empty where predicate")
@@ -386,8 +396,10 @@ class _StructuredTable:
 
     async def delete(self, *, where: dict[str, Any]) -> None:
         """Delete rows selected by caller predicates plus the bound scope."""
-        definition = self._canonical_definition()
-        self._validate_operation(ResourceOperation.DELETE, definition)
+        definition = self._validate_operation(
+            ResourceOperation.DELETE,
+            self._canonical_definition(),
+        )
         table_name = _definition_table_name(definition)
         if not where:
             raise ValueError("delete requires a non-empty where predicate")
@@ -452,22 +464,21 @@ class ScopedTable(_StructuredTable):
         self,
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
-    ) -> None:
+    ) -> ResourceScopeDefinition:
         if self._privileged_tenant_wide:
             assert type(self._context) is TenantWideScopeContext
             if operation is ResourceOperation.CREATE and definition.workspace_scoped:
                 raise ValueError("workspace-scoped creates require a workspace context")
-            self._registry.validate_privileged_tenant_wide_binding(
+            return self._registry.validate_privileged_tenant_wide_binding(
                 definition.resource_name,
                 self._context,
                 operation=operation,
             )
-        else:
-            self._registry.validate_binding(
-                definition.resource_name,
-                self._context,
-                operation=operation,
-            )
+        return self._registry.validate_binding(
+            definition.resource_name,
+            self._context,
+            operation=operation,
+        )
 
     def _scope_items(
         self,
@@ -508,8 +519,12 @@ class GlobalTable(_StructuredTable):
         self,
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
-    ) -> None:
-        self._registry.validate_binding(definition.resource_name, None, operation=operation)
+    ) -> ResourceScopeDefinition:
+        return self._registry.validate_binding(
+            definition.resource_name,
+            None,
+            operation=operation,
+        )
 
     def _validate_values(
         self,
