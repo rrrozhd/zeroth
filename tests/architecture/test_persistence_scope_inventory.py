@@ -111,7 +111,15 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in {"bind", "connection", "get_bind", "query"}:
+        if node.attr in {
+            "bind",
+            "connection",
+            "context",
+            "get_bind",
+            "query",
+            "raw",
+            "root_connection",
+        }:
             self._record("raw-access", node.attr)
         self.generic_visit(node)
 
@@ -224,7 +232,8 @@ def test_raw_session_guard_reports_a_new_scoped_service_violation(tmp_path: Path
     (service_dir / "service.py").write_text(
         "from sqlalchemy.orm import Session\n\n"
         "def unsafe(db: Session):\n"
-        "    return db.query(object).all()\n"
+        "    result = db.query(object).all()\n"
+        "    return result.context.root_connection\n"
     )
 
     violations = _raw_session_violations(tmp_path)

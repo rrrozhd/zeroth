@@ -6,6 +6,7 @@ from typing import ClassVar
 import pytest
 from sqlalchemy import (
     String,
+    bindparam,
     create_engine,
     delete,
     event,
@@ -16,10 +17,10 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
 
 from zeroth.econ.plane.auth.models import User
-from zeroth.econ.plane.capabilities.models import Capability
+from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.costing.models import PricingCatalog
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane import database
@@ -164,6 +165,57 @@ def test_bulk_ownership_rewrite_fails_before_sql(scoped_engine) -> None:
     assert statements == []
 
 
+def test_executemany_update_rejects_ownership_in_any_parameter_before_sql(
+    scoped_engine,
+) -> None:
+    _seed_capabilities(scoped_engine)
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, statement, _params, _context, _many: statements.append(statement),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="ownership is immutable"):
+            scoped.execute(
+                update(Capability).where(Capability.id == bindparam("target_id")),
+                [
+                    {"target_id": "cap-a", "name": "new-a"},
+                    {
+                        "target_id": "cap-b",
+                        "tenant_id": "tenant-a",
+                        "name": "new-b",
+                    },
+                ],
+            )
+
+    assert statements == []
+
+
+def test_executemany_update_applies_tenant_predicate_to_entire_batch(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        scoped.execute(
+            update(Capability)
+            .where(Capability.id == bindparam("target_id"))
+            .values(name=bindparam("new_name")),
+            [
+                {"target_id": "cap-a", "new_name": "new-a"},
+                {"target_id": "cap-b", "new_name": "new-b"},
+            ],
+        )
+        scoped.commit()
+
+    with Session(scoped_engine) as raw:
+        names = dict(raw.execute(select(Capability.id, Capability.name)).all())
+    assert names == {"cap-a": "new-a", "cap-b": "B"}
+
+
 def test_mapped_bulk_insert_fills_missing_tenant_ownership(scoped_engine) -> None:
     with Session(scoped_engine) as raw:
         scoped = ScopedSession(raw, _scope())
@@ -263,13 +315,81 @@ def test_unmapped_sql_cannot_bypass_the_scoped_gateway(scoped_engine) -> None:
             scoped.execute(text("SELECT * FROM capabilities"))
 
 
-def test_get_does_not_return_foreign_identity_preloaded_before_binding(scoped_engine) -> None:
+@pytest.mark.parametrize(
+    "statement",
+    [
+        select(Capability).from_statement(text("SELECT * FROM capabilities")),
+        select(Capability, Capability.__table__.c.tenant_id),
+        select(
+            Capability.id,
+            select(func.count()).select_from(Capability.__table__).scalar_subquery(),
+        ),
+    ],
+    ids=["from-statement", "mixed-core-column", "nested-core-table"],
+)
+def test_tenant_select_rejects_unscopable_statement_shapes_before_sql(
+    scoped_engine, statement
+) -> None:
+    _seed_capabilities(scoped_engine)
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, sql, _params, _context, _many: statements.append(sql),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="scopable ORM SELECT"):
+            scoped.execute(statement)
+
+    assert statements == []
+
+
+def test_nested_orm_scalar_subquery_is_tenant_scoped(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    nested_capability = aliased(Capability)
+    tenant_count = select(func.count(nested_capability.id)).scalar_subquery()
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        rows = scoped.execute(select(Capability.id, tenant_count)).all()
+
+    assert rows == [("cap-a", 1)]
+
+
+def test_execute_returns_only_restrictive_result_facades(scoped_engine) -> None:
     _seed_capabilities(scoped_engine)
 
     with Session(scoped_engine) as raw:
-        foreign = raw.get(Capability, "cap-b")
-        assert foreign is not None
         scoped = ScopedSession(raw, _scope())
+        result = scoped.execute(select(Capability).order_by(Capability.id))
+        for escape_name in ("context", "connection", "root_connection", "raw"):
+            assert not hasattr(result, escape_name)
+
+        scalar_result = result.scalars()
+        assert [row.id for row in scalar_result.all()] == ["cap-a"]
+        for escape_name in ("context", "connection", "root_connection", "raw"):
+            assert not hasattr(scalar_result, escape_name)
+
+        dml_result = scoped.execute(
+            update(Capability).where(Capability.id == "cap-a").values(name="updated")
+        )
+        assert not hasattr(dml_result, "context")
+
+
+def test_get_does_not_return_foreign_identity_preloaded_before_binding(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+
+    with Session(scoped_engine) as foreign_session:
+        foreign = foreign_session.get(Capability, "cap-b")
+        assert foreign is not None
+        foreign_session.expunge(foreign)
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        raw.add(foreign)
 
         assert scoped.get(Capability, "cap-b") is None
 
@@ -277,13 +397,39 @@ def test_get_does_not_return_foreign_identity_preloaded_before_binding(scoped_en
 def test_refresh_rejects_foreign_identity_preloaded_before_binding(scoped_engine) -> None:
     _seed_capabilities(scoped_engine)
 
-    with Session(scoped_engine) as raw:
-        foreign = raw.get(Capability, "cap-b")
+    with Session(scoped_engine) as foreign_session:
+        foreign = foreign_session.get(Capability, "cap-b")
         assert foreign is not None
+        foreign_session.expunge(foreign)
+
+    with Session(scoped_engine) as raw:
         scoped = ScopedSession(raw, _scope())
+        raw.add(foreign)
 
         with pytest.raises(ValueError, match="tenant ownership"):
             scoped.refresh(foreign)
+
+
+def test_binding_rejects_preloaded_identity_map_and_relationships(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    with Session(scoped_engine) as seed:
+        seed.add(
+            Implementation(
+                id="impl-b",
+                tenant_id="tenant-b",
+                capability_id="cap-b",
+                name="foreign implementation",
+            )
+        )
+        seed.commit()
+
+    with Session(scoped_engine) as raw:
+        foreign = raw.get(Capability, "cap-b")
+        assert foreign is not None
+        assert [item.id for item in foreign.implementations] == ["impl-b"]
+
+        with pytest.raises(ValueError, match="identity map must be empty"):
+            ScopedSession(raw, _scope())
 
 
 def test_global_model_rejects_tenant_binding(scoped_engine) -> None:
