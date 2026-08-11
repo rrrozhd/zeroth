@@ -25,6 +25,14 @@ from zeroth.platform.storage.redis import (
     RedisDeploymentMode,
     docker_container_running,
 )
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScope,
+    ResourceScopeDefinition,
+    ResourceScopeRegistry,
+    ScopeContext,
+    TenantWideScopeContext,
+)
 from zeroth.platform.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
 
 if TYPE_CHECKING:
@@ -39,7 +47,13 @@ __all__ = [
     "Migration",
     "RedisConfig",
     "RedisDeploymentMode",
+    "ResourceOperation",
+    "ResourceScope",
+    "ResourceScopeDefinition",
+    "ResourceScopeRegistry",
+    "ScopeContext",
     "SQLiteDatabase",
+    "TenantWideScopeContext",
     "create_database",
     "docker_container_running",
     "ensure_and_lock_row",
