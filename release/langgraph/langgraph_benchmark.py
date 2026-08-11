@@ -20,20 +20,41 @@ PREVIOUS_RELEASE = "0.16.1.7"
 BASELINE_PATH = ROOT / "release/langgraph/benchmark-baseline-0.16.1.7.json"
 BASELINE = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
 BASELINE_METRICS = BASELINE["metrics"]
-THRESHOLD_RULES = {
-    "sidecar_overhead_p95_ms": {
-        "maximum": max(15.0, BASELINE_METRICS["sidecar_overhead_p95_ms"] * 4)
-    },
-    "ttft_p95_ms": {"maximum": max(15.0, BASELINE_METRICS["ttft_p95_ms"] * 4)},
-    "decision_latency_p95_ms": {
-        "maximum": max(10.0, BASELINE_METRICS["decision_latency_p95_ms"] * 4)
-    },
-    "throughput_tokens_per_second": {
-        "minimum": BASELINE_METRICS["throughput_tokens_per_second"] * 0.25
-    },
-    "peak_memory_bytes": {"maximum": max(2_000_000, BASELINE_METRICS["peak_memory_bytes"] * 3)},
+
+#: The exact bytes the thresholds below were derived from.
+#:
+#: The regression gate compares a measured run against ``THRESHOLD_RULES``. While
+#: those rules were *computed* from ``BASELINE_METRICS`` at import time, the gate's
+#: expected value came from the same committed file it was meant to police:
+#: scaling every metric by ten scaled every threshold by ten, and the run still
+#: passed. That is not a regression gate, it is a tautology.
+#:
+#: So the numbers are literals now, and the file they came from is pinned. Editing
+#: the baseline can no longer move a threshold, and the edit is detected rather
+#: than silently absorbed. Regenerating the baseline for a new release is a
+#: deliberate act: re-measure, re-derive, and update both this digest and the
+#: literals together.
+BASELINE_DIGEST = "sha256:763b79d5f291f8412e0491d7605b59077bf157b0d3f9b55d532b950f5111be6d"
+
+#: Multiplier and floor each literal was derived with, kept so the derivation
+#: stays machine-checked rather than described in prose. See
+#: ``tests/langgraph_release/test_benchmark.py``.
+THRESHOLD_DERIVATION = {
+    "sidecar_overhead_p95_ms": ("maximum", 15.0, 4.0),
+    "ttft_p95_ms": ("maximum", 15.0, 4.0),
+    "decision_latency_p95_ms": ("maximum", 10.0, 4.0),
+    "throughput_tokens_per_second": ("minimum", None, 0.25),
+    "peak_memory_bytes": ("maximum", 2_000_000, 3.0),
 }
-THRESHOLDS = {"derived_from": BASELINE["release"], "rules": THRESHOLD_RULES}
+
+THRESHOLD_RULES = {
+    "sidecar_overhead_p95_ms": {"maximum": 15.0},
+    "ttft_p95_ms": {"maximum": 15.5795},
+    "decision_latency_p95_ms": {"maximum": 10.0},
+    "throughput_tokens_per_second": {"minimum": 2136.66121225},
+    "peak_memory_bytes": {"maximum": 2_000_000},
+}
+THRESHOLDS = {"derived_from": PREVIOUS_RELEASE, "rules": THRESHOLD_RULES}
 TOKENS = tuple(f"token-{index}" for index in range(32))
 DISTRIBUTION_NAMES = {
     "local_overhead_ms",

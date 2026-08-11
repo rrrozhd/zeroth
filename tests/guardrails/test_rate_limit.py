@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import zeroth.governance.guardrails.rate_limit as rate_limit
 from zeroth.governance.guardrails.rate_limit import (
@@ -12,6 +11,7 @@ from zeroth.governance.guardrails.rate_limit import (
     TokenBucketRateLimiter,
     guardrail_identity_key,
 )
+from zeroth.platform.primitives import utc_now
 
 BUCKET = "tenant:default:deployment:test"
 
@@ -107,7 +107,7 @@ async def test_quota_enforcer_rejects_after_limit(sqlite_db) -> None:
     assert rejected is False
 
 
-async def test_quota_enforcer_resets_after_window(sqlite_db) -> None:
+async def test_quota_enforcer_resets_after_window(sqlite_db, monkeypatch) -> None:
     enforcer = QuotaEnforcer(sqlite_db)
     key = "tenant:default:short-window"
 
@@ -118,12 +118,26 @@ async def test_quota_enforcer_resets_after_window(sqlite_db) -> None:
     rejected = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert rejected is False
 
-    # Wait for the window to expire.
-    time.sleep(1.1)
+    # Advance the enforcer's clock past the window instead of sleeping through it.
+    # A real 1.1s sleep against a 1s window leaves a 100ms margin for the whole
+    # rest of the call to land in, and buys nothing: what is under test is that a
+    # window boundary is *observed*, not that the process can wait.
+    expired = utc_now() + timedelta(seconds=2)
+    monkeypatch.setattr(
+        "zeroth.governance.guardrails.rate_limit.utc_now", lambda: expired
+    )
 
-    # Should be allowed again.
     allowed = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert allowed is True
+
+    # ...and the reset opened a real window rather than an unconditional allow:
+    # the second use inside it still lands, the third is refused.
+    monkeypatch.setattr(
+        "zeroth.governance.guardrails.rate_limit.utc_now",
+        lambda: expired + timedelta(milliseconds=1),
+    )
+    assert await enforcer.check_and_increment(key, limit=2, window_seconds=1) is True
+    assert await enforcer.check_and_increment(key, limit=2, window_seconds=1) is False
 
 
 async def test_token_bucket_concurrent_consume_never_exceeds_capacity(sqlite_db) -> None:

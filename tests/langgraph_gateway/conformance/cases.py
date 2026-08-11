@@ -4,7 +4,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-
 Context = Mapping[str, str]
 PathBuilder = Callable[[Context], str]
 RequestBuilder = Callable[[Context], dict[str, Any] | None]
@@ -98,6 +97,59 @@ CLAIMED_OPERATIONS = {
     ("POST", "/threads/{thread_id}/runs/{run_id}/cancel"),
     ("POST", "/threads/{thread_id}/commands"),
     ("POST", "/threads/{thread_id}/stream/events"),
+}
+
+#: Operations the pinned Agent Server projection offers and the gateway does not
+#: implement -- declared, so that the set can be checked rather than inferred.
+#:
+#: The inventory test asserted ``projected >= CLAIMED``, which catches a claim the
+#: upstream cannot honour but is blind in the other direction: an operation the
+#: gateway silently stops implementing cannot violate a superset relation, so it
+#: would leave the conformance gate green. Naming the difference exactly turns
+#: that into a failure.
+#:
+#: **This set may only shrink.** Implementing one of these means removing its
+#: line; a new upstream operation appearing here is a deliberate decision to not
+#: support it, recorded rather than discovered later (ZER-41 / A10-10).
+KNOWN_UNSUPPORTED_OPERATIONS = {
+    ("DELETE", "/assistants/{assistant_id}"),
+    ("DELETE", "/mcp/"),
+    ("DELETE", "/runs/crons/{cron_id}"),
+    ("DELETE", "/store/items"),
+    ("DELETE", "/threads/{thread_id}"),
+    ("DELETE", "/threads/{thread_id}/runs/{run_id}"),
+    ("GET", "/assistants/{assistant_id}/schemas"),
+    ("GET", "/assistants/{assistant_id}/subgraphs"),
+    ("GET", "/assistants/{assistant_id}/subgraphs/{namespace}"),
+    ("GET", "/docs"),
+    ("GET", "/mcp/"),
+    ("GET", "/metrics"),
+    ("GET", "/runs/crons/{cron_id}"),
+    ("GET", "/store/items"),
+    ("GET", "/threads/{thread_id}/history"),
+    ("GET", "/threads/{thread_id}/runs"),
+    ("GET", "/threads/{thread_id}/state/{checkpoint_id}"),
+    ("PATCH", "/assistants/{assistant_id}"),
+    ("PATCH", "/runs/crons/{cron_id}"),
+    ("PATCH", "/threads/{thread_id}"),
+    ("POST", "/a2a/{assistant_id}"),
+    ("POST", "/assistants/count"),
+    ("POST", "/assistants/{assistant_id}/latest"),
+    ("POST", "/assistants/{assistant_id}/versions"),
+    ("POST", "/mcp/"),
+    ("POST", "/runs"),
+    ("POST", "/runs/batch"),
+    ("POST", "/runs/cancel"),
+    ("POST", "/runs/crons"),
+    ("POST", "/runs/crons/count"),
+    ("POST", "/runs/crons/search"),
+    ("POST", "/store/items/search"),
+    ("POST", "/store/namespaces"),
+    ("POST", "/threads/count"),
+    ("POST", "/threads/prune"),
+    ("POST", "/threads/{thread_id}/copy"),
+    ("POST", "/threads/{thread_id}/runs/crons"),
+    ("PUT", "/store/items"),
 }
 
 

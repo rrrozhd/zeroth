@@ -141,7 +141,6 @@ class TestPollLoop:
     async def test_sleeps_when_no_pending(self, worker, webhook_repo):
         """Poll loop should sleep when no deliveries are pending."""
         sleep_calls = []
-        original_sleep = asyncio.sleep
 
         async def mock_sleep(duration):
             sleep_calls.append(duration)
