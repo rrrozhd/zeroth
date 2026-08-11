@@ -109,7 +109,6 @@ Sandbox execution backend configuration.
 | --- | --- | --- | --- | --- |
 | `ZEROTH_SANDBOX__BACKEND` | `str` | `"local"` |  |  |
 | `ZEROTH_SANDBOX__SIDECAR_URL` | `str` | `"http://sandbox-sidecar:8001"` |  |  |
-| `ZEROTH_SANDBOX_SIDECAR_SECRET` | `str` | none | yes | Shared credential required by the HTTP sidecar and its client. |
 | `ZEROTH_SANDBOX__DOCKER_CONTAINER_NAME` | `str` | `"zeroth-sandbox"` |  |  |
 | `ZEROTH_SANDBOX__DOCKER_BINARY` | `str` | `"docker"` |  |  |
 
