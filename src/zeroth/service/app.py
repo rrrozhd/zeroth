@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Protocol
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -34,6 +34,7 @@ from zeroth.service.api.langgraph_enforcement_api import register_langgraph_enfo
 from zeroth.service.api.regulus_proxy_api import register_regulus_proxy_routes
 from zeroth.service.api.retention_api import register_retention_routes
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
+from zeroth.service.api.route_authorization import authorize_matched_route
 from zeroth.service.api.run_api import register_run_routes
 from zeroth.service.api.template_api import register_template_routes
 from zeroth.service.api.webhook_api import register_webhook_routes
@@ -160,6 +161,13 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             return JSONResponse(
                 status_code=401,
                 content={"detail": str(exc)},
+            )
+        try:
+            await authorize_matched_route(request)
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
             )
         response = await call_next(request)
         response.headers["X-Correlation-ID"] = get_correlation_id()

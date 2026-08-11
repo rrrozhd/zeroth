@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from tests.conftest import content_capture
-from tests.service.helpers import admin_headers, agent_graph, deploy_service
+from tests.service.helpers import admin_headers, agent_graph, deploy_service, operator_headers
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.service.bootstrap import bootstrap_app
 from zeroth.runtime.runs import Run
@@ -217,6 +217,29 @@ async def test_reviewer_can_list_audits(sqlite_db) -> None:
         )
 
     assert r.status_code == 200
+
+
+async def test_audit_read_denied_for_operator_without_permission(sqlite_db) -> None:
+    """Authentication alone does not grant access to governance evidence."""
+    service, deployment = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-audit-operator-denied"),
+    )
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=service.auth_config,
+    )
+    app.state.bootstrap = service
+
+    with TestClient(app) as client:
+        response = client.get(
+            f"/deployments/{deployment.deployment_ref}/audits",
+            headers=operator_headers(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "forbidden"}
 
 
 async def test_audit_verification_endpoint_reports_intact_and_tampered_chains(sqlite_db) -> None:

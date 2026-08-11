@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from enum import StrEnum
 
 from fastapi import HTTPException, Request, status
+from starlette.requests import HTTPConnection
 
 from zeroth.governance.identity import AuthenticatedPrincipal, ServiceRole
 from zeroth.service.api.authentication import current_principal, record_service_denial
@@ -139,10 +140,21 @@ def _configured_deployment(bootstrap: object | None) -> object | None:
         return None
 
 
-def _role_registry(request: Request) -> RoleRegistry:
-    bootstrap = getattr(request.app.state, "bootstrap", None)
+def _role_registry(connection: HTTPConnection | object) -> RoleRegistry:
+    scope = getattr(connection, "scope", None)
+    app = scope.get("app") if isinstance(scope, dict) else None
+    bootstrap = getattr(getattr(app, "state", None), "bootstrap", None)
     registry = getattr(bootstrap, "role_registry", None)
     return registry if isinstance(registry, RoleRegistry) else DEFAULT_ROLE_REGISTRY
+
+
+def principal_has_permission(
+    connection: HTTPConnection | object,
+    principal: AuthenticatedPrincipal,
+    permission: Permission,
+) -> bool:
+    """Return whether a principal has a permission under the active role registry."""
+    return permission in _role_registry(connection).permissions_for(principal.roles)
 
 
 async def require_permission(
@@ -157,8 +169,7 @@ async def require_permission(
     explicitly query their own resources by the caller's tenant/workspace.
     """
     principal = current_principal(request)
-    allowed = _role_registry(request).permissions_for(principal.roles)
-    if permission in allowed:
+    if principal_has_permission(request, principal, permission):
         bootstrap = getattr(request.app.state, "bootstrap", None)
         deployment = _configured_deployment(bootstrap)
         if enforce_deployment_scope and deployment is not None:

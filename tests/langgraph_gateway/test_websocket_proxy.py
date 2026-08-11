@@ -985,6 +985,34 @@ async def test_missing_or_invalid_auth_closes_4401_without_calling_upstream(head
     assert websocket.closed == (4401, "zeroth.authentication_required")
 
 
+@pytest.mark.asyncio
+async def test_authenticated_reviewer_without_run_create_closes_4403_before_upstream():
+    downstream = RecordingWebSocketHandler()
+    endpoint = GatewayWebSocketEndpoint(
+        authenticator=ServiceAuthenticator(
+            ServiceAuthConfig(
+                api_keys=[
+                    StaticApiKeyCredential(
+                        credential_id="reviewer",
+                        secret="reviewer-secret",
+                        subject="reviewer",
+                        roles=[ServiceRole.REVIEWER],
+                    )
+                ]
+            )
+        ),
+        handler=downstream,
+        correlation_factory=lambda: "corr-fixed",
+    )
+    websocket = MemoryWebSocket(headers=[(b"x-api-key", b"reviewer-secret")])
+
+    await endpoint(websocket)
+
+    assert downstream.calls == 0
+    assert websocket.accepted is False
+    assert websocket.closed == (4403, "zeroth.permission_denied")
+
+
 def test_route_registration_adds_http_catchall_and_exact_protocol_websocket():
     class HTTPProxy:
         async def handle_http(self, request):  # pragma: no cover - registration only

@@ -6,6 +6,8 @@ without touching the Docker socket directly.
 
 from __future__ import annotations
 
+import os
+
 import httpx
 
 from zeroth.integrations.sandbox.models import (
@@ -20,7 +22,14 @@ class SandboxSidecarClient:
     """Async HTTP client for the sandbox sidecar REST API."""
 
     def __init__(self, base_url: str, *, timeout: float = 60.0) -> None:
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout)
+        shared_secret = os.getenv("ZEROTH_SANDBOX_SIDECAR_SECRET", "")
+        if not shared_secret:
+            raise ValueError("ZEROTH_SANDBOX_SIDECAR_SECRET must be configured")
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers={"X-Zeroth-Sandbox-Secret": shared_secret},
+        )
 
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Submit an execution request and wait for the result."""

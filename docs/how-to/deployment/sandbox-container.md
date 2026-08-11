@@ -24,12 +24,20 @@ Configure the sandbox via `DockerSandboxSettings` (see
 | Setting | Env var | Default | Meaning |
 |---|---|---|---|
 | `backend` | `ZEROTH_SANDBOX__BACKEND` | `local` | `local`, `docker`, `sidecar`, or `auto` |
+| `sidecar_url` | `ZEROTH_SANDBOX__SIDECAR_URL` | `http://sandbox-sidecar:8001` | URL of the HTTP sidecar app |
+| HTTP sidecar secret | `ZEROTH_SANDBOX_SIDECAR_SECRET` | none | Shared secret supplied to both the API process and sidecar process |
 | `docker_container_name` | `ZEROTH_SANDBOX__DOCKER_CONTAINER_NAME` | `zeroth-sandbox` | Name of the long-running sandbox container |
 | `docker_binary` | `ZEROTH_SANDBOX__DOCKER_BINARY` | `docker` | CLI to invoke (e.g. `podman`) |
 
 Set `backend=docker` (or `sidecar` if you prefer the HTTP sidecar app at
 `zeroth.integrations.sandbox`) and make sure the named container is
 running and reachable from the `zeroth-core` process.
+
+HTTP sidecar mode fails closed unless `ZEROTH_SANDBOX_SIDECAR_SECRET` is set
+to the same non-empty value in both processes. Operational requests carry the
+secret in `X-Zeroth-Sandbox-Secret`; `/health` remains public for orchestrator
+probes. Inject the value from your secret manager rather than committing it to
+an image, compose file, or manifest.
 
 ## Minimal recipe
 

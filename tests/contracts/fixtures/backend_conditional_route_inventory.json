@@ -1,0 +1,35 @@
+{
+  "console": [
+    {
+      "disposition": "public",
+      "index": 123,
+      "kind": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "name": "_console_redirect",
+      "path": "/console",
+      "permission": null
+    },
+    {
+      "disposition": "public",
+      "index": 124,
+      "kind": "Mount",
+      "methods": [],
+      "name": "console",
+      "path": "/console",
+      "permission": null
+    }
+  ],
+  "regulus": [
+    {
+      "disposition": "delegated",
+      "index": 4,
+      "kind": "Mount",
+      "methods": [],
+      "name": null,
+      "path": "/regulus",
+      "permission": null
+    }
+  ]
+}

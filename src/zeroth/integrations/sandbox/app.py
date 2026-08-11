@@ -7,7 +7,11 @@ the Docker socket directly.
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import hmac
+import os
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 
 from zeroth.integrations.sandbox.executor import SidecarExecutor
 from zeroth.integrations.sandbox.models import (
@@ -19,15 +23,42 @@ from zeroth.integrations.sandbox.models import (
 
 app = FastAPI(title="Zeroth Sandbox Sidecar")
 executor = SidecarExecutor()
+SIDECAR_SECRET_ENV = "ZEROTH_SANDBOX_SIDECAR_SECRET"
+SIDECAR_SECRET_HEADER = "X-Zeroth-Sandbox-Secret"
 
 
-@app.post("/execute", response_model=SidecarExecuteResponse)
+def require_sidecar_secret(
+    presented_secret: Annotated[
+        str | None,
+        Header(alias=SIDECAR_SECRET_HEADER),
+    ] = None,
+) -> None:
+    """Fail closed unless the caller presents the configured shared secret."""
+    expected_secret = os.getenv(SIDECAR_SECRET_ENV, "")
+    presented = presented_secret or ""
+    matches = hmac.compare_digest(expected_secret.encode(), presented.encode())
+    if not expected_secret or not presented_secret or not matches:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid sandbox sidecar credentials",
+        )
+
+
+@app.post(
+    "/execute",
+    response_model=SidecarExecuteResponse,
+    dependencies=[Depends(require_sidecar_secret)],
+)
 async def execute(request: SidecarExecuteRequest) -> SidecarExecuteResponse:
     """Execute a command in an isolated Docker container."""
     return await executor.execute(request)
 
 
-@app.get("/executions/{execution_id}", response_model=SidecarStatusResponse)
+@app.get(
+    "/executions/{execution_id}",
+    response_model=SidecarStatusResponse,
+    dependencies=[Depends(require_sidecar_secret)],
+)
 async def get_status(execution_id: str) -> SidecarStatusResponse:
     """Get the status of a previously submitted execution."""
     result = await executor.get_status(execution_id)
@@ -36,7 +67,10 @@ async def get_status(execution_id: str) -> SidecarStatusResponse:
     return result
 
 
-@app.post("/executions/{execution_id}/cancel")
+@app.post(
+    "/executions/{execution_id}/cancel",
+    dependencies=[Depends(require_sidecar_secret)],
+)
 async def cancel(execution_id: str) -> dict[str, str]:
     """Cancel a running execution."""
     await executor.cancel(execution_id)

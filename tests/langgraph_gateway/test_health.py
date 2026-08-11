@@ -14,6 +14,7 @@ from zeroth.contracts.langgraph_gateway.models import (
     CompatibilityResult,
     CompatibilityStatus,
 )
+from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.service.api.authentication import AuthenticationError
 from zeroth.service.api.health import DependencyStatus, register_health_routes
@@ -44,7 +45,11 @@ class _WebSocket:
 
 class _Authenticator:
     def authenticate_headers(self, _headers):
-        return object()
+        return AuthenticatedPrincipal(
+            subject="operator",
+            auth_method=AuthMethod.API_KEY,
+            roles=[ServiceRole.OPERATOR],
+        )
 
 
 class _RecordingWebSocketHandler:

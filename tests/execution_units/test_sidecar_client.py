@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from zeroth.integrations.execution import sidecar_client as sidecar_client_module
 from zeroth.integrations.execution.sidecar_client import SandboxSidecarClient
 from zeroth.integrations.sandbox.models import (
     SidecarExecuteRequest,
@@ -17,6 +18,70 @@ from zeroth.integrations.sandbox.models import (
 def _make_transport(handler):
     """Build an httpx.MockTransport from an async handler."""
     return httpx.MockTransport(handler)
+
+
+def test_client_fails_closed_without_shared_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sidecar mode cannot construct an unauthenticated operational client."""
+    monkeypatch.delenv("ZEROTH_SANDBOX_SIDECAR_SECRET", raising=False)
+
+    with pytest.raises(ValueError, match="ZEROTH_SANDBOX_SIDECAR_SECRET"):
+        SandboxSidecarClient("http://sidecar:8001")
+
+
+@pytest.mark.asyncio
+async def test_operational_requests_send_shared_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The API client authenticates every operational sidecar request."""
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["X-Zeroth-Sandbox-Secret"] == "client-secret"
+        seen_paths.append(request.url.path)
+        if request.url.path == "/execute":
+            return httpx.Response(
+                200,
+                json=SidecarExecuteResponse(
+                    execution_id="exec-auth",
+                    status="completed",
+                    returncode=0,
+                ).model_dump(),
+            )
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json=SidecarStatusResponse(
+                    execution_id="exec-auth",
+                    status="completed",
+                    returncode=0,
+                ).model_dump(),
+            )
+        return httpx.Response(200, json={"status": "cancelled"})
+
+    real_async_client = httpx.AsyncClient
+
+    def build_client(**kwargs):
+        return real_async_client(transport=_make_transport(handler), **kwargs)
+
+    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", "client-secret")
+    monkeypatch.setattr(sidecar_client_module.httpx, "AsyncClient", build_client)
+    client = SandboxSidecarClient("http://sidecar:8001")
+    request = SidecarExecuteRequest(
+        execution_id="exec-auth",
+        image="python:3.12",
+        command=["true"],
+    )
+
+    await client.execute(request)
+    await client.get_status("exec-auth")
+    await client.cancel("exec-auth")
+
+    assert seen_paths == [
+        "/execute",
+        "/executions/exec-auth",
+        "/executions/exec-auth/cancel",
+    ]
+    await client.close()
 
 
 @pytest.mark.asyncio
@@ -86,6 +151,7 @@ async def test_get_status() -> None:
 @pytest.mark.asyncio
 async def test_cancel() -> None:
     """Client POSTs to /executions/{id}/cancel."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert "/executions/exec-3/cancel" in str(request.url)
@@ -125,6 +191,7 @@ async def test_health() -> None:
 @pytest.mark.asyncio
 async def test_execute_http_error() -> None:
     """Client raises on HTTP 500."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "internal error"})
 
@@ -147,6 +214,7 @@ async def test_execute_http_error() -> None:
 @pytest.mark.asyncio
 async def test_get_status_not_found() -> None:
     """Client raises on HTTP 404 for unknown execution."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"detail": "not found"})
 

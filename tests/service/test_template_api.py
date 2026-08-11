@@ -44,6 +44,26 @@ async def test_post_template_returns_201(sqlite_db) -> None:
         assert body["version"] == 1
 
 
+async def test_template_admin_denied_for_operator_without_permission(sqlite_db) -> None:
+    registry = TemplateRegistry()
+    app = await _build_app(sqlite_db, template_registry=registry)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/templates",
+            json={
+                "name": "forbidden-template",
+                "version": 1,
+                "template_str": "{{ value }}",
+            },
+            headers=operator_headers(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "forbidden"}
+    assert registry.list() == []
+
+
 async def test_list_templates_returns_registered(sqlite_db) -> None:
     registry = TemplateRegistry()
     registry.register("greet", 1, "Hi {{ name }}")
