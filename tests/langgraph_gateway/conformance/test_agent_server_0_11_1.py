@@ -16,9 +16,14 @@ import pytest
 
 pytest.importorskip("langgraph", reason="requires the gateway-conformance dependency group")
 
-from .cases import CASES, CLAIMED_OPERATIONS, REQUIRED_OPERATION_GROUPS, ConformanceCase
+from .cases import (
+    CASES,
+    CLAIMED_OPERATIONS,
+    KNOWN_UNSUPPORTED_OPERATIONS,
+    REQUIRED_OPERATION_GROUPS,
+    ConformanceCase,
+)
 from .graph import graph
-
 
 pytestmark = pytest.mark.langgraph_conformance
 
@@ -40,6 +45,11 @@ def test_manifest_covers_the_complete_gateway_inventory() -> None:
     # represented as an OpenAPI operation in the pinned projection.
     projected_operations.add(("GET", "/openapi.json"))
     assert projected_operations >= CLAIMED_OPERATIONS
+    # ...and the other direction. A superset relation alone is blind to an
+    # operation the gateway silently stops implementing: dropping one only makes
+    # the claim set smaller, which a superset assertion cannot notice. The
+    # difference is therefore named exactly.
+    assert projected_operations - CLAIMED_OPERATIONS == KNOWN_UNSUPPORTED_OPERATIONS
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)

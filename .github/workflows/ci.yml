@@ -11,6 +11,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The lint ratchet reads the tests/** exemption list at the two commits
+          # that bracket ZER-41, so the guard needs those objects present. At the
+          # default depth of 1 they are absent, the check skips, and a gate reports
+          # success over a property it never examined -- the exact failure these
+          # release gates exist to refuse.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -54,6 +61,33 @@ jobs:
             --junitxml release/evidence/security-pr-junit.xml \
             --pytest-arg=-q
 
+      # pytest_gate's exit code is not the whole verdict: a bound node that was
+      # collected and then skipped at run time leaves the process at 0. These two
+      # steps read the outcomes file the job already produced -- coverage proves
+      # every bound node reported, outcomes proves each one actually passed -- so a
+      # skipped security test fails the pull request instead of being uploaded
+      # unchecked. `if: always()` so the verdict is computed even when the subset
+      # itself failed, which is when the evidence matters most.
+      - name: Verify the PR-critical bindings were covered
+        if: always()
+        run: |
+          uv run python -m release.security.matrix \
+            --matrix release/security/security-matrix.json \
+            verify-coverage \
+            --tier pr-critical \
+            --outcomes release/evidence/security-pr-outcomes.json \
+            --output release/evidence/security-pr-coverage.json
+
+      - name: Verify no PR-critical node was skipped, xfailed, or failed
+        if: always()
+        run: |
+          uv run python -m release.security.matrix \
+            --matrix release/security/security-matrix.json \
+            verify-outcomes \
+            --tier pr-critical \
+            --outcomes release/evidence/security-pr-outcomes.json \
+            --output release/evidence/security-pr-verdict.json
+
       - name: Upload PR security evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,3 +96,5 @@ jobs:
           path: |
             release/evidence/security-pr-junit.xml
             release/evidence/security-pr-outcomes.json
+            release/evidence/security-pr-coverage.json
+            release/evidence/security-pr-verdict.json

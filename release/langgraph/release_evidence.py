@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any
 
-from generated_evidence import validate_generated
-from langgraph_benchmark import (
+from release.langgraph.generated_evidence import validate_generated
+from release.langgraph.langgraph_benchmark import (
+    BASELINE_DIGEST,
     CURRENT_RELEASE,
     DISTRIBUTION_NAMES,
     PREVIOUS_RELEASE,
@@ -158,6 +160,25 @@ def _validate_compatibility(path: Path, errors: list[str]) -> dict[str, Any] | N
 
 
 def _validate_baseline(path: Path, errors: list[str]) -> dict[str, Any] | None:
+    # The schema check below constrains keys, the release name, the sample count,
+    # the hardware and the provenance -- but never the metric *values*. Scaling
+    # every metric by ten produced an empty error list, and (before the thresholds
+    # became literals) scaled every threshold by ten with it. The digest is what
+    # makes the baseline a fixed reference rather than an input the candidate can
+    # move: it is pinned next to the thresholds it produced, so the two can only
+    # be changed together.
+    try:
+        actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        errors.append(f"performance baseline is unreadable: {error}")
+        return None
+    if actual != BASELINE_DIGEST:
+        errors.append(
+            "performance baseline does not match the digest the thresholds were derived "
+            f"from: expected {BASELINE_DIGEST}, found {actual}"
+        )
+        return None
+
     value = _json_file(path, "performance baseline", errors)
     expected_keys = {
         "schema_version",
@@ -292,7 +313,20 @@ def _validate_benchmark(path: Path, baseline: dict[str, Any] | None, errors: lis
 
 
 def validate_manifest(path: Path, *, phase: str = "final", evidence_root: Path = ROOT) -> list[str]:
-    """Return fail-closed source or generated release-evidence errors."""
+    """Return fail-closed source or generated release-evidence errors.
+
+    **The manifest is validated, not followed.** Every artifact below is resolved
+    from the module-level ``REQUIRED_EVIDENCE`` dict or from a literal path; the
+    ``manifest`` binding is read by the schema check above and never again. So
+    ``release-manifest.json`` cannot express anything this module does not already
+    hardcode -- editing it can only cause a failure, never change what is checked.
+
+    That is deliberate: a manifest that *drove* resolution would let a candidate
+    choose which evidence it is judged on, which is the shape this whole gate
+    exists to refuse. What was misleading was the name. The manifest is a
+    committed declaration that must agree with the hardcoded requirement set, and
+    ``phase`` -- not the manifest -- selects how much of that set is demanded.
+    """
     errors: list[str] = []
     manifest = _json_file(path, "manifest", errors)
     if manifest is None:

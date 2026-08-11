@@ -200,6 +200,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           python release/gates/cli.py verdict \
             --identity release/evidence/candidate-identity-full.json \
             --phase candidate \
@@ -435,6 +440,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           SIGNOFF="release/signoff/${VERSION}.md"
           # No CI step can produce a signoff. When the operator has not written
@@ -461,6 +471,10 @@ jobs:
           python release/gates/cli.py validate \
             --identity release/evidence/candidate-identity-full.json \
             --phase candidate > /dev/null; CANDIDATE=$?
+          # Errexit restored: past this point a failure is not a status to record
+          # but a broken step, and recording a gate from a half-written evidence
+          # tree would be worse than failing loudly.
+          set -e
           status() { if [ "$1" -eq 0 ]; then echo passed; else echo failed; fi; }
           python release/gates/cli.py record --gate promotion \
             --identity release/evidence/candidate-identity-full.json \
@@ -474,17 +488,28 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           python release/gates/cli.py verdict \
             --identity release/evidence/candidate-identity-full.json \
             --phase final \
             --output release/evidence/VERDICT.md; VERDICT=$?
           cat release/evidence/VERDICT.md >> "${GITHUB_STEP_SUMMARY}"
           # Seal regardless of the verdict: a blocked release still needs a
-          # tamper-evident record of what was and was not proven.
+          # tamper-evident record of what was and was not proven. That intent was
+          # stated here before and never held -- errexit aborted the step at the
+          # `verdict` call above, so a blocked release was never sealed.
           python release/gates/cli.py seal \
             --identity release/evidence/candidate-identity-full.json \
             --phase final \
-            --output release/evidence/evidence-manifest.json
+            --output release/evidence/evidence-manifest.json; SEAL=$?
+          if [ "${SEAL}" -ne 0 ]; then
+            echo "::error::sealing the final evidence manifest failed"
+            exit "${SEAL}"
+          fi
           exit "${VERDICT}"
 
       - name: Attest the evidence manifest
