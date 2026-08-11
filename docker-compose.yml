@@ -6,7 +6,7 @@
 
 services:
   zeroth:
-    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.20.1.4}
+    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.20.1.4.1}
     build:
       context: .
     init: true
