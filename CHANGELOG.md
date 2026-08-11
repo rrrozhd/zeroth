@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.4] - 2026-08-12
+
+### Fixed
+
+- Destructive console actions now disclose and confirm their complete scope,
+  retain failed operations visibly, and cover mounted node, edge, template,
+  webhook, run, rollback, legal-hold, and retention regressions.
+- Studio navigation and publishing wait for the current successful save, stale
+  run responses cannot replace newer state, and audit verification remains in
+  React process memory after a successful API response only.
+- Normal, unhandled-error, and mounted console responses now carry the complete
+  browser security-header boundary, while frontend tests collect both TypeScript
+  and TSX files and reject known vacuous assertion shapes.
+
 ## [0.20.1.3.4] - 2026-08-11
 
 ### Fixed
