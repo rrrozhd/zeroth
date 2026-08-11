@@ -9,8 +9,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from generated_evidence import LABEL_KEYS, PACKAGE_KEYS
-from langgraph_benchmark import CURRENT_RELEASE
+from release.langgraph.generated_evidence import LABEL_KEYS, PACKAGE_KEYS
+from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -89,10 +89,31 @@ def _spdx_digest(path: Path, reference: str) -> str:
 
 
 def _resolved_digest(inspected: dict[str, Any]) -> str:
+    """The image's identity as the daemon reports it, never as a document claims it."""
     repo_digests = inspected.get("RepoDigests") or []
     if repo_digests and "@" in repo_digests[0]:
         return str(repo_digests[0]).split("@", 1)[1]
     return str(inspected["Id"])
+
+
+def _bound_application_digest(inspected: dict[str, Any], sbom: Path, reference: str) -> str:
+    """The daemon's digest for ``reference``, with the SBOM checked against it.
+
+    The SBOM used to *supply* this value. Replacing it with a different digest
+    consistently across ``image.spdx.json``, ``image-compatibility.json`` and
+    ``image-packages.json`` -- leaving the daemon-sourced ``id`` untouched --
+    still validated clean, because every check compared the SBOM with itself.
+    The expected value now comes from ``docker image inspect``, and the SBOM is
+    the thing being checked.
+    """
+    resolved = _resolved_digest(inspected)
+    claimed = _spdx_digest(sbom, reference)
+    if claimed != resolved:
+        raise RuntimeError(
+            f"SBOM describes {reference} as {claimed} but the image daemon reports "
+            f"{resolved}; the SBOM does not describe the built image"
+        )
+    return resolved
 
 
 def _file_digest(path: Path) -> str:
@@ -112,7 +133,7 @@ def resolved_image_evidence(references: list[str], *, sbom: Path, artifact: Path
             {
                 "reference": reference,
                 "id": inspected["Id"],
-                "digest": _spdx_digest(sbom, reference)
+                "digest": _bound_application_digest(inspected, sbom, reference)
                 if index == 0
                 else _resolved_digest(inspected),
                 "repo_digests": inspected.get("RepoDigests") or [],

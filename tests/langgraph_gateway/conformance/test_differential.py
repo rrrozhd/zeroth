@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import json
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
 import pytest
 
+from .cases import CASES, ConformanceCase
 from .harness import (
     EXPECTED_GOVERNANCE_ADDITIONS,
     CapturedExchange,
     ConformanceServers,
     GeneratedValueMap,
+    _append_evidence,
     capture_response,
     compare_exchanges,
     execute_paired_case,
 )
-from .cases import CASES, ConformanceCase
-
 
 pytestmark = pytest.mark.langgraph_conformance
 
@@ -245,6 +248,122 @@ def test_normalization_requires_an_explicit_pair_mapping() -> None:
     )
 
 
+def _evidence_reader(path: Path) -> ConformanceServers:
+    reader = ConformanceServers()
+    reader.evidence_path = str(path)
+    return reader
+
+
+def test_evidence_read_ignores_a_record_the_gateway_is_still_appending(tmp_path: Path) -> None:
+    # The gateway runs in its own process and appends while the test process reads, so
+    # a read lands mid-record often enough to fail a run. Truncated mid-string, exactly
+    # as CI observed it.
+    path = tmp_path / "evidence.jsonl"
+    settled = (
+        b'{"kind":"forwarded","path":"/threads","zeroth_present":true}\n'
+        b'{"kind":"audit","event":{"governance_level":"observed"}}\n'
+    )
+    in_flight = b'{"kind":"audit","event":{"correlation":{"run_id":"conformance-gov'
+    path.write_bytes(settled + in_flight)
+
+    rows = _evidence_reader(path).evidence()
+
+    assert rows == (
+        {"kind": "forwarded", "path": "/threads", "zeroth_present": True},
+        {"kind": "audit", "event": {"governance_level": "observed"}},
+    )
+    assert _evidence_reader(path).evidence(since=1) == (rows[1],)
+
+
+def test_evidence_read_sees_no_records_before_the_first_newline_lands(tmp_path: Path) -> None:
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"audit","event":{"correlation":{"run_id":"conf')
+
+    assert _evidence_reader(path).evidence() == ()
+
+
+def test_evidence_read_still_raises_on_a_complete_but_corrupt_record(tmp_path: Path) -> None:
+    # A record that arrived whole and still does not parse is real corruption, not a
+    # partial read. Tolerating it here would let the gateway emit malformed evidence
+    # while every paired case kept reporting success.
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"audit"}\n{"kind":"forwarded",}\n')
+
+    with pytest.raises(json.JSONDecodeError):
+        _evidence_reader(path).evidence()
+
+
+def test_concurrent_evidence_writers_never_splice_a_record(tmp_path: Path) -> None:
+    # Skipping the trailing fragment is only safe because a record reaches the file in
+    # a single write, so nothing but the newest record can be incomplete. Pin that: a
+    # writer that emitted a record in pieces would let another writer land between them
+    # and splice two records into one line, which the reader would rightly raise on
+    # rather than skip. Records here are far wider than the text-I/O buffer.
+    #
+    # The writer count is load-bearing, not decorative. Detection is probabilistic: with
+    # a writer mutated to emit the record in two calls -- the regression this exists to
+    # catch -- 8 writers missed it in 25 of 300 trials, while 24 detected it in 120 of
+    # 120 with the unmutated writer clean throughout. A guard that reports success 8% of
+    # the time it should fail is the failure mode this whole branch is about.
+    path = tmp_path / "evidence.jsonl"
+    filler = "x" * 32_000
+    writers = [
+        threading.Thread(
+            target=_append_evidence,
+            args=(str(path), {"kind": "audit", "writer": index, "filler": filler}),
+        )
+        for index in range(24)
+    ]
+
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join()
+
+    rows = _evidence_reader(path).evidence()
+    assert sorted(row["writer"] for row in rows) == list(range(len(writers)))
+    assert all(row["filler"] == filler for row in rows)
+
+
+def test_the_watermark_waits_for_a_record_the_gateway_is_still_appending(
+    tmp_path: Path,
+) -> None:
+    # ``execute_paired_case`` takes this count as a slice index and reads
+    # ``evidence(since=watermark)`` after the proxied request, so a count taken while a
+    # record is in flight is one short and hands that record -- written before the
+    # watermark -- to the case that follows it. Its consumers ask ``any(kind == ...)``,
+    # so one leaked record reports an audit event for a case that produced none: a
+    # silent pass where the old reader raised. Cases run in a loop, so the window is the
+    # gateway still flushing the previous case's record.
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"direct"}\n{"kind":"direct"}\n{"kind":"aud')
+    reader = _evidence_reader(path)
+
+    assert len(reader.evidence()) == 2, "precondition: the in-flight record is ignored"
+
+    def finish() -> None:
+        time.sleep(0.05)
+        with path.open("ab") as log:
+            log.write(b'it"}\n')
+
+    writer = threading.Thread(target=finish)
+    writer.start()
+    try:
+        assert reader.evidence_watermark() == 3
+    finally:
+        writer.join()
+
+
+def test_the_watermark_refuses_a_log_that_never_reaches_a_boundary(tmp_path: Path) -> None:
+    # Fail closed. Returning the short count would be the misattribution itself, so a
+    # writer that never completes its record has to be loud rather than graceful.
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"direct"}\n{"kind":"aud')
+
+    with pytest.raises(AssertionError, match="ends mid-record"):
+        _evidence_reader(path).evidence_watermark(timeout=0.05)
+
+
 @pytest.fixture(scope="module")
 def servers() -> Iterator[ConformanceServers]:
     with ConformanceServers() as running:
@@ -356,8 +475,7 @@ def test_live_governed_wait_uses_verified_attestation_evidence(
         proxied = capture_response(
             proxied_response,
             forwarded_context_present=any(
-                row.get("kind") == "forwarded" and row.get("zeroth_present")
-                for row in evidence
+                row.get("kind") == "forwarded" and row.get("zeroth_present") for row in evidence
             ),
             audit_event_present=any(row.get("kind") == "audit" for row in evidence),
         )

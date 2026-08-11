@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from zeroth.runtime.agents.mcp import MCPClientManager, MCPServerConfig
 
@@ -28,7 +29,13 @@ class TestMCPServerConfig:
         assert config.env is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        """A bare ``pytest.raises(Exception)`` would not prove what it claims.
+
+        ``ValidationError``, ``TypeError`` and a typo in this very test all
+        satisfy it, so the assertion passed whether or not ``extra="forbid"`` was
+        configured. Naming the exception is what ties it to the setting.
+        """
+        with pytest.raises(ValidationError):
             MCPServerConfig(name="test", command="python", unknown_field="value")
 
 

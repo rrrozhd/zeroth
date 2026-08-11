@@ -15,7 +15,9 @@ COMPATIBILITY = json.loads(
 RELEASE = COMPATIBILITY["release"]
 IMAGE_REFERENCE = f"zeroth-core:v{RELEASE}"
 IMAGE_ID = "sha256:" + "a" * 64
-IMAGE_DIGEST = "sha256:" + "d" * 64
+# The application image is built and not pushed before evidence generation, so
+# the daemon reports no registry digest for it and its digest *is* its config id.
+IMAGE_DIGEST = IMAGE_ID
 ARCHIVE_DIGEST = "sha256:" + "e" * 64
 REQUIRED_TESTS = {
     (
@@ -223,6 +225,11 @@ def _write_generated_evidence(evidence_root: Path) -> None:
                 "path": "zeroth-core-image.tar",
                 "digest": ARCHIVE_DIGEST,
             },
+            # Every digest here is now tied to a field `docker image inspect`
+            # produced. The base images carry the registry digest they were pulled
+            # by; before this the fixture recorded them with `repo_digests: []`
+            # and an arbitrary digest, and validation accepted it -- so the gate
+            # would have accepted a base-image digest belonging to no registry.
             "images": [
                 {
                     "reference": IMAGE_REFERENCE,
@@ -234,13 +241,13 @@ def _write_generated_evidence(evidence_root: Path) -> None:
                     "reference": "python:3.12.13-slim-bookworm",
                     "id": "sha256:" + "b" * 64,
                     "digest": "sha256:" + "b" * 64,
-                    "repo_digests": [],
+                    "repo_digests": ["python@sha256:" + "b" * 64],
                 },
                 {
                     "reference": "postgres:16.9-bookworm",
                     "id": "sha256:" + "c" * 64,
                     "digest": "sha256:" + "c" * 64,
-                    "repo_digests": [],
+                    "repo_digests": ["postgres@sha256:" + "c" * 64],
                 },
             ],
         },
@@ -349,6 +356,65 @@ def test_final_release_evidence_rejects_wrong_junit_identity(tmp_path: Path) -> 
     assert "expected release test identities" in result.stderr
 
 
+def _junit_with_skips(*skipped: tuple[str, str]) -> str:
+    """A JUnit document whose named identities carry a ``<skipped>`` element.
+
+    The suite counter is set from the number of skips, so the document is
+    internally consistent -- exactly what a real ``pytest`` run emits when a
+    required test is skipped rather than executed.
+    """
+    marked = set(skipped)
+    cases = "".join(
+        (
+            f'<testcase classname="{classname}" name="{name}">'
+            '<skipped type="pytest.skip" message="docker unavailable"/></testcase>'
+            if (classname, name) in marked
+            else f'<testcase classname="{classname}" name="{name}"/>'
+        )
+        for classname, name in sorted(REQUIRED_TESTS)
+    )
+    return (
+        f'<testsuites name="pytest tests"><testsuite name="pytest" tests="{len(REQUIRED_TESTS)}" '
+        f'failures="0" errors="0" skipped="{len(marked)}">{cases}</testsuite></testsuites>'
+    )
+
+
+def test_final_release_evidence_rejects_skipped_required_tests(tmp_path: Path) -> None:
+    """A required test that was skipped never ran, so it cannot certify a release.
+
+    Three documents, each of which validated clean before this gate existed: one
+    required identity skipped, all of them skipped, and a suite counter reporting
+    a skip with no ``<skipped>`` element to match it.
+    """
+    evidence_root, manifest = _final_tree(tmp_path)
+    junit = evidence_root / "release/langgraph/junit.xml"
+    one = sorted(REQUIRED_TESTS)[0]
+
+    junit.write_text(_junit_with_skips(one), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+    junit.write_text(_junit_with_skips(*REQUIRED_TESTS), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+    junit.write_text(_junit_xml().replace('errors="0"', 'errors="0" skipped="1"'), encoding="utf-8")
+    result = _validate(manifest, evidence_root, "final")
+    assert result.returncode != 0
+    assert "expected release test identities" in result.stderr
+
+
+def test_final_release_evidence_accepts_the_unskipped_document(tmp_path: Path) -> None:
+    """The skip rejection must not have made the honest document unacceptable."""
+    evidence_root, manifest = _final_tree(tmp_path)
+    junit = evidence_root / "release/langgraph/junit.xml"
+    junit.write_text(_junit_with_skips(), encoding="utf-8")
+
+    assert _validate(manifest, evidence_root, "final").returncode == 0
+
+
 def test_final_release_evidence_rejects_unbound_spdx(tmp_path: Path) -> None:
     evidence_root, manifest = _final_tree(tmp_path)
     path = evidence_root / "release/langgraph/image.spdx.json"
@@ -362,6 +428,71 @@ def test_final_release_evidence_rejects_unbound_spdx(tmp_path: Path) -> None:
     result = _validate(manifest, evidence_root, "final")
     assert result.returncode != 0
     assert "SPDX is not bound" in result.stderr
+
+
+def test_final_release_evidence_rejects_a_consistently_tampered_image_digest(
+    tmp_path: Path,
+) -> None:
+    """The SBOM is checked against the image, not against itself.
+
+    Measured before this fix: replacing the application image's digest with an
+    entirely different one, *consistently* across ``image.spdx.json``,
+    ``image-compatibility.json`` and ``image-packages.json`` and leaving the
+    daemon-sourced ``id`` untouched, still returned rc=0 and "release evidence
+    complete". Every check compared the SBOM with itself, so agreeing with itself
+    was all a forged digest had to do.
+    """
+    evidence_root, manifest = _final_tree(tmp_path)
+    assert _validate(manifest, evidence_root, "final").returncode == 0
+
+    forged = "sha256:" + "9" * 64
+    for name in ("image.spdx.json", "image-packages.json"):
+        path = evidence_root / "release/langgraph" / name
+        body = path.read_text(encoding="utf-8")
+        body = body.replace(IMAGE_DIGEST, forged)
+        body = body.replace(IMAGE_DIGEST.removeprefix("sha256:"), forged.removeprefix("sha256:"))
+        path.write_text(body, encoding="utf-8")
+
+    # Only the digest moves here. `id` is the daemon's own value and the SBOM
+    # never supplies it, so leaving it alone is what the described tamper does --
+    # and it is the discriminator the binding rests on.
+    compatibility_path = evidence_root / "release/langgraph/image-compatibility.json"
+    compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
+    application = next(
+        image for image in compatibility["images"] if image["reference"].startswith("zeroth-core:")
+    )
+    application["digest"] = forged
+    assert application["id"] != forged
+    compatibility_path.write_text(json.dumps(compatibility), encoding="utf-8")
+
+    result = _validate(manifest, evidence_root, "final")
+
+    assert result.returncode != 0
+    assert "image compatibility evidence is invalid" in result.stderr
+
+
+def test_final_release_evidence_rejects_a_base_image_digest_from_no_registry(
+    tmp_path: Path,
+) -> None:
+    """A base image recorded with no registry digest may not claim an arbitrary one.
+
+    The fixture used to record the postgres base with ``repo_digests: []`` and an
+    arbitrary ``sha256:ccc...``, and validation accepted it -- the only check was
+    the ``sha256:<64hex>`` shape and tag membership.
+    """
+    evidence_root, manifest = _final_tree(tmp_path)
+    path = evidence_root / "release/langgraph/image-compatibility.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    base = next(
+        image for image in payload["images"] if image["reference"].startswith("postgres:")
+    )
+    base["repo_digests"] = []
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _validate(manifest, evidence_root, "final")
+
+    assert result.returncode != 0
+    assert "image compatibility evidence is invalid" in result.stderr
 
 
 def test_final_release_evidence_requires_verified_attestation_receipt(

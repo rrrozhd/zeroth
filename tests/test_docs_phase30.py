@@ -69,11 +69,6 @@ def _top_level_nav_labels(nav: list) -> list[str]:
     return labels
 
 
-def test_phase30_scaffold_present() -> None:
-    """Placeholder test so pytest can discover the file before plans 02-05 populate it."""
-    assert True
-
-
 # ---------------------------------------------------------------------------
 # Plan 30-02: mkdocs config shape
 # ---------------------------------------------------------------------------

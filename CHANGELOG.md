@@ -7,6 +7,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.3] - 2026-08-11
+
+### Fixed
+
+- **A conformance evidence watermark can no longer attribute a record to the case that
+  follows it.** `execute_paired_case` took `evidence_start` as a count of complete records,
+  and the reader deliberately ignores a record still being appended — so a count taken while
+  the gateway was mid-write was one short, and the later `evidence(since=watermark)` handed
+  the next case a record written before it. Its consumers ask `any(row["kind"] == "audit")`,
+  so one leaked record reported an audit event for a case that produced none: a silent pass
+  where the previous reader raised. The watermark now waits for the log to end on a record
+  boundary and fails closed if it never does. Two fixtures cover it, both failing when the
+  wait is removed.
+- **The splice guard detects the regression it exists to catch.** At 8 concurrent writers it
+  missed a split-writer mutation in 25 of 300 trials; at 24 it detected 120 of 120 with the
+  unmutated writer clean throughout. A guard that reports success 8% of the times it should
+  fail is the defect this branch is about.
+- **A comment no longer states a mechanism that is false at the size its own pin uses.**
+  `_append_evidence` claimed buffered text I/O holds a record until close; that holds only
+  below `TextIOWrapper._CHUNK_SIZE`, and the test cited as its pin uses 32,000-byte records.
+  The invariant is true for any size — one `.write()` reaches the file as one raw write — so
+  the comment now says that, and names the real caveat (an OS returning a short write).
+
+## [0.22.2.2] - 2026-08-11
+
+### Fixed
+
+- **A conformance evidence read no longer parses a record the gateway is still writing.**
+  The gateway subprocess appends JSONL evidence while the test process reads the same file,
+  so a read could land mid-record and raise `JSONDecodeError` — observed as
+  `test_paired_subscriptions_capture_bounded_exact_sse_frames` failing intermittently at
+  char 775, passing and failing on identical commits. The reader now treats everything up
+  to the final newline as complete and leaves any trailing fragment for the next read; a
+  newline-terminated line that does not parse is genuine corruption and still raises. Four
+  fixtures cover it, two of which reproduce the original `JSONDecodeError` when the parser
+  is reverted.
+
+This release also merges `0.22.1.1.2`, which gives the ephemeral acceptance candidate the
+Regulus origin it actually has; its entry is below.
+
+## [0.22.2.1] - 2026-08-11
+
+### Fixed
+
+- Removed a lint-ratchet provenance check that could never run again. It read the exemption
+  list at two commits, one of which stopped existing when this branch was squashed, so it
+  skipped permanently in CI — a guard reporting nothing, which is the defect this work
+  exists to remove. Enforcement is unaffected: the sweep that checks both rules at all 515
+  test paths reads no history and never skips (ZER-41).
+
+## [0.22.2] - 2026-08-11
+
+### Fixed
+
+Release gates and parts of the test suite could report PASS while the property they name
+was never checked. Every item below was measured behaving that way first, and each ships a
+negative fixture that feeds the gate a deliberately broken input and requires it to reject.
+
+- **A skipped required test no longer certifies a release.** `_validate_junit` summed
+  `tests`, `failures` and `errors` and never read `skipped`, so final-phase validation
+  returned "release evidence complete" over a JUnit document in which all five required
+  identities carried `<skipped>`. Both the suite counter and the per-identity element are
+  rejected now.
+- **A matrix-bound security test may not carry `skip` or `skipif`.** Only `xfail` was
+  refused, and a skipped bound node stays *collected*, so the exact-collection guard was
+  satisfied and the tier exited 0. Measured against the live PR-critical tier: one real
+  `@pytest.mark.skip` gave "95 passed, 1 skipped" and exit 0; it exits 4 naming the node now.
+- **The pull-request path verifies the security outcomes it already produced.** The job
+  wrote an outcomes file nothing read, so pytest's exit code was the whole verdict. It runs
+  `verify-coverage` and `verify-outcomes`, both with `if: always()`.
+- **Performance thresholds no longer derive from the baseline they police.** Scaling the
+  committed baseline ten-fold scaled every threshold ten-fold and validated clean. The
+  thresholds are literals, the baseline is pinned by digest, and a test recomputes each
+  literal from the pinned content so a legitimate re-measurement fails loudly instead of
+  silently moving the thresholds.
+- **The application image digest comes from `docker image inspect`, not from the SBOM.** A
+  digest forged consistently across `image.spdx.json`, `image-compatibility.json` and
+  `image-packages.json` validated clean, because every check compared the SBOM with itself.
+  The digest is bound to the daemon-reported `id`, and a base image recorded with no
+  registry digest is rejected.
+- **Workflow steps that record a gate result can now reach it.** GitHub's `shell: bash` runs
+  with `-e`, which `set -uo pipefail` does not clear, so eight blocks aborted before their
+  `VAR=$?` capture and every recorded status could only ever be 0. The final verdict step
+  also promised to seal "regardless of the verdict" and never did.
+- **The vacuity guard rejects an assertion over a truthy literal**, having run green while
+  `assert True` was live in the tree it polices.
+- **`F841` and `B017` are enforced on tests** instead of muted tree-wide, checked by running
+  Ruff over a real violation at each of the 515 test paths rather than by reading
+  configuration — which has more than one way to say the same thing.
+- **Sandbox hardening flags are asserted on the argv the manager executes.** Deleting the
+  splice from `docker run` had left all 76 tests in that module passing.
+- **The guard suite covers TypeScript.** Every console test file must be collected by
+  `vitest.config.ts`, and the console version test derives from `pyproject.toml` instead of
+  a frozen literal it had drifted five releases away from.
+- **Exemptions applied in code are recorded.** Constructor fields hidden from the
+  protected-surface gate, and upstream Agent Server operations the gateway does not
+  implement, are declared in shrink-only records the gates read — so taking an exemption is
+  a reviewable act rather than an invisible one.
+- **Smaller corrections in the same vein:** `release/langgraph` imports resolve through the
+  package with no `sys.path` prepend; the container version label is checked against the
+  evidence release rather than asserted as the same literal it contains, with any gap to the
+  package version declared; and `validate_manifest` no longer presents evidence resolution
+  as manifest-driven when every artifact resolves from a hardcoded set.
+
 ## [0.22.1.1.2] - 2026-08-11
 
 ### Fixed

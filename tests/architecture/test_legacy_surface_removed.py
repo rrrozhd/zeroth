@@ -409,20 +409,52 @@ def _empty_parametrization(node: object) -> bool:
     return any(isinstance(item, ast.List | ast.Tuple) and not item.elts for item in candidates)
 
 
-def test_no_test_is_vacuously_true() -> None:
-    """Three shapes, named exactly: this is a ratchet, not a soundness proof.
+def _constant_assertion(node: object) -> bool:
+    """Whether an assertion's test is a literal, and so has a fixed truth value.
 
-    It rejects an empty ``parametrize`` (positional or ``argvalues=``), a
-    comparison whose two sides must evaluate identically, and an assertion
-    repeated as the next sibling statement. It does NOT reject a test that
-    asserts nothing -- see the note above ``_is_side_effect_free`` for why that
-    rule is absent and how to reproduce the number behind that decision.
-
-    An earlier revision of this docstring advertised the assertion-free rule it
-    does not implement. Naming only the implemented rules is the point.
+    ``assert True`` cannot fail. Neither can ``assert 1`` or ``assert "reason"``.
+    A literal that is *falsy* is a different thing -- ``assert False`` is a
+    deliberate unreachable marker and always fails, which is not vacuity -- so
+    only the truthy ones are reported.
     """
     import ast
+
+    return (
+        isinstance(node, ast.Assert)
+        and isinstance(node.test, ast.Constant)
+        and bool(node.test.value)
+    )
+
+
+def _self_comparison(node: object) -> bool:
+    """Whether an assertion compares a value with itself, in either operator form."""
+    import ast
     import re
+
+    if not isinstance(node, ast.Assert):
+        return False
+    sides = re.match(r"^(.+?) (?:is|==) (.+)$", ast.unparse(node.test))
+    return bool(
+        sides
+        and sides.group(1).strip() == sides.group(2).strip()
+        and _is_side_effect_free(node.test)
+    )
+
+
+def test_no_test_is_vacuously_true() -> None:
+    """Four shapes, named exactly: this is a ratchet, not a soundness proof.
+
+    It rejects an empty ``parametrize`` (positional or ``argvalues=``), a
+    comparison whose two sides must evaluate identically, an assertion repeated
+    as the next sibling statement, and an assertion over a truthy literal. It
+    does NOT reject a test that asserts nothing -- see the note above
+    ``_is_side_effect_free`` for why that rule is absent and how to reproduce the
+    number behind that decision.
+
+    The literal rule was missing while ``assert True`` was live in the tree, so
+    the guard ran green over exactly the shape it is named for.
+    """
+    import ast
 
     problems: list[str] = []
     for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
@@ -435,16 +467,11 @@ def test_no_test_is_vacuously_true() -> None:
             if _empty_parametrization(node):
                 problems.append(f"{relative}:{node.lineno} parametrizes zero cases")
 
-            # Self-comparison, in either operator form.
-            if isinstance(node, ast.Assert):
-                rendered = ast.unparse(node.test)
-                sides = re.match(r"^(.+?) (?:is|==) (.+)$", rendered)
-                if (
-                    sides
-                    and sides.group(1).strip() == sides.group(2).strip()
-                    and _is_side_effect_free(node.test)
-                ):
-                    problems.append(f"{relative}:{node.lineno} compares a value with itself")
+            if _constant_assertion(node):
+                problems.append(f"{relative}:{node.lineno} asserts a literal that cannot fail")
+
+            if _self_comparison(node):
+                problems.append(f"{relative}:{node.lineno} compares a value with itself")
 
             # Consecutive identical assertions. Compared as *sibling statements*,
             # so a blank line between them still counts, while an intervening

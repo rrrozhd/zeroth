@@ -49,12 +49,24 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if tier is not None
         else {nodeid for case in matrix.cases for nodeid in case.test_nodes}
     )
+    # A bound node that is collected but never executed satisfies the exact-collection
+    # check below while proving nothing, so every marker that can suppress execution is
+    # refused here. ``skipif`` is refused unconditionally rather than only when its
+    # condition is true: a condition evaluated against the environment is precisely the
+    # vector -- it would pass on the author's machine and skip in CI. The runtime form,
+    # ``pytest.skip()`` called inside a test body, is out of reach at collection time and
+    # is caught instead by ``release.security.matrix verify-outcomes``.
+    forbidden = ("xfail", "skip", "skipif")
     invalid = sorted(
-        item.nodeid for item in items if item.nodeid in bound and item.get_closest_marker("xfail")
+        f"{item.nodeid} ({marker})"
+        for item in items
+        if item.nodeid in bound
+        for marker in forbidden
+        if item.get_closest_marker(marker)
     )
     if invalid:
         raise pytest.UsageError(
-            "matrix-bound security test may not use xfail: " + ", ".join(invalid)
+            "matrix-bound security test may not use xfail, skip or skipif: " + ", ".join(invalid)
         )
     collected = [item.nodeid for item in items]
     duplicate = sorted(nodeid for nodeid in set(collected) if collected.count(nodeid) != 1)
