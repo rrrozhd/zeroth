@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-08-11
+
+### Changed
+
+- The published core wheel now follows an explicit canonical source allowlist and
+  excludes repository-only release tooling.
+- Release images install a fixed, hash-locked dependency set and the exact wheel
+  built by the release job; CI retains and byte-compares the image copy.
+- Privileged release actions use immutable commits, and every Compose service runs
+  with a read-only root filesystem, dropped capabilities, privilege escalation
+  disabled, and a PID limit.
+
 ## [0.20] - 2026-08-09
 
 ### Added

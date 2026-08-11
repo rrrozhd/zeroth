@@ -10,6 +10,22 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
+IMAGE_EXPORT_COMMAND = (
+    "uv",
+    "export",
+    "--locked",
+    "--no-dev",
+    "--extra",
+    "memory-pg",
+    "--extra",
+    "langgraph",
+    "--extra",
+    "langgraph-gateway",
+    "--no-emit-project",
+    "--no-annotate",
+    "--no-header",
+)
+
 
 def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -29,27 +45,23 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.adapter.version=1.0" in dockerfile
     assert "io.zeroth.langgraph.compatibility.langgraph=1.2.9" in dockerfile
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
-    assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
-    assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
+    assert "ARG ZEROTH_EXTRAS" not in dockerfile
+    assert dockerfile.count("python:3.12.13-slim-bookworm") == 1
     assert "org.opencontainers.image.version=0.17.0.4" in dockerfile
-    assert "memory-pg,langgraph,langgraph-gateway" in compose
+    assert "requirements-image.txt" in dockerfile
     build_step = next(
         step
         for step in workflow_config["jobs"]["container-evidence"]["steps"]
         if step.get("name") == "Build release image"
     )
-    assert build_step["run"] == (
-        "docker build --build-arg "
-        "ZEROTH_EXTRAS=memory-pg,langgraph,langgraph-gateway "
-        "-t zeroth-core:${{ github.ref_name }} ."
-    )
+    assert build_step["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
     assert "langgraph-fixture:" in compose
     assert 'ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"' in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF:" in compose
     assert "stop_grace_period" in compose and "/health/ready" in compose
-    assert "actions/attest@v4" in workflow
+    assert "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4" in workflow
     assert "attestations: write" in workflow and "id-token: write" in workflow
     assert "artifact-metadata: write" in workflow
     assert "sbom-path" in workflow and "smoke" in workflow.lower()
@@ -151,3 +163,77 @@ def test_installed_image_packages_are_compared_with_compatibility(
         installed_package_evidence(
             f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
         )
+
+
+def test_image_dependencies_are_hash_locked(tmp_path: Path) -> None:
+    requirements = ROOT / "requirements-image.txt"
+    assert requirements.is_file(), "requirements-image.txt is not checked in"
+
+    exported = tmp_path / "requirements-image.txt"
+    result = subprocess.run(
+        [*IMAGE_EXPORT_COMMAND, "--output-file", str(exported)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert requirements.read_bytes() == exported.read_bytes()
+
+    locked = requirements.read_text(encoding="utf-8")
+    assert " --hash=sha256:" in locked
+    assert "-e " not in locked and "zeroth-core" not in locked
+
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY requirements-image.txt" in dockerfile
+    assert "pip install --no-cache-dir --require-hashes -r" in dockerfile
+
+
+def test_compose_services_are_hardened() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    assert set(compose["services"]) == {"zeroth", "langgraph-fixture", "db"}
+    for name, service in compose["services"].items():
+        assert service.get("read_only") is True, f"{name} root filesystem is writable"
+        assert "ALL" in service.get("cap_drop", []), f"{name} retains Linux capabilities"
+        assert "no-new-privileges:true" in service.get("security_opt", []), (
+            f"{name} can gain privileges"
+        )
+        assert isinstance(service.get("pids_limit"), int) and service["pids_limit"] > 0, (
+            f"{name} has no positive PID limit"
+        )
+
+    db = compose["services"]["db"]
+    assert db.get("user") == "postgres"
+    assert "zeroth-pg:/var/lib/postgresql/data" in db["volumes"]
+    db_tmpfs = {str(path).split(":", 1)[0] for path in db.get("tmpfs", [])}
+    assert {"/tmp", "/var/run/postgresql"} <= db_tmpfs
+
+
+def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/" in dockerfile
+    assert "pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl" in dockerfile
+    assert "python -m build" not in dockerfile and "ARG ZEROTH_EXTRAS" not in dockerfile
+
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["container-evidence"]["steps"]
+    build_index = next(i for i, step in enumerate(steps) if step.get("name") == "Build release image")
+    dist_downloads = [
+        (i, step)
+        for i, step in enumerate(steps)
+        if step.get("with", {}).get("name") == "dist"
+    ]
+    assert len(dist_downloads) == 1
+    assert dist_downloads[0][0] < build_index
+    assert dist_downloads[0][1]["with"]["path"] == "dist/"
+    assert steps[build_index]["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
+
+    comparison = next(
+        step for step in steps if step.get("name") == "Compare image wheel with release candidate"
+    )
+    assert steps.index(comparison) > build_index
+    assert "docker cp" in comparison["run"]
+    assert "/opt/zeroth/wheel" in comparison["run"]
+    assert "cmp " in comparison["run"]
