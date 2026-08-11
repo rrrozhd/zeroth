@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.8.1] - 2026-08-10
+
+### Fixed
+
+- The stale-evidence derivation check was itself a tautology: `({x} if x != x else set())`
+  is always the empty set, and being an expression rather than a literal it slipped past the
+  `ast.Constant` rule added in this same task. The rule is now a pure function of both
+  inputs, exercised over four pairs, and a tautological implementation fails the drift case
+  (ZER-41).
+
 ## [0.22.2.8] - 2026-08-10
 
 ### Fixed

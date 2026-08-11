@@ -23,6 +23,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 #: Evidence releases that trail the package version, and why.
@@ -82,6 +84,16 @@ def test_the_container_version_is_declared_once_and_agrees_everywhere() -> None:
     assert _compose_default_tag() == evidence
 
 
+def stale_releases(evidence: str, package: str) -> set[str]:
+    """The stale set implied by an evidence release and a package version.
+
+    A pure function of its two inputs, so the rule can be exercised over values
+    the repository does not currently hold. Asserting it against the live pair
+    only restates today's answer.
+    """
+    return {evidence} if evidence != package else set()
+
+
 def observed_stale_releases() -> set[str]:
     """The evidence releases that are actually stale right now.
 
@@ -90,8 +102,7 @@ def observed_stale_releases() -> set[str]:
     is what makes the record checkable; asking only "is the current one listed"
     lets any number of other keys sit there unexamined.
     """
-    evidence, package = _evidence_release(), _package_version()
-    return {evidence} if evidence != package else set()
+    return stale_releases(_evidence_release(), _package_version())
 
 
 def test_the_stale_record_equals_what_is_actually_stale() -> None:
@@ -117,17 +128,33 @@ def test_every_recorded_gap_states_a_reason_and_a_clearing_condition() -> None:
         assert "measured against" in reason, release
 
 
-def test_the_stale_derivation_reports_nothing_once_the_versions_agree() -> None:
+@pytest.mark.parametrize(
+    ("evidence", "package", "expected"),
+    [
+        ("0.17.0.4", "0.22.2.8", {"0.17.0.4"}),
+        ("0.22.2.8", "0.22.2.8", set()),
+        ("1.0", "2.0", {"1.0"}),
+        ("1.0", "1.0", set()),
+    ],
+)
+def test_the_stale_derivation_empties_once_the_versions_agree(
+    evidence: str, package: str, expected: set[str]
+) -> None:
     """The record must be able to reach empty -- that is the whole point of it.
 
     A check written as "the record is non-empty" refuses the one outcome the
-    record exists to reach.
+    record exists to reach. Exercised over both inputs, because asserting against
+    the live pair can only restate today's answer -- and an expression like
+    ``{x} if x != x else set()`` would satisfy it while proving nothing.
     """
-    assert observed_stale_releases() == {_evidence_release()}
+    assert stale_releases(evidence, package) == expected
 
-    same = _package_version()
 
-    assert ({same} if same != same else set()) == set()
+def test_the_live_derivation_uses_the_same_rule() -> None:
+    """The helper the record is checked against is the function tested above."""
+    assert observed_stale_releases() == stale_releases(
+        _evidence_release(), _package_version()
+    )
 
 
 def test_the_drift_detector_sees_a_moved_label() -> None:
