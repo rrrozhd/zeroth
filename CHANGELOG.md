@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.9.4] - 2026-08-10
+
+### Fixed
+
+- The console version test derives the expected value from `pyproject.toml` instead of the
+  frozen literal `"0.22"`. The package had reached 0.22.1.1.1 and the console suite was red
+  and unnoticed, because no pull-request workflow runs it (ZER-41 / R10).
+
 ## [0.22.2.9.3] - 2026-08-10
 
 ### Fixed
