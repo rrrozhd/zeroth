@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.common.schemas import APIMessage
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest, ValueEstimateOut
 from zeroth.econ.plane.counterfactual.tasks import run_evaluation_async

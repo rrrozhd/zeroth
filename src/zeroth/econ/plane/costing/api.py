@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from zeroth.econ.plane.auth.deps import get_current_global_db, get_current_scoped_db, require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.costing.schemas import CostEstimateOut, CostProfileCreate, CostProfileOut, PricingCatalogCreate
 from zeroth.econ.plane.costing.service import (
     create_cost_profile,

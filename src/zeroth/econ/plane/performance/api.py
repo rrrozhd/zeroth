@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.performance.schemas import CapabilityPerformance, PerformanceSummary
 from zeroth.econ.plane.performance.service import calculate_snapshots, latest_snapshots
