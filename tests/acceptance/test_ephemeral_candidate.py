@@ -100,6 +100,32 @@ async def test_the_candidate_serves_the_real_application(candidate: EphemeralCan
         assert (await client.get("/v1/runs")).status_code == 401
 
 
+async def test_the_declared_regulus_origin_is_served_by_a_real_control_plane(
+    candidate: EphemeralCandidate,
+) -> None:
+    """Pin the fact that makes this candidate's `readiness` result mean something.
+
+    `check_regulus` treats *any* answer as `ok` — a 401, a 404, anything that is not
+    a transport error. Since the candidate declares its own origin as its Regulus,
+    the regulus dimension of `/health/ready` is satisfied by the candidate answering
+    at all, which the probe already proves by responding. If the `regulus` extra ever
+    dropped out of the install, `app.mount("/regulus", ...)` would never run, Zeroth
+    would 404, and readiness would still report `ok` — the plane absent, the gate
+    green over a property it never examined.
+
+    So the thing readiness cannot check is asserted here instead: the origin the
+    candidate declares is served by the econ plane itself.
+    """
+    assert candidate.regulus_base_url == f"{candidate.base_url}/regulus/v1"
+    async with httpx.AsyncClient(base_url=candidate.base_url, timeout=10.0) as client:
+        # The mount sits behind Zeroth's API-key auth, so this is authenticated; the
+        # readiness probe's own unauthenticated GET is exactly the one that cannot
+        # tell a mounted plane from a 401.
+        mounted = await client.get("/regulus/health", headers=_headers("admin"))
+        assert mounted.status_code == 200, mounted.text
+        assert mounted.json() == {"status": "ok"}
+
+
 async def test_an_approval_gated_node_runs_zero_times_then_exactly_once(
     candidate: EphemeralCandidate,
 ) -> None:

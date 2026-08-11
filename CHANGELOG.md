@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1.1.2] - 2026-08-11
+
+### Fixed
+
+- The ephemeral acceptance candidate now declares the Regulus origin it actually has.
+  `RegulusSettings.base_url` defaults to `http://localhost:8000/v1`, an external
+  control-plane topology the candidate never deployed, so `check_regulus` probed a
+  dead port, reported `unavailable`, and degraded `/health/ready`. That failed the
+  `readiness` scenario and cascaded into `approvals`, which polls readiness back to
+  `ok` after its restart, and from there into `audit`, `artifacts` and
+  `restart_recovery`. It passed locally only on machines with something unrelated
+  bound to port 8000. The candidate runs the bundled plane in-process at `/regulus`,
+  so it now points at its own origin, as `apps/vendor_dd/entrypoint.py` and the
+  deployment guide already do.
+- Paired that with a test that the declared origin is served by the econ plane itself.
+  `check_regulus` treats any answer — a 401, a 404 — as `ok`, so readiness alone could
+  not tell a mounted plane from an absent one; without this, dropping the `regulus`
+  extra would leave the gate green over a plane that was never there.
+
 ## [0.22.1.1.1] - 2026-08-10
 
 ### Fixed

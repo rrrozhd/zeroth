@@ -148,6 +148,10 @@ class EphemeralCandidate:
         self._agent_server: subprocess.Popen | None = None
         self._agent_server_port: int | None = None
         self.agent_server_url: str | None = None
+        # The origin this candidate declares as its Regulus, known only once it has
+        # bound a port. Exposed so a test can assert the declaration is served by a
+        # real control plane rather than merely answered; see `_declare_bundled_regulus`.
+        self.regulus_base_url: str | None = None
         self.deployment_ref = deployment_ref
         self.tenant_id = tenant_id
         self._db_path = workspace / "candidate.db"
@@ -204,6 +208,29 @@ class EphemeralCandidate:
                 "ECP_DATABASE_URL": f"sqlite+pysqlite:///{self._artifacts_dir}/econ_plane.db",
             }
         )
+
+    def _declare_bundled_regulus(self) -> None:
+        """Tell the candidate where its own Regulus actually is.
+
+        `RegulusSettings.base_url` defaults to `http://localhost:8000/v1` — an
+        *external* control-plane topology this candidate does not have. Left alone,
+        `check_regulus` probes a port nothing is listening on, reports `unavailable`,
+        and `determine_readiness_status` degrades the whole probe. The `readiness`
+        scenario then fails for a dependency this deployment never deployed, and the
+        `approvals` scenario, which polls readiness back to `ok` after its restart,
+        fails with it.
+
+        Worse, it passed anyway on any machine with something unrelated bound to port
+        8000, because `check_regulus` asks only whether the origin answers. Declaring
+        the real origin is what makes the result mean the same thing everywhere.
+
+        The candidate runs the bundled plane in-process, mounted at `/regulus`, so its
+        Regulus lives at its own origin. That is the topology the shipped reference app
+        declares (`apps/vendor_dd/entrypoint.py`) and the deployment guide documents —
+        a statement of fact about this deployment, not a relaxed assertion.
+        """
+        self.regulus_base_url = f"{self.base_url}/regulus/v1"
+        self._set_environment({"ZEROTH_REGULUS__BASE_URL": self.regulus_base_url})
 
     def _start_agent_server(self) -> None:
         self._start_agent_server_on(_free_port())
@@ -321,6 +348,10 @@ class EphemeralCandidate:
         finally:
             await database.close()
         self._bind()
+        # After `_bind`: the declaration names this candidate's own origin, which does
+        # not exist until a port is claimed. Before `serve`: `_set_environment` drops
+        # the settings singleton, so the app built there reads the declared value.
+        self._declare_bundled_regulus()
 
     def _graph(self):
         """The shared approval graph, with the gated node able to emit an artifact.
