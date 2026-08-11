@@ -4,7 +4,18 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 import pytest
-from sqlalchemy import String, create_engine, delete, event, insert, inspect, select, text, update
+from sqlalchemy import (
+    String,
+    create_engine,
+    delete,
+    event,
+    func,
+    insert,
+    inspect,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from zeroth.econ.plane.auth.models import User
@@ -177,6 +188,26 @@ def test_mapped_bulk_insert_rejects_mismatching_tenant_before_sql(scoped_engine)
         statements.clear()
         with pytest.raises(ValueError, match="tenant ownership"):
             scoped.execute(insert(Capability).values(id="cap-b", tenant_id="tenant-b", name="B"))
+
+    assert statements == []
+
+
+@pytest.mark.parametrize("tenant_id", [None, func.lower("TENANT-A")], ids=["null", "expression"])
+def test_mapped_bulk_insert_rejects_explicit_untrusted_ownership_before_sql(
+    scoped_engine, tenant_id
+) -> None:
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, statement, _params, _context, _many: statements.append(statement),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="tenant ownership"):
+            scoped.execute(insert(Capability).values(id="cap-a", tenant_id=tenant_id, name="A"))
 
     assert statements == []
 
