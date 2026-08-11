@@ -1,14 +1,21 @@
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
+
+_ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
 class ValuationRun(Base):
     __tablename__ = "valuation_runs"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.valuation_run", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
@@ -22,6 +29,9 @@ class ValuationRun(Base):
 
 class ValueEstimate(Base):
     __tablename__ = "value_estimates"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.value_estimate", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (Index("ix_value_estimate_capability_period", "capability_id", "period_start"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
