@@ -7,13 +7,17 @@ import pytest
 from sqlalchemy import (
     String,
     bindparam,
+    column,
     create_engine,
     delete,
     event,
     func,
     insert,
     inspect,
+    literal,
+    literal_column,
     select,
+    table,
     text,
     update,
 )
@@ -163,6 +167,30 @@ def test_bulk_ownership_rewrite_fails_before_sql(scoped_engine) -> None:
             scoped.execute(update(Capability).values(tenant_id="tenant-b"))
 
     assert statements == []
+
+
+def test_ordered_update_cannot_rewrite_ownership_before_sql(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, statement, _params, _context, _many: statements.append(statement),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="tenant ownership is immutable"):
+            scoped.execute(
+                update(Capability)
+                .where(Capability.id == "cap-a")
+                .ordered_values((Capability.tenant_id, "tenant-b"))
+            )
+
+    assert statements == []
+    with Session(scoped_engine) as raw:
+        assert raw.get(Capability, "cap-a").tenant_id == "tenant-a"
 
 
 def test_executemany_update_rejects_ownership_in_any_parameter_before_sql(
@@ -345,6 +373,74 @@ def test_tenant_select_rejects_unscopable_statement_shapes_before_sql(
             scoped.execute(statement)
 
     assert statements == []
+
+
+@pytest.mark.parametrize(
+    "unsafe_expression",
+    [
+        literal_column("(SELECT tenant_id FROM capabilities WHERE id = 'cap-b')"),
+        column("tenant_id"),
+        table("external_tenant_source", column("tenant_id")).c.tenant_id,
+    ],
+    ids=["literal-column", "column", "table-column"],
+)
+def test_select_rejects_recursive_textual_column_constructs_before_sql(
+    scoped_engine, unsafe_expression
+) -> None:
+    _seed_capabilities(scoped_engine)
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, sql, _params, _context, _many: statements.append(sql),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="textual SQL"):
+            scoped.execute(select(Capability.id, unsafe_expression))
+
+    assert statements == []
+
+
+def test_dml_returning_rejects_textual_subquery_before_sql_and_preserves_row(
+    scoped_engine,
+) -> None:
+    _seed_capabilities(scoped_engine)
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, sql, _params, _context, _many: statements.append(sql),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="textual SQL"):
+            scoped.execute(
+                update(Capability)
+                .where(Capability.id == "cap-a")
+                .values(name="changed")
+                .returning(literal_column("(SELECT name FROM capabilities WHERE id = 'cap-b')"))
+            )
+
+    assert statements == []
+    with Session(scoped_engine) as raw:
+        assert raw.get(Capability, "cap-a").name == "A"
+
+
+def test_bound_literals_and_normal_functions_remain_supported(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        rows = scoped.execute(
+            select(Capability.id, literal("safe"), func.lower(Capability.name))
+        ).all()
+
+    assert rows == [("cap-a", "safe", "a")]
 
 
 def test_nested_orm_scalar_subquery_is_tenant_scoped(scoped_engine) -> None:

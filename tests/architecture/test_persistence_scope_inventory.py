@@ -5,6 +5,7 @@ import importlib
 import pkgutil
 from pathlib import Path
 
+import pytest
 from sqlalchemy import inspect
 
 from zeroth.econ.plane import __path__ as econ_plane_paths
@@ -77,6 +78,10 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self.function = "<module>"
         self.violations: list[str] = []
         self._counts: dict[tuple[str, str], int] = {}
+        self._session_names = {"Session"}
+        self._sessionmaker_names = {"sessionmaker"}
+        self._factory_names = {"SessionLocal"}
+        self._orm_module_aliases = {"sqlalchemy.orm"}
 
     def _record(self, kind: str, detail: str) -> None:
         key = (kind, f"{self.function}:{detail}")
@@ -94,32 +99,109 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self.visit_FunctionDef(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if node.module == "sqlalchemy.orm" and any(alias.name == "Session" for alias in node.names):
-            self._record("import", "sqlalchemy.orm.Session")
+        if node.module == "sqlalchemy.orm":
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                if alias.name == "Session":
+                    self._session_names.add(local_name)
+                    self._record("import", "sqlalchemy.orm.Session")
+                elif alias.name == "sessionmaker":
+                    self._sessionmaker_names.add(local_name)
+                    self._record("factory", "sqlalchemy.orm.sessionmaker")
+        if node.module == "zeroth.econ.plane.database":
+            for alias in node.names:
+                if alias.name == "SessionLocal":
+                    self._factory_names.add(alias.asname or alias.name)
+                    self._record("factory", "zeroth.econ.plane.database.SessionLocal")
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.name == "sqlalchemy.orm":
+                self._orm_module_aliases.add(alias.asname or alias.name)
+                self._record("import", "sqlalchemy.orm")
+        self.generic_visit(node)
+
+    @staticmethod
+    def _dotted_name(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            prefix = _RawSessionVisitor._dotted_name(node.value)
+            return f"{prefix}.{node.attr}" if prefix else None
+        return None
+
+    @staticmethod
+    def _assigned_names(node: ast.AST) -> set[str]:
+        if isinstance(node, ast.Name):
+            return {node.id}
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return {
+                name
+                for element in node.elts
+                for name in _RawSessionVisitor._assigned_names(element)
+            }
+        return set()
+
+    def _is_sessionmaker_call(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        dotted = self._dotted_name(node.func)
+        return dotted in self._sessionmaker_names or any(
+            dotted == f"{module}.sessionmaker" for module in self._orm_module_aliases
+        )
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if self._is_sessionmaker_call(node.value):
+            for target in node.targets:
+                self._factory_names.update(self._assigned_names(target))
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None and self._is_sessionmaker_call(node.value):
+            self._factory_names.update(self._assigned_names(node.target))
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        if node.id == "Session" and not isinstance(node.ctx, ast.Store):
+        if node.id in self._session_names and not isinstance(node.ctx, ast.Store):
             parent = getattr(node, "_scope_guard_parent", None)
             if not isinstance(parent, (ast.alias, ast.ImportFrom)):
-                self._record("reference", "Session")
+                self._record("reference", node.id)
+        if node.id in self._factory_names and not isinstance(node.ctx, ast.Store):
+            self._record("factory", node.id)
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name) and node.func.id == "Session":
-            self._record("construction", "Session")
+        dotted = self._dotted_name(node.func)
+        if dotted in self._session_names or any(
+            dotted == f"{module}.Session" for module in self._orm_module_aliases
+        ):
+            self._record("construction", dotted or "Session")
+        if dotted in self._factory_names:
+            self._record("construction", dotted)
+        if self._is_sessionmaker_call(node):
+            self._record("factory", dotted or "sessionmaker")
+        if isinstance(node.func, ast.Call) and self._is_sessionmaker_call(node.func):
+            self._record("construction", "sessionmaker-result")
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in {
-            "bind",
-            "connection",
-            "context",
-            "get_bind",
-            "query",
-            "raw",
-            "root_connection",
-        }:
+        dotted = self._dotted_name(node)
+        root_name = dotted.split(".", 1)[0] if dotted else ""
+        result_like = root_name in {"cursor_result", "db_result", "result"}
+        raw_session_like = root_name in {"db", "raw_session", "session"}
+        context_connection = (
+            node.attr == "connection"
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "context"
+            and result_like
+        )
+        if (
+            node.attr == "root_connection"
+            or (node.attr in {"bind", "connection", "get_bind", "query"} and raw_session_like)
+            or context_connection
+            or (node.attr == "raw" and result_like)
+        ):
             self._record("raw-access", node.attr)
         self.generic_visit(node)
 
@@ -241,3 +323,40 @@ def test_raw_session_guard_reports_a_new_scoped_service_violation(tmp_path: Path
     assert any("::import::" in violation for violation in violations)
     assert any("::reference::" in violation for violation in violations)
     assert any("::raw-access::" in violation for violation in violations)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sqlalchemy.orm\n\ndef unsafe():\n    return sqlalchemy.orm.Session()\n",
+        "from sqlalchemy.orm import Session as OrmSession\n\ndef unsafe():\n    return OrmSession()\n",
+        (
+            "from sqlalchemy.orm import sessionmaker as make_session\n\n"
+            "RawFactory = make_session()\n\n"
+            "def unsafe():\n    return RawFactory()\n"
+        ),
+        (
+            "from zeroth.econ.plane.database import SessionLocal as RawFactory\n\n"
+            "def unsafe():\n    return RawFactory()\n"
+        ),
+    ],
+    ids=["module-session", "aliased-session", "sessionmaker", "session-local"],
+)
+def test_raw_session_guard_tracks_import_aliases_and_factories(tmp_path: Path, source: str) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(source)
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("construction" in violation or "factory" in violation for violation in violations)
+
+
+def test_raw_session_guard_does_not_flag_unrelated_request_context(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "def safe(request):\n    return request.context.connection\n"
+    )
+
+    assert _raw_session_violations(tmp_path) == set()
