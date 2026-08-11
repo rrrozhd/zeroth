@@ -43,6 +43,7 @@ from zeroth.service.bootstrap import bootstrap_app
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
 SECRET_A = "enforcement-key-a"
+REVIEWER_SECRET = "enforcement-reviewer-key"
 
 _LEAKY_FRAGMENTS = (
     "traceback",
@@ -141,6 +142,24 @@ async def test_a_cross_tenant_decision_request_persists_no_decision_row(sqlite_d
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "enforcement_context_unknown"
+    assert await _decision_row_count(sqlite_db) == 0
+
+
+async def test_enforcement_report_denied_for_reviewer_without_permission(sqlite_db) -> None:
+    auth_config = scoped_auth_config(
+        ("reviewer-a", REVIEWER_SECRET, ServiceRole.REVIEWER, TENANT_A, None),
+    )
+    app, deployment = await _single_tenant_app(sqlite_db, auth_config=auth_config)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/enforcement/decisions",
+            json=_decision_body(deployment.deployment_ref, key="reviewer-denied"),
+            headers=api_key_headers(REVIEWER_SECRET),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "forbidden"}
     assert await _decision_row_count(sqlite_db) == 0
 
 
