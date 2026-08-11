@@ -78,11 +78,12 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self.function = "<module>"
         self.violations: list[str] = []
         self._counts: dict[tuple[str, str], int] = {}
-        self._session_names = {"Session"}
-        self._sessionmaker_names = {"sessionmaker"}
-        self._factory_names = {"SessionLocal"}
-        self._orm_module_aliases = {"sqlalchemy.orm"}
-        self._database_module_aliases = {"zeroth.econ.plane.database"}
+        self._session_names: set[str] = set()
+        self._sessionmaker_names: set[str] = set()
+        self._factory_names: set[str] = set()
+        self._orm_module_aliases: set[str] = set()
+        self._database_module_aliases: set[str] = set()
+        self._session_receiver_names: set[str] = set()
         self._tainted_result_names: set[str] = set()
 
     def _record(self, kind: str, detail: str) -> None:
@@ -94,16 +95,29 @@ class _RawSessionVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         previous = self.function
         previous_taint = self._tainted_result_names
+        previous_receivers = self._session_receiver_names
         self.function = node.name
         self._tainted_result_names = set()
+        self._session_receiver_names = {
+            argument.arg
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            if argument.arg in {"db", "raw_session", "session"}
+            or self._is_session_reference(argument.annotation)
+        }
         self.generic_visit(node)
         self.function = previous
         self._tainted_result_names = previous_taint
+        self._session_receiver_names = previous_receivers
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         self.visit_FunctionDef(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "sqlalchemy":
+            for alias in node.names:
+                if alias.name == "orm":
+                    self._orm_module_aliases.add(alias.asname or alias.name)
+                    self._record("import", "sqlalchemy.orm")
         if node.module == "sqlalchemy.orm":
             for alias in node.names:
                 local_name = alias.asname or alias.name
@@ -177,6 +191,40 @@ class _RawSessionVisitor(ast.NodeVisitor):
             dotted == f"{module}.sessionmaker" for module in self._orm_module_aliases
         )
 
+    def _is_session_reference(self, node: ast.AST | None) -> bool:
+        if not isinstance(node, ast.expr):
+            return False
+        dotted = self._dotted_name(node)
+        return dotted in self._session_names or any(
+            dotted == f"{module}.Session" for module in self._orm_module_aliases
+        )
+
+    def _is_factory_reference(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.expr):
+            return False
+        dotted = self._dotted_name(node)
+        return dotted in self._factory_names or any(
+            dotted == f"{module}.SessionLocal" for module in self._database_module_aliases
+        )
+
+    def _is_session_constructor_call(self, node: ast.AST) -> bool:
+        return isinstance(node, ast.Call) and self._is_session_reference(node.func)
+
+    def _is_factory_call(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        return self._is_factory_reference(node.func) or (
+            isinstance(node.func, ast.Call) and self._is_sessionmaker_call(node.func)
+        )
+
+    def _is_session_receiver(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self._session_receiver_names
+        if isinstance(node, ast.Attribute):
+            dotted = self._dotted_name(node)
+            return dotted in self._session_receiver_names if dotted is not None else False
+        return self._is_session_constructor_call(node) or self._is_factory_call(node)
+
     def _is_tainted_result(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Name):
             return node.id in self._tainted_result_names
@@ -187,9 +235,14 @@ class _RawSessionVisitor(ast.NodeVisitor):
             ) or self._is_tainted_result(node.value)
         if not isinstance(node, ast.Call):
             return False
-        dotted = self._dotted_name(node.func)
-        if dotted and dotted.rsplit(".", 1)[-1] in {"execute", "scalars"}:
-            return True
+        if isinstance(node.func, ast.Attribute):
+            receiver = node.func.value
+            if node.func.attr == "execute" and self._is_session_receiver(receiver):
+                return True
+            if node.func.attr == "scalars" and (
+                self._is_session_receiver(receiver) or self._is_tainted_result(receiver)
+            ):
+                return True
         if (
             isinstance(node.func, ast.Name)
             and node.func.id == "getattr"
@@ -207,9 +260,16 @@ class _RawSessionVisitor(ast.NodeVisitor):
             self._tainted_result_names.difference_update(assigned)
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if self._is_sessionmaker_call(node.value):
+        if self._is_sessionmaker_call(node.value) or self._is_factory_reference(node.value):
             for target in node.targets:
                 self._factory_names.update(self._assigned_names(target))
+        assigned_receivers = {
+            name for target in node.targets for name in self._assigned_result_paths(target)
+        }
+        if self._is_session_receiver(node.value):
+            self._session_receiver_names.update(assigned_receivers)
+        else:
+            self._session_receiver_names.difference_update(assigned_receivers)
         self._update_result_taint(node.targets, node.value)
         self.generic_visit(node)
 
@@ -217,6 +277,11 @@ class _RawSessionVisitor(ast.NodeVisitor):
         if node.value is not None and self._is_sessionmaker_call(node.value):
             self._factory_names.update(self._assigned_names(node.target))
         if node.value is not None:
+            assigned_receivers = self._assigned_result_paths(node.target)
+            if self._is_session_receiver(node.value):
+                self._session_receiver_names.update(assigned_receivers)
+            else:
+                self._session_receiver_names.difference_update(assigned_receivers)
             self._update_result_taint([node.target], node.value)
         self.generic_visit(node)
 
@@ -231,14 +296,10 @@ class _RawSessionVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         dotted = self._dotted_name(node.func)
-        if dotted in self._session_names or any(
-            dotted == f"{module}.Session" for module in self._orm_module_aliases
-        ):
+        if self._is_session_reference(node.func):
             self._record("construction", dotted or "Session")
-        if dotted in self._factory_names:
+        if self._is_factory_reference(node.func):
             self._record("construction", dotted)
-        if any(dotted == f"{module}.SessionLocal" for module in self._database_module_aliases):
-            self._record("construction", dotted or "SessionLocal")
         if self._is_sessionmaker_call(node):
             self._record("factory", dotted or "sessionmaker")
         if isinstance(node.func, ast.Call) and self._is_sessionmaker_call(node.func):
@@ -255,9 +316,6 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        dotted = self._dotted_name(node)
-        root_name = dotted.split(".", 1)[0] if dotted else ""
-        raw_session_like = root_name in {"db", "raw_session", "session"}
         tainted_escape = node.attr in {
             "connection",
             "context",
@@ -265,7 +323,8 @@ class _RawSessionVisitor(ast.NodeVisitor):
             "root_connection",
         } and self._is_tainted_result(node.value)
         if tainted_escape or (
-            node.attr in {"bind", "connection", "get_bind", "query"} and raw_session_like
+            node.attr in {"bind", "connection", "get_bind", "query"}
+            and self._is_session_receiver(node.value)
         ):
             self._record("raw-access", node.attr)
         self.generic_visit(node)
@@ -488,3 +547,38 @@ def test_raw_session_guard_tracks_package_imported_database_factory(tmp_path: Pa
     violations = _raw_session_violations(tmp_path)
 
     assert any("construction" in violation for violation in violations)
+
+
+def test_raw_session_guard_tracks_sqlalchemy_package_orm_alias(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "from sqlalchemy import orm as saorm\n\ndef unsafe():\n    return saorm.Session()\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("construction" in violation for violation in violations)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "class Session:\n    pass\n\ndef safe(value: Session):\n    return value\n",
+        "SessionLocal = lambda: object()\n\ndef safe():\n    return SessionLocal()\n",
+        (
+            "def safe(client, statement):\n"
+            "    rows = client.execute(statement)\n"
+            "    return rows.context\n"
+        ),
+    ],
+    ids=["local-session", "unrelated-session-local", "non-session-execute"],
+)
+def test_raw_session_guard_ignores_unrelated_symbols_and_results(
+    tmp_path: Path, source: str
+) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(source)
+
+    assert _raw_session_violations(tmp_path) == set()
