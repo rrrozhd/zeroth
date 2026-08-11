@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.9.2] - 2026-08-10
+
+### Fixed
+
+- The errexit guard asks bash whether each block's prologue clears errexit, instead of
+  reasoning about `set` lines textually. Ten capture blocks are executed against the shell
+  under the flags GitHub uses; removing a `set +e` is caught by bash rather than by a
+  pattern (ZER-41 / A11-1, A11-2, A11-11).
+
 ## [0.22.2.9.1] - 2026-08-10
 
 ### Fixed

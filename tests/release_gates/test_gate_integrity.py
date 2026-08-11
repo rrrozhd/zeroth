@@ -333,6 +333,92 @@ def _run_blocks() -> list[tuple[str, str]]:
     return blocks
 
 
+def errexit_is_cleared_by(prologue: str) -> bool:
+    """Whether ``prologue`` leaves errexit clear -- asked of bash, not read off the script.
+
+    ``errexit_capture_problems`` reasons about ``set`` lines textually, which is a
+    *representation* of the shell state. Every other guard in this task that
+    reasoned about a representation was eventually defeated by another
+    representation of the same thing, so this one is checked against the shell
+    itself: run the prologue under the flags GitHub uses, fail a command, and see
+    whether the capture on the next line executes.
+    """
+    script = f'{prologue}\nfalse\nCAPTURED=$?\necho "ran:$CAPTURED"\n'
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return "ran:" in result.stdout
+
+
+def _has_capture(script: str) -> bool:
+    """Whether any line of ``script`` captures an exit status.
+
+    Line-wise: ``_CAPTURE`` is anchored to end-of-line, so searching a whole
+    multi-line script matches nothing at all -- which would have made both checks
+    below pass over zero blocks.
+    """
+    return any(_CAPTURE.search(line.strip()) for line in script.splitlines())
+
+
+def _prologue_of(script: str) -> str:
+    """The leading ``set`` lines of a run block, up to its first capture."""
+    lines = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if _CAPTURE.search(stripped):
+            break
+        if stripped.startswith("set "):
+            lines.append(stripped)
+    return "\n".join(lines)
+
+
+def test_bash_agrees_that_every_capture_block_has_errexit_cleared() -> None:
+    """The property, executed: each real block's prologue is run and observed.
+
+    ``set -uo pipefail`` alone leaves errexit on and the capture never runs --
+    confirmed against bash below, not asserted from documentation.
+    """
+    failures = [
+        where
+        for where, script in _run_blocks()
+        if _has_capture(script) and not errexit_is_cleared_by(_prologue_of(script))
+    ]
+
+    assert failures == [], (
+        "bash reports that these blocks abort before their capture: " + ", ".join(failures)
+    )
+
+
+def test_at_least_one_real_block_is_exercised_against_bash() -> None:
+    """A prologue extractor that returned nothing would make the check above pass."""
+    exercised = [
+        where for where, script in _run_blocks() if _has_capture(script)
+    ]
+
+    assert len(exercised) >= 8, exercised
+
+
+@pytest.mark.parametrize(
+    ("prologue", "cleared"),
+    [
+        ("set -uo pipefail", False),
+        ("set -euo pipefail", False),
+        ("", False),
+        ("set -uo pipefail\nset +e", True),
+        ("set +e -u -o pipefail", True),
+        ("set +e", True),
+    ],
+)
+def test_bash_is_a_working_oracle_for_the_prologues_that_matter(
+    prologue: str, cleared: bool
+) -> None:
+    """Both directions against the shell, so the oracle itself is not assumed."""
+    assert errexit_is_cleared_by(prologue) is cleared
+
+
 def test_every_workflow_capture_site_can_actually_capture() -> None:
     """The eight blocks A11-1, A11-2 and A11-11 name, plus any added later.
 
