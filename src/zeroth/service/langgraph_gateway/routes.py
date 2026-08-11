@@ -25,6 +25,7 @@ from zeroth.governance.identity import AuthenticatedPrincipal
 from zeroth.platform.config import LangGraphGatewaySettings
 from zeroth.platform.observability import set_correlation_id
 from zeroth.service.api.authentication import AuthenticationError, ServiceAuthenticator
+from zeroth.service.api.authorization import Permission, principal_has_permission
 from zeroth.service.langgraph_gateway.admission import (
     BudgetChecker,
     InputClassifier,
@@ -47,6 +48,7 @@ from zeroth.service.langgraph_gateway.transport import (
 
 _CORRELATION_HEADER = "X-Correlation-ID"
 _AUTHENTICATION_CLOSE_CODE = 4401
+_AUTHORIZATION_CLOSE_CODE = 4403
 
 
 class HTTPGatewayProxy(Protocol):
@@ -272,6 +274,12 @@ class GatewayWebSocketEndpoint:
             await websocket.close(
                 code=_AUTHENTICATION_CLOSE_CODE,
                 reason="zeroth.authentication_required",
+            )
+            return
+        if not principal_has_permission(websocket, principal, Permission.RUN_CREATE):
+            await websocket.close(
+                code=_AUTHORIZATION_CLOSE_CODE,
+                reason="zeroth.permission_denied",
             )
             return
         if self._compatibility is not None:

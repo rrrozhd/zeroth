@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from starlette.routing import Match
 
 from tests.graph.test_models import build_graph
-from tests.service.helpers import default_service_auth_config, operator_headers
+from tests.service.helpers import default_service_auth_config, operator_headers, reviewer_headers
 from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, CompatibilityStatus
 from zeroth.contracts.registry import ContractRegistry
@@ -280,10 +280,7 @@ async def test_gateway_enabled_reuses_shared_dependencies(sqlite_db, monkeypatch
     assert proxy_kwargs["policy_guard"] is service.policy_guard
     assert proxy_kwargs["budget_checker"] is service.budget_enforcer
     assert proxy_kwargs["compatibility"] is service.langgraph_gateway_compatibility
-    assert (
-        proxy_kwargs["capability_reporter"]
-        is service.langgraph_gateway_capability_reporter
-    )
+    assert proxy_kwargs["capability_reporter"] is service.langgraph_gateway_capability_reporter
     assert websocket_kwargs["transport"] is service.langgraph_gateway_transport
     assert websocket_kwargs["policy_guard"] is service.policy_guard
     assert websocket_kwargs["budget_checker"] is service.budget_enforcer
@@ -483,6 +480,34 @@ def test_gateway_routes_are_absent_when_disabled() -> None:
     )
 
     assert "langgraph-gateway" not in {getattr(route, "name", None) for route in app.router.routes}
+
+
+def test_gateway_rejects_an_authenticated_principal_without_run_create() -> None:
+    proxy_calls = 0
+
+    class Proxy:
+        async def handle_http(self, _request):
+            nonlocal proxy_calls
+            proxy_calls += 1
+            return JSONResponse({"proxied": True})
+
+    app = create_app(
+        SimpleNamespace(
+            audit_repository=None,
+            authenticator=ServiceAuthenticator(default_service_auth_config()),
+            deployment=None,
+            langgraph_gateway_proxy=Proxy(),
+            langgraph_gateway_websocket_handler=object(),
+            regulus_client=None,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/info", headers=reviewer_headers())
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "forbidden"}
+    assert proxy_calls == 0
 
 
 def test_plain_options_requires_authentication_before_gateway_proxy() -> None:
