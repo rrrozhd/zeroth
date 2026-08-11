@@ -194,6 +194,7 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
 }
 
 PUBLIC_ROUTE_NAMES = frozenset({"health", "health_live", "health_ready"})
+PUBLIC_ROUTE_PATHS = frozenset({"/console"})
 
 # The mounted econ application owns a separate JWT authorization boundary.  The
 # outer Zeroth middleware still authenticates callers; this exemption avoids
@@ -210,6 +211,17 @@ def permission_for_route_name(name: str | None) -> Permission | None:
     return ROUTE_PERMISSIONS[name]
 
 
+def route_authorization_disposition(route: object) -> tuple[Permission | None, str]:
+    """Return the authoritative permission and disposition for one route."""
+    path = getattr(route, "path", None)
+    if path in DELEGATED_MOUNT_PATHS:
+        return None, "delegated"
+    if path in PUBLIC_ROUTE_PATHS:
+        return None, "public"
+    permission = permission_for_route_name(getattr(route, "name", None))
+    return permission, "public" if permission is None else "permission"
+
+
 def matching_route(routes: Iterable[object], scope: dict[str, object]) -> object | None:
     """Return the first full Starlette route match, preserving registration order."""
     for route in routes:
@@ -224,22 +236,22 @@ async def authorize_matched_route(request: Request) -> None:
     route = matching_route(request.app.routes, request.scope)
     if route is None:
         return
-    route_path = getattr(route, "path", None)
-    if route_path in DELEGATED_MOUNT_PATHS:
+    permission, disposition = route_authorization_disposition(route)
+    if disposition in {"delegated", "public"}:
         return
-    permission = permission_for_route_name(getattr(route, "name", None))
-    if permission is not None:
-        # Endpoint-level checks still own deployment/resource scope.  This
-        # router layer closes missing-RBAC gaps without changing their hiding
-        # (403 vs 404) contracts.
-        await require_permission(request, permission, enforce_deployment_scope=False)
+    assert permission is not None
+    # Endpoint-level checks still own deployment/resource scope.  This router
+    # layer closes missing-RBAC gaps without changing their hiding contracts.
+    await require_permission(request, permission, enforce_deployment_scope=False)
 
 
 __all__ = [
     "DELEGATED_MOUNT_PATHS",
     "PUBLIC_ROUTE_NAMES",
+    "PUBLIC_ROUTE_PATHS",
     "ROUTE_PERMISSIONS",
     "authorize_matched_route",
     "matching_route",
     "permission_for_route_name",
+    "route_authorization_disposition",
 ]

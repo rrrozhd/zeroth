@@ -29,8 +29,7 @@ from typing import Any
 from unittest.mock import patch
 
 from zeroth.service.api.route_authorization import (
-    PUBLIC_ROUTE_NAMES,
-    permission_for_route_name,
+    route_authorization_disposition,
 )
 from zeroth.service.app import create_app
 
@@ -39,42 +38,77 @@ FIXTURE = (
 )
 
 
+def _bootstrap(*, regulus: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
+        authenticator=object(),
+        langgraph_gateway_compatibility=None,
+        langgraph_gateway_proxy=object(),
+        langgraph_gateway_websocket_handler=object(),
+        regulus_client=object() if regulus else None,
+    )
+
+
 def current_route_inventory() -> list[dict[str, Any]]:
     """Return the ordered route inventory, including conditional gateway routes."""
     # The optional console mount depends on deploy-time assets and is covered by
     # tests/test_console_ui.py. Pin it absent here so a local `npm run build`
     # cannot change the backend API characterization snapshot.
     with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": "/__zeroth_route_inventory_no_console__"}):
-        app = create_app(
-            SimpleNamespace(
-                authenticator=object(),
-                langgraph_gateway_compatibility=None,
-                langgraph_gateway_proxy=object(),
-                langgraph_gateway_websocket_handler=object(),
-                regulus_client=None,
-            )
-        )
+        app = create_app(_bootstrap())
     inventory: list[dict[str, Any]] = []
     for route in app.routes:
-        name = getattr(route, "name", None)
-        permission = permission_for_route_name(name)
+        permission, disposition = route_authorization_disposition(route)
         inventory.append(
             {
                 "kind": type(route).__name__,
                 "path": getattr(route, "path", None),
                 "methods": sorted(getattr(route, "methods", None) or []),
-                "name": name,
+                "name": getattr(route, "name", None),
                 "permission": permission.value if permission is not None else None,
-                "public": name in PUBLIC_ROUTE_NAMES,
+                "disposition": disposition,
             }
         )
     return inventory
+
+
+def _conditional_records(app: Any, path: str) -> list[dict[str, Any]]:
+    records = []
+    for index, route in enumerate(app.routes):
+        if getattr(route, "path", None) != path:
+            continue
+        permission, disposition = route_authorization_disposition(route)
+        records.append(
+            {
+                "index": index,
+                "kind": type(route).__name__,
+                "path": path,
+                "methods": sorted(getattr(route, "methods", None) or []),
+                "name": getattr(route, "name", None),
+                "permission": permission.value if permission is not None else None,
+                "disposition": disposition,
+            }
+        )
+    return records
 
 
 def test_route_inventory_matches_ordered_snapshot() -> None:
     """Route order, identity, and authorization policy are all contract."""
     expected = json.loads(FIXTURE.read_text())
     assert current_route_inventory() == expected
+
+
+def test_conditional_mounts_pin_position_and_authorization_disposition(tmp_path: Path) -> None:
+    """Optional mounted surfaces remain visible in the authorization contract."""
+    (tmp_path / "index.html").write_text("console")
+    with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": str(tmp_path)}):
+        console_app = create_app(_bootstrap())
+    with patch.dict(os.environ, {"ZEROTH_CONSOLE_DIR": "/does-not-exist"}):
+        regulus_app = create_app(_bootstrap(regulus=True))
+
+    assert {
+        "console": _conditional_records(console_app, "/console"),
+        "regulus": _conditional_records(regulus_app, "/regulus"),
+    } == json.loads((FIXTURE.parent / "backend_conditional_route_inventory.json").read_text())
 
 
 def test_route_inventory_has_no_duplicate_path_method_pairs() -> None:

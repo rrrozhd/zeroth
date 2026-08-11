@@ -38,30 +38,54 @@ async def client(mock_executor: AsyncMock, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("presented_secret", [None, "wrong-secret"])
-async def test_execute_rejects_missing_or_wrong_secret(
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "executor_method"),
+    [
+        (
+            "POST",
+            "/execute",
+            {
+                "execution_id": "forbidden",
+                "image": "python:3.12-slim",
+                "command": ["true"],
+            },
+            "execute",
+        ),
+        ("GET", "/executions/forbidden", None, "get_status"),
+        ("POST", "/executions/forbidden/cancel", None, "cancel"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("configured_secret", "presented_secret"),
+    [
+        (None, SIDECAR_SECRET),
+        (SIDECAR_SECRET, None),
+        (SIDECAR_SECRET, "wrong-secret"),
+    ],
+)
+async def test_operational_endpoints_reject_unauthorized_calls_before_effects(
     mock_executor: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    payload: dict[str, object] | None,
+    executor_method: str,
+    configured_secret: str | None,
     presented_secret: str | None,
 ) -> None:
-    """POST /execute fails closed before dispatching unauthorized work."""
-    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", SIDECAR_SECRET)
+    """Every operational route fails closed before dispatching side effects."""
+    if configured_secret is None:
+        monkeypatch.delenv("ZEROTH_SANDBOX_SIDECAR_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", configured_secret)
     headers = {} if presented_secret is None else {SIDECAR_SECRET_HEADER: presented_secret}
     with patch("zeroth.integrations.sandbox.app.executor", mock_executor):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as unauthenticated:
-            response = await unauthenticated.post(
-                "/execute",
-                headers=headers,
-                json={
-                    "execution_id": "forbidden",
-                    "image": "python:3.12-slim",
-                    "command": ["true"],
-                },
-            )
+            response = await unauthenticated.request(method, path, headers=headers, json=payload)
 
     assert response.status_code == 401
-    mock_executor.execute.assert_not_awaited()
+    getattr(mock_executor, executor_method).assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@
     "name": "openapi",
     "path": "/openapi.json",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "Route",
@@ -19,7 +19,7 @@
     "name": "swagger_ui_html",
     "path": "/docs",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "Route",
@@ -30,7 +30,7 @@
     "name": "swagger_ui_redirect",
     "path": "/docs/oauth2-redirect",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "Route",
@@ -41,7 +41,7 @@
     "name": "redoc_html",
     "path": "/redoc",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -51,7 +51,7 @@
     "name": "health_ready",
     "path": "/health/ready",
     "permission": null,
-    "public": true
+    "disposition": "public"
   },
   {
     "kind": "APIRoute",
@@ -61,7 +61,7 @@
     "name": "health_live",
     "path": "/health/live",
     "permission": null,
-    "public": true
+    "disposition": "public"
   },
   {
     "kind": "APIRoute",
@@ -71,7 +71,7 @@
     "name": "health",
     "path": "/health",
     "permission": null,
-    "public": true
+    "disposition": "public"
   },
   {
     "kind": "APIRoute",
@@ -81,7 +81,7 @@
     "name": "list_workflows",
     "path": "/api/studio/v1/workflows",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -91,7 +91,7 @@
     "name": "create_workflow",
     "path": "/api/studio/v1/workflows",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -101,7 +101,7 @@
     "name": "get_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -111,7 +111,7 @@
     "name": "update_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -121,7 +121,7 @@
     "name": "publish_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}/publish",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -131,7 +131,7 @@
     "name": "list_contracts",
     "path": "/api/studio/v1/contracts",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -141,7 +141,7 @@
     "name": "create_contract",
     "path": "/api/studio/v1/contracts",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -151,7 +151,7 @@
     "name": "diff_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}/diff",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -161,7 +161,7 @@
     "name": "clone_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}/clone",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -171,7 +171,7 @@
     "name": "delete_workflow",
     "path": "/api/studio/v1/workflows/{workflow_id}",
     "permission": "workflow:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -181,7 +181,7 @@
     "name": "list_node_types",
     "path": "/api/studio/v1/node-types",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -191,7 +191,7 @@
     "name": "get_input_contract",
     "path": "/v1/deployments/{deployment_ref}/input-contract",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -201,7 +201,7 @@
     "name": "get_output_contract",
     "path": "/v1/deployments/{deployment_ref}/output-contract",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -211,7 +211,7 @@
     "name": "get_result_error_state_schema",
     "path": "/v1/deployments/{deployment_ref}/result-error-state-schema",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -221,7 +221,7 @@
     "name": "get_deployment_metadata",
     "path": "/v1/deployments/{deployment_ref}/metadata",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -231,7 +231,7 @@
     "name": "list_audits",
     "path": "/v1/deployments/{deployment_ref}/audits",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -241,7 +241,7 @@
     "name": "get_run_timeline",
     "path": "/v1/runs/{run_id}/timeline",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -251,7 +251,7 @@
     "name": "verify_run_audit_chain",
     "path": "/v1/runs/{run_id}/audit-verification",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -261,7 +261,7 @@
     "name": "post_verify_run_chain",
     "path": "/v1/runs/{run_id}/verify-chain",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -271,7 +271,7 @@
     "name": "verify_deployment_audit_chain",
     "path": "/v1/deployments/{deployment_ref}/audit-verification",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -281,7 +281,7 @@
     "name": "get_deployment_timeline",
     "path": "/v1/deployments/{deployment_ref}/timeline",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -291,7 +291,7 @@
     "name": "get_run_evidence",
     "path": "/v1/runs/{run_id}/evidence",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -301,7 +301,7 @@
     "name": "get_deployment_evidence",
     "path": "/v1/deployments/{deployment_ref}/evidence",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -311,7 +311,7 @@
     "name": "get_attestation",
     "path": "/v1/deployments/{deployment_ref}/attestation",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -321,7 +321,7 @@
     "name": "post_verify_attestation",
     "path": "/v1/deployments/{deployment_ref}/verify-attestation",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -331,7 +331,7 @@
     "name": "get_attestation_verify",
     "path": "/v1/deployments/{deployment_ref}/attestation/verify",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -341,7 +341,7 @@
     "name": "list_approvals",
     "path": "/v1/deployments/{deployment_ref}/approvals",
     "permission": "approval:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -351,7 +351,7 @@
     "name": "get_approval",
     "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}",
     "permission": "approval:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -361,7 +361,7 @@
     "name": "resolve_approval",
     "path": "/v1/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
     "permission": "approval:resolve",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -371,7 +371,7 @@
     "name": "create_run",
     "path": "/v1/runs",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -381,7 +381,7 @@
     "name": "get_run",
     "path": "/v1/runs/{run_id}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -391,7 +391,7 @@
     "name": "get_metrics",
     "path": "/v1/metrics",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -401,7 +401,7 @@
     "name": "list_admin_runs",
     "path": "/v1/admin/runs",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -411,7 +411,7 @@
     "name": "cancel_run",
     "path": "/v1/admin/runs/{run_id}/cancel",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -421,7 +421,7 @@
     "name": "replay_run",
     "path": "/v1/admin/runs/{run_id}/replay",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -431,7 +431,7 @@
     "name": "interrupt_run",
     "path": "/v1/admin/runs/{run_id}/interrupt",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -441,7 +441,7 @@
     "name": "get_tenant_cost",
     "path": "/v1/tenants/{tenant_id}/cost",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -451,7 +451,7 @@
     "name": "set_tenant_budget",
     "path": "/v1/tenants/{tenant_id}/budget",
     "permission": "metrics:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -461,7 +461,7 @@
     "name": "get_deployment_cost",
     "path": "/v1/deployments/{deployment_ref}/cost",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -471,7 +471,7 @@
     "name": "suggest_rightsizing",
     "path": "/v1/econ/rightsizing",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -481,7 +481,7 @@
     "name": "rightsizing_opportunities",
     "path": "/v1/econ/rightsizing/opportunities",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -491,7 +491,7 @@
     "name": "run_rightsizing_experiment",
     "path": "/v1/econ/rightsizing/experiment",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -501,7 +501,7 @@
     "name": "get_unit_economics",
     "path": "/v1/econ/unit-economics",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -511,7 +511,7 @@
     "name": "get_waste",
     "path": "/v1/econ/waste",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -521,7 +521,7 @@
     "name": "attach_quality_verdict",
     "path": "/v1/econ/quality-verdict",
     "permission": "metrics:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -531,7 +531,7 @@
     "name": "econ_dashboard_kpis",
     "path": "/v1/econ/dashboard/kpis",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -541,7 +541,7 @@
     "name": "econ_dashboard_top_creators",
     "path": "/v1/econ/dashboard/top-creators",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -551,7 +551,7 @@
     "name": "econ_dashboard_capital_destroyers",
     "path": "/v1/econ/dashboard/capital-destroyers",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -561,7 +561,7 @@
     "name": "econ_dashboard_capability_ranking",
     "path": "/v1/econ/dashboard/capability-ranking",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -571,7 +571,7 @@
     "name": "econ_dashboard_confidence_trend",
     "path": "/v1/econ/dashboard/confidence-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -581,7 +581,7 @@
     "name": "econ_dashboard_efficiency_trend",
     "path": "/v1/econ/dashboard/efficiency-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -591,7 +591,7 @@
     "name": "econ_dashboard_calibration_trend",
     "path": "/v1/econ/dashboard/calibration-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -601,7 +601,7 @@
     "name": "econ_dashboard_action_suppression",
     "path": "/v1/econ/dashboard/action-suppression",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -611,7 +611,7 @@
     "name": "econ_dashboard_data_quality_mix",
     "path": "/v1/econ/dashboard/data-quality-mix",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -621,7 +621,7 @@
     "name": "create_subscription",
     "path": "/v1/webhooks/subscriptions",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -631,7 +631,7 @@
     "name": "list_subscriptions",
     "path": "/v1/webhooks/subscriptions",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -641,7 +641,7 @@
     "name": "get_subscription",
     "path": "/v1/webhooks/subscriptions/{subscription_id}",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -651,7 +651,7 @@
     "name": "deactivate_subscription",
     "path": "/v1/webhooks/subscriptions/{subscription_id}",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -661,7 +661,7 @@
     "name": "list_dead_letters",
     "path": "/v1/webhooks/dead-letters",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -671,7 +671,7 @@
     "name": "replay_dead_letter",
     "path": "/v1/webhooks/dead-letters/{dead_letter_id}/replay",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -681,7 +681,7 @@
     "name": "get_artifact",
     "path": "/v1/artifacts/{artifact_id:path}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -691,7 +691,7 @@
     "name": "list_templates",
     "path": "/v1/templates",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -701,7 +701,7 @@
     "name": "create_template",
     "path": "/v1/templates",
     "permission": "template:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -711,7 +711,7 @@
     "name": "get_template",
     "path": "/v1/templates/{name}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -721,7 +721,7 @@
     "name": "delete_template",
     "path": "/v1/templates/{name}/{version}",
     "permission": "template:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -731,7 +731,7 @@
     "name": "get_retention_policy",
     "path": "/v1/retention/policy",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -741,7 +741,7 @@
     "name": "put_retention_policy",
     "path": "/v1/retention/policy",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -751,7 +751,7 @@
     "name": "place_legal_hold",
     "path": "/v1/retention/legal-holds",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -761,7 +761,7 @@
     "name": "release_legal_hold",
     "path": "/v1/retention/legal-holds/{hold_id}",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -771,7 +771,7 @@
     "name": "request_erasure",
     "path": "/v1/retention/erasure-requests",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -781,7 +781,7 @@
     "name": "decide_tool_call",
     "path": "/v1/enforcement/decisions",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -791,7 +791,7 @@
     "name": "register_tool_inventory",
     "path": "/v1/enforcement/registrations",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -801,7 +801,7 @@
     "name": "attest_run_start",
     "path": "/v1/enforcement/attestations",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -811,7 +811,7 @@
     "name": "report_heartbeat",
     "path": "/v1/enforcement/heartbeats",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -821,7 +821,7 @@
     "name": "read_deployment_status",
     "path": "/v1/enforcement/deployments/{deployment_ref}/status",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -831,7 +831,7 @@
     "name": "read_run_status",
     "path": "/v1/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -841,7 +841,7 @@
     "name": "decide",
     "path": "/v1/langgraph/deployments/{deployment_ref}/decisions",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -851,7 +851,7 @@
     "name": "register_inventory",
     "path": "/v1/langgraph/deployments/{deployment_ref}/inventories",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -861,7 +861,7 @@
     "name": "attest",
     "path": "/v1/langgraph/deployments/{deployment_ref}/attestations",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -871,7 +871,7 @@
     "name": "heartbeat",
     "path": "/v1/langgraph/deployments/{deployment_ref}/heartbeat",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -881,7 +881,7 @@
     "name": "regulus_dashboard_kpis",
     "path": "/v1/econ/regulus/dashboard/kpis",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -891,7 +891,7 @@
     "name": "regulus_dashboard_top_creators",
     "path": "/v1/econ/regulus/dashboard/top-creators",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -901,7 +901,7 @@
     "name": "regulus_dashboard_capital_destroyers",
     "path": "/v1/econ/regulus/dashboard/capital-destroyers",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -911,7 +911,7 @@
     "name": "regulus_dashboard_capability_ranking",
     "path": "/v1/econ/regulus/dashboard/capability-ranking",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -921,7 +921,7 @@
     "name": "regulus_dashboard_confidence_trend",
     "path": "/v1/econ/regulus/dashboard/confidence-trend",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -931,7 +931,7 @@
     "name": "regulus_dashboard_efficiency_trend",
     "path": "/v1/econ/regulus/dashboard/efficiency-trend",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -941,7 +941,7 @@
     "name": "regulus_dashboard_calibration_trend",
     "path": "/v1/econ/regulus/dashboard/calibration-trend",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -951,7 +951,7 @@
     "name": "regulus_dashboard_action_suppression",
     "path": "/v1/econ/regulus/dashboard/action-suppression",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -961,7 +961,7 @@
     "name": "regulus_dashboard_confidence_gate",
     "path": "/v1/econ/regulus/dashboard/confidence-gate-status",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -971,7 +971,7 @@
     "name": "regulus_dashboard_data_quality",
     "path": "/v1/econ/regulus/dashboard/data-quality-mix",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -981,7 +981,7 @@
     "name": "regulus_dashboard_policy_timeline",
     "path": "/v1/econ/regulus/dashboard/policy-timeline",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -991,7 +991,7 @@
     "name": "regulus_dashboard_drift_timeline",
     "path": "/v1/econ/regulus/dashboard/drift-timeline/{capability_id}",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1001,7 +1001,7 @@
     "name": "regulus_dashboard_implementation_compare",
     "path": "/v1/econ/regulus/dashboard/implementation-compare/{capability_id}",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1011,7 +1011,7 @@
     "name": "regulus_registry_capabilities",
     "path": "/v1/econ/regulus/registry/capabilities",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1021,7 +1021,7 @@
     "name": "regulus_registry_capability",
     "path": "/v1/econ/regulus/registry/capabilities/{capability_id}",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1031,7 +1031,7 @@
     "name": "regulus_registry_implementation",
     "path": "/v1/econ/regulus/registry/implementations/{implementation_id}",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1041,7 +1041,7 @@
     "name": "regulus_evaluations_latest",
     "path": "/v1/econ/regulus/evaluations/{capability_id}/latest",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1051,7 +1051,7 @@
     "name": "regulus_evaluations_history",
     "path": "/v1/econ/regulus/evaluations/{capability_id}/history",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1061,7 +1061,7 @@
     "name": "regulus_enforcement_actions",
     "path": "/v1/econ/regulus/enforcement/actions",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1071,7 +1071,7 @@
     "name": "regulus_enforcement_policy_actions",
     "path": "/v1/econ/regulus/enforcement/policy-actions",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1081,7 +1081,7 @@
     "name": "regulus_enforcement_approve",
     "path": "/v1/econ/regulus/enforcement/actions/{action_id}/approve",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1091,7 +1091,7 @@
     "name": "regulus_enforcement_reject",
     "path": "/v1/econ/regulus/enforcement/actions/{action_id}/reject",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1101,7 +1101,7 @@
     "name": "regulus_costing_profile",
     "path": "/v1/econ/regulus/costing/profiles/{profile_id}",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1111,7 +1111,7 @@
     "name": "regulus_costing_estimate",
     "path": "/v1/econ/regulus/costing/estimates/{capability_id}/latest",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1121,7 +1121,7 @@
     "name": "regulus_performance_summary",
     "path": "/v1/econ/regulus/performance/summary",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1131,7 +1131,7 @@
     "name": "regulus_performance_capabilities",
     "path": "/v1/econ/regulus/performance/capabilities",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1141,7 +1141,7 @@
     "name": "regulus_reconciliation_calibration",
     "path": "/v1/econ/regulus/reconciliation/calibration-summary",
     "permission": "econ:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1151,7 +1151,7 @@
     "name": "list_deployments",
     "path": "/v1/deployments",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1161,7 +1161,7 @@
     "name": "create_deployment",
     "path": "/v1/deployments",
     "permission": "deployment:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1171,7 +1171,7 @@
     "name": "rollback_deployment",
     "path": "/v1/deployments/{deployment_ref}/rollback",
     "permission": "deployment:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1181,7 +1181,7 @@
     "name": "list_connectors",
     "path": "/v1/connectors",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1191,7 +1191,7 @@
     "name": "create_connector",
     "path": "/v1/connectors",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1201,7 +1201,7 @@
     "name": "update_connector",
     "path": "/v1/connectors/{ref}",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1211,7 +1211,7 @@
     "name": "delete_connector",
     "path": "/v1/connectors/{ref}",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1221,7 +1221,7 @@
     "name": "test_connector",
     "path": "/v1/connectors/{ref}/test",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1231,7 +1231,7 @@
     "name": "list_manifests",
     "path": "/v1/manifests",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIWebSocketRoute",
@@ -1239,7 +1239,7 @@
     "name": "langgraph-protocol-events",
     "path": "/threads/{thread_id}/stream/events",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1255,7 +1255,7 @@
     "name": "langgraph-gateway",
     "path": "/{path:path}",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1265,7 +1265,7 @@
     "name": "get_input_contract",
     "path": "/deployments/{deployment_ref}/input-contract",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1275,7 +1275,7 @@
     "name": "get_output_contract",
     "path": "/deployments/{deployment_ref}/output-contract",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1285,7 +1285,7 @@
     "name": "get_result_error_state_schema",
     "path": "/deployments/{deployment_ref}/result-error-state-schema",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1295,7 +1295,7 @@
     "name": "get_deployment_metadata",
     "path": "/deployments/{deployment_ref}/metadata",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1305,7 +1305,7 @@
     "name": "list_audits",
     "path": "/deployments/{deployment_ref}/audits",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1315,7 +1315,7 @@
     "name": "get_run_timeline",
     "path": "/runs/{run_id}/timeline",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1325,7 +1325,7 @@
     "name": "verify_run_audit_chain",
     "path": "/runs/{run_id}/audit-verification",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1335,7 +1335,7 @@
     "name": "post_verify_run_chain",
     "path": "/runs/{run_id}/verify-chain",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1345,7 +1345,7 @@
     "name": "verify_deployment_audit_chain",
     "path": "/deployments/{deployment_ref}/audit-verification",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1355,7 +1355,7 @@
     "name": "get_deployment_timeline",
     "path": "/deployments/{deployment_ref}/timeline",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1365,7 +1365,7 @@
     "name": "get_run_evidence",
     "path": "/runs/{run_id}/evidence",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1375,7 +1375,7 @@
     "name": "get_deployment_evidence",
     "path": "/deployments/{deployment_ref}/evidence",
     "permission": "audit:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1385,7 +1385,7 @@
     "name": "get_attestation",
     "path": "/deployments/{deployment_ref}/attestation",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1395,7 +1395,7 @@
     "name": "post_verify_attestation",
     "path": "/deployments/{deployment_ref}/verify-attestation",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1405,7 +1405,7 @@
     "name": "get_attestation_verify",
     "path": "/deployments/{deployment_ref}/attestation/verify",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1415,7 +1415,7 @@
     "name": "list_approvals",
     "path": "/deployments/{deployment_ref}/approvals",
     "permission": "approval:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1425,7 +1425,7 @@
     "name": "get_approval",
     "path": "/deployments/{deployment_ref}/approvals/{approval_id}",
     "permission": "approval:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1435,7 +1435,7 @@
     "name": "resolve_approval",
     "path": "/deployments/{deployment_ref}/approvals/{approval_id}/resolve",
     "permission": "approval:resolve",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1445,7 +1445,7 @@
     "name": "create_run",
     "path": "/runs",
     "permission": "run:create",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1455,7 +1455,7 @@
     "name": "get_run",
     "path": "/runs/{run_id}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1465,7 +1465,7 @@
     "name": "get_metrics",
     "path": "/metrics",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1475,7 +1475,7 @@
     "name": "list_admin_runs",
     "path": "/admin/runs",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1485,7 +1485,7 @@
     "name": "cancel_run",
     "path": "/admin/runs/{run_id}/cancel",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1495,7 +1495,7 @@
     "name": "replay_run",
     "path": "/admin/runs/{run_id}/replay",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1505,7 +1505,7 @@
     "name": "interrupt_run",
     "path": "/admin/runs/{run_id}/interrupt",
     "permission": "run:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1515,7 +1515,7 @@
     "name": "get_tenant_cost",
     "path": "/tenants/{tenant_id}/cost",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1525,7 +1525,7 @@
     "name": "set_tenant_budget",
     "path": "/tenants/{tenant_id}/budget",
     "permission": "metrics:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1535,7 +1535,7 @@
     "name": "get_deployment_cost",
     "path": "/deployments/{deployment_ref}/cost",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1545,7 +1545,7 @@
     "name": "suggest_rightsizing",
     "path": "/econ/rightsizing",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1555,7 +1555,7 @@
     "name": "rightsizing_opportunities",
     "path": "/econ/rightsizing/opportunities",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1565,7 +1565,7 @@
     "name": "run_rightsizing_experiment",
     "path": "/econ/rightsizing/experiment",
     "permission": "workflow:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1575,7 +1575,7 @@
     "name": "get_unit_economics",
     "path": "/econ/unit-economics",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1585,7 +1585,7 @@
     "name": "get_waste",
     "path": "/econ/waste",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1595,7 +1595,7 @@
     "name": "attach_quality_verdict",
     "path": "/econ/quality-verdict",
     "permission": "metrics:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1605,7 +1605,7 @@
     "name": "econ_dashboard_kpis",
     "path": "/econ/dashboard/kpis",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1615,7 +1615,7 @@
     "name": "econ_dashboard_top_creators",
     "path": "/econ/dashboard/top-creators",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1625,7 +1625,7 @@
     "name": "econ_dashboard_capital_destroyers",
     "path": "/econ/dashboard/capital-destroyers",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1635,7 +1635,7 @@
     "name": "econ_dashboard_capability_ranking",
     "path": "/econ/dashboard/capability-ranking",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1645,7 +1645,7 @@
     "name": "econ_dashboard_confidence_trend",
     "path": "/econ/dashboard/confidence-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1655,7 +1655,7 @@
     "name": "econ_dashboard_efficiency_trend",
     "path": "/econ/dashboard/efficiency-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1665,7 +1665,7 @@
     "name": "econ_dashboard_calibration_trend",
     "path": "/econ/dashboard/calibration-trend",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1675,7 +1675,7 @@
     "name": "econ_dashboard_action_suppression",
     "path": "/econ/dashboard/action-suppression",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1685,7 +1685,7 @@
     "name": "econ_dashboard_data_quality_mix",
     "path": "/econ/dashboard/data-quality-mix",
     "permission": "metrics:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1695,7 +1695,7 @@
     "name": "create_subscription",
     "path": "/webhooks/subscriptions",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1705,7 +1705,7 @@
     "name": "list_subscriptions",
     "path": "/webhooks/subscriptions",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1715,7 +1715,7 @@
     "name": "get_subscription",
     "path": "/webhooks/subscriptions/{subscription_id}",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1725,7 +1725,7 @@
     "name": "deactivate_subscription",
     "path": "/webhooks/subscriptions/{subscription_id}",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1735,7 +1735,7 @@
     "name": "list_dead_letters",
     "path": "/webhooks/dead-letters",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1745,7 +1745,7 @@
     "name": "replay_dead_letter",
     "path": "/webhooks/dead-letters/{dead_letter_id}/replay",
     "permission": "webhook:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1755,7 +1755,7 @@
     "name": "get_artifact",
     "path": "/artifacts/{artifact_id:path}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1765,7 +1765,7 @@
     "name": "list_templates",
     "path": "/templates",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1775,7 +1775,7 @@
     "name": "create_template",
     "path": "/templates",
     "permission": "template:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1785,7 +1785,7 @@
     "name": "get_template",
     "path": "/templates/{name}",
     "permission": "run:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1795,7 +1795,7 @@
     "name": "delete_template",
     "path": "/templates/{name}/{version}",
     "permission": "template:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1805,7 +1805,7 @@
     "name": "get_retention_policy",
     "path": "/retention/policy",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1815,7 +1815,7 @@
     "name": "put_retention_policy",
     "path": "/retention/policy",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1825,7 +1825,7 @@
     "name": "place_legal_hold",
     "path": "/retention/legal-holds",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1835,7 +1835,7 @@
     "name": "release_legal_hold",
     "path": "/retention/legal-holds/{hold_id}",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1845,7 +1845,7 @@
     "name": "request_erasure",
     "path": "/retention/erasure-requests",
     "permission": "retention:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1855,7 +1855,7 @@
     "name": "decide_tool_call",
     "path": "/enforcement/decisions",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1865,7 +1865,7 @@
     "name": "register_tool_inventory",
     "path": "/enforcement/registrations",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1875,7 +1875,7 @@
     "name": "attest_run_start",
     "path": "/enforcement/attestations",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1885,7 +1885,7 @@
     "name": "report_heartbeat",
     "path": "/enforcement/heartbeats",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1895,7 +1895,7 @@
     "name": "read_deployment_status",
     "path": "/enforcement/deployments/{deployment_ref}/status",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1905,7 +1905,7 @@
     "name": "read_run_status",
     "path": "/enforcement/deployments/{deployment_ref}/runs/{correlation_id}",
     "permission": "enforcement:report",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1915,7 +1915,7 @@
     "name": "list_deployments",
     "path": "/deployments",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1925,7 +1925,7 @@
     "name": "create_deployment",
     "path": "/deployments",
     "permission": "deployment:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1935,7 +1935,7 @@
     "name": "rollback_deployment",
     "path": "/deployments/{deployment_ref}/rollback",
     "permission": "deployment:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1945,7 +1945,7 @@
     "name": "list_connectors",
     "path": "/connectors",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1955,7 +1955,7 @@
     "name": "create_connector",
     "path": "/connectors",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1965,7 +1965,7 @@
     "name": "update_connector",
     "path": "/connectors/{ref}",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1975,7 +1975,7 @@
     "name": "delete_connector",
     "path": "/connectors/{ref}",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1985,7 +1985,7 @@
     "name": "test_connector",
     "path": "/connectors/{ref}/test",
     "permission": "connector:admin",
-    "public": false
+    "disposition": "permission"
   },
   {
     "kind": "APIRoute",
@@ -1995,6 +1995,6 @@
     "name": "list_manifests",
     "path": "/manifests",
     "permission": "deployment:read",
-    "public": false
+    "disposition": "permission"
   }
 ]
