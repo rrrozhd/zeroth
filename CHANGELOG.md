@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.4.1] - 2026-08-12
+
+### Fixed
+
+- Regenerated the tracked LangGraph benchmark from the exact console-hardening
+  candidate instead of retaining measurements from the preceding release.
+
 ## [0.20.1.4] - 2026-08-12
 
 ### Fixed
