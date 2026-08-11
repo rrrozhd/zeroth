@@ -700,13 +700,15 @@ def test_raw_session_guard_ignores_unrelated_symbols_and_results(
 class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
     _RAW_METHODS = {"execute", "execute_script", "fetch_all", "fetch_one", "transaction"}
     _CONNECTION_METHODS = _RAW_METHODS - {"transaction"}
-    _CONNECTION_NAMES = {"conn", "connection", "transaction"}
+    _CONNECTION_CONTEXT_METHODS = {"acquire", "connect", "connection", "transaction"}
 
     def __init__(self, relative_path: str) -> None:
         self.relative_path = relative_path
         self.function = "<module>"
         self.violations: list[str] = []
         self._counts: dict[tuple[str, str], int] = {}
+        self._connection_paths: set[str] = set()
+        self._transaction_factory_paths: set[str] = set()
 
     def _record(self, method: str) -> None:
         key = (self.function, method)
@@ -714,22 +716,143 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         self._counts[key] = ordinal
         self.violations.append(f"{self.relative_path}::{self.function}::{method}#{ordinal}")
 
-    @classmethod
-    def _is_connection_receiver(cls, node: ast.AST) -> bool:
+    @staticmethod
+    def _dotted_name(node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
-            return node.id in cls._CONNECTION_NAMES
+            return node.id
         if isinstance(node, ast.Attribute):
-            return node.attr == "connection" or cls._is_connection_receiver(node.value)
-        return False
+            prefix = _RawAsyncRepositoryVisitor._dotted_name(node.value)
+            return f"{prefix}.{node.attr}" if prefix else None
+        return None
+
+    @classmethod
+    def _assigned_paths(cls, node: ast.AST) -> set[str]:
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            dotted = cls._dotted_name(node)
+            return {dotted} if dotted else set()
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return {path for item in node.elts for path in cls._assigned_paths(item)}
+        return set()
+
+    @classmethod
+    def _is_connection_annotation(cls, node: ast.AST | None) -> bool:
+        return cls._dotted_name(node) in {
+            "AsyncConnection",
+            "storage.AsyncConnection",
+            "zeroth.platform.storage.AsyncConnection",
+            "zeroth.platform.storage.database.AsyncConnection",
+        }
+
+    @classmethod
+    def _seed_connection_argument(cls, argument: ast.arg) -> set[str]:
+        if argument.arg in {"conn", "connection"} or cls._is_connection_annotation(
+            argument.annotation
+        ):
+            return {argument.arg}
+        annotation = cls._dotted_name(argument.annotation)
+        if annotation is not None and annotation.endswith("Transaction"):
+            return {f"{argument.arg}.connection"}
+        return set()
+
+    def _is_connection_receiver(self, node: ast.AST) -> bool:
+        dotted = self._dotted_name(node)
+        return dotted is not None and any(
+            dotted == path or dotted.startswith(f"{path}.") for path in self._connection_paths
+        )
+
+    def _is_transaction_factory(self, node: ast.AST) -> bool:
+        dotted = self._dotted_name(node)
+        return (isinstance(node, ast.Attribute) and node.attr == "transaction") or (
+            dotted is not None and dotted in self._transaction_factory_paths
+        )
+
+    def _is_connection_context(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        if self._is_transaction_factory(node.func):
+            return True
+        return (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in self._CONNECTION_CONTEXT_METHODS
+        )
+
+    def _is_connection_value(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Await):
+            return self._is_connection_value(node.value)
+        if self._is_connection_receiver(node):
+            return True
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in self._CONNECTION_CONTEXT_METHODS
+        )
+
+    def _update_connection_target(self, target: ast.AST, value: ast.AST) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
+            for target_item, value_item in zip(target.elts, value.elts, strict=False):
+                self._update_connection_target(target_item, value_item)
+            return
+        paths = self._assigned_paths(target)
+        if self._is_connection_value(value):
+            self._connection_paths.update(paths)
+        else:
+            self._connection_paths.difference_update(paths)
+
+    def _update_transaction_factory_target(self, target: ast.AST, value: ast.AST) -> None:
+        paths = self._assigned_paths(target)
+        if self._is_transaction_factory(value):
+            self._transaction_factory_paths.update(paths)
+        else:
+            self._transaction_factory_paths.difference_update(paths)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        previous = self.function
+        previous = (
+            self.function,
+            self._connection_paths,
+            self._transaction_factory_paths,
+        )
         self.function = node.name
+        self._connection_paths = {
+            path
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            for path in self._seed_connection_argument(argument)
+        }
+        self._transaction_factory_paths = set()
         self.generic_visit(node)
-        self.function = previous
+        (
+            self.function,
+            self._connection_paths,
+            self._transaction_factory_paths,
+        ) = previous
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         self.visit_FunctionDef(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        for target in node.targets:
+            self._update_connection_target(target, node.value)
+            self._update_transaction_factory_target(target, node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self._update_connection_target(node.target, node.value)
+            if self._is_connection_annotation(node.annotation):
+                self._connection_paths.update(self._assigned_paths(node.target))
+            self._update_transaction_factory_target(node.target, node.value)
+        self.generic_visit(node)
+
+    def _visit_with(self, node: ast.With | ast.AsyncWith) -> None:
+        for item in node.items:
+            if item.optional_vars is not None and self._is_connection_context(item.context_expr):
+                self._connection_paths.update(self._assigned_paths(item.optional_vars))
+        self.generic_visit(node)
+
+    def visit_With(self, node: ast.With) -> None:  # noqa: N802
+        self._visit_with(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:  # noqa: N802
+        self._visit_with(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         if (
@@ -1105,6 +1228,64 @@ def test_registered_store_ignores_non_database_execute_receivers(tmp_path: Path)
     violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
 
     assert sum("::execute#" in item for item in violations) == 1
+
+
+def test_raw_async_guard_propagates_connection_receiver_provenance(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(database, holder):\n"
+        "    async with database.transaction() as connection:\n"
+        "        alias = connection\n"
+        "        await alias.execute('DELETE FROM runs')\n"
+        "        read = getattr(alias, 'fetch_one')\n"
+        "        await read('SELECT 1')\n"
+        "        _, tuple_alias = (object(), alias)\n"
+        "        holder.connection = tuple_alias\n"
+        "        return await holder.connection.fetch_all('SELECT 1')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert any("::execute#" in item for item in violations)
+    assert any("::fetch_one#" in item for item in violations)
+    assert any("::fetch_all#" in item for item in violations)
+
+
+def test_raw_async_guard_seeds_annotated_connection_parameters(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "from zeroth.platform.storage import AsyncConnection\n"
+        "async def persist(raw: AsyncConnection):\n"
+        "    alias: AsyncConnection = raw\n"
+        "    await alias.execute('DELETE FROM runs')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert any("::execute#" in item for item in violations)
+
+
+def test_raw_async_guard_seeds_direct_connection_acquisition(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(pool):\n"
+        "    raw = await pool.acquire()\n"
+        "    alias = raw\n"
+        "    return await alias.fetch_one('SELECT 1')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert any("::fetch_one#" in item for item in violations)
+
+
+def test_raw_async_guard_keeps_untainted_clients_and_pipelines_clean(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(pipe, client):\n"
+        "    await pipe.execute()\n"
+        "    await client.fetch_one('key')\n"
+        "    read = getattr(client, 'fetch_all')\n"
+        "    return await read('key')\n"
+    )
+
+    assert _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"})) == set()
 
 
 def test_missing_registered_persistence_module_fails_closed(tmp_path: Path) -> None:
