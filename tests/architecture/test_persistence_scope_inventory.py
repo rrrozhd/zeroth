@@ -118,6 +118,11 @@ class _RawSessionVisitor(ast.NodeVisitor):
                 if alias.name == "SessionLocal":
                     self._factory_names.add(alias.asname or alias.name)
                     self._record("factory", "zeroth.econ.plane.database.SessionLocal")
+        if node.module == "zeroth.econ.plane":
+            for alias in node.names:
+                if alias.name == "database":
+                    self._database_module_aliases.add(alias.asname or alias.name)
+                    self._record("factory", "zeroth.econ.plane.database.SessionLocal")
         self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -462,6 +467,20 @@ def test_raw_session_guard_tracks_qualified_session_local_factory(tmp_path: Path
     service_dir.mkdir()
     (service_dir / "service.py").write_text(
         "import zeroth.econ.plane.database as database\n\n"
+        "def unsafe():\n"
+        "    return database.SessionLocal()\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("construction" in violation for violation in violations)
+
+
+def test_raw_session_guard_tracks_package_imported_database_factory(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "from zeroth.econ.plane import database\n\n"
         "def unsafe():\n"
         "    return database.SessionLocal()\n"
     )
