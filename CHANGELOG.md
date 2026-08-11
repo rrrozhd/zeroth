@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.10.2] - 2026-08-10
+
+### Changed
+
+- Tool decisions and inventory attestations derive from one canonical governed-tool
+  descriptor. HTTP and gateway wires now carry approval, capability, contract,
+  side-effect, and declared identity-configuration fields without lossy reconstruction;
+  inventory fingerprints cover the complete entry (ZER-43 / A17-1, A17-2, A17-5,
+  A17-6, A17-9).
+
+### Fixed
+
+- Explicit approval requirements survive both decision transports and hold even
+  read-only actions until approval is recorded. Governed LangGraph wrappers bind their
+  sealed execution plans to the exact wrapper owner and reject resolver-driven published
+  identity drift before execution (ZER-43 / A17-8).
+
 ## [0.22.2.10.1] - 2026-08-10
 
 ### Fixed
