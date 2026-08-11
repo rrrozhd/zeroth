@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import ast
 import importlib
+import os
 import pkgutil
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, inspect
 
 from zeroth.econ.plane import __path__ as econ_plane_paths
 from zeroth.econ.plane.database import Base
@@ -16,9 +19,50 @@ from zeroth.platform.storage.scoping import (
     ResourceScopeDefinition,
     ResourceScopeRegistry,
 )
+from zeroth.platform.storage.scoped_table import (
+    ECON_MIGRATION_SCOPE_DEFINITIONS,
+    SERVICE_SCOPE_DEFINITIONS,
+)
 
 _ECON_PLANE_ROOT = Path(econ_plane_paths[0])
+_SOURCE_ROOT = _ECON_PLANE_ROOT.parents[1]
 _GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_roles"}
+
+
+@pytest.fixture(scope="module")
+def migration_head_tables(tmp_path_factory: pytest.TempPathFactory) -> tuple[set[str], set[str]]:
+    root = Path(__file__).resolve().parents[2]
+
+    service_path = tmp_path_factory.mktemp("service-scope-head") / "service.db"
+    service_url = f"sqlite:///{service_path}"
+    service_config = Config()
+    service_config.set_main_option("script_location", str(root / "src/zeroth/service/_migrations"))
+    service_config.set_main_option("sqlalchemy.url", service_url)
+    command.upgrade(service_config, "head")
+
+    econ_path = tmp_path_factory.mktemp("econ-scope-head") / "econ.db"
+    econ_url = f"sqlite:///{econ_path}"
+    econ_config = Config()
+    econ_config.set_main_option("script_location", str(root / "src/zeroth/econ/plane/_migrations"))
+    econ_config.set_main_option("sqlalchemy.url", econ_url)
+    previous_econ_url = os.environ.get("ECP_DATABASE_URL")
+    os.environ["ECP_DATABASE_URL"] = econ_url
+    try:
+        command.upgrade(econ_config, "head")
+    finally:
+        if previous_econ_url is None:
+            os.environ.pop("ECP_DATABASE_URL", None)
+        else:
+            os.environ["ECP_DATABASE_URL"] = previous_econ_url
+
+    def table_names(url: str) -> set[str]:
+        engine = create_engine(url)
+        try:
+            return set(inspect(engine).get_table_names())
+        finally:
+            engine.dispose()
+
+    return table_names(service_url), table_names(econ_url)
 
 
 def _import_econ_model_modules() -> None:
@@ -70,6 +114,77 @@ def test_econ_scope_classifications_match_product_semantics() -> None:
             assert "workspace_id" in columns, model
 
     assert definitions["users"].scope is ResourceScope.TENANT_SCOPED
+
+
+def test_service_migration_head_has_exactly_one_production_scope_definition(
+    migration_head_tables: tuple[set[str], set[str]],
+) -> None:
+    service_tables, _ = migration_head_tables
+    registry = ResourceScopeRegistry(SERVICE_SCOPE_DEFINITIONS)
+
+    assert {definition.table_name for definition in registry.definitions} == service_tables
+    assert len(registry.definitions) == len(service_tables)
+    assert {
+        "contract_versions",
+        "webhook_subscriptions",
+        "webhook_deliveries",
+        "webhook_dead_letters",
+        "retention_policies",
+        "retention_audit_log",
+        "retention_cleanup_state",
+        "retention_cleanup_operations",
+        "retention_coordination",
+        "legal_holds",
+        "langgraph_decisions",
+        "langgraph_inventories",
+        "langgraph_run_attestations",
+    } <= service_tables
+    assert {
+        definition.table_name
+        for definition in registry.definitions
+        if definition.scope is ResourceScope.GLOBAL
+    } == {"alembic_version", "schema_versions"}
+
+
+def test_econ_migration_head_reuses_mapper_definitions_without_duplicates(
+    migration_head_tables: tuple[set[str], set[str]],
+) -> None:
+    _, econ_tables = migration_head_tables
+    mapper_definitions = [model.scope_definition for model in _econ_mapper_classes()]
+    registry = ResourceScopeRegistry([*mapper_definitions, *ECON_MIGRATION_SCOPE_DEFINITIONS])
+
+    assert econ_tables <= {definition.table_name for definition in registry.definitions}
+    for table_name in econ_tables - {
+        "alembic_version",
+        "_zeroth_20260811_04_auth_scope",
+    }:
+        assert registry.definition_for_table(table_name) is next(
+            definition for definition in mapper_definitions if definition.table_name == table_name
+        )
+    assert {definition.table_name for definition in ECON_MIGRATION_SCOPE_DEFINITIONS} == {
+        "alembic_version",
+        "_zeroth_20260811_04_auth_scope",
+    }
+
+
+def test_service_workspace_scope_definitions_match_head_columns(
+    migration_head_tables: tuple[set[str], set[str]],
+) -> None:
+    del migration_head_tables  # The fixture proves this assertion is against the live head.
+    workspace_tables = {
+        definition.table_name
+        for definition in SERVICE_SCOPE_DEFINITIONS
+        if definition.workspace_scoped
+    }
+    assert workspace_tables == {
+        "approvals",
+        "deployment_versions",
+        "graph_versions",
+        "node_audits",
+        "run_checkpoints",
+        "runs",
+        "threads",
+    }
 
 
 class _RawSessionVisitor(ast.NodeVisitor):
@@ -579,3 +694,256 @@ def test_raw_session_guard_ignores_unrelated_symbols_and_results(
     (service_dir / "service.py").write_text(source)
 
     assert _raw_session_violations(tmp_path) == set()
+
+
+class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
+    _RAW_METHODS = {"execute", "execute_script", "fetch_all", "fetch_one", "transaction"}
+
+    def __init__(self, relative_path: str) -> None:
+        self.relative_path = relative_path
+        self.function = "<module>"
+        self.violations: list[str] = []
+        self._counts: dict[tuple[str, str], int] = {}
+
+    def _record(self, method: str) -> None:
+        key = (self.function, method)
+        ordinal = self._counts.get(key, 0) + 1
+        self._counts[key] = ordinal
+        self.violations.append(f"{self.relative_path}::{self.function}::{method}#{ordinal}")
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        previous = self.function
+        self.function = node.name
+        self.generic_visit(node)
+        self.function = previous
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self.visit_FunctionDef(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in self._RAW_METHODS
+        ):
+            self._record(str(node.args[1].value))
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in self._RAW_METHODS:
+            self._record(node.attr)
+        self.generic_visit(node)
+
+
+def _raw_async_repository_violations(root: Path) -> set[str]:
+    violations: set[str] = set()
+    for path in sorted(root.rglob("*repository.py")):
+        relative_path = path.relative_to(root).as_posix()
+        visitor = _RawAsyncRepositoryVisitor(relative_path)
+        visitor.visit(ast.parse(path.read_text(), filename=str(path)))
+        violations.update(visitor.violations)
+    return violations
+
+
+# Task 3 records the exact pre-migration debt. Tasks 7-10 delete entries as repositories
+# move to ScopedTable; adding a new call or changing an ordinal fails closed.
+_RAW_ASYNC_REPOSITORY_ALLOWLIST = frozenset(
+    """
+contracts/graph/repository.py::_fetch_latest_row::fetch_one#1
+contracts/graph/repository.py::_fetch_row::fetch_one#1
+contracts/graph/repository.py::_insert_graph::execute#1
+contracts/graph/repository.py::_update_graph::execute#1
+contracts/graph/repository.py::get::transaction#1
+contracts/graph/repository.py::list::fetch_all#1
+contracts/graph/repository.py::list::transaction#1
+contracts/graph/repository.py::list_versions::fetch_all#1
+contracts/graph/repository.py::list_versions::transaction#1
+contracts/graph/repository.py::save::transaction#1
+governance/approvals/repository.py::get::fetch_one#1
+governance/approvals/repository.py::get::transaction#1
+governance/approvals/repository.py::list::fetch_all#1
+governance/approvals/repository.py::list::transaction#1
+governance/approvals/repository.py::list_overdue::fetch_all#1
+governance/approvals/repository.py::list_overdue::transaction#1
+governance/approvals/repository.py::list_pending::fetch_all#1
+governance/approvals/repository.py::list_pending::transaction#1
+governance/approvals/repository.py::resolve_pending::fetch_one#1
+governance/approvals/repository.py::resolve_pending::transaction#1
+governance/approvals/repository.py::write::execute#1
+governance/approvals/repository.py::write::transaction#1
+governance/audit/repository.py::crypto_erase::transaction#1
+governance/audit/repository.py::crypto_erase_in_transaction::execute#1
+governance/audit/repository.py::crypto_erase_in_transaction::fetch_one#1
+governance/audit/repository.py::get::fetch_one#1
+governance/audit/repository.py::get::transaction#1
+governance/audit/repository.py::list::fetch_all#1
+governance/audit/repository.py::list::transaction#1
+governance/audit/repository.py::list_erasable::transaction#1
+governance/audit/repository.py::list_erasable_in_transaction::fetch_all#1
+governance/audit/repository.py::write::execute#1
+governance/audit/repository.py::write::fetch_one#1
+governance/audit/repository.py::write::transaction#1
+governance/decisions/repository.py::_insert_then_read::execute#1
+governance/decisions/repository.py::_insert_then_read::fetch_one#1
+governance/decisions/repository.py::_insert_then_read::transaction#1
+governance/decisions/repository.py::find_by_idempotency_key::fetch_one#1
+governance/decisions/repository.py::find_by_idempotency_key::transaction#1
+governance/retention/audit_log_repository.py::get::fetch_one#1
+governance/retention/audit_log_repository.py::get::transaction#1
+governance/retention/audit_log_repository.py::get_in_transaction::fetch_one#1
+governance/retention/audit_log_repository.py::list_for_run::fetch_all#1
+governance/retention/audit_log_repository.py::list_for_run::transaction#1
+governance/retention/audit_log_repository.py::list_for_run_in_transaction::fetch_all#1
+governance/retention/audit_log_repository.py::list_for_tenant::fetch_all#1
+governance/retention/audit_log_repository.py::list_for_tenant::transaction#1
+governance/retention/audit_log_repository.py::record::transaction#1
+governance/retention/audit_log_repository.py::record_in_transaction::execute#1
+governance/retention/cleanup_state_repository.py::_update_state_cas::execute#1
+governance/retention/cleanup_state_repository.py::get_operation_in_transaction::fetch_one#1
+governance/retention/cleanup_state_repository.py::get_state_in_transaction::fetch_one#1
+governance/retention/cleanup_state_repository.py::initialize_in_transaction::execute#1
+governance/retention/cleanup_state_repository.py::initialize_in_transaction::execute#2
+governance/retention/cleanup_state_repository.py::list_operations_in_transaction::fetch_all#1
+governance/retention/cleanup_state_repository.py::update_operation_in_transaction::execute#1
+governance/retention/legal_hold_repository.py::active_holds_for_tenant::transaction#1
+governance/retention/legal_hold_repository.py::active_holds_for_tenant_in_transaction::fetch_all#1
+governance/retention/legal_hold_repository.py::get::fetch_one#1
+governance/retention/legal_hold_repository.py::get::transaction#1
+governance/retention/legal_hold_repository.py::list_for_tenant::fetch_all#1
+governance/retention/legal_hold_repository.py::list_for_tenant::transaction#1
+governance/retention/legal_hold_repository.py::place::transaction#1
+governance/retention/legal_hold_repository.py::place_in_transaction::execute#1
+governance/retention/legal_hold_repository.py::release::fetch_one#1
+governance/retention/legal_hold_repository.py::release::transaction#1
+governance/retention/legal_hold_repository.py::release::transaction#2
+governance/retention/legal_hold_repository.py::release_in_transaction::execute#1
+governance/retention/legal_hold_repository.py::release_in_transaction::fetch_one#1
+governance/retention/policy_repository.py::get::fetch_one#1
+governance/retention/policy_repository.py::get::transaction#1
+governance/retention/policy_repository.py::list_all_enabled::fetch_all#1
+governance/retention/policy_repository.py::list_all_enabled::transaction#1
+governance/retention/policy_repository.py::upsert::execute#1
+governance/retention/policy_repository.py::upsert::fetch_one#1
+governance/retention/policy_repository.py::upsert::transaction#1
+integrations/memory/config_repository.py::delete::execute#1
+integrations/memory/config_repository.py::delete::fetch_one#1
+integrations/memory/config_repository.py::delete::transaction#1
+integrations/memory/config_repository.py::get::fetch_one#1
+integrations/memory/config_repository.py::get::transaction#1
+integrations/memory/config_repository.py::list::fetch_all#1
+integrations/memory/config_repository.py::list::transaction#1
+integrations/memory/config_repository.py::upsert::execute#1
+integrations/memory/config_repository.py::upsert::execute#2
+integrations/memory/config_repository.py::upsert::fetch_one#1
+integrations/memory/config_repository.py::upsert::transaction#1
+integrations/persistence/runs/run_repository.py::_put_run_fenced::fetch_one#1
+integrations/persistence/runs/run_repository.py::_put_run_fenced::transaction#1
+integrations/persistence/runs/run_repository.py::_save_run_in_connection::fetch_one#1
+integrations/persistence/runs/run_repository.py::_save_thread_in_connection::fetch_one#1
+integrations/persistence/runs/run_repository.py::count_pending::fetch_one#1
+integrations/persistence/runs/run_repository.py::count_pending::transaction#1
+integrations/persistence/runs/run_repository.py::create_run::fetch_one#1
+integrations/persistence/runs/run_repository.py::create_run::transaction#1
+integrations/persistence/runs/run_repository.py::create_thread::transaction#1
+integrations/persistence/runs/run_repository.py::delete_run::execute#1
+integrations/persistence/runs/run_repository.py::delete_run::transaction#1
+integrations/persistence/runs/run_repository.py::erase_checkpoints_for_run::transaction#1
+integrations/persistence/runs/run_repository.py::get_run::fetch_one#1
+integrations/persistence/runs/run_repository.py::get_run::transaction#1
+integrations/persistence/runs/run_repository.py::get_thread::fetch_all#1
+integrations/persistence/runs/run_repository.py::get_thread::transaction#1
+integrations/persistence/runs/run_repository.py::increment_failure_count::execute#1
+integrations/persistence/runs/run_repository.py::increment_failure_count::fetch_one#1
+integrations/persistence/runs/run_repository.py::increment_failure_count::transaction#1
+integrations/persistence/runs/run_repository.py::list_dead_letter_runs::fetch_all#1
+integrations/persistence/runs/run_repository.py::list_dead_letter_runs::transaction#1
+integrations/persistence/runs/run_repository.py::list_erasable_run_ids::transaction#1
+integrations/persistence/runs/run_repository.py::list_runs::fetch_all#1
+integrations/persistence/runs/run_repository.py::list_runs::fetch_all#2
+integrations/persistence/runs/run_repository.py::list_runs::transaction#1
+integrations/persistence/runs/run_repository.py::list_runs::transaction#2
+integrations/persistence/runs/run_repository.py::redact_run::transaction#1
+integrations/persistence/runs/run_repository.py::save_run::transaction#1
+integrations/persistence/runs/run_repository.py::save_thread::transaction#1
+integrations/persistence/runs/thread_repository.py::list::fetch_all#1
+integrations/persistence/runs/thread_repository.py::list::transaction#1
+service/deployments/repository.py::create::execute#1
+service/deployments/repository.py::create::execute#2
+service/deployments/repository.py::create::fetch_one#1
+service/deployments/repository.py::create::transaction#1
+service/deployments/repository.py::get::fetch_one#1
+service/deployments/repository.py::get::transaction#1
+service/deployments/repository.py::list::fetch_all#1
+service/deployments/repository.py::list::transaction#1
+service/deployments/repository.py::next_version::fetch_one#1
+service/deployments/repository.py::next_version::transaction#1
+service/webhooks/repository.py::claim_pending_delivery::execute#1
+service/webhooks/repository.py::claim_pending_delivery::fetch_one#1
+service/webhooks/repository.py::claim_pending_delivery::transaction#1
+service/webhooks/repository.py::create_subscription::execute#1
+service/webhooks/repository.py::create_subscription::transaction#1
+service/webhooks/repository.py::deactivate_subscription::execute#1
+service/webhooks/repository.py::deactivate_subscription::transaction#1
+service/webhooks/repository.py::dead_letter::execute#1
+service/webhooks/repository.py::dead_letter::execute#2
+service/webhooks/repository.py::dead_letter::fetch_one#1
+service/webhooks/repository.py::dead_letter::transaction#1
+service/webhooks/repository.py::delete_subscription::execute#1
+service/webhooks/repository.py::delete_subscription::transaction#1
+service/webhooks/repository.py::enqueue_delivery::execute#1
+service/webhooks/repository.py::enqueue_delivery::transaction#1
+service/webhooks/repository.py::get_dead_letter::fetch_one#1
+service/webhooks/repository.py::get_dead_letter::transaction#1
+service/webhooks/repository.py::get_subscription::fetch_one#1
+service/webhooks/repository.py::get_subscription::transaction#1
+service/webhooks/repository.py::list_dead_letters::fetch_all#1
+service/webhooks/repository.py::list_dead_letters::transaction#1
+service/webhooks/repository.py::list_subscriptions::fetch_all#1
+service/webhooks/repository.py::list_subscriptions::transaction#1
+service/webhooks/repository.py::list_subscriptions_for_event::fetch_all#1
+service/webhooks/repository.py::list_subscriptions_for_event::transaction#1
+service/webhooks/repository.py::mark_delivered::execute#1
+service/webhooks/repository.py::mark_delivered::transaction#1
+service/webhooks/repository.py::mark_failed::execute#1
+service/webhooks/repository.py::mark_failed::fetch_one#1
+service/webhooks/repository.py::mark_failed::transaction#1
+""".split()  # noqa: SIM905 - readable exact snapshot
+)
+
+
+def test_raw_async_repository_allowlist_is_exact_and_shrink_only() -> None:
+    assert _raw_async_repository_violations(_SOURCE_ROOT) == _RAW_ASYNC_REPOSITORY_ALLOWLIST
+
+
+def test_raw_async_repository_guard_reports_new_transaction_and_execute_calls(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "unsafe_repository.py"
+    repository.write_text(
+        "async def unsafe(database):\n"
+        "    async with database.transaction() as connection:\n"
+        "        await connection.execute('DELETE FROM runs')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path)
+
+    assert any("::transaction#" in violation for violation in violations)
+    assert any("::execute#" in violation for violation in violations)
+
+
+def test_raw_async_repository_guard_tracks_aliases_and_getattr(tmp_path: Path) -> None:
+    repository = tmp_path / "unsafe_repository.py"
+    repository.write_text(
+        "async def unsafe(database):\n"
+        "    open_transaction = database.transaction\n"
+        "    async with open_transaction() as connection:\n"
+        "        run_statement = getattr(connection, 'execute')\n"
+        "        await run_statement('DELETE FROM runs')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path)
+
+    assert any("::transaction#" in violation for violation in violations)
+    assert any("::execute#" in violation for violation in violations)

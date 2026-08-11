@@ -1,15 +1,90 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import FrozenInstanceError
+from typing import Any
 
 import pytest
 
 from zeroth.platform.storage import (
+    GlobalTable,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
     ResourceScopeRegistry,
+    ScopedJoin,
+    ScopedTable,
     ScopeContext,
     TenantWideScopeContext,
 )
+
+
+class _RecordingConnection:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, tuple[Any, ...]]] = []
+
+    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+        self.calls.append(("execute", sql, params))
+
+    async def fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        self.calls.append(("fetch_one", sql, params))
+        return {"run_id": "run-1"}
+
+    async def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        self.calls.append(("fetch_all", sql, params))
+        return [{"run_id": "run-1"}]
+
+    async def execute_script(self, sql: str) -> None:
+        raise AssertionError("structured tables never execute raw scripts")
+
+
+class _RecordingDatabase:
+    backend = "sqlite"
+
+    def __init__(self) -> None:
+        self.connection = _RecordingConnection()
+        self.transactions: list[bool] = []
+
+    @asynccontextmanager
+    async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[_RecordingConnection]:
+        self.transactions.append(write_lock)
+        yield self.connection
+
+    async def close(self) -> None:
+        pass
+
+
+def _gateway_registry() -> ResourceScopeRegistry:
+    return ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="runs",
+                table_name="runs",
+                workspace_scoped=True,
+                operations=frozenset(ResourceOperation),
+            ),
+            ResourceScopeDefinition(
+                resource_name="checkpoints",
+                table_name="run_checkpoints",
+                workspace_scoped=True,
+                operations=frozenset(ResourceOperation),
+            ),
+            ResourceScopeDefinition(
+                resource_name="schema-versions",
+                table_name="schema_versions",
+                scope=ResourceScope.GLOBAL,
+                operations=frozenset(ResourceOperation),
+            ),
+        ]
+    )
+
+
+def _scoped_table(database: _RecordingDatabase) -> ScopedTable:
+    return ScopedTable(
+        database,
+        _gateway_registry(),
+        "runs",
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
 
 
 def test_resource_scope_has_only_tenant_scoped_and_global_values() -> None:
@@ -210,9 +285,7 @@ def test_global_definition_accepts_only_an_unscoped_binding() -> None:
             ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
         )
     with pytest.raises(ValueError, match="global"):
-        registry.validate_binding(
-            "schema-migrations", TenantWideScopeContext(tenant_id="tenant-a")
-        )
+        registry.validate_binding("schema-migrations", TenantWideScopeContext(tenant_id="tenant-a"))
 
 
 def test_tenant_definition_requires_a_tenant_context() -> None:
@@ -367,3 +440,154 @@ def test_privileged_binding_rejects_a_tenant_wide_subclass() -> None:
 
     with pytest.raises(TypeError, match="TenantWideScopeContext"):
         registry.validate_privileged_tenant_wide_binding("runs", forged)
+
+
+@pytest.mark.asyncio
+async def test_scoped_table_adds_tenant_and_workspace_to_every_crud_operation() -> None:
+    database = _RecordingDatabase()
+    table = _scoped_table(database)
+
+    await table.select(where={"run_id": "run-1"})
+    await table.insert({"run_id": "run-1", "status": "pending"})
+    await table.update({"status": "done"}, where={"run_id": "run-1"})
+    await table.delete(where={"run_id": "run-1"})
+
+    calls = database.connection.calls
+    assert [call[0] for call in calls] == ["fetch_all", "execute", "execute", "execute"]
+    assert "tenant_id = ?" in calls[0][1] and "workspace_id = ?" in calls[0][1]
+    assert calls[0][2] == ("run-1", "tenant-a", "workspace-a")
+    assert "tenant_id" in calls[1][1] and "workspace_id" in calls[1][1]
+    assert calls[1][2] == ("run-1", "pending", "tenant-a", "workspace-a")
+    for _, sql, params in calls[2:]:
+        assert "tenant_id = ?" in sql and "workspace_id = ?" in sql
+        assert params[-2:] == ("tenant-a", "workspace-a")
+    assert database.transactions == [False, True, True, True]
+
+
+@pytest.mark.asyncio
+async def test_scoped_table_rejects_inserted_or_updated_ownership() -> None:
+    table = _scoped_table(_RecordingDatabase())
+
+    with pytest.raises(ValueError, match="tenant_id"):
+        await table.insert({"run_id": "run-1", "tenant_id": "tenant-b"})
+    with pytest.raises(ValueError, match="workspace_id"):
+        await table.insert({"run_id": "run-1", "workspace_id": "workspace-b"})
+    with pytest.raises(ValueError, match="ownership"):
+        await table.update({"tenant_id": "tenant-a"}, where={"run_id": "run-1"})
+
+
+@pytest.mark.asyncio
+async def test_foreign_key_join_scopes_both_tenant_tables() -> None:
+    database = _RecordingDatabase()
+    registry = _gateway_registry()
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    runs = ScopedTable(database, registry, "runs", context)
+    checkpoints = ScopedTable(database, registry, "checkpoints", context)
+
+    await runs.select(
+        where={"run_id": "run-1"},
+        joins=(
+            ScopedJoin(
+                table=checkpoints,
+                local_column="run_id",
+                foreign_column="run_id",
+            ),
+        ),
+    )
+
+    _, sql, params = database.connection.calls[0]
+    assert "JOIN run_checkpoints AS j1 ON runs.run_id = j1.run_id" in sql
+    assert "runs.tenant_id = ?" in sql and "runs.workspace_id = ?" in sql
+    assert "j1.tenant_id = ?" in sql and "j1.workspace_id = ?" in sql
+    assert params == ("run-1", "tenant-a", "workspace-a", "tenant-a", "workspace-a")
+
+
+@pytest.mark.asyncio
+async def test_scoped_table_rejects_foreign_scope_join() -> None:
+    database = _RecordingDatabase()
+    registry = _gateway_registry()
+    runs = ScopedTable(
+        database,
+        registry,
+        "runs",
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+    foreign = ScopedTable(
+        database,
+        registry,
+        "checkpoints",
+        ScopeContext(tenant_id="tenant-b", workspace_id="workspace-a"),
+    )
+
+    with pytest.raises(ValueError, match="same scope"):
+        await runs.select(
+            joins=(ScopedJoin(table=foreign, local_column="run_id", foreign_column="run_id"),)
+        )
+
+
+def test_scoped_and_global_gateways_are_separate_and_hide_raw_database() -> None:
+    database = _RecordingDatabase()
+    registry = _gateway_registry()
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+
+    with pytest.raises(ValueError, match="global"):
+        ScopedTable(database, registry, "schema-versions", context)
+    with pytest.raises(ValueError, match="tenant"):
+        GlobalTable(database, registry, "runs")
+
+    scoped = ScopedTable(database, registry, "runs", context)
+    global_table = GlobalTable(database, registry, "schema-versions")
+    for gateway in (scoped, global_table):
+        assert not hasattr(gateway, "database")
+        assert not hasattr(gateway, "connection")
+        assert not hasattr(gateway, "transaction")
+        assert not hasattr(gateway, "execute")
+
+
+@pytest.mark.asyncio
+async def test_global_table_never_adds_tenant_predicates_or_accepts_tenant_columns() -> None:
+    database = _RecordingDatabase()
+    table = GlobalTable(database, _gateway_registry(), "schema-versions")
+
+    await table.select(where={"scope": "service"})
+    await table.insert({"scope": "service", "version": 1})
+    with pytest.raises(ValueError, match="tenant"):
+        await table.insert({"scope": "service", "tenant_id": "tenant-a"})
+    with pytest.raises(ValueError, match="tenant"):
+        await table.select(where={"tenant_id": "tenant-a"})
+
+    assert all(
+        "tenant_id" not in sql and "workspace_id" not in sql
+        for _, sql, _ in database.connection.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_privileged_tenant_wide_gateway_is_explicit_and_omits_workspace() -> None:
+    database = _RecordingDatabase()
+    context = TenantWideScopeContext(tenant_id="tenant-a")
+
+    with pytest.raises(ValueError, match="workspace"):
+        ScopedTable(database, _gateway_registry(), "runs", context)
+
+    table = ScopedTable.for_privileged_tenant_wide(database, _gateway_registry(), "runs", context)
+    await table.select(where={"run_id": "run-1"})
+
+    _, sql, params = database.connection.calls[0]
+    assert "tenant_id = ?" in sql
+    assert "workspace_id" not in sql
+    assert params == ("run-1", "tenant-a")
+
+    with pytest.raises(ValueError, match="workspace"):
+        await table.insert({"run_id": "run-2"})
+
+
+@pytest.mark.asyncio
+async def test_structured_mutations_require_a_caller_predicate() -> None:
+    database = _RecordingDatabase()
+    global_table = GlobalTable(database, _gateway_registry(), "schema-versions")
+
+    with pytest.raises(ValueError, match="where"):
+        await global_table.update({"version": 2}, where={})
+    with pytest.raises(ValueError, match="where"):
+        await global_table.delete(where={})
