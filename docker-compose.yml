@@ -9,10 +9,15 @@ services:
     image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.17.0.4}
     build:
       context: .
-      args:
-        # psycopg for the Postgres backend below.
-        ZEROTH_EXTRAS: memory-pg,langgraph,langgraph-gateway
     init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
     stop_grace_period: 30s
     ports:
       - "8000:8000"
@@ -44,6 +49,13 @@ services:
     working_dir: /workspace
     command: python release/langgraph/harness.py mock-upstream
     read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
     volumes:
       - .:/workspace:ro
     healthcheck:
@@ -54,6 +66,16 @@ services:
 
   db:
     image: postgres:16.9-bookworm
+    user: postgres
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     environment:
       POSTGRES_USER: zeroth
       POSTGRES_PASSWORD: zeroth
