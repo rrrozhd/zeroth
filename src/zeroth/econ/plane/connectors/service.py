@@ -7,16 +7,36 @@ from time import perf_counter
 from typing import Any
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.connectors.models import ConnectorConfig, ConnectorDeliveryLog, ConnectorOutbox
 from zeroth.econ.plane.connectors.registry import build_adapter_registry
 from zeroth.econ.plane.connectors.schemas import ConnectorEventEnvelope, ConnectorHealthResult, ConnectorSendResult
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 logger = logging.getLogger(__name__)
 _OTEL_COUNTERS: dict[str, Any] = {}
 _OTEL_ENABLED = False
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("connector persistence requires an exact ScopedSession")
+    return db
+
+
+def _bound_tenant(db: ScopedSession) -> str:
+    if db.scope is None:
+        raise ValueError("connector persistence requires a tenant-bound scope")
+    return db.scope.tenant_id
+
+
+def _require_requested_tenant(db: ScopedSession, tenant_id: str) -> str:
+    bound_tenant = _bound_tenant(db)
+    normalized = "default" if tenant_id == "tenant_default" else tenant_id
+    if normalized != bound_tenant:
+        raise ValueError("tenant ownership does not match the bound scope")
+    return bound_tenant
 
 
 def _utcnow() -> datetime:
@@ -85,11 +105,15 @@ def _normalize_outbox_status(status: str | None) -> str | None:
     return status.upper()
 
 
-def list_connector_configs(db: Session, tenant_id: str) -> list[ConnectorConfig]:
+def list_connector_configs(db: ScopedSession, tenant_id: str) -> list[ConnectorConfig]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     return list(db.execute(select(ConnectorConfig).where(ConnectorConfig.tenant_id == tenant_id).order_by(ConnectorConfig.connector_type)).scalars())
 
 
-def get_or_create_connector_config(db: Session, tenant_id: str, connector_type: str) -> ConnectorConfig:
+def get_or_create_connector_config(db: ScopedSession, tenant_id: str, connector_type: str) -> ConnectorConfig:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     row = db.execute(
         select(ConnectorConfig).where(
             and_(ConnectorConfig.tenant_id == tenant_id, ConnectorConfig.connector_type == connector_type)
@@ -111,7 +135,9 @@ def get_or_create_connector_config(db: Session, tenant_id: str, connector_type: 
     return row
 
 
-def configure_connector(db: Session, tenant_id: str, connector_type: str, config_json: dict[str, Any]) -> ConnectorConfig:
+def configure_connector(db: ScopedSession, tenant_id: str, connector_type: str, config_json: dict[str, Any]) -> ConnectorConfig:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     adapter = _adapter_registry().get(connector_type)
     if adapter is None:
         raise ValueError(f"unsupported connector_type '{connector_type}'")
@@ -124,7 +150,9 @@ def configure_connector(db: Session, tenant_id: str, connector_type: str, config
     return row
 
 
-def set_connector_enabled(db: Session, tenant_id: str, connector_type: str, enabled: bool) -> ConnectorConfig:
+def set_connector_enabled(db: ScopedSession, tenant_id: str, connector_type: str, enabled: bool) -> ConnectorConfig:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     adapter = _adapter_registry().get(connector_type)
     if adapter is None:
         raise ValueError(f"unsupported connector_type '{connector_type}'")
@@ -138,7 +166,9 @@ def set_connector_enabled(db: Session, tenant_id: str, connector_type: str, enab
     return row
 
 
-def connector_status(db: Session, tenant_id: str) -> list[dict[str, Any]]:
+def connector_status(db: ScopedSession, tenant_id: str) -> list[dict[str, Any]]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     adapters = _adapter_registry()
     rows = {r.connector_type: r for r in list_connector_configs(db, tenant_id)}
     out: list[dict[str, Any]] = []
@@ -166,7 +196,7 @@ def connector_status(db: Session, tenant_id: str) -> list[dict[str, Any]]:
 
 
 def enqueue_connector_event(
-    db: Session,
+    db: ScopedSession,
     *,
     tenant_id: str,
     event_type: str,
@@ -176,6 +206,8 @@ def enqueue_connector_event(
     capability_id: str | None = None,
     implementation_id: str | None = None,
 ) -> ConnectorOutbox:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     if not settings.connectors_enabled:
         raise RuntimeError("connectors are disabled")
 
@@ -228,15 +260,18 @@ def enqueue_connector_event(
     return row
 
 
-def list_outbox(db: Session, status: str | None = None) -> list[ConnectorOutbox]:
-    stmt = select(ConnectorOutbox)
+def list_outbox(db: ScopedSession, status: str | None = None) -> list[ConnectorOutbox]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _bound_tenant(db)
+    stmt = select(ConnectorOutbox).where(ConnectorOutbox.tenant_id == tenant_id)
     normalized = _normalize_outbox_status(status)
     if normalized:
         stmt = stmt.where(ConnectorOutbox.status == normalized)
     return list(db.execute(stmt.order_by(ConnectorOutbox.id.desc())).scalars())
 
 
-def retry_outbox_item(db: Session, outbox_id: int) -> ConnectorOutbox | None:
+def retry_outbox_item(db: ScopedSession, outbox_id: int) -> ConnectorOutbox | None:
+    db = _require_exact_scoped_session(db)
     row = db.get(ConnectorOutbox, outbox_id)
     if row is None:
         return None
@@ -248,7 +283,9 @@ def retry_outbox_item(db: Session, outbox_id: int) -> ConnectorOutbox | None:
     return row
 
 
-def _enabled_connectors(db: Session, tenant_id: str) -> list[ConnectorConfig]:
+def _enabled_connectors(db: ScopedSession, tenant_id: str) -> list[ConnectorConfig]:
+    db = _require_exact_scoped_session(db)
+    tenant_id = _require_requested_tenant(db, tenant_id)
     return list(
         db.execute(
             select(ConnectorConfig).where(
@@ -262,7 +299,7 @@ def _enabled_connectors(db: Session, tenant_id: str) -> list[ConnectorConfig]:
 
 
 def _record_delivery(
-    db: Session,
+    db: ScopedSession,
     *,
     outbox_id: int,
     connector_type: str,
@@ -270,6 +307,7 @@ def _record_delivery(
     result: ConnectorSendResult,
     duration_ms: int,
 ) -> None:
+    db = _require_exact_scoped_session(db)
     db.add(
         ConnectorDeliveryLog(
             outbox_id=outbox_id,
@@ -283,7 +321,9 @@ def _record_delivery(
     )
 
 
-def _attempt_send(db: Session, outbox_row: ConnectorOutbox) -> None:
+def _attempt_send(db: ScopedSession, outbox_row: ConnectorOutbox) -> None:
+    db = _require_exact_scoped_session(db)
+    _require_requested_tenant(db, outbox_row.tenant_id)
     adapters = _adapter_registry()
     connectors = _enabled_connectors(db, outbox_row.tenant_id)
     if not connectors:
@@ -334,7 +374,8 @@ def _attempt_send(db: Session, outbox_row: ConnectorOutbox) -> None:
         outbox_row.next_attempt_at = _next_attempt(outbox_row.attempts)
 
 
-def process_outbox_batch(db: Session, batch_size: int | None = None) -> int:
+def process_outbox_batch(db: ScopedSession, batch_size: int | None = None) -> int:
+    db = _require_exact_scoped_session(db)
     if not settings.connectors_enabled:
         return 0
 
@@ -364,42 +405,69 @@ def process_outbox_batch(db: Session, batch_size: int | None = None) -> int:
     return processed
 
 
-def outbox_counts(db: Session) -> dict[str, int]:
+def outbox_counts(db: ScopedSession) -> dict[str, int]:
+    db = _require_exact_scoped_session(db)
     return {
         status: int(
-            db.execute(select(func.count()).select_from(ConnectorOutbox).where(ConnectorOutbox.status == status)).scalar_one()
+            db.execute(
+                select(func.count(ConnectorOutbox.id)).where(
+                    ConnectorOutbox.status == status
+                )
+            ).scalar_one()
             or 0
         )
         for status in ("PENDING", "FAILED", "DEAD_LETTER")
     }
 
 
-def render_prometheus_metrics(db: Session) -> str:
+def render_prometheus_metrics(db: ScopedSession) -> str:
+    db = _require_exact_scoped_session(db)
     from zeroth.econ.plane.counterfactual.models import ValueEstimate
     from zeroth.econ.plane.enforcement.models import PolicyAction
     from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 
-    execution_total = int(db.execute(select(func.count()).select_from(ExecutionEvent)).scalar_one() or 0)
-    outcomes_total = int(db.execute(select(func.count()).select_from(OutcomeEvent)).scalar_one() or 0)
+    execution_total = int(
+        db.execute(select(func.count(ExecutionEvent.id))).scalar_one() or 0
+    )
+    outcomes_total = int(
+        db.execute(select(func.count(OutcomeEvent.id))).scalar_one() or 0
+    )
     value_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_value_usd), 0))).scalar_one() or 0.0)
     cost_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_cost_usd), 0))).scalar_one() or 0.0)
     margin_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.net_margin_usd), 0))).scalar_one() or 0.0)
     gate_pass = int(
-        db.execute(select(func.count()).select_from(ValueEstimate).where(ValueEstimate.confidence_gate_passed.is_(True))).scalar_one() or 0
+        db.execute(
+            select(func.count(ValueEstimate.id)).where(
+                ValueEstimate.confidence_gate_passed.is_(True)
+            )
+        ).scalar_one()
+        or 0
     )
     gate_block = int(
-        db.execute(select(func.count()).select_from(ValueEstimate).where(ValueEstimate.confidence_gate_passed.is_(False))).scalar_one() or 0
+        db.execute(
+            select(func.count(ValueEstimate.id)).where(
+                ValueEstimate.confidence_gate_passed.is_(False)
+            )
+        ).scalar_one()
+        or 0
     )
     drift_critical = int(
-        db.execute(select(func.count()).select_from(ValueEstimate).where(ValueEstimate.drift_state == "critical")).scalar_one() or 0
+        db.execute(
+            select(func.count(ValueEstimate.id)).where(
+                ValueEstimate.drift_state == "critical"
+            )
+        ).scalar_one()
+        or 0
     )
     outbox = outbox_counts(db)
     policy_counts = {
-        "PROPOSED": int(db.execute(select(func.count()).select_from(PolicyAction).where(PolicyAction.status == "PROPOSED")).scalar_one() or 0),
-        "APPROVED": int(db.execute(select(func.count()).select_from(PolicyAction).where(PolicyAction.status == "APPROVED")).scalar_one() or 0),
-        "APPLIED": int(db.execute(select(func.count()).select_from(PolicyAction).where(PolicyAction.status == "APPLIED")).scalar_one() or 0),
-        "REJECTED": int(db.execute(select(func.count()).select_from(PolicyAction).where(PolicyAction.status == "REJECTED")).scalar_one() or 0),
-        "FAILED": int(db.execute(select(func.count()).select_from(PolicyAction).where(PolicyAction.status == "FAILED")).scalar_one() or 0),
+        status: int(
+            db.execute(
+                select(func.count(PolicyAction.id)).where(PolicyAction.status == status)
+            ).scalar_one()
+            or 0
+        )
+        for status in ("PROPOSED", "APPROVED", "APPLIED", "REJECTED", "FAILED")
     }
 
     lines = [

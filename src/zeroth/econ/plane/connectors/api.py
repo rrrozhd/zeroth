@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
-from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.connectors.schemas import (
     ConnectorConfigOut,
     ConnectorConfigRequest,
@@ -22,7 +20,6 @@ from zeroth.econ.plane.connectors.service import (
     retry_outbox_item,
     set_connector_enabled,
 )
-from zeroth.econ.plane.database import get_db
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["connectors", "metrics"])
@@ -100,5 +97,8 @@ def retry_outbox(
 
 
 @router.get("/metrics")
-def metrics(db: Session = Depends(get_db)) -> Response:
+def metrics(
+    db: ScopedSession = Depends(get_current_scoped_db),
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
+) -> Response:
     return Response(content=render_prometheus_metrics(db), media_type="text/plain; version=0.0.4")

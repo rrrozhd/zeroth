@@ -18,13 +18,17 @@ class ExecutionEvent(Base):
         resource_name="econ.execution_event", table_name=__tablename__, operations=_ALL_OPERATIONS
     )
     __table_args__ = (
-        UniqueConstraint("execution_id", name="uq_execution_events_execution_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "execution_id",
+            name="uq_execution_events_tenant_execution_id",
+        ),
         Index("ix_execution_events_tenant_time_capability", "tenant_id", "timestamp", "capability_id"),
         Index("ix_execution_events_tenant_join_key", "tenant_id", "join_key"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     execution_id: Mapped[str] = mapped_column(String(128), index=True)
     join_key: Mapped[str] = mapped_column(String(128), index=True, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -50,7 +54,7 @@ class OutcomeEvent(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     join_key: Mapped[str] = mapped_column(String(128), index=True)
     execution_id: Mapped[str] = mapped_column(String(128), index=True, default="")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
