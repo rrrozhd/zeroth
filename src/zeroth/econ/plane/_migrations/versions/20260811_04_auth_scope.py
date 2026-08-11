@@ -37,7 +37,6 @@ def upgrade() -> None:
                 "tenant_id",
                 sa.String(length=128),
                 nullable=False,
-                server_default="default",
             ),
             sa.Column("workspace_id", sa.String(length=128), nullable=True),
             sa.Column("subject", sa.String(length=128), nullable=False),
@@ -74,7 +73,7 @@ def upgrade() -> None:
                 "tenant_id",
                 existing_type=sa.String(length=128),
                 nullable=False,
-                server_default="default",
+                server_default=None,
             )
         indexes = {index["name"] for index in sa.inspect(op.get_bind()).get_indexes("users")}
         if "ix_users_tenant_id" not in indexes:

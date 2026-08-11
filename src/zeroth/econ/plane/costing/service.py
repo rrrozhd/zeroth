@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, CostProfile, GroundTruthCost, PricingCatalog
 from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogCreate
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
+from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.service import hierarchical_interval
 
 
@@ -130,12 +131,12 @@ def latest_cost_estimate(db: Session, capability_id: str) -> CostEstimate | None
     return db.execute(stmt).scalar_one_or_none()
 
 
-def compute_calibration_summary(db: Session) -> list[CalibrationMetric]:
+def compute_calibration_summary(db: ScopedSession) -> list[CalibrationMetric]:
     # Lightweight daily aggregation scaffold for MVP; real reconciler can append rows.
     return list(db.execute(select(CalibrationMetric).order_by(CalibrationMetric.id.desc())).scalars())
 
 
-def add_ground_truth_rows(db: Session, rows: list[GroundTruthCost]) -> int:
+def add_ground_truth_rows(db: ScopedSession, rows: list[GroundTruthCost]) -> int:
     for row in rows:
         db.add(row)
     db.commit()

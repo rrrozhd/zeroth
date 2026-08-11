@@ -49,10 +49,11 @@ def post_execution(
 ) -> IngestResult:
     metadata = dict(payload.metadata)
     metadata_tenant = metadata.get("tenant_id")
-    requested_tenant = payload.tenant_id or (
-        str(metadata_tenant) if metadata_tenant is not None else None
+    require_claimed_tenant(_user, payload.tenant_id)
+    require_claimed_tenant(
+        _user, str(metadata_tenant) if metadata_tenant is not None else None
     )
-    tenant_id = require_claimed_tenant(_user, requested_tenant)
+    tenant_id = _user.tenant_id
     metadata["tenant_id"] = tenant_id
     payload = payload.model_copy(update={"tenant_id": tenant_id, "metadata": metadata})
     try:
