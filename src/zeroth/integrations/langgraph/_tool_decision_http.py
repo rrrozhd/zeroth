@@ -44,6 +44,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecision,
     ToolDecisionKind,
     ToolGovernanceContext,
+    describe_tool_policy,
 )
 
 DEFAULT_DECISION_TIMEOUT_SECONDS = 5.0
@@ -124,11 +125,8 @@ class HttpToolDecisionClient:
         submission = DecisionSubmission(
             deployment_ref=self._deployment_ref,
             action=NormalizedAction(
-                name=action.identity.name,
-                fingerprint=action.identity.fingerprint,
+                **describe_tool_policy(action).wire_fields(),
                 arguments_digest=argument_fingerprint(action.arguments),
-                contract_ref=action.contract_ref,
-                side_effect=action.side_effect.value,
             ),
             # One key per attempt, minted here rather than derived from the
             # action: a transport retry of *this* call reuses it and cannot

@@ -207,6 +207,7 @@ class _GovernedPlan:
     describe: Callable[[Any], _ToolFacts]
     facts: _ToolFacts
     observed_identity: ToolIdentity
+    published_surface_changed: bool
     binding: GovernedToolBinding
     seams: _Seams
 
@@ -237,6 +238,9 @@ class _CallablePlan:
 
 _CALLABLE_PLANS: dict[object, _CallablePlan] = {}
 """Callable plans keyed by fresh, non-callable tokens closed over by wrappers."""
+
+_BASE_TOOL_PLANS: dict[object, tuple[weakref.ReferenceType[Any], _GovernedPlan]] = {}
+"""BaseTool plans keyed by opaque tokens and bound to their exact wrapper owner."""
 
 
 @dataclass(slots=True)
@@ -454,6 +458,11 @@ _TRUSTED_GENERATED_CARRIER_TYPES = _trusted_generated_carrier_types()
 def _drop_callable_plan(token: object) -> None:
     """Remove one collected callable wrapper's plan without retaining the wrapper."""
     _CALLABLE_PLANS.pop(token, None)
+
+
+def _drop_base_tool_plan(token: object) -> None:
+    """Remove one collected BaseTool wrapper's owner-bound plan."""
+    _BASE_TOOL_PLANS.pop(token, None)
 
 
 def _callable_plan(token: object) -> _CallablePlan:
@@ -1963,6 +1972,8 @@ def _governed_action(
     observed = _callable_facts(plan) if type(plan) is _CallablePlan else plan.describe(plan.target)
     if normalize_tool_identity(observed.name, observed.material) != plan.observed_identity:
         raise UnstableToolIdentityError("the tool's identity changed after it was governed")
+    if type(plan) is _GovernedPlan and plan.published_surface_changed:
+        raise UnstableToolIdentityError("the tool's identity changed while it was governed")
     if _pin(plan.facts, plan.target, plan.seams) != plan.binding:
         raise ToolGovernanceError("the tool metadata changed after it was governed")
     context = _resolve_context(plan.seams.context)
@@ -1976,6 +1987,7 @@ def _governed_action(
         side_effect=plan.binding.side_effect,
         capability_refs=plan.binding.capability_refs,
         requires_approval=plan.binding.requires_approval,
+        identity_configuration=plan.binding.identity_configuration,
         tool_call_id=plan.seams.tool_call_id if tool_call_id is None else tool_call_id,
     )
     if action.identity != plan.binding.identity:
@@ -2103,11 +2115,13 @@ class GovernedTool(BaseTool):
     the body behind it -- see :func:`_carried_fields` for which, and why the
     error-handling ones are not among them.
 
-    **One source reference, sealed.** The ``target`` on the plan is the source a
+    **One source reference, owner-bound.** The ``target`` on the plan is the source a
     fresh static snapshot is captured from before caller code runs; execution
     calls the frozen snapshot body directly, never the target's dispatch. The
-    target is held in pydantic's private store and unreachable as a
-    field. There is deliberately no second, assignable source handle: identity is
+    plan is held in an external registry behind an opaque token bound to this
+    exact wrapper. Pydantic's mutable private store holds only that token, so
+    swapping another wrapper's valid token is detected by the owner check. There
+    is deliberately no second, assignable source handle: identity is
     re-derived from the plan, so another target assigned after wrapping could be
     snapshotted under the plan target's authorization. :meth:`__setattr__` refuses every name in
     :data:`_SEALED_ATTRIBUTES`, so neither the delegate nor the plan nor the
@@ -2124,7 +2138,7 @@ class GovernedTool(BaseTool):
     def __init__(self, *, zeroth_plan: Any = None, **data: Any) -> None:
         """Build the wrapper and seal the plan it will execute through.
 
-        The plan is written straight into pydantic's private store rather than
+        An opaque owner-bound token is written into pydantic's private store rather than
         through ``setattr``, which is what lets :meth:`__setattr__` refuse
         *every* assignment to the sealed names instead of having to tell the
         first one apart from a later substitution.
@@ -2144,7 +2158,10 @@ class GovernedTool(BaseTool):
         private = self.__pydantic_private__
         if private is None:
             raise ToolGovernanceError("a governed tool could not seal its authorized target")
-        private[_PLAN_ATTRIBUTE] = zeroth_plan
+        token = object()
+        private[_PLAN_ATTRIBUTE] = token
+        _BASE_TOOL_PLANS[token] = (weakref.ref(self), zeroth_plan)
+        weakref.finalize(self, _drop_base_tool_plan, token)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Refuse to rebind anything a call is executed through or reported as.
@@ -2167,9 +2184,17 @@ class GovernedTool(BaseTool):
         Raises:
             ToolGovernanceError: If no plan was sealed into this wrapper.
         """
-        plan = self._zeroth_plan
-        if type(plan) is not _GovernedPlan:
+        token = self._zeroth_plan
+        try:
+            owner, plan = _BASE_TOOL_PLANS[token]
+        except (KeyError, TypeError) as error:
+            raise ToolGovernanceError(
+                "this governed tool carries no authorization plan"
+            ) from error
+        if owner() is not self or type(plan) is not _GovernedPlan:
             raise ToolGovernanceError("this governed tool carries no authorization plan")
+        if plan.binding != self.zeroth_binding:
+            raise ToolGovernanceError("this governed tool's authorization plan is inconsistent")
         return plan
 
     def get_input_schema(self, config: Any = None) -> Any:
@@ -2588,11 +2613,17 @@ def _govern_one(target: Any, seams: _Seams) -> Any:
     if is_tool:
         binding = _pin(facts, target, seams)
         observed = describe(target)
+        observed_identity = normalize_tool_identity(observed.name, observed.material)
         plan = _GovernedPlan(
             target=target,
             describe=describe,
             facts=facts,
-            observed_identity=normalize_tool_identity(observed.name, observed.material),
+            observed_identity=observed_identity,
+            published_surface_changed=(
+                normalize_identifier(observed.name) != binding.identity.name
+                or observed.description != facts.description
+                or schema_digest(observed.args_schema) != schema_digest(facts.args_schema)
+            ),
             binding=binding,
             seams=seams,
         )

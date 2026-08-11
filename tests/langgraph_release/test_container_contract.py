@@ -86,7 +86,7 @@ def test_container_and_compatibility_contract() -> None:
     assert "release-slow" in workflow
     assert "push: true" not in workflow
 
-    assert compatibility["adapter_version"] == "1.0"
+    assert compatibility["adapter_version"] == "2.0"
     assert compatibility["tested"]["langgraph"] == "1.2.9"
     assert compatibility["tested"]["agent_server"] == "0.11.1"
     assert {"gateway", "adapter"} <= compatibility["deployment_artifacts"].keys()
