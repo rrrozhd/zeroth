@@ -891,3 +891,57 @@ def test_no_configured_pytest_invocation_passes_dash_x() -> None:
     assert invocations, "no pytest invocation found -- the assertion would be vacuous"
     for line in invocations:
         assert " -x" not in line and "--exitfirst" not in line, line
+
+
+def test_the_rate_limit_window_test_no_longer_sleeps_through_its_window() -> None:
+    """A10-14's measured half: a 1.1s wall-clock sleep against a 1s window.
+
+    The 100ms margin had to cover the whole remaining call, and buying it with a
+    real sleep proved nothing extra -- what is under test is that a window
+    boundary is *observed*. The clock is advanced instead, and the test got
+    stronger for it: it now pins both directions of the boundary rather than only
+    "eventually allowed".
+    """
+    source = (ROOT / "tests/guardrails/test_rate_limit.py").read_text(encoding="utf-8")
+    body = source.split("async def test_quota_enforcer_resets_after_window")[1].split(
+        "\nasync def "
+    )[0]
+
+    assert "time.sleep" not in body
+    assert "monkeypatch.setattr" in body
+
+
+def test_the_six_observable_surface_tests_keep_independent_setups() -> None:
+    """A10-15's measured half is true, and its implied remedy is worse.
+
+    The helper really is called six times, and each call spawns two subprocesses,
+    deploys a service and drives a TestClient: measured at ~2.7s of capture across
+    the module, of which ~2.2s is repetition.
+
+    Sharing one capture would save that and *increase* the exposure the finding
+    itself names -- "six chances for the shared setup to fail for an unrelated
+    reason". One shared setup failing takes out all six surfaces at once and
+    reports one error instead of naming which surface leaked. Six independent
+    setups are what keep each surface independently diagnosable, which is worth
+    2.2 seconds. So the count is recorded rather than collapsed.
+    """
+    import ast
+
+    path = ROOT / "tests/security/test_observable_surfaces.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    surface_tests = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name.startswith("test_credential_canary_absent_from_")
+    ]
+
+    assert len(surface_tests) == 6
+    for test in surface_tests:
+        calls = [
+            node
+            for node in ast.walk(test)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", "") == "_capture_observable_surfaces"
+        ]
+        assert len(calls) == 1, test.name

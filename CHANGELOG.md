@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.7] - 2026-08-10
+
+### Fixed
+
+- The quota-window test advances the enforcer's clock instead of sleeping 1.1s through a
+  1s window, and now pins the boundary in both directions rather than only "eventually
+  allowed" (ZER-41 / A10-14).
+- The six observable-surface captures keep their independent setups, with the measured cost
+  and the reason recorded: sharing one capture would save ~2.2s and increase the exposure
+  the finding itself names (ZER-41 / A10-15).
+
 ## [0.22.2.6.1] - 2026-08-10
 
 ### Fixed
