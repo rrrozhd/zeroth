@@ -96,7 +96,65 @@ def write_record(root: Path, gate: dict, candidate: dict, **overrides) -> Path:
         suffix = "xml" if kind in ("junit", "ui") else "json" if kind in KIND_BODIES else "txt"
         relative = f"release/evidence/{gate['id']}-{kind}.{suffix}"
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
-        (root / relative).write_text(evidence_body(kind), encoding="utf-8")
+        body = evidence_body(kind)
+        if gate["id"] == "remote-acceptance" and kind == "deployment":
+            from gates.identity import identity_digest
+
+            scenarios = [
+                "readiness",
+                "authentication",
+                "rbac",
+                "migrations",
+                "workflow_lifecycle",
+                "deployment",
+                "runs",
+                "approvals",
+                "audit",
+                "artifacts",
+                "retention",
+                "gateway_http",
+                "gateway_websocket",
+                "compatibility",
+                "executable_unit_failures",
+                "restart_recovery",
+                "shutdown",
+            ]
+            body = json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "passed",
+                    "target_origin": "https://acceptance.example.test",
+                    "tenant_id": "acceptance-release",
+                    "namespace": "acceptance-release-01234567",
+                    "deployment_ref": "candidate",
+                    "candidate_digest": identity_digest(candidate),
+                    "image_identity": candidate["image"],
+                    "observed_compatibility": {
+                        "status": "supported",
+                        "detected_agent_server": "0.11.1",
+                    },
+                    "observed_deployment": {
+                        "deployment_ref": "candidate",
+                        "deployment_version": 1,
+                        "graph_version_ref": "graph@1",
+                    },
+                    "started_at": "2026-08-08T12:00:00Z",
+                    "finished_at": "2026-08-08T12:01:00Z",
+                    "scenarios": [
+                        {"name": name, "status": "passed", "detail": "passed", "observations": []}
+                        for name in scenarios
+                    ],
+                    "cleanup": [
+                        {
+                            "name": "cleanup-1",
+                            "status": "passed",
+                            "detail": "passed",
+                            "observations": [],
+                        }
+                    ],
+                }
+            )
+        (root / relative).write_text(body, encoding="utf-8")
         kinds[kind] = relative
     record = {
         "schema_version": 1,

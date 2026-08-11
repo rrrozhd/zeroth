@@ -95,10 +95,10 @@
       "order": 7,
       "phase": "final",
       "title": "Remote acceptance",
-      "description": "The candidate is installed from the published index rather than from the local build, and the published artifact is exercised end to end.",
-      "binds": ["commit", "package"],
+      "description": "The candidate is installed from the published index and its exact deployed image passes the tenant-isolated black-box acceptance suite.",
+      "binds": ["commit", "package", "image"],
       "record": "release/evidence/remote-acceptance.json",
-      "requires": ["index-install", "example-run"],
+      "requires": ["index-install", "example-run", "deployed-suite"],
       "kinds": ["deployment"],
       "triggers": ["release-candidate"]
     },

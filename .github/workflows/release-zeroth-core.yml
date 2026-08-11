@@ -237,11 +237,17 @@ jobs:
           # Sigstore attestations are default-on in v1.14+ (D-13)
 
   smoke-from-testpypi:
-    name: Smoke-install from TestPyPI + run examples/00_hello.py
+    name: TestPyPI install + deployed black-box acceptance
     needs: [publish-testpypi]
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ZEROTH_ACCEPTANCE_BASE_URL: ${{ vars.ZEROTH_ACCEPTANCE_BASE_URL }}
+      ZEROTH_ACCEPTANCE_TENANT_ID: ${{ vars.ZEROTH_ACCEPTANCE_TENANT_ID }}
+      ZEROTH_ACCEPTANCE_DEPLOYMENT_REF: ${{ vars.ZEROTH_ACCEPTANCE_DEPLOYMENT_REF }}
+      ZEROTH_ACCEPTANCE_OPERATOR_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_OPERATOR_KEY }}
+      ZEROTH_ACCEPTANCE_REVIEWER_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_REVIEWER_KEY }}
+      ZEROTH_ACCEPTANCE_ADMIN_KEY: ${{ secrets.ZEROTH_ACCEPTANCE_ADMIN_KEY }}
     steps:
       - name: Checkout (for examples/00_hello.py)
         uses: actions/checkout@v4
@@ -312,6 +318,7 @@ jobs:
           PY
           # Install exactly those verified files; PyPI serves dependencies only.
           pip install /tmp/rc-dist/* --extra-index-url https://pypi.org/simple/
+          pip install 'websockets>=15,<16'
           {
             echo "installed: $(pip show zeroth-core | sed -n 's/^Version: //p')"
             echo "console: $(pip show zeroth-console | sed -n 's/^Version: //p')"
@@ -326,6 +333,38 @@ jobs:
             echo "EXAMPLE_STATUS=failed" >> "${GITHUB_ENV}"
           fi
 
+          python - <<'PY'
+          import json, os, pathlib
+          pathlib.Path("release/evidence/deployed-acceptance-config.json").write_text(
+              json.dumps({
+                  "schema_version": 1,
+                  "base_url": os.environ.get("ZEROTH_ACCEPTANCE_BASE_URL", ""),
+                  "tenant_id": os.environ.get("ZEROTH_ACCEPTANCE_TENANT_ID", ""),
+                  "deployment_ref": os.environ.get("ZEROTH_ACCEPTANCE_DEPLOYMENT_REF", ""),
+                  "candidate_identity": "release/evidence/candidate-identity-full.json",
+                  "credentials": {
+                      "operator": "ZEROTH_ACCEPTANCE_OPERATOR_KEY",
+                      "reviewer": "ZEROTH_ACCEPTANCE_REVIEWER_KEY",
+                      "admin": "ZEROTH_ACCEPTANCE_ADMIN_KEY",
+                  },
+                  "lifecycle": {
+                      "restart_url": "/__acceptance/restart",
+                      "shutdown_url": "/__acceptance/shutdown",
+                  },
+              }, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+          if python -m release.acceptance.cli \
+              --config release/evidence/deployed-acceptance-config.json \
+              --contract release/acceptance/contracts/zeroth-v1.json \
+              --output release/evidence/deployed-acceptance-report.json; then
+            echo "DEPLOYED_ACCEPTANCE_STATUS=passed" >> "${GITHUB_ENV}"
+          else
+            echo "DEPLOYED_ACCEPTANCE_STATUS=failed" >> "${GITHUB_ENV}"
+          fi
+
+
       - name: Record the remote-acceptance gate
         shell: bash
         run: |
@@ -338,7 +377,9 @@ jobs:
             --identity release/evidence/candidate-identity-full.json \
             --result index-install=passed \
             --result "example-run=${EXAMPLE_STATUS}" \
-            --kind deployment=release/evidence/remote-acceptance-log.txt \
+            --result "deployed-suite=${DEPLOYED_ACCEPTANCE_STATUS}" \
+            --kind install-log=release/evidence/remote-acceptance-log.txt \
+            --kind deployment=release/evidence/deployed-acceptance-report.json \
             --output release/evidence/remote-acceptance.json
           cat release/evidence/remote-acceptance.json
 
@@ -349,6 +390,7 @@ jobs:
           path: |
             release/evidence/remote-acceptance.json
             release/evidence/remote-acceptance-log.txt
+            release/evidence/deployed-acceptance-report.json
 
   # The last gate before PyPI: every candidate gate, plus acceptance of the
   # artifact as actually published, plus a named human's recorded signoff.

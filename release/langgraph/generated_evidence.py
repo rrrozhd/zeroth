@@ -81,21 +81,21 @@ def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
     value = _json_file(path, "image compatibility evidence", errors)
     images = value.get("images") if value else None
     artifact = value.get("artifact") if value else None
-    valid_entries = isinstance(images, list) and len(images) == 3 and all(
-        isinstance(image, dict)
-        and set(image) == {"reference", "id", "digest", "repo_digests"}
-        and _sha256(image.get("id"))
-        and _sha256(image.get("digest"))
-        and isinstance(image.get("repo_digests"), list)
-        for image in images or []
+    valid_entries = (
+        isinstance(images, list)
+        and len(images) == 3
+        and all(
+            isinstance(image, dict)
+            and set(image) == {"reference", "id", "digest", "repo_digests"}
+            and _sha256(image.get("id"))
+            and _sha256(image.get("digest"))
+            and isinstance(image.get("repo_digests"), list)
+            for image in images or []
+        )
     )
-    references = {
-        str(image["reference"]) for image in images or [] if isinstance(image, dict)
-    }
+    references = {str(image["reference"]) for image in images or [] if isinstance(image, dict)}
     application = [
-        item
-        for item in images or []
-        if str(item.get("reference", "")).startswith("zeroth-core:")
+        item for item in images or [] if str(item.get("reference", "")).startswith("zeroth-core:")
     ]
     expected_bases = {"python:3.12.13-slim-bookworm", "postgres:16.9-bookworm"}
     valid_artifact = (
@@ -144,9 +144,7 @@ def _validate_packages(
     errors: list[str],
 ) -> None:
     value = _json_file(path, "installed image package evidence", errors)
-    expected_image = (
-        {"reference": image["reference"], "digest": image["digest"]} if image else None
-    )
+    expected_image = {"reference": image["reference"], "digest": image["digest"]} if image else None
     if value is None or (
         set(value) != {"schema_version", "release", "image", "packages", "labels"}
         or value.get("schema_version") != 1
@@ -187,9 +185,7 @@ def _spdx_packages(
     return roots[0] if len(roots) == 1 else {}, applications
 
 
-def _validate_spdx(
-    path: Path, image: dict[str, str] | None, errors: list[str]
-) -> None:
+def _validate_spdx(path: Path, image: dict[str, str] | None, errors: list[str]) -> None:
     value = _json_file(path, "SPDX JSON", errors)
     packages = value.get("packages") if value else None
     if value is None or image is None or not isinstance(packages, list):
@@ -198,8 +194,7 @@ def _validate_spdx(
     digest = image["digest"].removeprefix("sha256:")
     root, applications = _spdx_packages(packages, image)
     checksum = {
-        item.get("algorithm"): item.get("checksumValue")
-        for item in root.get("checksums", [])
+        item.get("algorithm"): item.get("checksumValue") for item in root.get("checksums", [])
     }
     describes = any(
         item.get("spdxElementId") == "SPDXRef-DOCUMENT"
@@ -230,9 +225,7 @@ def _validate_spdx(
         errors.append("SPDX is not bound to the built image and release package")
 
 
-def _verified_result(
-    entry: Any, bundle: dict[str, Any], subject: list[dict[str, Any]]
-) -> bool:
+def _verified_result(entry: Any, bundle: dict[str, Any], subject: list[dict[str, Any]]) -> bool:
     if not isinstance(entry, dict):
         return False
     attestation = entry.get("attestation")
@@ -269,9 +262,7 @@ def _validate_receipt(
     subject = [
         {
             "name": image["artifact_path"],
-            "digest": {
-                "sha256": image["artifact_digest"].removeprefix("sha256:")
-            },
+            "digest": {"sha256": image["artifact_digest"].removeprefix("sha256:")},
         }
     ]
     if not any(_verified_result(entry, bundle, subject) for entry in value):
@@ -292,8 +283,7 @@ def _validate_junit(path: Path, errors: list[str]) -> None:
     except ValueError:
         tests, failures, error_count = 0, 1, 1
     identities = {
-        (str(case.get("classname")), str(case.get("name")))
-        for case in root.findall(".//testcase")
+        (str(case.get("classname")), str(case.get("name"))) for case in root.findall(".//testcase")
     }
     if (
         tests < len(REQUIRED_TESTCASES)

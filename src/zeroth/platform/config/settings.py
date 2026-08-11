@@ -314,6 +314,20 @@ class PolicySettings(BaseModel):
 
     enforce_capabilities: bool = True
     local_network_strict: bool = True
+    definitions: tuple[dict[str, Any], ...] = ()
+    """Policy definitions to register before the guard is built.
+
+    `LangGraphGatewaySettings.policy_bindings` already names the policies a governed
+    request is evaluated against, and the guard resolves those refs against its
+    registry — but nothing ever put a definition *into* that registry, so bindings
+    could only ever resolve to nothing. A deployment naming a binding got
+    `zeroth.policy_unavailable` on every governed request, and one naming none was
+    admitted unconditionally: the deny path was unreachable either way.
+
+    Each entry is a `PolicyDefinition` payload, validated at bootstrap so a malformed
+    policy fails the deployment rather than silently admitting traffic. Kept as raw
+    mappings here because platform configuration must not import governance models.
+    """
 
 
 class LangGraphGatewaySettings(BaseModel):

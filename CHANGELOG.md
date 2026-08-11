@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1.1.2] - 2026-08-11
+
+### Fixed
+
+- The ephemeral acceptance candidate now declares the Regulus origin it actually has.
+  `RegulusSettings.base_url` defaults to `http://localhost:8000/v1`, an external
+  control-plane topology the candidate never deployed, so `check_regulus` probed a
+  dead port, reported `unavailable`, and degraded `/health/ready`. That failed the
+  `readiness` scenario and cascaded into `approvals`, which polls readiness back to
+  `ok` after its restart, and from there into `audit`, `artifacts` and
+  `restart_recovery`. It passed locally only on machines with something unrelated
+  bound to port 8000. The candidate runs the bundled plane in-process at `/regulus`,
+  so it now points at its own origin, as `apps/vendor_dd/entrypoint.py` and the
+  deployment guide already do.
+- Paired that with a test that the declared origin is served by the econ plane itself.
+  `check_regulus` treats any answer — a 401, a 404 — as `ok`, so readiness alone could
+  not tell a mounted plane from an absent one; without this, dropping the `regulus`
+  extra would leave the gate green over a plane that was never there.
+
+## [0.22.1.1.1] - 2026-08-10
+
+### Fixed
+
+- Regenerated `docs/reference/configuration.md` for `ZEROTH_POLICY__DEFINITIONS`, added in
+  v0.22 without refreshing the generated reference. The docs drift gate caught it.
+
+## [0.22.1.1] - 2026-08-10
+
+### Added
+
+- A conformance test pinning that the acceptance transport puts *every* frame of an
+  opening sequence on the wire, in order. The real proof is `gateway_websocket` against
+  a live Agent Server, but that only holds if the transport actually sends the frames;
+  this fails directly instead of surfacing as an ordering mismatch layers up.
+
+## [0.22.1] - 2026-08-10
+
+### Added
+
+- Acceptance WebSocket steps send an ordered opening sequence rather than a single
+  message, and name the wire protocol's own event, ordering, and selector keys in the
+  contract. A stream worth testing is a conversation: the LangGraph Agent Server emits
+  nothing until a subscription exists, so a single payload could never reach the events
+  the scenario was claiming to observe.
+
+### Changed
+
+- `gateway_websocket` now drives a real thread through the gateway's WebSocket bridge —
+  `POST /threads` for a genuine id, `subscription.subscribe`, then `run.start` — and
+  asserts the frame ordering the real Agent Server actually produces. It previously
+  streamed from a fabricated thread id with invented event names, and could pass against
+  no working stream at all.
+- **The ephemeral leg now proves all 17 scenarios.** `AGENT_SERVER_SCENARIOS` is empty:
+  every scenario in the shipped contract runs against the real service with a real Agent
+  Server behind its gateway, on every change.
+
+## [0.22] - 2026-08-10
+
+### Added
+
+- Deployed black-box acceptance runs the exact candidate through a versioned contract:
+  bounded polling for asynchronously settling state, counted side-effect assertions, and
+  platform lifecycle (restart, drain) as an operation the harness enacts rather than a
+  route the product must serve.
+
 ## [0.20] - 2026-08-09
 
 ### Added
