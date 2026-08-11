@@ -104,8 +104,56 @@ import { Button as PButton, Pill } from "@/app/components/primitives";
 import { canDeployWorkflow, canRunWorkflow, servedGraphId } from "./runEligibility";
 
 const nodeTypes = { studio: StudioNodeView };
+const HISTORY_GUARD_KEY = "__zerothStudioNavigationGuard";
 
 type Cfg = Record<string, unknown>;
+type SaveState = "idle" | "dirty" | "saving" | "saved";
+
+function shouldWarnBeforeLeaving(state: SaveState): boolean {
+  return state === "dirty" || state === "saving";
+}
+
+function confirmNavigation(
+  shouldWarn: boolean,
+  confirm: (message: string) => boolean = window.confirm,
+): boolean {
+  return !shouldWarn || confirm("Discard unsaved workflow changes?");
+}
+
+function pushHistoryGuard(href: string) {
+  const state = window.history.state;
+  window.history.pushState(
+    {
+      ...(state && typeof state === "object" ? state : {}),
+      [HISTORY_GUARD_KEY]: true,
+    },
+    "",
+    href,
+  );
+}
+
+function confirmGraphDeletion(
+  nodes: Node[],
+  edges: Edge[],
+  confirm: (message: string) => boolean = window.confirm,
+): boolean {
+  const nodeScope = nodes
+    .map((node) => `${String(node.data.label ?? node.id)} (${node.id})`)
+    .join(", ");
+  const edgeScope = edges.map((edge) => edge.id).join(", ");
+  return confirm(
+    `Delete workflow elements?\nNodes: ${nodeScope || "none"}\nEdges: ${edgeScope || "none"}\nThis cannot be undone.`,
+  );
+}
+
+async function publishSavedDraft(
+  save: () => Promise<boolean>,
+  publish: () => Promise<unknown>,
+): Promise<boolean> {
+  if (!(await save())) return false;
+  await publish();
+  return true;
+}
 
 // Editable slice of a canvas node's data (inspector writes through patchNode).
 type NodePatch = Partial<{
@@ -364,7 +412,7 @@ function Editor({ id }: { id: string }) {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "dirty" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [cloning, setCloning] = useState(false);
   const [copied, setCopied] = useState<number | null>(null);
@@ -377,7 +425,8 @@ function Editor({ id }: { id: string }) {
   const lastHistSigRef = useRef("");
   const saveInFlightRef = useRef(false);
   const savePendingRef = useRef(false);
-  const saveNowRef = useRef<() => Promise<void>>(async () => {});
+  const saveNowRef = useRef<() => Promise<boolean>>(async () => true);
+  const continueHistoryRef = useRef(false);
   const histRef = useRef<{ stack: Snapshot[]; index: number }>({ stack: [], index: -1 });
   const pasteSeqRef = useRef(0);
   // Registered memory connectors — feeds the retrieval node's connector
@@ -449,7 +498,11 @@ function Editor({ id }: { id: string }) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const readOnly = status === "published";
+  const navigationBlocked = shouldWarnBeforeLeaving(saveState);
   const sig = useMemo(() => graphSig(nodes, edges), [nodes, edges]);
+  const draftSig = JSON.stringify([sig, name, entryStep]);
+  const draftSigRef = useRef(draftSig);
+  draftSigRef.current = draftSig;
   const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes]);
   // With an Entrypoint node on the canvas, entry_step derives from it — the
   // manual selector only remains for legacy drafts authored before it existed.
@@ -681,19 +734,49 @@ function Editor({ id }: { id: string }) {
 
   const deleteNode = useCallback(
     (nodeId: string) => {
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) return;
+      const deletedEdges = edges.filter(
+        (edge) => edge.source === nodeId || edge.target === nodeId,
+      );
+      if (!confirmGraphDeletion([node], deletedEdges)) return;
       setNodes((ns) => ns.filter((n) => n.id !== nodeId));
       setEdges((es) => es.filter((e) => e.source !== nodeId && e.target !== nodeId));
       setEditingId(null);
     },
-    [setNodes, setEdges],
+    [nodes, edges, setNodes, setEdges],
   );
+
+  const deleteSelection = useCallback(() => {
+    const selectedNodes = nodes.filter((node) => node.selected);
+    const selectedEdgeIds = new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id));
+    if (selectedNodes.length === 0 && selectedEdgeIds.size === 0) return;
+    const nodeIds = new Set(selectedNodes.map((node) => node.id));
+    const deletedEdges = edges.filter(
+      (edge) =>
+        selectedEdgeIds.has(edge.id) ||
+        nodeIds.has(edge.source) ||
+        nodeIds.has(edge.target),
+    );
+    if (!confirmGraphDeletion(selectedNodes, deletedEdges)) return;
+    setNodes((current) => current.filter((node) => !nodeIds.has(node.id)));
+    setEdges((current) =>
+      current.filter(
+        (edge) =>
+          !selectedEdgeIds.has(edge.id) &&
+          !nodeIds.has(edge.source) &&
+          !nodeIds.has(edge.target),
+      ),
+    );
+    setEditingId(null);
+  }, [nodes, edges, setNodes, setEdges]);
 
   const saveNow = useCallback(async () => {
     // Collapse concurrent saves: if one is in flight, remember to run again
     // with the latest state once it settles.
     if (saveInFlightRef.current) {
       savePendingRef.current = true;
-      return;
+      return false;
     }
     saveInFlightRef.current = true;
     setSaveState("saving");
@@ -707,31 +790,102 @@ function Editor({ id }: { id: string }) {
         edges: toStudioEdges(edges),
         viewport: rf ? rf.getViewport() : { x: 0, y: 0, zoom: 1 },
       });
-      lastSavedSigRef.current = JSON.stringify([graphSig(nodes, edges), name, entryStep]);
-      setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-      setSaveState("saved");
+      lastSavedSigRef.current = draftSig;
+      if (draftSig === draftSigRef.current) {
+        setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+        setSaveState("saved");
+      } else {
+        setSaveState("dirty");
+      }
+      return true;
     } catch (e) {
       setError(errMsg(e));
       setSaveState("dirty");
+      return false;
     } finally {
       saveInFlightRef.current = false;
       if (savePendingRef.current) {
         savePendingRef.current = false;
-        window.setTimeout(() => void saveNowRef.current(), 0);
+        void saveNowRef.current();
       }
     }
-  }, [id, name, entryStep, nodes, edges, rf]);
+  }, [id, name, entryStep, nodes, edges, rf, draftSig]);
   saveNowRef.current = saveNow;
+
+  useEffect(() => {
+    if (!navigationBlocked) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (continueHistoryRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [navigationBlocked]);
+
+  useEffect(() => {
+    if (!navigationBlocked) return;
+    const href = window.location.href;
+    pushHistoryGuard(href);
+    const guardNavigation = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (
+        !(target instanceof HTMLAnchorElement) ||
+        target.target === "_blank" ||
+        target.hasAttribute("download") ||
+        target.getAttribute("href")?.startsWith("#") ||
+        confirmNavigation(navigationBlocked)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const guardHistoryNavigation = () => {
+      if (continueHistoryRef.current) {
+        continueHistoryRef.current = false;
+        return;
+      }
+      if (confirmNavigation(navigationBlocked)) {
+        continueHistoryRef.current = true;
+        window.history.back();
+      } else {
+        pushHistoryGuard(href);
+      }
+    };
+    document.addEventListener("click", guardNavigation, true);
+    window.addEventListener("popstate", guardHistoryNavigation);
+    return () => {
+      document.removeEventListener("click", guardNavigation, true);
+      window.removeEventListener("popstate", guardHistoryNavigation);
+      if (
+        window.location.href === href &&
+        window.history.state?.[HISTORY_GUARD_KEY] === true
+      ) {
+        window.history.back();
+      }
+    };
+  }, [navigationBlocked]);
 
   // Debounced autosave (drafts only): any structural, name, or entrypoint
   // change after the initial load schedules a save 1.5s after the last change.
   useEffect(() => {
     if (!loadedRef.current || readOnly) return;
-    if (JSON.stringify([sig, name, entryStep]) === lastSavedSigRef.current) return;
+    if (draftSig === lastSavedSigRef.current) return;
     setSaveState("dirty");
     const t = window.setTimeout(() => void saveNowRef.current(), 1500);
     return () => window.clearTimeout(t);
-  }, [sig, name, entryStep, readOnly]);
+  }, [draftSig, readOnly]);
 
   // Debounced history push: drags collapse into one entry. Undo/redo set
   // lastHistSigRef themselves, so applying a snapshot is never re-recorded.
@@ -871,9 +1025,8 @@ function Editor({ id }: { id: string }) {
     setEdges((es) => es.concat(pastedEdges));
   }, [readOnly, palette, setNodes, setEdges]);
 
-  // Document-level shortcuts. React Flow's deleteKeyCode only claims
-  // Backspace/Delete, so there is no overlap; the focus guard leaves native
-  // text editing (incl. its own undo) alone inside form fields.
+  // Document-level shortcuts; the focus guard leaves native text editing
+  // (including its own undo) alone inside form fields.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
@@ -885,6 +1038,11 @@ function Editor({ id }: { id: string }) {
           t.isContentEditable)
       )
         return;
+      if (!readOnly && (e.key === "Backspace" || e.key === "Delete")) {
+        e.preventDefault();
+        deleteSelection();
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey)) return;
       const k = e.key.toLowerCase();
       if (k === "z" && !e.shiftKey) {
@@ -903,7 +1061,7 @@ function Editor({ id }: { id: string }) {
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [readOnly, undo, redo, copySelection, pasteClipboard]);
+  }, [readOnly, undo, redo, copySelection, pasteClipboard, deleteSelection]);
 
   async function clone() {
     setCloning(true);
@@ -927,11 +1085,22 @@ function Editor({ id }: { id: string }) {
     setError(null);
     setPublishIssues(null);
     try {
-      await saveNowRef.current();
-      while (saveInFlightRef.current || savePendingRef.current) {
-        await new Promise((r) => window.setTimeout(r, 100));
-      }
-      await publishWorkflow(id);
+      const published = await publishSavedDraft(
+        async () => {
+          while (saveInFlightRef.current || savePendingRef.current) {
+            await new Promise((r) => window.setTimeout(r, 100));
+          }
+          do {
+            if (!(await saveNowRef.current())) return false;
+            while (saveInFlightRef.current || savePendingRef.current) {
+              await new Promise((r) => window.setTimeout(r, 100));
+            }
+          } while (lastSavedSigRef.current !== draftSigRef.current);
+          return true;
+        },
+        () => publishWorkflow(id),
+      );
+      if (!published) return;
       setJustPublished(true);
       await load(); // status flips to published; editor becomes read-only
     } catch (e) {
@@ -1002,7 +1171,7 @@ function Editor({ id }: { id: string }) {
           edges={edges}
           nodeTypes={nodeTypes}
           nodesFocusable
-          deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
+          deleteKeyCode={null}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -1779,6 +1948,7 @@ function RunPanel({
   const [past, setPast] = useState<RunStatus[] | null>(null);
   const [pastError, setPastError] = useState<string | null>(null);
   const [selectedPast, setSelectedPast] = useState<string | null>(null);
+  const runSelectionRequestRef = useRef(0);
   // The poll tick reads node ids through a ref so nodes added/moved mid-run
   // are picked up without restarting the interval.
   const nodeIdsRef = useRef(nodeIds);
@@ -1870,6 +2040,7 @@ function RunPanel({
   }, [runId, onStates]);
 
   async function submit() {
+    runSelectionRequestRef.current += 1;
     setError(null);
     let parsed: Record<string, unknown>;
     try {
@@ -1907,6 +2078,7 @@ function RunPanel({
   }
 
   function clear() {
+    runSelectionRequestRef.current += 1;
     setRunId(null); // stops the poll via effect cleanup
     setRun(null);
     setFailedNode(null);
@@ -1930,6 +2102,7 @@ function RunPanel({
   // Replay: one timeline fetch, no polling — paints the same overlay a live
   // run does, plus that run's output/failure below.
   async function selectPast(r: RunStatus) {
+    const request = ++runSelectionRequestRef.current;
     setRunId(null);
     setSelectedPast(r.run_id);
     setError(null);
@@ -1938,13 +2111,14 @@ function RunPanel({
         getRun(r.run_id),
         getRunTimeline(r.run_id).catch(() => null),
       ]);
+      if (request !== runSelectionRequestRef.current) return;
       const entries = tl?.entries ?? [];
       setRun(status);
       const failed = entries.filter((e) => entryPhase(e) === "failed");
       setFailedNode(failed.length > 0 ? failed[failed.length - 1].node_id : null);
       onStates(deriveNodeStates(entries));
     } catch (e) {
-      setError(errMsg(e));
+      if (request === runSelectionRequestRef.current) setError(errMsg(e));
     }
   }
 

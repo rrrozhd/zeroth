@@ -4,13 +4,14 @@
 //
 // A right-aligned chip runs the chain-verification state machine
 // (idle → verifying → intact / unsigned / failed); a successful verify greens
-// the `sig` column and completes the Overview checklist via localStorage. Rows
+// the `sig` column and completes the Overview checklist for this browser session. Rows
 // are colored by event kind derived from each record's real status/error/flags.
 // Reads are client-side and degrade to inline error / empty states.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, Card, MonoLabel, Skeleton } from "@/app/components/primitives";
+import { useAuditVerification } from "@/app/components/auditVerificationContext";
 import { useToast } from "@/app/components/Toast";
 import { useLoad } from "@/app/hooks/useLoad";
 import {
@@ -91,18 +92,11 @@ type VerifyPhase = "idle" | "verifying" | "intact" | "unsigned" | "failed";
 export default function AuditPage() {
   const load = useLoad<AuditRecordList>(listAudits);
   const toast = useToast();
+  const { verifiedAt, markVerified } = useAuditVerification();
 
   const [connected, setConnected] = useState(false);
-  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
   useEffect(() => {
     setConnected(isConfigured());
-    try {
-      if (window.localStorage.getItem("zeroth.auditVerified") === "1") {
-        setVerifiedAt(window.localStorage.getItem("zeroth.auditVerifiedAt"));
-      }
-    } catch {
-      /* localStorage unavailable — leave idle */
-    }
   }, []);
 
   const [phase, setPhase] = useState<VerifyPhase>("idle");
@@ -134,13 +128,7 @@ export default function AuditPage() {
       const signed = res.signature_verified === true;
       setPhase(signed ? "intact" : "unsigned");
       const now = new Date().toISOString();
-      setVerifiedAt(now);
-      try {
-        window.localStorage.setItem("zeroth.auditVerified", "1");
-        window.localStorage.setItem("zeroth.auditVerifiedAt", now);
-      } catch {
-        /* localStorage unavailable — checklist just won't persist */
-      }
+      markVerified(now);
       toast(signed ? "Chain intact · signatures valid" : "Chain intact · unsigned (legacy)");
     } catch (e) {
       setPhase("failed");
