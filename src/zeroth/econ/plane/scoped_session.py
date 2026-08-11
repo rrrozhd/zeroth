@@ -252,11 +252,19 @@ def _validate_no_textual_sql(
         if (
             internal_model is not None
             and (state.is_column_load or state.is_relationship_load)
-            and annotations.get("_orm_adapt") is True
         ):
-            internal_column = table.c.get(getattr(element, "key", None))
-            if internal_column is not None and element.shares_lineage(internal_column):
-                return True
+            bound_mapper = state.bind_mapper
+            if bound_mapper is not None:
+                bound_model = bound_mapper.class_
+                bound_table = bound_mapper.local_table
+                bound_column = bound_table.c.get(getattr(element, "key", None))
+                if (
+                    registered_tables.get(bound_table) is bound_model
+                    and internal_model is bound_model
+                    and bound_column is not None
+                    and element.shares_lineage(bound_column)
+                ):
+                    return True
         for key in ("parententity", "entity_namespace", "parentmapper"):
             candidate = annotations.get(key)
             inspected = inspect(candidate, raiseerr=False) if candidate is not None else None
