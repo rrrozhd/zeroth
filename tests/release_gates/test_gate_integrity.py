@@ -493,68 +493,95 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
 # R7, R8 -- the suite's own vacuity guards
 # ---------------------------------------------------------------------------
 
-#: The ``tests/**`` exemption list as it stood at the branch base,
-#: `20af960a3d58d297d62facdedd5c91f76fdd1078` -- before this task paid any of the debt.
-EXEMPTIONS_AT_BASE = frozenset(
-    {"D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"}
-)
-
-#: The list after this task removed ``F841`` and ``B017``, at the audited HEAD
-#: `66fbe2f8fd14bdad90739d12e2975b42dd1cc51c`. **This is the ratchet reference.**
+#: A minimal file that violates each rule this task stopped exempting.
 #:
-#: The first attempt at this guard compared against a tuple of "rules we now
-#: enforce", which consented to its own removal: delete a rule and its check goes
-#: with it. The second attempt derived the enforced set as ``base - current``,
-#: which only moved the problem -- ``F841`` is *in* the base list, so restoring
-#: its exemption still yields a valid subset, and the one check that noticed read
-#: from a hand-written parameter list that could be edited just as easily.
+#: The guard runs Ruff over these and asserts the violation is *reported*. It
+#: reads no configuration at all, and that is the point.
 #:
-#: Comparing against the list at a point where the debt was **already paid** has
-#: no such lever. Restoring ``F841`` makes the current list a superset of this
-#: constant, and there is nothing to delete to make that go away: both constants
-#: are history and neither is derived from the live configuration.
-EXEMPTIONS_AT_RATCHET = frozenset({"D", "B006", "E501", "F401", "I001", "SIM117"})
+#: Three earlier attempts each checked a representation of the exemption instead
+#: of its effect, and each was defeated by a different representation of the same
+#: thing: a tuple of "rules we enforce" (delete the rule, delete its check); the
+#: difference from the base exemption list (the base list still contained the
+#: restored rule); a frozen historical reference (still reading one config key,
+#: while ``lint.extend-per-file-ignores`` restores the rule invisibly -- measured:
+#: an F841 probe went from exit 1 to exit 0 with every recorded set unchanged).
+#:
+#: The root cause is the same in all three: a config key is a *claim* about what
+#: Ruff will do. Observing what Ruff actually does closes every path that can
+#: change the answer, including the ones nobody enumerated.
+RULE_PROBES = {
+    "F841": "def probe():\n    unused = 1\n",
+    "B017": (
+        "import pytest\n\n\ndef test_probe():\n"
+        "    with pytest.raises(Exception):\n        pass\n"
+    ),
+}
 
 
-def _test_per_file_ignores() -> list[str]:
-    import tomllib
+def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py") -> bool:
+    """Whether Ruff reports ``rule`` for ``source`` at ``filename``, under this project.
 
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
-    return list(ignores["tests/**/*.py"])
+    ``--stdin-filename`` makes the per-file patterns apply without writing to the
+    tree, so the probe is subject to exactly the configuration a real test file
+    would be.
 
-
-def enforced_test_rules(current: set[str]) -> set[str]:
-    """Rules the tests tree is held to: those dropped from the original base list."""
-    return set(EXEMPTIONS_AT_BASE) - current
-
-
-def test_the_tests_exemption_list_only_ever_shrinks() -> None:
-    """The ratchet. No rule may be added, and none re-added once dropped.
-
-    Measured against the already-paid list, so restoring any of this task's two
-    fails here with no parameter list, tuple, or derived set to edit away.
+    **No ``--select``.** Passing one overrides the configured ``ignore``, which
+    means the probe would answer "would Ruff report this if asked specifically",
+    not "does the project's lint report this" -- and a global
+    ``lint.ignore = ["F841"]`` slipped straight through while the probe stayed
+    green. Measured. The gate command is ``ruff check src tests`` with no
+    selection, so the probe runs the same way and looks for the code in the
+    output.
     """
-    current = set(_test_per_file_ignores())
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--stdin-filename", filename,
+         "--output-format", "concise", "--no-cache", "-"],
+        cwd=ROOT,
+        input=source,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    # Match the code by its position -- `path:line:col: CODE message` -- not by
+    # splitting on ":". B017's own message contains a colon, so a naive split
+    # reported it as absent while Ruff was flagging it perfectly well.
+    reported = re.compile(rf":\d+:\d+:\s+{re.escape(rule)}\b")
+    return any(reported.search(line) for line in result.stdout.splitlines())
 
-    assert current <= EXEMPTIONS_AT_RATCHET, (
-        "the tests exemption list grew: "
-        f"{sorted(current - EXEMPTIONS_AT_RATCHET)} was re-exempted"
+
+@pytest.mark.parametrize("rule", sorted(RULE_PROBES))
+def test_the_rules_this_task_enforced_are_reported_on_a_real_violation(rule: str) -> None:
+    """The property itself: a violating test file is flagged.
+
+    Not "the exemption list does not contain the rule" -- that is a claim about
+    configuration, and there is more than one way to write the configuration.
+    """
+    assert rule_is_reported(rule, RULE_PROBES[rule]), (
+        f"{rule} is not reported for a file under tests/; something in the Ruff "
+        "configuration is exempting it again"
     )
 
 
-def test_the_ratchet_reference_really_is_tighter_than_the_base() -> None:
-    """Two constants that were equal would make the ratchet above vacuous."""
-    assert EXEMPTIONS_AT_RATCHET < EXEMPTIONS_AT_BASE
-    assert {"F841", "B017"} == EXEMPTIONS_AT_BASE - EXEMPTIONS_AT_RATCHET
+@pytest.mark.parametrize("rule", sorted(RULE_PROBES))
+def test_the_probe_really_violates_the_rule_it_names(rule: str) -> None:
+    """A probe that violated nothing would make the test above pass for free.
+
+    Checked against a filename outside ``tests/``, where no per-file exemption has
+    ever applied, so a reported violation there proves the source is genuinely
+    offending rather than the rule being globally off.
+    """
+    assert rule_is_reported(rule, RULE_PROBES[rule], filename="scratch/_probe.py")
 
 
-def test_every_rule_dropped_from_the_exemption_is_clean_in_the_tree() -> None:
-    """Whatever the exemption stopped covering is enforced and green."""
-    enforced = enforced_test_rules(set(_test_per_file_ignores()))
+@pytest.mark.parametrize("rule", sorted(RULE_PROBES))
+def test_a_clean_file_is_not_reported(rule: str) -> None:
+    """And the detector is not simply always positive."""
+    assert not rule_is_reported(rule, "def probe():\n    return 1\n")
 
-    assert enforced, "the exemption list has not shrunk at all since the base"
-    for rule in sorted(enforced):
+
+def test_the_tests_tree_itself_is_clean_under_every_enforced_rule() -> None:
+    """Green on landing, which the ticket requires of any enforcement it adds."""
+    for rule in sorted(RULE_PROBES):
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "tests", "--select", rule, "--quiet"],
             cwd=ROOT,
@@ -564,49 +591,6 @@ def test_every_rule_dropped_from_the_exemption_is_clean_in_the_tree() -> None:
         )
 
         assert result.returncode == 0, f"{rule}: {result.stdout}"
-
-
-@pytest.mark.parametrize(
-    ("restored", "still_ratcheted"),
-    [
-        ({"D", "B006", "E501", "F401", "I001", "SIM117"}, True),
-        ({"D", "B006", "E501", "F401", "I001"}, True),
-        ({"D", "B006", "B017", "E501", "F401", "I001", "SIM117"}, False),
-        ({"D", "B006", "E501", "F401", "F841", "I001", "SIM117"}, False),
-        (set(), True),
-    ],
-)
-def test_the_ratchet_refuses_any_restored_exemption(
-    restored: set[str], still_ratcheted: bool
-) -> None:
-    """The mutation both earlier attempts survived, over every relevant shape.
-
-    A pure comparison against the frozen reference, so no live configuration and
-    no editable list stands between the mutation and the failure.
-    """
-    assert (restored <= EXEMPTIONS_AT_RATCHET) is still_ratcheted
-
-
-def test_the_recorded_history_matches_git() -> None:
-    """Both constants are claims about commits, checked against them."""
-    import tomllib
-
-    for commit, expected in (
-        ("20af960a", EXEMPTIONS_AT_BASE),
-        ("66fbe2f8", EXEMPTIONS_AT_RATCHET),
-    ):
-        shown = subprocess.run(
-            ["git", "show", f"{commit}:pyproject.toml"],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if shown.returncode != 0:  # pragma: no cover - shallow clone
-            pytest.skip(f"{commit} unavailable")
-        ignores = tomllib.loads(shown.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
-
-        assert set(ignores["tests/**/*.py"]) == expected, commit
 
 
 def test_vacuity_guard_rejects_a_constant_assertion() -> None:

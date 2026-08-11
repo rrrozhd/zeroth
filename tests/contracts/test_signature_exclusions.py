@@ -156,7 +156,7 @@ def _module_reference(path: Path) -> str:
 #: target, reviewable as such, rather than a rule that quietly exempts a whole
 #: category.
 NON_CLASS_SIGNATURE_SITES = {
-    "zeroth.integrations.langgraph._tool_wrappers:governed": (
+    "zeroth.integrations.langgraph._tool_wrappers:_govern_callable:governed": (
         "a per-call wrapper *function* returned by _sync_callable_wrapper / "
         "_async_callable_wrapper and published by _govern_callable -- the ordinary "
         "functools.wraps idiom, with no class constructor behind it"
@@ -164,42 +164,68 @@ NON_CLASS_SIGNATURE_SITES = {
 }
 
 
-def signature_assignments() -> dict[str, str]:
-    """Every ``<target>.__signature__ = ...`` in the tree, as ``module:name``.
+def _assignment_sites(tree: ast.Module, module: str) -> list[tuple[str, str]]:
+    """Every ``<target>.__signature__ = ...`` as ``(site, target)``.
 
-    Parsed, not matched, and parsed *recursively*. A regex on
-    ``^Name.__signature__ = `` misses an extra space, misses a qualified target
-    like ``models.PolicyDefinition``, and -- worse -- reduces the target to a bare
-    name, so a same-named class in another module would silently satisfy the
-    record. Restricting to module scope misses a hiding site outright.
+    ``site`` is ``module:enclosing.qualname:target`` -- the *lexical location* of
+    the assignment, not the name it happens to write to.
+
+    A previous version keyed a dict by ``module:last_component``, which is a
+    representation of the site rather than the site. Two consequences, both
+    measured: assignments collapsed (a second one with the same target name
+    vanished from the map entirely), and the allowlist ended up exempting a
+    *spelling* -- injecting a function-local class named ``governed`` into
+    ``_tool_wrappers`` inherited the exemption and hid a real field, with the map
+    size unchanged.
     """
-    found: dict[str, str] = {}
+    sites: list[tuple[str, str]] = []
+
+    def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Attribute) and target.attr == "__signature__":
+                        owner = ast.unparse(target.value).rsplit(".", 1)[-1]
+                        where = ".".join(scope) or "<module>"
+                        sites.append((f"{module}:{where}:{owner}", owner))
+            inner = (
+                (*scope, child.name)
+                if isinstance(
+                    child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+                )
+                else scope
+            )
+            visit(child, inner)
+
+    visit(tree, ())
+    return sites
+
+
+def signature_assignments() -> list[str]:
+    """Every ``__signature__`` assignment site in the tree, multiplicity preserved.
+
+    Parsed, not matched, recursively, and returned as a *list*: collapsing into a
+    dict keyed by target name is exactly what let a second assignment disappear.
+    """
+    found: list[str] = []
     for path in sorted(SOURCE.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - the tree parses
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            for target in node.targets:
-                if not isinstance(target, ast.Attribute) or target.attr != "__signature__":
-                    continue
-                # `module.Class` and `Class` both name the class; keep the last
-                # component, but key by the module the assignment is in so two
-                # same-named classes cannot collide.
-                owner = ast.unparse(target.value).rsplit(".", 1)[-1]
-                found[f"{_module_reference(path)}:{owner}"] = path.relative_to(ROOT).as_posix()
-    return found
+        found.extend(site for site, _ in _assignment_sites(tree, _module_reference(path)))
+    return sorted(found)
 
 
-def class_signature_assignments() -> dict[str, str]:
+def class_signature_assignments() -> list[str]:
     """Assignment sites that are not on the verified non-class allowlist."""
-    return {
-        reference: where
-        for reference, where in signature_assignments().items()
-        if reference not in NON_CLASS_SIGNATURE_SITES
-    }
+    return [site for site in signature_assignments() if site not in NON_CLASS_SIGNATURE_SITES]
+
+
+def _recorded_reference(site: str) -> str:
+    """``module:enclosing:target`` -> the ``module:target`` the record is keyed by."""
+    module, _, rest = site.partition(":")
+    return f"{module}:{rest.rsplit(':', 1)[-1]}"
 
 
 def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
@@ -209,9 +235,9 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
     module could reintroduce the silence the record exists to end.
     """
     unrecorded = sorted(
-        f"{reference} ({where})"
-        for reference, where in class_signature_assignments().items()
-        if reference not in HIDDEN_CONSTRUCTOR_FIELDS
+        site
+        for site in class_signature_assignments()
+        if _recorded_reference(site) not in HIDDEN_CONSTRUCTOR_FIELDS
     )
 
     assert unrecorded == [], (
@@ -222,7 +248,7 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
 
 def test_the_record_names_no_class_that_stopped_hiding() -> None:
     """The other direction: a recorded entry whose assignment is gone must go too."""
-    assigning = set(class_signature_assignments())
+    assigning = {_recorded_reference(site) for site in class_signature_assignments()}
     stale = sorted(set(HIDDEN_CONSTRUCTOR_FIELDS) - assigning)
 
     assert stale == [], f"recorded but no longer assigning __signature__: {stale}"
@@ -398,3 +424,38 @@ def test_the_measured_totals_are_what_the_audit_reported() -> None:
     assert len(declared_fields(policy)) == 15
     assert len(inspect.signature(policy).parameters) == 8
     assert len(hidden_fields(tool_call)) == 9
+
+
+def test_two_assignments_with_the_same_target_name_are_two_sites() -> None:
+    """Multiplicity is the property a name-keyed dict destroyed.
+
+    Collapsing by target name meant a second assignment writing the same name
+    vanished from the map -- measured as ``assignment_map_size_delta=0`` when the
+    reviewer injected one -- and it meant the allowlist exempted a *spelling*
+    rather than a place. Keyed by lexical site, the two are distinct.
+    """
+    source = (
+        "class Klass:\n    pass\n\n\n"
+        "Klass.__signature__ = a\n\n\n"
+        "def build():\n    Klass.__signature__ = b\n"
+    )
+    sites = _assignment_sites(ast.parse(source), "probe.module")
+
+    assert len(sites) == 2
+    assert [site for site, _ in sites] == [
+        "probe.module:<module>:Klass",
+        "probe.module:build:Klass",
+    ]
+
+
+def test_the_allowlist_exempts_a_place_and_not_a_name() -> None:
+    """The same target name in another location is a different, unexempted site."""
+    exempted = "zeroth.integrations.langgraph._tool_wrappers:_govern_callable:governed"
+
+    assert exempted in NON_CLASS_SIGNATURE_SITES
+    assert "zeroth.integrations.langgraph._tool_wrappers:_elsewhere:governed" not in (
+        NON_CLASS_SIGNATURE_SITES
+    )
+    assert "zeroth.governance.policy.models:_elsewhere:governed" not in (
+        NON_CLASS_SIGNATURE_SITES
+    )

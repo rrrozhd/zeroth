@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.9] - 2026-08-10
+
+### Fixed
+
+- Two guards now check the property instead of a representation of it, after three
+  attempts each hardened one representation and were defeated by another. The lint ratchet
+  runs Ruff over a real violation and asserts it is reported, reading no configuration at
+  all: `per-file-ignores`, `extend-per-file-ignores`, a global `ignore` and a narrowed
+  `select` are all caught, two of which nobody had enumerated. `__signature__` discovery
+  keys on the lexical assignment site with multiplicity preserved, so the allowlist exempts
+  a place rather than a name (ZER-41 / ZER41-G01-001, ZER41-G01-004).
+
 ## [0.22.2.8.3] - 2026-08-10
 
 ### Fixed
