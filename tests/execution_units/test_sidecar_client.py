@@ -151,6 +151,7 @@ async def test_get_status() -> None:
 @pytest.mark.asyncio
 async def test_cancel() -> None:
     """Client POSTs to /executions/{id}/cancel."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert "/executions/exec-3/cancel" in str(request.url)
@@ -190,6 +191,7 @@ async def test_health() -> None:
 @pytest.mark.asyncio
 async def test_execute_http_error() -> None:
     """Client raises on HTTP 500."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "internal error"})
 
@@ -212,6 +214,7 @@ async def test_execute_http_error() -> None:
 @pytest.mark.asyncio
 async def test_get_status_not_found() -> None:
     """Client raises on HTTP 404 for unknown execution."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"detail": "not found"})
 
