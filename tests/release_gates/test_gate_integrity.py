@@ -493,11 +493,21 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
 # R7, R8 -- the suite's own vacuity guards
 # ---------------------------------------------------------------------------
 
-#: Rules the tests tree is held to. They were muted tree-wide, which is how a
-#: provably unreferenced local and a bare ``pytest.raises(Exception)`` survived.
-#: This list may only shrink: adding a rule back is a decision, and the debt it
-#: hides has to be paid first.
-ENFORCED_TEST_RULES = ("F841", "B017")
+#: The ``tests/**`` exemption list exactly as it stood at the branch base,
+#: `20af960a3d58d297d62facdedd5c91f76fdd1078`.
+#:
+#: The ratchet is driven from *here*, not from a list of rules being enforced.
+#: A "rules we now enforce" tuple is self-indexing: deleting a rule from it also
+#: deletes that rule's verification, so the ratchet consents to its own removal.
+#: Deriving the enforced set as ``base - current`` fixes that -- restoring an
+#: exemption shrinks the derived set and the restored rule stops being checked
+#: only by *growing* the current list past its base, which the subset assertion
+#: refuses.
+#:
+#: This constant is history and never changes. The *current* list may only shrink.
+EXEMPTIONS_AT_BASE = frozenset(
+    {"D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"}
+)
 
 
 def _test_per_file_ignores() -> list[str]:
@@ -508,32 +518,72 @@ def _test_per_file_ignores() -> list[str]:
     return list(ignores["tests/**/*.py"])
 
 
-@pytest.mark.parametrize("rule", ENFORCED_TEST_RULES)
-def test_lint_exemption_for_tests_no_longer_hides_the_rule(rule: str) -> None:
-    """The exemption is gone, and the tree is clean without it.
+def enforced_test_rules(current: set[str]) -> set[str]:
+    """Rules the tests tree is held to: those dropped from the base exemption list."""
+    return set(EXEMPTIONS_AT_BASE) - current
 
-    Two assertions, because either alone can be satisfied dishonestly: removing
-    the exemption while the violations remain would make the gate red, and
-    fixing the violations while the exemption stands leaves nothing enforcing it.
+
+def test_the_tests_exemption_list_only_ever_shrinks() -> None:
+    """No rule may be added to the exemption list, and none re-added once dropped."""
+    current = set(_test_per_file_ignores())
+
+    assert current <= EXEMPTIONS_AT_BASE, current - EXEMPTIONS_AT_BASE
+
+
+def test_every_rule_dropped_from_the_exemption_is_clean_in_the_tree() -> None:
+    """Whatever the current list stopped exempting is enforced and green.
+
+    Driven by the difference from the base list, so it cannot be silenced by
+    editing a list of enforced rules: re-adding ``F841`` to the exemption makes
+    the *derived* set smaller, and the previous test refuses the growth.
     """
-    assert rule not in _test_per_file_ignores()
+    enforced = enforced_test_rules(set(_test_per_file_ignores()))
 
-    result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "tests", "--select", rule, "--quiet"],
+    assert enforced, "the exemption list has not shrunk at all since the base"
+    for rule in sorted(enforced):
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "tests", "--select", rule, "--quiet"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, f"{rule}: {result.stdout}"
+
+
+@pytest.mark.parametrize("rule", ["F841", "B017"])
+def test_the_rules_this_task_enforced_are_still_enforced(rule: str) -> None:
+    """Named explicitly, so ZER-41's own two cannot slip out of the derived set."""
+    assert rule not in _test_per_file_ignores()
+    assert rule in enforced_test_rules(set(_test_per_file_ignores()))
+
+
+def test_restoring_an_exemption_is_visible_to_the_ratchet() -> None:
+    """The mutation the auditor used: drop a rule from the enforced list and restore
+    its exemption. Under the old self-indexing tuple both checks stayed green."""
+    restored = set(_test_per_file_ignores()) | {"F841"}
+
+    assert not restored <= EXEMPTIONS_AT_BASE or "F841" not in enforced_test_rules(restored)
+    assert "F841" not in enforced_test_rules(restored)
+
+
+def test_the_base_exemption_list_is_the_one_the_branch_started_from() -> None:
+    """History, checked against git rather than trusted as a literal."""
+    import tomllib
+
+    base = subprocess.run(
+        ["git", "show", "20af960a:pyproject.toml"],
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
     )
+    if base.returncode != 0:  # pragma: no cover - shallow clone
+        pytest.skip("base commit unavailable")
+    recorded = tomllib.loads(base.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
 
-    assert result.returncode == 0, result.stdout
-
-
-def test_the_enforced_rule_list_can_only_shrink() -> None:
-    """A rule named here may not quietly return to the exemption list."""
-    exempt = set(_test_per_file_ignores())
-
-    assert not exempt & set(ENFORCED_TEST_RULES)
+    assert set(recorded["tests/**/*.py"]) == EXEMPTIONS_AT_BASE
 
 
 def test_vacuity_guard_rejects_a_constant_assertion() -> None:
@@ -815,31 +865,68 @@ def _pull_request_workflows() -> list[str]:
     return names
 
 
-def test_the_pull_request_container_gap_is_declared_and_still_real() -> None:
-    """The record has to describe the workflows as they are, not as they were.
+def observed_pull_request_container_use() -> list[str]:
+    """Where a pull-request workflow reaches a container, if anywhere.
 
-    If a PR workflow starts building a container the entry must go, and if one
-    never does the entry must stay: either way the gap is a checked statement
-    rather than something a reader has to reconstruct from eight files.
+    Both shapes count. A ``run:`` line invoking the CLI is the obvious one; a
+    ``uses:`` step such as ``docker/build-push-action`` builds an image without
+    the word ever appearing in a script, and reading only ``run:`` would have
+    missed it entirely.
+
+    Comment lines are stripped: ``verify-extras.yml`` explains in prose why its
+    gate stops short of the Docker CLI, and a substring search over the raw
+    script reads that explanation as an invocation.
     """
-    assert NOT_COVERED_ON_PULL_REQUESTS
+    found: list[str] = []
+    for name in _pull_request_workflows():
+        for job_name, job in _workflow(name)["jobs"].items():
+            if job.get("container") or (job.get("services") or {}):
+                found.append(f"{name}:{job_name}: job-level container/services")
+            for step in job.get("steps") or []:
+                action = str(step.get("uses", ""))
+                if re.search(r"docker|buildx|build-push", action, re.IGNORECASE):
+                    found.append(f"{name}:{job_name}: uses {action}")
+                for line in str(step.get("run", "")).splitlines():
+                    if not line.strip().startswith("#") and re.search(r"\bdocker\b", line):
+                        found.append(f"{name}:{job_name}: {line.strip()}")
+    return found
 
-    # Comment lines are stripped: `verify-extras.yml` explains in prose why its
-    # gate stops short of the Docker CLI, and a substring search over the raw
-    # script would read that explanation as an invocation.
-    invoking = [
-        f"{name}: {line.strip()}"
-        for name in _pull_request_workflows()
-        for job in _workflow(name)["jobs"].values()
-        for step in job.get("steps") or []
-        for line in str(step.get("run", "")).splitlines()
-        if not line.strip().startswith("#") and re.search(r"\bdocker\b", line)
-    ]
 
-    assert invoking == [], (
-        "a pull-request workflow now runs docker; remove the 'docker' entry from "
-        f"NOT_COVERED_ON_PULL_REQUESTS: {invoking}"
-    )
+def test_the_pull_request_container_gap_is_declared_and_still_real() -> None:
+    """The record must equal what is observed -- in both directions.
+
+    Exact comparison, not "the record is non-empty and nothing was found". The
+    weaker form accepts an invented exclusion, and it also refuses the one
+    outcome the record exists to reach: an empty record, meaning the gap was
+    closed. Deriving the observed set and comparing exactly permits the shrink to
+    empty and rejects padding.
+    """
+    observed = observed_pull_request_container_use()
+    declared = set(NOT_COVERED_ON_PULL_REQUESTS)
+
+    if observed:
+        assert declared == set(), (
+            "a pull-request workflow now reaches a container, so the gap is closed; "
+            f"empty NOT_COVERED_ON_PULL_REQUESTS. Found: {observed}"
+        )
+    else:
+        assert declared == {"docker"}, (
+            "no pull-request workflow reaches a container, so the record must say "
+            f"exactly that and nothing more; got {sorted(declared)}"
+        )
+
+
+def test_the_container_detector_sees_an_action_not_only_a_shell_line() -> None:
+    """The shape a run-line scan cannot see, exercised directly."""
+    workflow = {
+        "on": {"pull_request": {}},
+        "jobs": {"build": {"steps": [{"uses": "docker/build-push-action@v6"}]}},
+    }
+    steps = workflow["jobs"]["build"]["steps"]
+
+    assert any(re.search(r"docker|buildx|build-push", str(s.get("uses", "")), re.IGNORECASE)
+               for s in steps)
+    assert not any(str(s.get("run", "")) for s in steps)
 
 
 def test_the_container_evidence_really_is_release_gated() -> None:
@@ -880,17 +967,92 @@ def test_no_configured_pytest_invocation_passes_dash_x() -> None:
     assert "--exitfirst" not in addopts
 
     invocations = [
-        line
+        f"{path.name}: {command}"
         for path in sorted(WORKFLOWS.glob("*.yml"))
         for job in (_workflow(path.name).get("jobs") or {}).values()
         for step in job.get("steps") or []
-        for line in str(step.get("run", "")).splitlines()
-        if "pytest" in line
+        for command in joined_commands(str(step.get("run", "")))
+        if "pytest" in command
     ]
 
     assert invocations, "no pytest invocation found -- the assertion would be vacuous"
-    for line in invocations:
-        assert " -x" not in line and "--exitfirst" not in line, line
+    for command in invocations:
+        assert not exits_first(command), command
+
+
+def joined_commands(script: str) -> list[str]:
+    """A shell script's logical commands, with backslash continuations joined.
+
+    Reading raw lines misses the ordinary shape
+
+        uv run pytest -q \\
+          -x --junitxml=...
+
+    where the flag lands on the next physical line. The workflows use exactly
+    this continuation style for every long invocation, so a line-wise scan is
+    blind precisely where it matters.
+    """
+    commands: list[str] = []
+    pending = ""
+    for line in script.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if stripped.endswith("\\"):
+            pending += stripped[:-1].strip() + " "
+            continue
+        commands.append((pending + stripped).strip())
+        pending = ""
+    if pending:
+        commands.append(pending.strip())
+    return [command for command in commands if command]
+
+
+def exits_first(command: str) -> bool:
+    """Whether a command passes pytest's exit-on-first-failure flag.
+
+    Tokenised, so `-x` is not confused with `--exitfirst=`-lookalikes or with an
+    `-x` embedded in a path, and grouped short flags like `-qx` are still caught.
+    """
+    import shlex
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:  # pragma: no cover - unbalanced quotes in a script
+        tokens = command.split()
+    for token in tokens:
+        if token == "--exitfirst" or token.startswith("--exitfirst="):
+            return True
+        if token.startswith("-") and not token.startswith("--") and "x" in token[1:]:
+            return True
+    return False
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "uv run pytest -q -x\n",
+        "uv run pytest -q \\\n  -x --junitxml=out.xml\n",
+        "uv run pytest \\\n  --exitfirst \\\n  -q\n",
+        "uv run pytest -qx\n",
+    ],
+)
+def test_the_dash_x_detector_sees_a_multiline_invocation(script: str) -> None:
+    """The shape a line-wise scan misses, in the four spellings it can take."""
+    assert any(exits_first(command) for command in joined_commands(script)), script
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "uv run pytest -q --no-header -ra\n",
+        "uv run pytest -q \\\n  --junitxml=release/evidence/source-junit.xml\n",
+        "uv run pytest -q -m 'not live' --maxfail=3\n",
+    ],
+)
+def test_the_dash_x_detector_accepts_the_invocations_actually_used(script: str) -> None:
+    """A detector that flagged every command would be noise, not a check."""
+    assert not any(exits_first(command) for command in joined_commands(script)), script
 
 
 def test_the_rate_limit_window_test_no_longer_sleeps_through_its_window() -> None:

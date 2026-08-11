@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.8] - 2026-08-10
+
+### Fixed
+
+- Five shrink-only records could not detect their own drift, each found by this task's own
+  initial audit. The lint ratchet was self-indexing; the pull-request container record
+  accepted invented entries, forbade the legitimate shrink to empty, and could not see a
+  `uses:` container action; the stale-evidence record accepted pre-authorised releases;
+  `__signature__` discovery was regex-based and lost module identity; and the `-x` scan
+  missed a backslash-continued invocation. Each now derives the observed set independently
+  and compares exactly, and each ships the mutation that defeated it (ZER-41).
+
 ## [0.22.2.7] - 2026-08-10
 
 ### Fixed

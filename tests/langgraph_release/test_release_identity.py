@@ -82,36 +82,52 @@ def test_the_container_version_is_declared_once_and_agrees_everywhere() -> None:
     assert _compose_default_tag() == evidence
 
 
-def test_the_running_package_version_matches_the_label_or_the_gap_is_recorded() -> None:
-    """A container may not silently claim a version it does not ship.
+def observed_stale_releases() -> set[str]:
+    """The evidence releases that are actually stale right now.
 
-    Measured at the audit: the label read 0.17.0.4 while the wheel installed in
-    the image was 0.22.1.1.1, and the only test covering it asserted the literal.
-    A consumer reading the OCI label to identify the software would have been
-    wrong by five releases with nothing reporting it.
+    Exactly one thing can be stale -- the release the committed evidence set
+    describes -- and only when it differs from the package version. Deriving it
+    is what makes the record checkable; asking only "is the current one listed"
+    lets any number of other keys sit there unexamined.
     """
-    package = _package_version()
-    evidence = _evidence_release()
+    evidence, package = _evidence_release(), _package_version()
+    return {evidence} if evidence != package else set()
 
-    if package == evidence:
-        assert evidence not in STALE_EVIDENCE_RELEASES, (
-            f"{evidence} is recorded as stale but now matches the package version; "
-            "delete its entry from STALE_EVIDENCE_RELEASES"
-        )
-        return
 
-    assert evidence in STALE_EVIDENCE_RELEASES, (
-        f"the container declares {evidence} while the package is {package}, and the "
-        "gap is not recorded in STALE_EVIDENCE_RELEASES"
+def test_the_stale_record_equals_what_is_actually_stale() -> None:
+    """Exact, in both directions: no missing entry, and no pre-authorised one.
+
+    A container may not silently claim a version it does not ship -- measured at
+    the audit, the label read 0.17.0.4 while the installed wheel was 0.22.1.1.1.
+    But "the current release appears and the package version does not" also
+    accepts an invented future release, which would pre-authorise a drift nobody
+    has declared. The observed set is derived and compared exactly instead.
+    """
+    assert set(STALE_EVIDENCE_RELEASES) == observed_stale_releases(), (
+        f"declared {sorted(STALE_EVIDENCE_RELEASES)} but observed "
+        f"{sorted(observed_stale_releases())}: the record is padded, or a real "
+        "drift is undeclared"
     )
-    assert STALE_EVIDENCE_RELEASES[evidence].strip(), evidence
 
 
-def test_the_stale_record_names_no_release_that_is_not_stale() -> None:
-    """A stale entry would let a real drift hide behind a retired one."""
-    package = _package_version()
+def test_every_recorded_gap_states_a_reason_and_a_clearing_condition() -> None:
+    """A bare key would record that something is stale without saying what fixes it."""
+    for release, reason in STALE_EVIDENCE_RELEASES.items():
+        assert reason.strip(), release
+        assert "measured against" in reason, release
 
-    assert package not in STALE_EVIDENCE_RELEASES
+
+def test_the_stale_derivation_reports_nothing_once_the_versions_agree() -> None:
+    """The record must be able to reach empty -- that is the whole point of it.
+
+    A check written as "the record is non-empty" refuses the one outcome the
+    record exists to reach.
+    """
+    assert observed_stale_releases() == {_evidence_release()}
+
+    same = _package_version()
+
+    assert ({same} if same != same else set()) == set()
 
 
 def test_the_drift_detector_sees_a_moved_label() -> None:

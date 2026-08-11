@@ -20,10 +20,10 @@ a deferred observation rather than attempted here (ZER-41 / A03-14).
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import importlib
 import inspect
-import re
 from pathlib import Path
 from typing import Any
 
@@ -135,28 +135,120 @@ def test_the_recorded_exclusions_match_what_the_class_actually_hides(reference: 
     assert hidden_fields(_resolve(reference)) == set(HIDDEN_CONSTRUCTOR_FIELDS[reference])
 
 
+def _module_reference(path: Path) -> str:
+    """``src/zeroth/a/b.py`` -> ``zeroth.a.b``."""
+    relative = path.relative_to(SOURCE.parent).with_suffix("")
+    parts = [part for part in relative.parts if part != "__init__"]
+    return ".".join(parts)
+
+
+def signature_assignments() -> dict[str, str]:
+    """Every ``<target>.__signature__ = ...`` in the tree, as ``module:qualname``.
+
+    Parsed, not matched. A regex on ``^Name.__signature__ = `` misses an extra
+    space, misses a qualified target like ``models.PolicyDefinition``, and -- worse
+    -- reduces the target to a bare name, so a same-named class in another module
+    would silently satisfy the record. The AST gives the assignment target
+    exactly, and pairing it with the module makes the identity canonical.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(SOURCE.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - the tree parses
+            continue
+        # Module level only. A ``__signature__`` assigned inside a function body
+        # belongs to an object built at call time -- ``_tool_wrappers`` publishes
+        # one on each governed callable it wraps, the ordinary ``functools.wraps``
+        # idiom. That cannot hide a field from a gate that pins *class*
+        # signatures, so scoping to module scope is what the record governs, not
+        # a convenient exclusion.
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if not isinstance(target, ast.Attribute) or target.attr != "__signature__":
+                    continue
+                owner = ast.unparse(target.value)
+                # `module.Class` and `Class` both name the class; keep the last
+                # component, but key the record by the module the assignment is in
+                # so two same-named classes cannot collide.
+                found[f"{_module_reference(path)}:{owner.rsplit('.', 1)[-1]}"] = (
+                    path.relative_to(ROOT).as_posix()
+                )
+    return found
+
+
 def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
     """Every ``__signature__`` assignment in the tree belongs to a recorded class.
 
     Without this, the record covers only the classes it already names and a new
     module could reintroduce the silence the record exists to end.
     """
-    recorded = {reference.partition(":")[2] for reference in HIDDEN_CONSTRUCTOR_FIELDS}
-    assigning: dict[str, str] = {}
-    for path in sorted(SOURCE.rglob("*.py")):
-        for match in re.finditer(
-            r"^(\w+)\.__signature__ = ", path.read_text(encoding="utf-8"), re.MULTILINE
-        ):
-            assigning[match.group(1)] = path.relative_to(ROOT).as_posix()
-
     unrecorded = sorted(
-        f"{name} ({where})" for name, where in assigning.items() if name not in recorded
+        f"{reference} ({where})"
+        for reference, where in signature_assignments().items()
+        if reference not in HIDDEN_CONSTRUCTOR_FIELDS
     )
 
     assert unrecorded == [], (
         "these classes hide constructor fields from the protected-surface gate "
         f"without being recorded in HIDDEN_CONSTRUCTOR_FIELDS: {unrecorded}"
     )
+
+
+def test_the_record_names_no_class_that_stopped_hiding() -> None:
+    """The other direction: a recorded entry whose assignment is gone must go too."""
+    assigning = set(signature_assignments())
+    stale = sorted(set(HIDDEN_CONSTRUCTOR_FIELDS) - assigning)
+
+    assert stale == [], f"recorded but no longer assigning __signature__: {stale}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "PolicyDefinition.__signature__ = value",
+        "PolicyDefinition.__signature__  = value",
+        "models.PolicyDefinition.__signature__ = value",
+        "PolicyDefinition.__signature__ = inspect.signature(PolicyDefinition).replace()",
+    ],
+)
+def test_the_assignment_detector_sees_every_spelling(tmp_path: Path, source: str) -> None:
+    """The four shapes a line-anchored regex misses or misidentifies.
+
+    The auditor's mutation: extra spacing and a qualified target both evaded the
+    previous detector, and a bare-name key would let a same-named class in another
+    module satisfy the record.
+    """
+    tree = ast.parse(source)
+    targets = [
+        ast.unparse(target.value).rsplit(".", 1)[-1]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute) and target.attr == "__signature__"
+    ]
+
+    assert targets == ["PolicyDefinition"]
+
+
+def test_a_signature_assigned_inside_a_function_is_not_a_class_pin() -> None:
+    """Scope is part of the rule, and the rule says so rather than filtering by name."""
+    module_level = ast.parse("Klass.__signature__ = value")
+    inside_function = ast.parse("def build():\n    obj.__signature__ = value\n")
+
+    def module_scope_targets(tree: ast.Module) -> list[str]:
+        return [
+            target.attr
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Attribute)
+        ]
+
+    assert module_scope_targets(module_level) == ["__signature__"]
+    assert module_scope_targets(inside_function) == []
 
 
 def test_the_record_names_no_class_that_hides_nothing() -> None:
