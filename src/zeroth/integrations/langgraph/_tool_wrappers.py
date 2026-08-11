@@ -1976,6 +1976,7 @@ def _governed_action(
         side_effect=plan.binding.side_effect,
         capability_refs=plan.binding.capability_refs,
         requires_approval=plan.binding.requires_approval,
+        identity_configuration=plan.binding.identity_configuration,
         tool_call_id=plan.seams.tool_call_id if tool_call_id is None else tool_call_id,
     )
     if action.identity != plan.binding.identity:

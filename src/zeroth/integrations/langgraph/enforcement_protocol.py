@@ -56,6 +56,7 @@ class ActionDescriptorV1(BaseModel):
     contract_ref: str | None = None
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 class DecisionRequestV1(BaseModel):
@@ -101,6 +102,7 @@ class InventoryEntryV1(BaseModel):
     contract_ref: str | None = None
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 class InventoryRegistrationV1(BaseModel):

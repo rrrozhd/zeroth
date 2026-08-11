@@ -138,6 +138,7 @@ class ToolAction:
         side_effect: How the classifier rates invoking this tool.
         capability_refs: Capabilities the tool requires.
         requires_approval: Whether this tool explicitly requires approval.
+        identity_configuration: The identity-bearing configuration names.
         tool_call_id: The framework's stable per-call identity, when available.
     """
 
@@ -148,12 +149,14 @@ class ToolAction:
     side_effect: SideEffectClass = SideEffectClass.UNKNOWN
     capability_refs: Sequence[str] = ()
     requires_approval: bool = False
+    identity_configuration: Sequence[str] = ()
     tool_call_id: str | None = None
 
     def __post_init__(self) -> None:
         """Snapshot the arguments so a later caller-side mutation cannot reach them."""
         object.__setattr__(self, "arguments", _snapshot_mapping(self.arguments))
         object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
+        object.__setattr__(self, "identity_configuration", tuple(self.identity_configuration))
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +176,7 @@ class ToolPolicyDescriptor:
     contract_ref: str | None
     capability_refs: tuple[str, ...]
     requires_approval: bool
+    identity_configuration: tuple[str, ...]
 
     def wire_fields(self) -> dict[str, object]:
         """Flatten the identity and return every policy field by dataclass shape."""
@@ -200,6 +204,7 @@ def describe_tool_policy(action: ToolAction) -> ToolPolicyDescriptor:
         contract_ref=action.contract_ref,
         capability_refs=tuple(action.capability_refs),
         requires_approval=action.requires_approval,
+        identity_configuration=tuple(action.identity_configuration),
     )
 
 
@@ -252,6 +257,19 @@ class ToolInventoryEntry:
         """Snapshot capability and declaration references with the rest of the entry."""
         object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
         object.__setattr__(self, "identity_configuration", tuple(self.identity_configuration))
+
+    def wire_fields(self) -> dict[str, object]:
+        """Flatten the identity and return the complete canonical entry field set."""
+        payload: dict[str, object] = {
+            "name": self.identity.name,
+            "fingerprint": self.identity.fingerprint,
+        }
+        for field in fields(self):
+            if field.name == "identity":
+                continue
+            value = getattr(self, field.name)
+            payload[field.name] = value.value if type(value) is SideEffectClass else value
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

@@ -89,6 +89,7 @@ class NormalizedAction(BaseModel):
             rather than to anything the service would admit.
         capability_refs: Capabilities the action requires.
         requires_approval: Whether the tool explicitly requires a human approval.
+        identity_configuration: Identity-bearing configuration names in the fingerprint.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -100,6 +101,7 @@ class NormalizedAction(BaseModel):
     side_effect: SideEffect = "unknown"
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 class DecisionRequest(BaseModel):

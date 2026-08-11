@@ -40,7 +40,10 @@ are plain frozen dataclasses that any caller can construct with anything, so
 every identity is *rebuilt* from fields that passed
 :func:`~zeroth.integrations.langgraph._tool_normalize.normalize_identifier` --
 on the recorded side and on the declared side alike. That is what stops a
-``str`` subclass smuggled into a name from forging a match. For the same reason
+``str`` subclass smuggled into a name from forging a match. The inventory digest
+covers the complete canonical entry, not only that matching key: changing policy
+metadata or the declared identity configuration invalidates attestation evidence.
+For the same reason
 the binding is read structurally rather than through an exact-type gate on
 :class:`~zeroth.integrations.langgraph._tool_wrappers.GovernedToolBinding`:
 exact-typing a dataclass anybody can build buys nothing, while importing it would
@@ -103,7 +106,6 @@ from zeroth.integrations.langgraph._tool_normalize import (
     normalize_contract_ref,
     normalize_identifier,
     normalize_identity_configuration,
-    normalize_requires_approval,
 )
 from zeroth.integrations.langgraph._tool_types import (
     InventoryCoverage,
@@ -191,13 +193,7 @@ def _gated_entry(entry: object) -> ToolInventoryEntry:
     """Rebuild one inventory entry from gated fields, or refuse it."""
     if type(entry) is not ToolInventoryEntry:
         raise UnstableToolIdentityError("a tool inventory holds ToolInventoryEntry values")
-    return ToolInventoryEntry(
-        identity=_gated_identity(entry.identity),
-        side_effect=classify_side_effect(entry.side_effect),
-        contract_ref=normalize_contract_ref(entry.contract_ref),
-        capability_refs=normalize_capability_refs(entry.capability_refs),
-        requires_approval=normalize_requires_approval(entry.requires_approval),
-    )
+    return _entry_from_binding(entry)
 
 
 def _gated_entries(inventory: object) -> tuple[ToolInventoryEntry, ...]:
@@ -447,14 +443,14 @@ def record_binding_inventory(bindings: Iterable[object]) -> ToolInventory:
 
 
 def inventory_fingerprint(inventory: object) -> str:
-    """Return the order-insensitive digest of which tools an inventory holds.
+    """Return the order-insensitive digest of the complete governed inventory.
 
-    Computed over the sorted name/fingerprint pairs through
+    Computed over sorted whole-entry objects through
     :func:`~zeroth.integrations.langgraph._tool_normalize.argument_fingerprint`,
     so it inherits that projection's exact-type refusals rather than hashing
-    whatever it was handed. Two inventories holding the same tools in different
-    orders digest alike; one holding a same-named tool with a different
-    fingerprint does not.
+    whatever it was handed. Two inventories holding the same entries in different
+    orders digest alike; changing identity, policy metadata, or declared identity
+    configuration changes the digest.
 
     Args:
         inventory: The recorded inventory.
@@ -467,8 +463,8 @@ def inventory_fingerprint(inventory: object) -> str:
         UnstableToolIdentityError: If an entry or identity is unusable.
     """
     entries = _gated_entries(inventory)
-    pairs = sorted([entry.identity.name, entry.identity.fingerprint] for entry in entries)
-    return argument_fingerprint({"tools": pairs})
+    payload = sorted((entry.wire_fields() for entry in entries), key=lambda item: item["name"])
+    return argument_fingerprint({"tools": payload})
 
 
 def match_tool_inventory(inventory: object, expected: Iterable[object]) -> ToolInventoryMatch:

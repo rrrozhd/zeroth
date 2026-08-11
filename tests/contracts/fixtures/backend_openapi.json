@@ -29,6 +29,13 @@
             "minLength": 1,
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "type": "string"
@@ -2175,6 +2182,13 @@
             "minLength": 1,
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "type": "string"
@@ -2993,6 +3007,13 @@
           "fingerprint": {
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
@@ -3201,12 +3222,49 @@
       "RegisteredTool": {
         "additionalProperties": false,
         "properties": {
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "fingerprint": {
             "minLength": 1,
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "type": "boolean"
+          },
+          "side_effect": {
+            "default": "unknown",
+            "enum": [
+              "read_only",
+              "side_effecting",
+              "unknown"
+            ],
             "type": "string"
           }
         },

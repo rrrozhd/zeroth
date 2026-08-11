@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -53,6 +54,7 @@ from zeroth.integrations.langgraph._tool_inventory import (
 )
 from zeroth.integrations.langgraph._tool_types import (
     InventoryCoverage,
+    SideEffectClass,
     ToolIdentity,
     ToolInventory,
     ToolInventoryEntry,
@@ -200,6 +202,25 @@ def test_the_inventory_fingerprint_ignores_order_and_nothing_else() -> None:
     assert inventory_fingerprint(dropped) != inventory_fingerprint(forward)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("side_effect", SideEffectClass.READ_ONLY),
+        ("contract_ref", "contract:search@v1"),
+        ("capability_refs", ("network_read",)),
+        ("requires_approval", True),
+        ("identity_configuration", ("endpoint",)),
+    ],
+)
+def test_every_inventory_entry_field_binds_the_fingerprint(field: str, value: object) -> None:
+    """Changing governance metadata must invalidate an attested inventory digest."""
+    baseline_entry = ToolInventoryEntry(identity=ToolIdentity("search", "sha256:tool"))
+    baseline = ToolInventory(entries=(baseline_entry,))
+    changed = ToolInventory(entries=(replace(baseline_entry, **{field: value}),))
+
+    assert inventory_fingerprint(changed) != inventory_fingerprint(baseline)
+
+
 def test_an_ungoverned_tool_refuses_the_recording() -> None:
     """A tool nobody governed must not be silently absent from the inventory."""
     with pytest.raises(UnstableToolIdentityError):
@@ -326,6 +347,23 @@ def test_completeness_is_minted_only_by_an_exact_match() -> None:
             record_tool_inventory(_governed(_tool("search", body=_substituted_body))),
             [declared[0]],
         )
+
+
+def test_attestation_preserves_the_whole_inventory_entry() -> None:
+    """The strongest coverage claim must not rebuild a subset of the recorded facts."""
+    entry = ToolInventoryEntry(
+        identity=ToolIdentity("search", "sha256:tool"),
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+        contract_ref="contract:search@v1",
+        capability_refs=("network_read",),
+        requires_approval=True,
+        identity_configuration=("endpoint",),
+    )
+    inventory = ToolInventory(entries=(entry,))
+
+    attested = attest_complete_inventory(inventory, (entry.identity,))
+
+    assert attested.entries == inventory.entries
 
 
 # -- R13: never `enforced`, and nothing here could make it reachable ----------

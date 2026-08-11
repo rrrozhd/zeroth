@@ -86,15 +86,7 @@ class LangGraphGatewayClient:
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._entries = tuple(
-            InventoryEntryV1(
-                name=entry.identity.name,
-                fingerprint=entry.identity.fingerprint,
-                side_effect=entry.side_effect,
-                contract_ref=entry.contract_ref,
-                capability_refs=tuple(entry.capability_refs),
-                requires_approval=entry.requires_approval,
-            )
-            for entry in inventory.entries
+            InventoryEntryV1(**entry.wire_fields()) for entry in inventory.entries
         )
         self.inventory_fingerprint = inventory_fingerprint(self._entries)
         self._client = httpx.Client(

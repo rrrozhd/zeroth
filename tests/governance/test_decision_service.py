@@ -609,6 +609,7 @@ ACTION_MUTATIONS: dict[str, Any] = {
     "side_effect": "read_only",
     "capability_refs": ("network_write",),
     "requires_approval": True,
+    "identity_configuration": ("endpoint",),
 }
 
 

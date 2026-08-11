@@ -58,6 +58,7 @@ def _action() -> ToolAction:
         side_effect=SideEffectClass.READ_ONLY,
         capability_refs=("network_read",),
         requires_approval=True,
+        identity_configuration=("endpoint",),
     )
 
 
@@ -130,6 +131,7 @@ def test_both_decision_wires_accept_the_whole_canonical_policy_descriptor() -> N
         contract_ref=None,
         capability_refs=("network_read",),
         requires_approval=True,
+        identity_configuration=("endpoint",),
     )
     assert descriptor == expected
     policy_fields = descriptor.wire_fields()
