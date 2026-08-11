@@ -1825,6 +1825,13 @@ export interface components {
             roles: string[];
             /** Sub */
             sub: string;
+            /**
+             * Tenant Id
+             * @default default
+             */
+            tenant_id?: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
         };
         /** OutcomeBatchIngestRequest */
         OutcomeBatchIngestRequest: {
@@ -2056,6 +2063,10 @@ export interface components {
             roles: string[];
             /** Sub */
             sub: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
         };
         /** ValidationError */
         ValidationError: {

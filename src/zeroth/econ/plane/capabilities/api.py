@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.auth.deps import require_roles
+from zeroth.econ.plane.auth.deps import (
+    get_current_scoped_db,
+    require_claimed_tenant,
+    require_roles,
+)
 from zeroth.econ.plane.auth.schemas import UserClaims
 from zeroth.econ.plane.capabilities.schemas import (
     CapabilityCreate,
@@ -26,7 +29,7 @@ from zeroth.econ.plane.capabilities.service import (
     list_capabilities,
     list_experiments,
 )
-from zeroth.econ.plane.database import get_db
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["capabilities", "registry"])
 
@@ -68,9 +71,12 @@ def _impl_out(row: object) -> ImplementationOut:
 @router.post("/capabilities", response_model=CapabilityOut)
 def post_capability(
     payload: CapabilityCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> CapabilityOut:
+    payload = payload.model_copy(
+        update={"tenant_id": require_claimed_tenant(_user, payload.tenant_id)}
+    )
     row = create_capability(db, payload)
     return _cap_out(row)
 
@@ -79,9 +85,12 @@ def post_capability(
 def post_implementation(
     capability_id: str,
     payload: ImplementationCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ImplementationOut:
+    payload = payload.model_copy(
+        update={"tenant_id": require_claimed_tenant(_user, payload.tenant_id)}
+    )
     capability = get_capability(db, capability_id)
     if capability is None:
         raise HTTPException(status_code=404, detail="Capability not found")
@@ -91,7 +100,7 @@ def post_implementation(
 
 @router.get("/capabilities", response_model=list[CapabilityOut])
 def get_capabilities(
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[CapabilityOut]:
     return [_cap_out(c) for c in list_capabilities(db)]
@@ -100,7 +109,7 @@ def get_capabilities(
 @router.get("/capabilities/{capability_id}", response_model=CapabilityDetail)
 def get_capability_detail(
     capability_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> CapabilityDetail:
     capability = get_capability(db, capability_id)
@@ -114,15 +123,15 @@ def get_capability_detail(
 @router.post("/registry/capabilities", response_model=CapabilityOut)
 def post_registry_capability(
     payload: CapabilityCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> CapabilityOut:
-    return post_capability(payload, db)
+    return post_capability(payload, db, _user)
 
 
 @router.get("/registry/capabilities", response_model=list[CapabilityOut])
 def get_registry_capabilities(
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[CapabilityOut]:
     return get_capabilities(db)
@@ -131,7 +140,7 @@ def get_registry_capabilities(
 @router.get("/registry/capabilities/{capability_id}", response_model=CapabilityDetail)
 def get_registry_capability(
     capability_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> CapabilityDetail:
     return get_capability_detail(capability_id, db)
@@ -140,18 +149,18 @@ def get_registry_capability(
 @router.post("/registry/implementations", response_model=ImplementationOut)
 def post_registry_implementation(
     payload: ImplementationCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ImplementationOut:
     if not payload.capability_id:
         raise HTTPException(status_code=422, detail="capability_id is required")
-    return post_implementation(payload.capability_id, payload, db)
+    return post_implementation(payload.capability_id, payload, db, _user)
 
 
 @router.get("/registry/implementations/{implementation_id}", response_model=ImplementationOut)
 def get_registry_implementation(
     implementation_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> ImplementationOut:
     implementation = get_implementation(db, implementation_id)
@@ -163,9 +172,12 @@ def get_registry_implementation(
 @router.post("/registry/deployments", response_model=DeploymentOut)
 def post_registry_deployment(
     payload: DeploymentCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> DeploymentOut:
+    payload = payload.model_copy(
+        update={"tenant_id": require_claimed_tenant(_user, payload.tenant_id)}
+    )
     row = create_deployment(db, payload)
     return DeploymentOut(
         id=row.id,
@@ -181,7 +193,7 @@ def post_registry_deployment(
 @router.get("/registry/deployments/{capability_id}", response_model=DeploymentOut)
 def get_registry_deployment(
     capability_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> DeploymentOut:
     row = get_deployment(db, capability_id)
@@ -201,9 +213,12 @@ def get_registry_deployment(
 @router.post("/registry/experiments", response_model=ExperimentOut)
 def post_registry_experiment(
     payload: ExperimentCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ExperimentOut:
+    payload = payload.model_copy(
+        update={"tenant_id": require_claimed_tenant(_user, payload.tenant_id)}
+    )
     row = create_experiment(db, payload)
     return ExperimentOut.model_validate(row)
 
@@ -211,7 +226,7 @@ def post_registry_experiment(
 @router.get("/registry/experiments/{capability_id}", response_model=list[ExperimentOut])
 def get_registry_experiments(
     capability_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[ExperimentOut]:
     return [ExperimentOut.model_validate(r) for r in list_experiments(db, capability_id)]

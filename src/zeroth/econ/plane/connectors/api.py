@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.auth.deps import require_roles
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
 from zeroth.econ.plane.auth.schemas import UserClaims
 from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.connectors.schemas import (
@@ -23,16 +23,17 @@ from zeroth.econ.plane.connectors.service import (
     set_connector_enabled,
 )
 from zeroth.econ.plane.database import get_db
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["connectors", "metrics"])
 
 
 @router.get("/connectors", response_model=list[ConnectorStatusOut])
 def get_connectors(
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[ConnectorStatusOut]:
-    rows = connector_status(db, resolve_tenant_id(None))
+    rows = connector_status(db, _user.tenant_id)
     return [ConnectorStatusOut(**r) for r in rows]
 
 
@@ -40,11 +41,11 @@ def get_connectors(
 def configure(
     connector_type: str,
     payload: ConnectorConfigRequest,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ConnectorConfigOut:
     try:
-        row = configure_connector(db, resolve_tenant_id(None), connector_type, payload.config_json)
+        row = configure_connector(db, _user.tenant_id, connector_type, payload.config_json)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ConnectorConfigOut.model_validate(row)
@@ -53,12 +54,12 @@ def configure(
 @router.post("/connectors/{connector_type}/enable", response_model=ConnectorConfigOut)
 def enable(
     connector_type: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ConnectorConfigOut:
-    get_or_create_connector_config(db, resolve_tenant_id(None), connector_type)
+    get_or_create_connector_config(db, _user.tenant_id, connector_type)
     try:
-        row = set_connector_enabled(db, resolve_tenant_id(None), connector_type, True)
+        row = set_connector_enabled(db, _user.tenant_id, connector_type, True)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ConnectorConfigOut.model_validate(row)
@@ -67,11 +68,11 @@ def enable(
 @router.post("/connectors/{connector_type}/disable", response_model=ConnectorConfigOut)
 def disable(
     connector_type: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> ConnectorConfigOut:
     try:
-        row = set_connector_enabled(db, resolve_tenant_id(None), connector_type, False)
+        row = set_connector_enabled(db, _user.tenant_id, connector_type, False)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ConnectorConfigOut.model_validate(row)
@@ -80,7 +81,7 @@ def disable(
 @router.get("/connectors/outbox", response_model=list[ConnectorOutboxOut])
 def get_outbox(
     status: str | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[ConnectorOutboxOut]:
     return [ConnectorOutboxOut.model_validate(r) for r in list_outbox(db, status)]
@@ -89,7 +90,7 @@ def get_outbox(
 @router.post("/connectors/outbox/{outbox_id}/retry", response_model=RetryOutboxResponse)
 def retry_outbox(
     outbox_id: int,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> RetryOutboxResponse:
     row = retry_outbox_item(db, outbox_id)

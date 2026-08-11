@@ -27,6 +27,33 @@ are forwarded to **Regulus**, whose SDK —
 pinned as a direct dependency in `pyproject.toml` — handles transport and
 dashboarding. Regulus is an external service; Zeroth is the client.
 
+## Tenant boundary
+
+Operational economics data is tenant-partitioned. Capabilities,
+implementations, events, outcomes, estimates, budgets, dashboard material,
+enforcement state, connectors, and erasure receipts are all
+`TENANT_SCOPED`. Only four shared reference resources are `GLOBAL`:
+`roles`, `user_roles`, `pricing_catalog`, and `tool_pricing_catalog`.
+
+The distinction is enforced at the persistence gateway, not by remembering to
+add a `WHERE tenant_id = ...` clause. Every mapped resource declares one scope,
+and authenticated routes bind a `ScopedSession` from the token's trusted
+tenant/workspace claims. Inserts are stamped or checked, reads are constrained,
+and ownership changes are rejected. A tenant value in JSON, query parameters,
+or metadata is only an assertion: it must match the authenticated claim and is
+never the source of authority.
+
+This is the boundary between the related governance decisions:
+
+- **G02 (authorization)** decides whether a principal and its roles may perform
+  an operation.
+- **G04 (structural tenancy)** decides which rows that authorized operation can
+  reach. Passing G02 cannot widen G04.
+
+The reserved tenant ID `default` exists only for explicit compatibility and
+migration of historical single-tenant subjects. New deployments should
+provision a real tenant ID.
+
 ## Key types
 
 - **`InstrumentedProviderAdapter`** — Wraps any `ProviderAdapter`

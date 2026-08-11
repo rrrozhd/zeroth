@@ -29,7 +29,8 @@ class User(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="default")
+    workspace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     subject: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
 
