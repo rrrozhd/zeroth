@@ -25,6 +25,14 @@ from zeroth.platform.storage.redis import (
     RedisDeploymentMode,
     docker_container_running,
 )
+from zeroth.platform.storage.scoped_table import (
+    ECON_MIGRATION_SCOPE_DEFINITIONS,
+    SERVICE_SCOPE_DEFINITIONS,
+    SERVICE_SCOPE_REGISTRY,
+    GlobalTable,
+    ScopedJoin,
+    ScopedTable,
+)
 from zeroth.platform.storage.scoping import (
     ResourceOperation,
     ResourceScope,
@@ -44,6 +52,8 @@ __all__ = [
     "AsyncPostgresDatabase",
     "AsyncSQLiteDatabase",
     "EncryptedField",
+    "ECON_MIGRATION_SCOPE_DEFINITIONS",
+    "GlobalTable",
     "Migration",
     "RedisConfig",
     "RedisDeploymentMode",
@@ -52,6 +62,10 @@ __all__ = [
     "ResourceScopeDefinition",
     "ResourceScopeRegistry",
     "ScopeContext",
+    "SERVICE_SCOPE_DEFINITIONS",
+    "SERVICE_SCOPE_REGISTRY",
+    "ScopedJoin",
+    "ScopedTable",
     "SQLiteDatabase",
     "TenantWideScopeContext",
     "create_database",
