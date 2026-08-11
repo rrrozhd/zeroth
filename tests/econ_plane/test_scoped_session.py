@@ -25,7 +25,7 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
+from sqlalchemy.orm import Mapped, Session, aliased, mapped_column, selectinload
 
 from zeroth.econ.plane.auth.models import User
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
@@ -508,6 +508,37 @@ def test_nested_orm_scalar_subquery_is_tenant_scoped(scoped_engine) -> None:
         rows = scoped.execute(select(Capability.id, tenant_count)).all()
 
     assert rows == [("cap-a", 1)]
+
+
+def test_selectinload_relationship_query_is_tenant_scoped(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    with Session(scoped_engine) as seed:
+        seed.add_all(
+            [
+                Implementation(
+                    id="impl-a",
+                    tenant_id="tenant-a",
+                    capability_id="cap-a",
+                    name="A implementation",
+                ),
+                Implementation(
+                    id="impl-b",
+                    tenant_id="tenant-b",
+                    capability_id="cap-b",
+                    name="B implementation",
+                ),
+            ]
+        )
+        seed.commit()
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        capabilities = scoped.scalars(
+            select(Capability).options(selectinload(Capability.implementations))
+        ).all()
+
+    assert [capability.id for capability in capabilities] == ["cap-a"]
+    assert [item.id for item in capabilities[0].implementations] == ["impl-a"]
 
 
 def test_execute_returns_only_restrictive_result_facades(scoped_engine) -> None:

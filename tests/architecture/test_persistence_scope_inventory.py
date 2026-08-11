@@ -82,6 +82,7 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self._sessionmaker_names = {"sessionmaker"}
         self._factory_names = {"SessionLocal"}
         self._orm_module_aliases = {"sqlalchemy.orm"}
+        self._database_module_aliases = {"zeroth.econ.plane.database"}
         self._tainted_result_names: set[str] = set()
 
     def _record(self, kind: str, detail: str) -> None:
@@ -124,6 +125,9 @@ class _RawSessionVisitor(ast.NodeVisitor):
             if alias.name == "sqlalchemy.orm":
                 self._orm_module_aliases.add(alias.asname or alias.name)
                 self._record("import", "sqlalchemy.orm")
+            elif alias.name == "zeroth.econ.plane.database":
+                self._database_module_aliases.add(alias.asname or alias.name)
+                self._record("factory", "zeroth.econ.plane.database.SessionLocal")
         self.generic_visit(node)
 
     @staticmethod
@@ -147,6 +151,19 @@ class _RawSessionVisitor(ast.NodeVisitor):
             }
         return set()
 
+    @staticmethod
+    def _assigned_result_paths(node: ast.AST) -> set[str]:
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            dotted = _RawSessionVisitor._dotted_name(node)
+            return {dotted} if dotted else set()
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return {
+                name
+                for element in node.elts
+                for name in _RawSessionVisitor._assigned_result_paths(element)
+            }
+        return set()
+
     def _is_sessionmaker_call(self, node: ast.AST) -> bool:
         if not isinstance(node, ast.Call):
             return False
@@ -159,7 +176,10 @@ class _RawSessionVisitor(ast.NodeVisitor):
         if isinstance(node, ast.Name):
             return node.id in self._tainted_result_names
         if isinstance(node, ast.Attribute):
-            return self._is_tainted_result(node.value)
+            dotted = self._dotted_name(node)
+            return (
+                dotted in self._tainted_result_names if dotted is not None else False
+            ) or self._is_tainted_result(node.value)
         if not isinstance(node, ast.Call):
             return False
         dotted = self._dotted_name(node.func)
@@ -175,7 +195,7 @@ class _RawSessionVisitor(ast.NodeVisitor):
         return self._is_tainted_result(node.func)
 
     def _update_result_taint(self, targets: list[ast.expr], value: ast.AST) -> None:
-        assigned = {name for target in targets for name in self._assigned_names(target)}
+        assigned = {name for target in targets for name in self._assigned_result_paths(target)}
         if self._is_tainted_result(value):
             self._tainted_result_names.update(assigned)
         else:
@@ -212,6 +232,8 @@ class _RawSessionVisitor(ast.NodeVisitor):
             self._record("construction", dotted or "Session")
         if dotted in self._factory_names:
             self._record("construction", dotted)
+        if any(dotted == f"{module}.SessionLocal" for module in self._database_module_aliases):
+            self._record("construction", dotted or "SessionLocal")
         if self._is_sessionmaker_call(node):
             self._record("factory", dotted or "sessionmaker")
         if isinstance(node.func, ast.Call) and self._is_sessionmaker_call(node.func):
@@ -418,3 +440,32 @@ def test_raw_session_guard_tracks_result_dataflow_and_getattr(tmp_path: Path) ->
     assert any("context" in violation for violation in violations)
     assert any("connection" in violation for violation in violations)
     assert any("root_connection" in violation for violation in violations)
+
+
+def test_raw_session_guard_tracks_attribute_assignment_result_taint(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "def unsafe(db, statement, holder):\n"
+        "    holder.result = db.execute(statement)\n"
+        "    return holder.result.context.connection\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("context" in violation for violation in violations)
+    assert any("connection" in violation for violation in violations)
+
+
+def test_raw_session_guard_tracks_qualified_session_local_factory(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "import zeroth.econ.plane.database as database\n\n"
+        "def unsafe():\n"
+        "    return database.SessionLocal()\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("construction" in violation for violation in violations)
