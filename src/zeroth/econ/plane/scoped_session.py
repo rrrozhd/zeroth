@@ -19,6 +19,7 @@ from zeroth.platform.storage.scoping import (
 )
 
 _SCOPE_INFO_KEY = "zeroth_econ_scope_binding"
+_MISSING = object()
 _ModelT = TypeVar("_ModelT")
 
 
@@ -101,21 +102,21 @@ def _normalize_insert_mapping(
     normalized = dict(values)
     by_name = {getattr(key, "key", key): value for key, value in values.items()}
     if definition.scope is ResourceScope.GLOBAL:
-        if by_name.get("tenant_id") is not None or by_name.get("workspace_id") is not None:
+        if "tenant_id" in by_name or "workspace_id" in by_name:
             raise ValueError("global resources cannot declare ownership")
         return normalized
     assert context is not None
-    tenant_id = by_name.get("tenant_id")
-    if tenant_id is not None and tenant_id != context.tenant_id:
+    tenant_id = by_name.get("tenant_id", _MISSING)
+    if tenant_id is not _MISSING and tenant_id != context.tenant_id:
         raise ValueError("tenant ownership does not match the bound scope")
-    if tenant_id is None:
+    if tenant_id is _MISSING:
         normalized["tenant_id"] = context.tenant_id
     if definition.workspace_scoped:
         assert isinstance(context, ScopeContext)
-        workspace_id = by_name.get("workspace_id")
-        if workspace_id is not None and workspace_id != context.workspace_id:
+        workspace_id = by_name.get("workspace_id", _MISSING)
+        if workspace_id is not _MISSING and workspace_id != context.workspace_id:
             raise ValueError("workspace ownership does not match the bound scope")
-        if workspace_id is None:
+        if workspace_id is _MISSING:
             normalized["workspace_id"] = context.workspace_id
     return normalized
 
