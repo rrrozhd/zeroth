@@ -182,12 +182,20 @@ def _assignment_sites(tree: ast.Module, module: str) -> list[tuple[str, str]]:
 
     def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.Assign):
-                for target in child.targets:
-                    if isinstance(target, ast.Attribute) and target.attr == "__signature__":
-                        owner = ast.unparse(target.value).rsplit(".", 1)[-1]
-                        where = ".".join(scope) or "<module>"
-                        sites.append((f"{module}:{where}:{owner}", owner))
+            # `Klass.__signature__: Any = ...` is an AnnAssign, not an Assign, and
+            # hides fields exactly as well. Checking only Assign missed it.
+            targets = (
+                child.targets
+                if isinstance(child, ast.Assign)
+                else [child.target]
+                if isinstance(child, ast.AnnAssign)
+                else []
+            )
+            for target in targets:
+                if isinstance(target, ast.Attribute) and target.attr == "__signature__":
+                    owner = ast.unparse(target.value).rsplit(".", 1)[-1]
+                    where = ".".join(scope) or "<module>"
+                    sites.append((f"{module}:{where}:{owner}", owner))
             inner = (
                 (*scope, child.name)
                 if isinstance(
@@ -350,7 +358,7 @@ def test_every_non_class_exemption_really_targets_a_non_class(reference: str) ->
     resolve at module level cannot be one, which is what distinguishes a
     function-local wrapper from a pinned class.
     """
-    module, _, name = reference.partition(":")
+    module, _enclosing, name = reference.split(":", 2)
     resolved = getattr(importlib.import_module(module), name, None)
 
     assert not inspect.isclass(resolved), (

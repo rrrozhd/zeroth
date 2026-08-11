@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.9.3] - 2026-08-10
+
+### Fixed
+
+- `Klass.__signature__: Any = ...` is discovered. It is an `AnnAssign`, not an `Assign`,
+  and hides constructor fields exactly as well (ZER-41 / ZER41-G01-004).
+- The non-class allowlist validator no longer passes unconditionally. It split a
+  three-part key with `partition`, so every reference resolved to `None` and a real class
+  would have been accepted (ZER-41 / ZER41-G01-004).
+- Ruff is asserted to check every test file on disk, so an `extend-exclude` that silences a
+  file for every rule at once is caught (ZER-41 / ZER41-G01-001).
+
 ## [0.22.2.9.2] - 2026-08-10
 
 ### Fixed

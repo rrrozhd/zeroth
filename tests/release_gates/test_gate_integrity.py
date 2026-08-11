@@ -708,6 +708,39 @@ def test_a_clean_file_is_not_reported(rule: str) -> None:
     assert not rule_is_reported(rule, "def probe():\n    return 1\n")
 
 
+def test_ruff_actually_checks_every_test_file_on_disk() -> None:
+    """A file Ruff never opens is exempt from every rule at once.
+
+    The probe above proves the rules are in effect *at a path*. This proves the
+    set of paths is the whole tree: an ``extend-exclude`` or a narrowed source
+    selection silences a file without touching any rule, and no per-rule probe
+    can see that.
+
+    What neither check can prove is the absence of a future path-scoped
+    suppression aimed at some specific file -- an in-repo test cannot bound an
+    edit to the repo. That residual is recorded as a deferred discovery rather
+    than chased.
+    """
+    listed = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "tests", "--show-files"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert listed.returncode == 0, listed.stderr
+    checked = {Path(line).resolve() for line in listed.stdout.split() if line.strip()}
+    on_disk = {
+        path.resolve()
+        for path in (ROOT / "tests").rglob("*.py")
+        if "__pycache__" not in path.parts
+    }
+    unchecked = sorted(str(path.relative_to(ROOT)) for path in on_disk - checked)
+
+    assert unchecked == [], f"Ruff does not check these test files at all: {unchecked}"
+
+
 def test_the_tests_tree_itself_is_clean_under_every_enforced_rule() -> None:
     """Green on landing, which the ticket requires of any enforcement it adds."""
     for rule in sorted(RULE_PROBES):
