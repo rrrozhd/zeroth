@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.3] - 2026-08-11
+
+### Fixed
+
+- **A conformance evidence watermark can no longer attribute a record to the case that
+  follows it.** `execute_paired_case` took `evidence_start` as a count of complete records,
+  and the reader deliberately ignores a record still being appended — so a count taken while
+  the gateway was mid-write was one short, and the later `evidence(since=watermark)` handed
+  the next case a record written before it. Its consumers ask `any(row["kind"] == "audit")`,
+  so one leaked record reported an audit event for a case that produced none: a silent pass
+  where the previous reader raised. The watermark now waits for the log to end on a record
+  boundary and fails closed if it never does. Two fixtures cover it, both failing when the
+  wait is removed.
+- **The splice guard detects the regression it exists to catch.** At 8 concurrent writers it
+  missed a split-writer mutation in 25 of 300 trials; at 24 it detected 120 of 120 with the
+  unmutated writer clean throughout. A guard that reports success 8% of the times it should
+  fail is the defect this branch is about.
+- **A comment no longer states a mechanism that is false at the size its own pin uses.**
+  `_append_evidence` claimed buffered text I/O holds a record until close; that holds only
+  below `TextIOWrapper._CHUNK_SIZE`, and the test cited as its pin uses 32,000-byte records.
+  The invariant is true for any size — one `.write()` reaches the file as one raw write — so
+  the comment now says that, and names the real caveat (an OS returning a short write).
+
 ## [0.22.2.2] - 2026-08-11
 
 ### Fixed
@@ -87,6 +110,7 @@ negative fixture that feeds the gate a deliberately broken input and requires it
   evidence release rather than asserted as the same literal it contains, with any gap to the
   package version declared; and `validate_manifest` no longer presents evidence resolution
   as manifest-driven when every artifact resolves from a hardcoded set.
+
 ## [0.22.1.1.2] - 2026-08-11
 
 ### Fixed

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -298,6 +299,12 @@ def test_concurrent_evidence_writers_never_splice_a_record(tmp_path: Path) -> No
     # writer that emitted a record in pieces would let another writer land between them
     # and splice two records into one line, which the reader would rightly raise on
     # rather than skip. Records here are far wider than the text-I/O buffer.
+    #
+    # The writer count is load-bearing, not decorative. Detection is probabilistic: with
+    # a writer mutated to emit the record in two calls -- the regression this exists to
+    # catch -- 8 writers missed it in 25 of 300 trials, while 24 detected it in 120 of
+    # 120 with the unmutated writer clean throughout. A guard that reports success 8% of
+    # the time it should fail is the failure mode this whole branch is about.
     path = tmp_path / "evidence.jsonl"
     filler = "x" * 32_000
     writers = [
@@ -305,7 +312,7 @@ def test_concurrent_evidence_writers_never_splice_a_record(tmp_path: Path) -> No
             target=_append_evidence,
             args=(str(path), {"kind": "audit", "writer": index, "filler": filler}),
         )
-        for index in range(8)
+        for index in range(24)
     ]
 
     for writer in writers:
@@ -316,6 +323,45 @@ def test_concurrent_evidence_writers_never_splice_a_record(tmp_path: Path) -> No
     rows = _evidence_reader(path).evidence()
     assert sorted(row["writer"] for row in rows) == list(range(len(writers)))
     assert all(row["filler"] == filler for row in rows)
+
+
+def test_the_watermark_waits_for_a_record_the_gateway_is_still_appending(
+    tmp_path: Path,
+) -> None:
+    # ``execute_paired_case`` takes this count as a slice index and reads
+    # ``evidence(since=watermark)`` after the proxied request, so a count taken while a
+    # record is in flight is one short and hands that record -- written before the
+    # watermark -- to the case that follows it. Its consumers ask ``any(kind == ...)``,
+    # so one leaked record reports an audit event for a case that produced none: a
+    # silent pass where the old reader raised. Cases run in a loop, so the window is the
+    # gateway still flushing the previous case's record.
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"direct"}\n{"kind":"direct"}\n{"kind":"aud')
+    reader = _evidence_reader(path)
+
+    assert len(reader.evidence()) == 2, "precondition: the in-flight record is ignored"
+
+    def finish() -> None:
+        time.sleep(0.05)
+        with path.open("ab") as log:
+            log.write(b'it"}\n')
+
+    writer = threading.Thread(target=finish)
+    writer.start()
+    try:
+        assert reader.evidence_watermark() == 3
+    finally:
+        writer.join()
+
+
+def test_the_watermark_refuses_a_log_that_never_reaches_a_boundary(tmp_path: Path) -> None:
+    # Fail closed. Returning the short count would be the misattribution itself, so a
+    # writer that never completes its record has to be loud rather than graceful.
+    path = tmp_path / "evidence.jsonl"
+    path.write_bytes(b'{"kind":"direct"}\n{"kind":"aud')
+
+    with pytest.raises(AssertionError, match="ends mid-record"):
+        _evidence_reader(path).evidence_watermark(timeout=0.05)
 
 
 @pytest.fixture(scope="module")

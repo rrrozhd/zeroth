@@ -338,10 +338,17 @@ class _RecordingSink:
 def _append_evidence(path: str | None, row: dict[str, Any]) -> None:
     if path is None:
         return
-    # One record, one ``write(2)``: buffered text I/O holds the whole record and
-    # emits it on close, so a record is never split across syscalls and only the
-    # newest record can be incomplete on disk. ``_parse_evidence_records`` relies
-    # on that; ``test_concurrent_evidence_writers_never_splice_a_record`` pins it.
+    # One record, one ``write(2)``: a single ``.write()`` reaches the file as a single
+    # raw write at any record size, so a record is never split across syscalls and only
+    # the newest record can be incomplete on disk. ``_parse_evidence_records`` relies on
+    # that; ``test_concurrent_evidence_writers_never_splice_a_record`` pins it.
+    #
+    # Not, as this comment once said, because buffered text I/O holds the record until
+    # close -- that is only true below ``TextIOWrapper._CHUNK_SIZE`` (8192 here), and the
+    # test that pins this deliberately uses 32,000-byte records, so it runs entirely
+    # outside the mechanism the justification named. ``BufferedWriter`` loops on a short
+    # raw write, so the real caveat is an OS that returns one: not a local filesystem
+    # under ``O_APPEND``, but NFS would.
     with Path(path).open("a", encoding="utf-8") as evidence:
         evidence.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
 
@@ -683,6 +690,35 @@ class ConformanceServers:
         if not path.exists():
             return ()
         return _parse_evidence_records(path.read_bytes())[since:]
+
+    def evidence_watermark(self, *, timeout: float = 2.0) -> int:
+        """The number of complete records, counted only at a record boundary.
+
+        ``evidence`` deliberately ignores a record the gateway is still appending, so a
+        count taken at an arbitrary moment can be one short. Callers use that count as a
+        slice index and read ``evidence(since=watermark)`` afterwards, so an under-count
+        hands the case that follows a record written *before* the watermark -- and those
+        callers ask ``any(row.get("kind") == ...)``, so one leaked record answers for a
+        case that produced nothing. Waiting for the log to end on a record boundary makes
+        the count exact.
+
+        Fails closed. A log that never reaches a boundary means the writer is stuck or
+        emitting malformed records, and returning a short count anyway is exactly the
+        silent misattribution this exists to prevent.
+        """
+        path = Path(self.evidence_path)
+        deadline = time.monotonic() + timeout
+        while True:
+            raw = path.read_bytes() if path.exists() else b""
+            if not raw or raw.endswith(b"\n"):
+                return len(_parse_evidence_records(raw))
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f"evidence log {path} still ends mid-record after {timeout}s "
+                    f"({len(raw)} bytes); a watermark taken here would under-count and "
+                    "attribute that record to the case that follows it"
+                )
+            time.sleep(0.005)
 
     def __exit__(self, *exc_info: object) -> None:
         for process in reversed(self._processes):
@@ -1074,7 +1110,7 @@ def execute_paired_case(servers: ConformanceServers, case: ConformanceCase) -> P
             direct_headers,
             initialized=direct_initialized,
         )
-        evidence_start = len(servers.evidence())
+        evidence_start = servers.evidence_watermark()
         active_gateway_headers = {} if case.group == "auth" else gateway_headers
         proxied = _capture_case_request(
             client,
