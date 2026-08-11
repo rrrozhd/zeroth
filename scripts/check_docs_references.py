@@ -28,8 +28,13 @@ SOURCE_PATH_RE = re.compile(r"(?<![/\w])(src/[A-Za-z0-9_./-]+(?::\d+(?:-\d+)?)?)
 INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 INLINE_CONTEXT_BOUNDARY_RE = re.compile(r"(?:[;.!?]\s+|,\s+(?:and|but|while)\s+)", re.I)
 PIP_INSTALL_RE = re.compile(r"(?:^|\s)(?:[\w./-]*/)?pip\s+install\s+(.+)")
-HISTORICAL_CONTEXT_RE = re.compile(
+FENCE_HISTORICAL_CONTEXT_RE = re.compile(
     r"\b(before|historical|no longer|obsolete|previously|removed|retired|used to)\b",
+    re.I,
+)
+INLINE_HISTORICAL_CONTEXT_RE = re.compile(
+    r"\b(historical|no longer|obsolete|previously|removed|retired|used to|"
+    r"used before v?\d+(?:\.\d+)+)\b",
     re.I,
 )
 
@@ -371,7 +376,7 @@ def _historical_inline_context(line: str, start: int, end: int) -> bool:
             ),
         ).span()
         == (start, end)
-        for historical in HISTORICAL_CONTEXT_RE.finditer(line, context_start, context_end)
+        for historical in INLINE_HISTORICAL_CONTEXT_RE.finditer(line, context_start, context_end)
     )
 
 
@@ -395,7 +400,7 @@ def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Vio
                 continued_text = ""
             else:
                 in_fence = True
-                fence_actionable = not HISTORICAL_CONTEXT_RE.search(previous_nonempty)
+                fence_actionable = not FENCE_HISTORICAL_CONTEXT_RE.search(previous_nonempty)
             continue
 
         if in_fence:

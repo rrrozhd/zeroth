@@ -112,6 +112,21 @@ def test_historical_inline_code_is_not_actionable() -> None:
     assert scan_markdown(markdown, "docs/history.md", REPO_ROOT) == []
 
 
+def test_used_before_version_inline_code_is_not_actionable() -> None:
+    markdown = "The setting `ZEROTH_DEAD_SETTING` was used before 0.17."
+
+    assert scan_markdown(markdown, "docs/history.md", REPO_ROOT) == []
+
+
+def test_inline_before_startup_remains_actionable() -> None:
+    markdown = "Set `ZEROTH_DEAD_SETTING` before startup."
+
+    assert [
+        (violation.kind, violation.target)
+        for violation in scan_markdown(markdown, "docs/fixture.md", REPO_ROOT)
+    ] == [("environment", "ZEROTH_DEAD_SETTING")]
+
+
 def test_historical_inline_code_with_following_marker_is_not_actionable() -> None:
     markdown = "`ZEROTH_DEAD_SETTING` was removed."
 
