@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, TypeVar
 
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
-from sqlalchemy.sql.dml import Delete, Update
+from sqlalchemy.sql.dml import Delete, Insert, Update
 
 from zeroth.platform.storage.scoping import (
     ResourceOperation,
@@ -42,6 +42,8 @@ def _models_for_statement(state: ORMExecuteState) -> tuple[type, ...]:
 
 
 def _operation_for_statement(state: ORMExecuteState) -> ResourceOperation:
+    if state.is_insert:
+        return ResourceOperation.CREATE
     if state.is_update:
         return ResourceOperation.UPDATE
     if state.is_delete:
@@ -70,9 +72,9 @@ def _validate_binding(
         raise ValueError("workspace-scoped resources require a workspace context")
 
 
-def _statement_values(statement: Update | Delete) -> dict[str, Any]:
+def _statement_values(statement: Insert | Update | Delete) -> dict[str, Any]:
     values: dict[str, Any] = {}
-    for key, value in getattr(statement, "_values", {}).items():
+    for key, value in (getattr(statement, "_values", None) or {}).items():
         column_name = getattr(key, "key", key if isinstance(key, str) else None)
         if column_name is not None:
             values[column_name] = getattr(value, "value", value)
@@ -91,6 +93,67 @@ def _reject_ownership_rewrite(statement: Update | Delete, context: ScopeBinding)
             raise ValueError("workspace ownership does not match the bound scope")
 
 
+def _normalize_insert_mapping(
+    values: Mapping[Any, Any],
+    definition: ResourceScopeDefinition,
+    context: ScopeBinding,
+) -> dict[Any, Any]:
+    normalized = dict(values)
+    by_name = {getattr(key, "key", key): value for key, value in values.items()}
+    if definition.scope is ResourceScope.GLOBAL:
+        if by_name.get("tenant_id") is not None or by_name.get("workspace_id") is not None:
+            raise ValueError("global resources cannot declare ownership")
+        return normalized
+    assert context is not None
+    tenant_id = by_name.get("tenant_id")
+    if tenant_id is not None and tenant_id != context.tenant_id:
+        raise ValueError("tenant ownership does not match the bound scope")
+    if tenant_id is None:
+        normalized["tenant_id"] = context.tenant_id
+    if definition.workspace_scoped:
+        assert isinstance(context, ScopeContext)
+        workspace_id = by_name.get("workspace_id")
+        if workspace_id is not None and workspace_id != context.workspace_id:
+            raise ValueError("workspace ownership does not match the bound scope")
+        if workspace_id is None:
+            normalized["workspace_id"] = context.workspace_id
+    return normalized
+
+
+def _scope_insert(
+    state: ORMExecuteState,
+    definition: ResourceScopeDefinition,
+    context: ScopeBinding,
+) -> None:
+    statement = state.statement
+    assert isinstance(statement, Insert)
+    if statement._multi_values:
+        raise ValueError("mapped multi-values INSERT is not safely scopable; use executemany")
+
+    embedded_values = _statement_values(statement)
+    normalized_embedded = _normalize_insert_mapping(embedded_values, definition, context)
+    added_values = {
+        key: value for key, value in normalized_embedded.items() if key not in embedded_values
+    }
+    if added_values:
+        state.statement = statement.values(**added_values)
+
+    parameters = state.parameters
+    if parameters is None:
+        return
+    if isinstance(parameters, Mapping):
+        state.parameters = _normalize_insert_mapping(parameters, definition, context)
+        return
+    if isinstance(parameters, (list, tuple)) and all(
+        isinstance(item, Mapping) for item in parameters
+    ):
+        state.parameters = [
+            _normalize_insert_mapping(item, definition, context) for item in parameters
+        ]
+        return
+    raise ValueError("mapped INSERT parameters must be mappings")
+
+
 def _scope_statement(state: ORMExecuteState) -> None:
     if _SCOPE_INFO_KEY not in state.session.info:
         return
@@ -102,6 +165,9 @@ def _scope_statement(state: ORMExecuteState) -> None:
     for model in models:
         definition = _definition(model)
         _validate_binding(definition, context, operation)
+        if state.is_insert:
+            _scope_insert(state, definition, context)
+            continue
         if isinstance(state.statement, (Update, Delete)):
             _reject_ownership_rewrite(state.statement, context)
         if definition.scope is ResourceScope.GLOBAL:
@@ -151,6 +217,22 @@ def _fill_or_verify(instance: object, name: str, expected: str, *, is_new: bool)
         raise ValueError(f"{name.removesuffix('_id')} ownership does not match the bound scope")
 
 
+def _instance_matches_scope(instance: object, context: ScopeBinding) -> bool:
+    definition = _definition(type(instance))
+    _validate_binding(definition, context, ResourceOperation.READ)
+    if definition.scope is ResourceScope.GLOBAL:
+        return _ownership_value(instance, "tenant_id") is None and _ownership_value(
+            instance, "workspace_id"
+        ) is None
+    assert context is not None
+    if _ownership_value(instance, "tenant_id") != context.tenant_id:
+        return False
+    if definition.workspace_scoped:
+        assert isinstance(context, ScopeContext)
+        return _ownership_value(instance, "workspace_id") == context.workspace_id
+    return True
+
+
 def _validate_pending_ownership(session: Session, _flush_context: object, _instances: object) -> None:
     if _SCOPE_INFO_KEY not in session.info:
         return
@@ -197,7 +279,12 @@ class ScopedSession:
         self.scope = scope
 
     def get(self, entity: type[_ModelT], ident: Any) -> _ModelT | None:
-        return self.__session.get(entity, ident)
+        definition = _definition(entity)
+        _validate_binding(definition, self.scope, ResourceOperation.READ)
+        instance = self.__session.get(entity, ident)
+        if instance is not None and not _instance_matches_scope(instance, self.scope):
+            return None
+        return instance
 
     def execute(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
         return self.__session.execute(statement, params=params, **kwargs)
@@ -221,6 +308,8 @@ class ScopedSession:
         self.__session.rollback()
 
     def refresh(self, instance: object, attribute_names: Iterable[str] | None = None) -> None:
-        definition = _definition(type(instance))
-        _validate_binding(definition, self.scope, ResourceOperation.READ)
+        if not _instance_matches_scope(instance, self.scope):
+            definition = _definition(type(instance))
+            ownership = "workspace" if definition.workspace_scoped else "tenant"
+            raise ValueError(f"{ownership} ownership does not match the bound scope")
         self.__session.refresh(instance, attribute_names=attribute_names)
