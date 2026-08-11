@@ -9,10 +9,10 @@ so a caller could register ``{coverage: "complete", tools: (), tool_count:
 governed tools at all. Both sides of the comparison were client-supplied.
 
 This module removes the client from one side of it. A registration declares
-*identities* -- a name and the fingerprint of the tool that answers to it --
-and the aggregate digest and the count are **recomputed here** from those
-identities. A caller can still lie about which tools exist; it can no longer
-claim a digest that its declared tool set does not produce.
+complete governed-tool entries -- identity, policy metadata, and the names of
+identity-bearing configuration -- and the aggregate digest and count are
+**recomputed here**. A caller can still lie about which tools exist; it can no
+longer claim a digest that its declared field set does not produce.
 
 **The digest scheme is the SDK's, reproduced rather than imported.**
 ``zeroth.integrations.langgraph._tool_inventory.inventory_fingerprint``
@@ -28,12 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class RegisteredTool(BaseModel):
-    """One governed tool: the name a call arrives under, and what answers it.
+    """One governed tool and the complete governance metadata registered for it.
 
     The fingerprint is what makes the identity meaningful. A registration
     holding names alone says only which labels exist, so a tool swapped for
@@ -45,6 +46,11 @@ class RegisteredTool(BaseModel):
 
     name: str = Field(min_length=1)
     fingerprint: str = Field(min_length=1)
+    side_effect: Literal["read_only", "side_effecting", "unknown"] = "unknown"
+    contract_ref: str | None = None
+    capability_refs: tuple[str, ...] = ()
+    requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 def refuse_repeated_tool_names(tools: tuple[RegisteredTool, ...]) -> None:
@@ -83,8 +89,8 @@ def refuse_repeated_tool_names(tools: tuple[RegisteredTool, ...]) -> None:
 def recompute_inventory_fingerprint(tools: tuple[RegisteredTool, ...]) -> str:
     """Return the order-insensitive digest of a declared tool set.
 
-    Mirrors the SDK's ``inventory_fingerprint``: the sorted ``[name,
-    fingerprint]`` pairs are serialized under ``{"tools": ...}`` with sorted
+    Mirrors the SDK's ``inventory_fingerprint``: the sorted whole-entry objects
+    are serialized under ``{"tools": ...}`` with sorted
     keys, compact separators and ASCII escaping, then hashed with SHA-256. Two
     inventories holding the same tools in different orders digest alike; one
     holding a same-named tool with a different fingerprint does not.
@@ -95,9 +101,12 @@ def recompute_inventory_fingerprint(tools: tuple[RegisteredTool, ...]) -> str:
     Returns:
         The hex SHA-256 digest of the canonical tool set.
     """
-    pairs = sorted([tool.name, tool.fingerprint] for tool in tools)
+    entries = sorted(
+        (tool.model_dump(mode="json") for tool in tools),
+        key=lambda item: item["name"],
+    )
     serialized = json.dumps(
-        {"tools": pairs},
+        {"tools": entries},
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,

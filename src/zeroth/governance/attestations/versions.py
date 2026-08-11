@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-ADAPTER_VERSION = "1.0"
+ADAPTER_VERSION = "2.0"
 """Version of the governed-LangGraph adapter's attestation/registration wire
 contract.
 

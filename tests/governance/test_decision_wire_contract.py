@@ -146,6 +146,9 @@ def test_the_normalized_action_carries_the_fields_a_policy_is_written_against() 
         "arguments_digest",
         "contract_ref",
         "side_effect",
+        "capability_refs",
+        "requires_approval",
+        "identity_configuration",
     }
 
     assert required <= set(NormalizedAction.model_fields)

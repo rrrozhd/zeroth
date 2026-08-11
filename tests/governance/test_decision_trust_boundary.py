@@ -62,21 +62,26 @@ class StaticInventory:
     what makes the fingerprint the only moving part.
     """
 
-    def __init__(self, names: tuple[str, ...] | None = ("send_email",)) -> None:
+    def __init__(
+        self,
+        names: tuple[str, ...] | None = ("send_email",),
+        *,
+        action: Any = None,
+    ) -> None:
         self._names = names
+        self._action = make_action() if action is None else action
         self.calls: list[tuple[str, str]] = []
 
-    async def registered_tool_identities(
+    async def registered_tools(
         self,
         tenant_id: str,
         deployment_ref: str,
-    ) -> frozenset[tuple[str, str]] | None:
-        """Return the registered identities, or ``None`` for "never registered"."""
+    ) -> tuple[RegisteredTool, ...] | None:
+        """Return complete registered descriptors, or ``None``."""
         self.calls.append((tenant_id, deployment_ref))
         if self._names is None:
             return None
-        fingerprint = make_action().fingerprint
-        return frozenset((name, fingerprint) for name in self._names)
+        return tuple(_registered_tool(name=name, action=self._action) for name in self._names)
 
 
 class StaticDeploymentPolicies:
@@ -217,6 +222,7 @@ async def test_a_read_only_call_is_not_held_by_a_side_effect_approval_policy(
     service = make_guarded_service(
         sqlite_db,
         approval_gate=PolicyApprovalGate(ApprovalRequiringRegistry()),
+        inventory=StaticInventory(action=make_action(side_effect="read_only")),
         deployment_policies=StaticDeploymentPolicies(("needs-approval",)),
     )
 
@@ -225,6 +231,32 @@ async def test_a_read_only_call_is_not_held_by_a_side_effect_approval_policy(
     )
 
     assert response.kind is DecisionKind.ALLOW
+
+
+async def test_a_tool_explicitly_requiring_approval_is_held_even_when_read_only(
+    sqlite_db: Any,
+) -> None:
+    """A tool-level approval declaration is authoritative, not merely metadata."""
+    registry = ApprovalRequiringRegistry()
+    service = make_guarded_service(
+        sqlite_db,
+        approval_gate=PolicyApprovalGate(registry),
+        inventory=StaticInventory(
+            action=make_action(side_effect="read_only", requires_approval=True)
+        ),
+        deployment_policies=StaticDeploymentPolicies(()),
+    )
+
+    response = await service.decide(
+        make_request(
+            action=make_action(side_effect="read_only", requires_approval=True),
+            policy_bindings=(),
+        )
+    )
+
+    assert response.kind is DecisionKind.REQUIRE_APPROVAL
+    assert response.approval_ref is not None
+    assert registry.resolved == []
 
 
 # --------------------------------------------------------------------------
@@ -466,6 +498,24 @@ REGISTERED_FINGERPRINT = make_action().fingerprint
 """The fingerprint the default request calls, read off the fixture."""
 
 
+def _registered_tool(
+    *, name: str = "send_email", action: Any = None, **overrides: Any
+) -> RegisteredTool:
+    """Mirror one normalized action into the authoritative registration model."""
+    source = make_action() if action is None else action
+    values = {
+        "name": name,
+        "fingerprint": source.fingerprint,
+        "side_effect": source.side_effect,
+        "contract_ref": source.contract_ref,
+        "capability_refs": source.capability_refs,
+        "requires_approval": source.requires_approval,
+        "identity_configuration": source.identity_configuration,
+    }
+    values.update(overrides)
+    return RegisteredTool(**values)
+
+
 async def _register_inventory(
     database: Any,
     tools: tuple[RegisteredTool, ...],
@@ -490,16 +540,16 @@ async def test_the_production_inventory_lookup_admits_the_registered_identity(
 ) -> None:
     """The real lookup over a real registration allows the registered call.
 
-    This is the half that fails if ``registered_tool_identities`` goes back to
-    returning bare names: the service matches ``(name, fingerprint)`` pairs, so
-    a set of plain strings matches nothing and the registered call is denied.
+    This is the half that fails if ``registered_tools`` goes back to returning
+    bare names: the service matches complete descriptors, so a set of plain
+    strings matches nothing and the registered call is denied.
     Driving the whole service rather than asserting on the returned set is
     deliberate -- an assertion on the frozenset alone would also be satisfied
     by a mutation that returned pairs of the wrong thing.
     """
     repository = await _register_inventory(
         sqlite_db,
-        (RegisteredTool(name="send_email", fingerprint=REGISTERED_FINGERPRINT),),
+        (_registered_tool(),),
     )
     service = make_guarded_service(
         sqlite_db,
@@ -522,7 +572,7 @@ async def test_the_production_inventory_lookup_denies_an_impostor_fingerprint(
     """
     repository = await _register_inventory(
         sqlite_db,
-        (RegisteredTool(name="send_email", fingerprint=REGISTERED_FINGERPRINT),),
+        (_registered_tool(),),
     )
     guard = RecordingPolicyGuard()
     service = make_guarded_service(
@@ -538,6 +588,35 @@ async def test_the_production_inventory_lookup_denies_an_impostor_fingerprint(
     assert guard.calls == [], "a substituted tool must never reach the evaluator"
 
 
+async def test_registered_approval_metadata_cannot_be_downgraded_by_the_request(
+    sqlite_db: Any,
+) -> None:
+    """A request cannot weaken the complete descriptor stored at registration."""
+    repository = await _register_inventory(
+        sqlite_db,
+        (
+            _registered_tool(
+                side_effect="read_only",
+                requires_approval=True,
+            ),
+        ),
+    )
+    guard = RecordingPolicyGuard()
+    service = make_guarded_service(
+        sqlite_db,
+        policy_guard=guard,
+        inventory=RegisteredInventoryLookup(repository),
+    )
+
+    response = await service.decide(
+        make_request(action=make_action(side_effect="read_only", requires_approval=False))
+    )
+
+    assert response.kind is DecisionKind.DENY
+    assert response.reason_code == "capability_denied"
+    assert guard.calls == [], "a descriptor mismatch must not reach policy evaluation"
+
+
 async def test_the_production_inventory_lookup_reports_a_never_registered_deployment(
     sqlite_db: Any,
 ) -> None:
@@ -549,7 +628,7 @@ async def test_the_production_inventory_lookup_reports_a_never_registered_deploy
     """
     lookup = RegisteredInventoryLookup(InventoryRegistrationRepository(sqlite_db))
 
-    assert await lookup.registered_tool_identities("tenant-alpha", "dep-alpha") is None
+    assert await lookup.registered_tools("tenant-alpha", "dep-alpha") is None
 
     service = make_guarded_service(sqlite_db, inventory=lookup)
     response = await service.decide(make_request())

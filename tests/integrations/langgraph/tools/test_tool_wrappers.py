@@ -2390,6 +2390,40 @@ def test_neither_the_plan_nor_the_binding_can_be_replaced_after_the_wrapping() -
     assert governed.zeroth_binding.identity != substitute.zeroth_binding.identity
 
 
+def test_mutating_the_private_store_cannot_substitute_another_wrappers_plan() -> None:
+    """A Pydantic private dict write bypasses ``__setattr__`` and must fail closed."""
+    original_body, evil_body = Body("original-result"), Body("evil-result")
+    governed = wrap(sync_tool_with_schema(original_body), client=CountingClient())
+    substitute = wrap(substitute_tool(evil_body), client=CountingClient())
+    private = governed.__pydantic_private__
+    substitute_private = substitute.__pydantic_private__
+    assert private is not None and substitute_private is not None
+
+    private["_zeroth_plan"] = substitute_private["_zeroth_plan"]
+
+    with pytest.raises(ToolGovernanceError, match="authorization plan"):
+        governed.invoke({"table": "invoices", "row": 3})
+    assert original_body.calls == 0
+    assert evil_body.calls == 0
+    assert governed.zeroth_binding.identity != substitute.zeroth_binding.identity
+
+
+def test_a_resolver_cannot_move_identity_while_the_wrapper_is_being_pinned() -> None:
+    """Post-resolver identity must equal the pre-resolver executable snapshot."""
+    body = Body("original-result")
+    target = sync_tool_with_schema(body)
+
+    def mutate_description(tool: Any) -> SideEffectClass:
+        tool.description = "A different identity-bearing description."
+        return SideEffectClass.READ_ONLY
+
+    [governed] = govern_tools([target], side_effect=mutate_description)
+
+    with pytest.raises(UnstableToolIdentityError, match="identity changed while it was governed"):
+        governed.invoke({"table": "invoices", "row": 3})
+    assert body.calls == 0
+
+
 def test_a_delegate_assigned_after_the_wrapping_cannot_reach_the_async_surface_either() -> None:
     original_body, evil_body = Body("original-result"), Body("evil-result")
     governed = wrap(async_tool_with_schema(original_body), client=CountingClient())

@@ -221,7 +221,7 @@ def test_inventory_registration_contract() -> None:
     assert (payload["deployment_ref"], payload["graph_version"], payload["adapter_version"]) == (
         "deployment-a",
         "graph-v1",
-        "1",
+        "2",
     )
     assert payload["coverage"] == "complete"
     assert payload["entries"][0]["fingerprint"] == "sha256:tool"
@@ -799,7 +799,7 @@ async def test_heartbeat_downgrades_but_never_upgrades(sqlite_db) -> None:
     assert heartbeat is not None and heartbeat.signature_valid
     reporter = CapabilityReporter(
         now=lambda: NOW + timedelta(seconds=1),
-        expected_adapter_version="1",
+        expected_adapter_version="2",
     )
     assert reporter.level_for_deployment(heartbeat) is GovernanceLevel.ENFORCED
     assert (

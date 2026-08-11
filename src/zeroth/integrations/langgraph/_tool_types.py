@@ -33,7 +33,7 @@ decision was made about.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
@@ -138,6 +138,7 @@ class ToolAction:
         side_effect: How the classifier rates invoking this tool.
         capability_refs: Capabilities the tool requires.
         requires_approval: Whether this tool explicitly requires approval.
+        identity_configuration: The identity-bearing configuration names.
         tool_call_id: The framework's stable per-call identity, when available.
     """
 
@@ -148,12 +149,14 @@ class ToolAction:
     side_effect: SideEffectClass = SideEffectClass.UNKNOWN
     capability_refs: Sequence[str] = ()
     requires_approval: bool = False
+    identity_configuration: Sequence[str] = ()
     tool_call_id: str | None = None
 
     def __post_init__(self) -> None:
         """Snapshot the arguments so a later caller-side mutation cannot reach them."""
         object.__setattr__(self, "arguments", _snapshot_mapping(self.arguments))
         object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
+        object.__setattr__(self, "identity_configuration", tuple(self.identity_configuration))
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +209,39 @@ class ToolInventoryEntry:
         object.__setattr__(self, "capability_refs", tuple(self.capability_refs))
         object.__setattr__(self, "identity_configuration", tuple(self.identity_configuration))
 
+    def wire_fields(self) -> dict[str, object]:
+        """Flatten the identity and return the complete canonical entry field set."""
+        payload: dict[str, object] = {
+            "name": self.identity.name,
+            "fingerprint": self.identity.fingerprint,
+        }
+        for field in fields(self):
+            if field.name == "identity":
+                continue
+            value = getattr(self, field.name)
+            payload[field.name] = value.value if type(value) is SideEffectClass else value
+        return payload
+
+
+# Compatibility name for callers that imported the short-lived descriptor.
+# It is deliberately an alias, not a second dataclass: decision serialization
+# and inventory evidence must share one physical governance-semantic record.
+ToolPolicyDescriptor = ToolInventoryEntry
+
+
+def describe_tool_policy(action: ToolAction) -> ToolInventoryEntry:
+    """Derive the canonical governance entry from an exactly-typed action."""
+    if type(action) is not ToolAction:
+        raise TypeError("a ToolAction is required to describe tool policy")
+    return ToolInventoryEntry(
+        identity=action.identity,
+        side_effect=action.side_effect,
+        contract_ref=action.contract_ref,
+        capability_refs=action.capability_refs,
+        requires_approval=action.requires_approval,
+        identity_configuration=action.identity_configuration,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class ToolInventory:
@@ -255,4 +291,6 @@ __all__ = [
     "ToolIdentity",
     "ToolInventory",
     "ToolInventoryEntry",
+    "ToolPolicyDescriptor",
+    "describe_tool_policy",
 ]

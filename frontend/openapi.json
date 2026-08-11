@@ -34,6 +34,14 @@
             "title": "Fingerprint",
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Configuration",
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "title": "Name",
@@ -2453,7 +2461,7 @@
         "description": "Authenticated liveness signal for one registered adapter inventory.",
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "title": "Adapter Version",
             "type": "string"
@@ -2580,6 +2588,14 @@
             "title": "Fingerprint",
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Configuration",
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "title": "Name",
@@ -2607,7 +2623,7 @@
         "description": "Versioned tool-inventory registration.",
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "title": "Adapter Version",
             "type": "string"
@@ -3506,11 +3522,19 @@
       },
       "NormalizedAction": {
         "additionalProperties": false,
-        "description": "One tool call, already normalized, as a policy is written against it.\n\nThe name alone is not an identity -- whoever bound the tool chose it and can\nreuse it for a different callable between runs -- so ``fingerprint`` is what\nmakes a decision reproducible.\n\nAttributes:\n    name: The tool's bound name, as the framework reports it.\n    fingerprint: A stable digest of the tool's identifying material.\n    arguments_digest: A digest of the call arguments. The arguments\n        themselves are never carried.\n    contract_ref: The tool contract this call claims to satisfy, when one\n        is declared.\n    side_effect: The classification, defaulting to the refusable ``unknown``\n        rather than to anything the service would admit.",
+        "description": "One tool call, already normalized, as a policy is written against it.\n\nThe name alone is not an identity -- whoever bound the tool chose it and can\nreuse it for a different callable between runs -- so ``fingerprint`` is what\nmakes a decision reproducible.\n\nAttributes:\n    name: The tool's bound name, as the framework reports it.\n    fingerprint: A stable digest of the tool's identifying material.\n    arguments_digest: A digest of the call arguments. The arguments\n        themselves are never carried.\n    contract_ref: The tool contract this call claims to satisfy, when one\n        is declared.\n    side_effect: The classification, defaulting to the refusable ``unknown``\n        rather than to anything the service would admit.\n    capability_refs: Capabilities the action requires.\n    requires_approval: Whether the tool explicitly requires a human approval.\n    identity_configuration: Identity-bearing configuration names in the fingerprint.",
         "properties": {
           "arguments_digest": {
             "title": "Arguments Digest",
             "type": "string"
+          },
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Refs",
+            "type": "array"
           },
           "contract_ref": {
             "anyOf": [
@@ -3527,9 +3551,22 @@
             "title": "Fingerprint",
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Configuration",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "title": "Requires Approval",
+            "type": "boolean"
           },
           "side_effect": {
             "default": "unknown",
@@ -3770,16 +3807,58 @@
       },
       "RegisteredTool": {
         "additionalProperties": false,
-        "description": "One governed tool: the name a call arrives under, and what answers it.\n\nThe fingerprint is what makes the identity meaningful. A registration\nholding names alone says only which labels exist, so a tool swapped for\nanother under the same name would register identically -- exactly the\nsubstitution ZER-6's suite exists to catch.",
+        "description": "One governed tool and the complete governance metadata registered for it.\n\nThe fingerprint is what makes the identity meaningful. A registration\nholding names alone says only which labels exist, so a tool swapped for\nanother under the same name would register identically -- exactly the\nsubstitution ZER-6's suite exists to catch.",
         "properties": {
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Refs",
+            "type": "array"
+          },
+          "contract_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Ref"
+          },
           "fingerprint": {
             "minLength": 1,
             "title": "Fingerprint",
             "type": "string"
           },
+          "identity_configuration": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Configuration",
+            "type": "array"
+          },
           "name": {
             "minLength": 1,
             "title": "Name",
+            "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "side_effect": {
+            "default": "unknown",
+            "enum": [
+              "read_only",
+              "side_effecting",
+              "unknown"
+            ],
+            "title": "Side Effect",
             "type": "string"
           }
         },
@@ -4001,7 +4080,7 @@
         "description": "Run-start claim authenticated by reserved context and signed by Zeroth.",
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "title": "Adapter Version",
             "type": "string"

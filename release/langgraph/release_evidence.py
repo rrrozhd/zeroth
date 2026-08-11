@@ -149,7 +149,7 @@ def _validate_compatibility(path: Path, errors: list[str]) -> dict[str, Any] | N
         set(value) != expected_keys
         or value.get("schema_version") != 2
         or value.get("release") != CURRENT_RELEASE
-        or value.get("adapter_version") != "1.0"
+        or value.get("adapter_version") != "2.0"
         or value.get("tested") != {"agent_server": "0.11.1", "langgraph": "1.2.9"}
         or value.get("deployment_artifacts") != EXPECTED_DEPLOYMENT_ARTIFACTS
         or value.get("resolved") != EXPECTED_RESOLVED
