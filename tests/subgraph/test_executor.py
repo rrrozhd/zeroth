@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from zeroth.service.deployments.models import Deployment
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
-    Edge,
     Graph,
     SubgraphNode,
 )
 from zeroth.contracts.graph.serialization import serialize_graph
-from zeroth.runtime.runs import Run
-from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -25,7 +22,7 @@ from zeroth.runtime.subgraphs.errors import (
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.runtime.subgraphs.resolver import SubgraphResolver
-
+from zeroth.service.deployments.models import Deployment
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -141,7 +138,7 @@ def _make_orchestrator(
 
 
 class TestSubgraphExecutorHappyPath:
-    """SubgraphExecutor.execute() resolves, namespaces, merges, creates child Run, calls _drive()."""
+    """execute() resolves, namespaces, merges, creates the child Run, and calls _drive()."""
 
     @pytest.mark.asyncio
     async def test_execute_creates_child_run_with_parent_run_id(self) -> None:
@@ -156,7 +153,7 @@ class TestSubgraphExecutorHappyPath:
         parent_run = _make_parent_run()
         node = parent_graph.nodes[0]
 
-        result = await executor.execute(
+        await executor.execute(
             orchestrator=orch,
             parent_graph=parent_graph,
             parent_run=parent_run,

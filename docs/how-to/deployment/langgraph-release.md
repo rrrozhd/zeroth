@@ -89,6 +89,14 @@ python release/langgraph/harness.py validate --phase source --manifest release/l
 python release/langgraph/harness.py validate --phase final --manifest release/langgraph/release-manifest.json
 ```
 
+`release-manifest.json` is validated, not followed. The set of artifacts the gate
+demands is hardcoded in `release/langgraph/release_evidence.py`; the manifest is a
+committed declaration that must agree with it, so editing the manifest can only
+cause a failure and can never change what is checked. That is the point — a
+manifest that drove resolution would let a candidate choose which evidence it is
+judged on. Adding a new artifact means changing `REQUIRED_EVIDENCE` and the
+manifest together.
+
 Final validation is the CLI default and the only publishable checklist result;
 `--phase source` is an explicit pre-build check of committed evidence only. The
 final gate cross-checks the expected release tests, installed image packages,

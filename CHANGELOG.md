@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-08-11
+
+### Fixed
+
+Release gates and parts of the test suite could report PASS while the property they name
+was never checked. Every item below was measured behaving that way first, and each ships a
+negative fixture that feeds the gate a deliberately broken input and requires it to reject.
+
+- **A skipped required test no longer certifies a release.** `_validate_junit` summed
+  `tests`, `failures` and `errors` and never read `skipped`, so final-phase validation
+  returned "release evidence complete" over a JUnit document in which all five required
+  identities carried `<skipped>`. Both the suite counter and the per-identity element are
+  rejected now.
+- **A matrix-bound security test may not carry `skip` or `skipif`.** Only `xfail` was
+  refused, and a skipped bound node stays *collected*, so the exact-collection guard was
+  satisfied and the tier exited 0. Measured against the live PR-critical tier: one real
+  `@pytest.mark.skip` gave "95 passed, 1 skipped" and exit 0; it exits 4 naming the node now.
+- **The pull-request path verifies the security outcomes it already produced.** The job
+  wrote an outcomes file nothing read, so pytest's exit code was the whole verdict. It runs
+  `verify-coverage` and `verify-outcomes`, both with `if: always()`.
+- **Performance thresholds no longer derive from the baseline they police.** Scaling the
+  committed baseline ten-fold scaled every threshold ten-fold and validated clean. The
+  thresholds are literals, the baseline is pinned by digest, and a test recomputes each
+  literal from the pinned content so a legitimate re-measurement fails loudly instead of
+  silently moving the thresholds.
+- **The application image digest comes from `docker image inspect`, not from the SBOM.** A
+  digest forged consistently across `image.spdx.json`, `image-compatibility.json` and
+  `image-packages.json` validated clean, because every check compared the SBOM with itself.
+  The digest is bound to the daemon-reported `id`, and a base image recorded with no
+  registry digest is rejected.
+- **Workflow steps that record a gate result can now reach it.** GitHub's `shell: bash` runs
+  with `-e`, which `set -uo pipefail` does not clear, so eight blocks aborted before their
+  `VAR=$?` capture and every recorded status could only ever be 0. The final verdict step
+  also promised to seal "regardless of the verdict" and never did.
+- **The vacuity guard rejects an assertion over a truthy literal**, having run green while
+  `assert True` was live in the tree it polices.
+- **`F841` and `B017` are enforced on tests** instead of muted tree-wide, checked by running
+  Ruff over a real violation at each of the 515 test paths rather than by reading
+  configuration — which has more than one way to say the same thing.
+- **Sandbox hardening flags are asserted on the argv the manager executes.** Deleting the
+  splice from `docker run` had left all 76 tests in that module passing.
+- **The guard suite covers TypeScript.** Every console test file must be collected by
+  `vitest.config.ts`, and the console version test derives from `pyproject.toml` instead of
+  a frozen literal it had drifted five releases away from.
+- **Exemptions applied in code are recorded.** Constructor fields hidden from the
+  protected-surface gate, and upstream Agent Server operations the gateway does not
+  implement, are declared in shrink-only records the gates read — so taking an exemption is
+  a reviewable act rather than an invisible one.
+- **Smaller corrections in the same vein:** `release/langgraph` imports resolve through the
+  package with no `sys.path` prepend; the container version label is checked against the
+  evidence release rather than asserted as the same literal it contains, with any gap to the
+  package version declared; and `validate_manifest` no longer presents evidence resolution
+  as manifest-driven when every artifact resolves from a hardcoded set.
+
 ## [0.22.1.1.1] - 2026-08-10
 
 ### Fixed

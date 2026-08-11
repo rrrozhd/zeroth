@@ -30,7 +30,11 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
-    assert "org.opencontainers.image.version=0.17.0.4" in dockerfile
+    # Derived, not a literal: asserting the same string the Dockerfile contains
+    # cannot detect the two moving apart, which is how the label stayed at
+    # 0.17.0.4 across two package-version bumps with this test green.
+    assert f"org.opencontainers.image.version={compatibility['release']}" in dockerfile
+    assert "zeroth-core:${ZEROTH_IMAGE_TAG:-" + compatibility["release"] + "}" in compose
     assert "memory-pg,langgraph,langgraph-gateway" in compose
     build_step = next(
         step
@@ -95,8 +99,7 @@ def test_container_and_compatibility_contract() -> None:
 def test_installed_image_packages_are_compared_with_compatibility(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.syspath_prepend(str(ROOT / "release/langgraph"))
-    from runtime_smoke import installed_package_evidence
+    from release.langgraph.runtime_smoke import installed_package_evidence
 
     compatibility_path = ROOT / "release/langgraph/compatibility.json"
     compatibility = json.loads(compatibility_path.read_text(encoding="utf-8"))
@@ -125,7 +128,7 @@ def test_installed_image_packages_are_compared_with_compatibility(
         )
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
-    monkeypatch.setattr("runtime_smoke.subprocess.run", fake_run)
+    monkeypatch.setattr("release.langgraph.runtime_smoke.subprocess.run", fake_run)
     image_path = tmp_path / "images.json"
     image_path.write_text(
         json.dumps(

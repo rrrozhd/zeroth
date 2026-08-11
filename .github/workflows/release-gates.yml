@@ -122,6 +122,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           mkdir -p release/evidence
           uv sync --all-groups --all-extras
           uv run ruff check src tests; RUFF=$?
@@ -184,6 +189,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           mkdir -p release/evidence
           WHEEL=$(ls dist/zeroth_core-*.whl | head -1)
           python -m venv /tmp/gate-venv
@@ -244,6 +254,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           mkdir -p release/evidence
           uv run --frozen --group gateway-conformance pytest -o addopts= -q \
             -m langgraph_conformance tests/langgraph_gateway/conformance \
@@ -312,6 +327,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           mkdir -p release/evidence
           uv sync --all-groups --all-extras
           run_suite() {
@@ -472,6 +492,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # GitHub's `shell: bash` already runs with `-e`, and `set -uo pipefail`
+          # does not clear it: the first failing command aborts the step before its
+          # `VAR=$?` capture runs, so every captured status could only ever be 0 and
+          # the recorded result was decided by whichever command failed first.
+          set +e
           # `--trigger nightly` selects exactly the four gates this workflow
           # emits. The release pipeline runs its own full-phase gates on top;
           # this one must not demand evidence it never produces.

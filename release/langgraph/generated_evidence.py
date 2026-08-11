@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from langgraph_benchmark import CURRENT_RELEASE
+from release.langgraph.langgraph_benchmark import CURRENT_RELEASE
 
 REQUIRED_TESTCASES = {
     (
@@ -77,6 +77,34 @@ def _sha256(value: Any) -> bool:
     return re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is not None
 
 
+def _digest_bound_to_the_daemon(image: dict[str, Any]) -> bool:
+    """Whether the recorded digest is tied to a value ``docker image inspect`` produced.
+
+    The application image's digest used to be read out of the SBOM, so a digest
+    tampered *consistently* across the SBOM, this file and the package evidence
+    validated clean: every check compared the SBOM with itself, and agreeing with
+    itself was all a forged digest had to do.
+
+    The binding has to survive that tamper, which means resting on the one field
+    it leaves alone -- ``id``, the config digest the daemon reports and the SBOM
+    never supplies. Two rules, by the image's role:
+
+    * **the application image** is built by the release workflow and *not pushed*
+      before this evidence is generated, so the daemon has no registry digest for
+      it. Its ``repo_digests`` must therefore be empty and its digest must equal
+      its ``id``. If the pipeline ever pushes first, this fails loudly and the
+      change becomes a decision rather than a silent hole.
+    * **a base image** is pulled, so it must carry the registry digest it was
+      pulled by, and the recorded digest must be one of them. Recording a base
+      image with no registry digest at all used to be accepted.
+    """
+    digest = str(image.get("digest"))
+    repo_digests = image.get("repo_digests") or []
+    if str(image.get("reference", "")).startswith("zeroth-core:"):
+        return not repo_digests and digest == str(image.get("id"))
+    return any(str(entry).endswith(f"@{digest}") for entry in repo_digests)
+
+
 def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
     value = _json_file(path, "image compatibility evidence", errors)
     images = value.get("images") if value else None
@@ -90,6 +118,7 @@ def _validate_images(path: Path, errors: list[str]) -> dict[str, str] | None:
             and _sha256(image.get("id"))
             and _sha256(image.get("digest"))
             and isinstance(image.get("repo_digests"), list)
+            and _digest_bound_to_the_daemon(image)
             for image in images or []
         )
     )
@@ -280,17 +309,30 @@ def _validate_junit(path: Path, errors: list[str]) -> None:
         tests = sum(int(suite.get("tests", "0")) for suite in suites)
         failures = sum(int(suite.get("failures", "0")) for suite in suites)
         error_count = sum(int(suite.get("errors", "0")) for suite in suites)
+        skipped = sum(int(suite.get("skipped", "0")) for suite in suites)
     except ValueError:
-        tests, failures, error_count = 0, 1, 1
+        tests, failures, error_count, skipped = 0, 1, 1, 1
     identities = {
         (str(case.get("classname")), str(case.get("name"))) for case in root.findall(".//testcase")
+    }
+    # A required test that was collected but never executed proves nothing, so a
+    # skip is as disqualifying as a failure. Both the suite-level counter and the
+    # per-identity element are checked: the counter alone can be under-reported by
+    # a hand-edited or partially-written document, and the element alone misses a
+    # suite that skipped a test it never emitted a ``testcase`` for.
+    skipped_identities = {
+        (str(case.get("classname")), str(case.get("name")))
+        for case in root.findall(".//testcase")
+        if case.find("skipped") is not None
     }
     if (
         tests < len(REQUIRED_TESTCASES)
         or failures
         or error_count
+        or skipped
         or not any(suite.get("name") == "pytest" for suite in suites)
         or not REQUIRED_TESTCASES.issubset(identities)
+        or skipped_identities & REQUIRED_TESTCASES
     ):
         errors.append("JUnit does not prove the expected release test identities passed")
 
