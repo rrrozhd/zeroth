@@ -13,6 +13,9 @@ from zeroth.integrations.sandbox.models import (
     SidecarStatusResponse,
 )
 
+SIDECAR_SECRET = "test-sidecar-secret"
+SIDECAR_SECRET_HEADER = "X-Zeroth-Sandbox-Secret"
+
 
 @pytest.fixture
 def mock_executor() -> AsyncMock:
@@ -21,12 +24,60 @@ def mock_executor() -> AsyncMock:
 
 
 @pytest.fixture
-async def client(mock_executor: AsyncMock):
+async def client(mock_executor: AsyncMock, monkeypatch: pytest.MonkeyPatch):
     """Create a test client with mocked executor."""
+    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", SIDECAR_SECRET)
     with patch("zeroth.integrations.sandbox.app.executor", mock_executor):
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={SIDECAR_SECRET_HEADER: SIDECAR_SECRET},
+        ) as c:
             yield c
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("presented_secret", [None, "wrong-secret"])
+async def test_execute_rejects_missing_or_wrong_secret(
+    mock_executor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    presented_secret: str | None,
+) -> None:
+    """POST /execute fails closed before dispatching unauthorized work."""
+    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", SIDECAR_SECRET)
+    headers = {} if presented_secret is None else {SIDECAR_SECRET_HEADER: presented_secret}
+    with patch("zeroth.integrations.sandbox.app.executor", mock_executor):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as unauthenticated:
+            response = await unauthenticated.post(
+                "/execute",
+                headers=headers,
+                json={
+                    "execution_id": "forbidden",
+                    "image": "python:3.12-slim",
+                    "command": ["true"],
+                },
+            )
+
+    assert response.status_code == 401
+    mock_executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_health_remains_public(
+    mock_executor: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Health probes do not need the operational shared secret."""
+    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", SIDECAR_SECRET)
+    mock_executor.check_health.return_value = True
+    with patch("zeroth.integrations.sandbox.app.executor", mock_executor):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as unauthenticated:
+            response = await unauthenticated.get("/health")
+
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
