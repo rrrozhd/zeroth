@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 import shlex
 import sys
@@ -15,6 +16,7 @@ from typing import get_args
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = REPO_ROOT / "scripts/docs_reference_allowlist.txt"
 BASELINE = REPO_ROOT / "scripts/docs_reference_seed.txt"
+BASELINE_SHA256 = "1f4c5d5c887ebe9cad2cf0c0789a8e9b2a86deac549a424b879270655d259072"
 
 FROM_IMPORT_RE = re.compile(
     r"(?<![\w.])from\s+(?P<module>zeroth(?:\.[A-Za-z_]\w*)*)\s+import\s*\(?"
@@ -475,6 +477,12 @@ def invalid_allowlist_entries(allowlist: set[str], baseline: set[str]) -> set[st
 
 
 def main() -> int:
+    if (
+        not BASELINE.is_file()
+        or hashlib.sha256(BASELINE.read_bytes()).hexdigest() != BASELINE_SHA256
+    ):
+        print("documentation reference seed differs from reviewed baseline")
+        return 1
     violations = scan_repository()
     allowlist = load_allowlist(ALLOWLIST)
     invalid = invalid_allowlist_entries(allowlist, load_allowlist(BASELINE))

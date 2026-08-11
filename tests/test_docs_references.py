@@ -201,11 +201,8 @@ def test_allowlist_cannot_expand_beyond_seed(tmp_path: Path, monkeypatch, capsys
     invalid_allowlist_entries = getattr(docs_references, "invalid_allowlist_entries", None)
     violation = Violation("docs/new.md", 4, "environment", "ZEROTH_NEW_SETTING")
     allowlist = tmp_path / "allowlist.txt"
-    baseline = tmp_path / "baseline.txt"
     allowlist.write_text(f"{violation.key}\n", encoding="utf-8")
-    baseline.write_text("docs/old.md:2:import:zeroth.dead_module\n", encoding="utf-8")
     monkeypatch.setattr(docs_references, "ALLOWLIST", allowlist)
-    monkeypatch.setattr(docs_references, "BASELINE", baseline)
     monkeypatch.setattr(docs_references, "scan_repository", lambda: [violation])
 
     assert invalid_allowlist_entries is not None
@@ -216,6 +213,25 @@ def test_allowlist_cannot_expand_beyond_seed(tmp_path: Path, monkeypatch, capsys
 
 def test_baseline_seed_contains_the_16_reviewed_base_violations() -> None:
     assert len(docs_references.load_allowlist(docs_references.BASELINE)) == 16
+
+
+def test_substituted_seed_cannot_authorize_new_violation(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    violation = Violation("docs/new.md", 4, "environment", "ZEROTH_NEW_SETTING")
+    seed = docs_references.BASELINE.read_text(encoding="utf-8")
+    original = next(line for line in seed.splitlines() if line and not line.startswith("#"))
+    baseline = tmp_path / "baseline.txt"
+    allowlist = tmp_path / "allowlist.txt"
+    baseline.write_text(seed.replace(original, violation.key, 1), encoding="utf-8")
+    allowlist.write_text(f"{violation.key}\n", encoding="utf-8")
+    monkeypatch.setattr(docs_references, "BASELINE", baseline)
+    monkeypatch.setattr(docs_references, "ALLOWLIST", allowlist)
+    monkeypatch.setattr(docs_references, "scan_repository", lambda: [violation])
+
+    assert len(docs_references.load_allowlist(baseline)) == 16
+    assert docs_references.main() == 1
+    assert "documentation reference seed differs from reviewed baseline" in capsys.readouterr().out
 
 
 def test_exact_19_reviewed_corrections_remain_current() -> None:

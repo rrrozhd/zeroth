@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.3.3] - 2026-08-11
+
+### Fixed
+
+- The documentation reference gate pins the reviewed seed identity so the
+  allowlist can only shrink from the original inventory.
+
 ## [0.20.1.3.2] - 2026-08-11
 
 ### Fixed
