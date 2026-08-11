@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import final
 
 _DEFAULT_TENANT_ID = "default"
+_RESOURCE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class ResourceScope(StrEnum):
@@ -34,6 +37,18 @@ def _require_non_empty_string(value: object, field_name: str) -> None:
         raise ValueError(f"{field_name} must be non-empty")
 
 
+def _require_stable_resource_name(value: object) -> None:
+    _require_non_empty_string(value, "resource_name")
+    if _RESOURCE_NAME.fullmatch(value) is None:  # type: ignore[arg-type]
+        raise ValueError("resource_name must be a stable identifier")
+
+
+def _require_sql_identifier(value: object, field_name: str) -> None:
+    _require_non_empty_string(value, field_name)
+    if _SQL_IDENTIFIER.fullmatch(value) is None:  # type: ignore[arg-type]
+        raise ValueError(f"{field_name} must be a SQL identifier")
+
+
 @dataclass(frozen=True, slots=True)
 @final
 class ScopeContext:
@@ -46,9 +61,7 @@ class ScopeContext:
         _require_non_empty_string(self.tenant_id, "tenant_id")
         _require_non_empty_string(self.workspace_id, "workspace_id")
         if self.tenant_id == _DEFAULT_TENANT_ID:
-            raise ValueError(
-                "the reserved default tenant requires for_default_compatibility()"
-            )
+            raise ValueError("the reserved default tenant requires for_default_compatibility()")
 
     @classmethod
     def for_default_compatibility(cls, *, workspace_id: str) -> ScopeContext:
@@ -70,9 +83,7 @@ class TenantWideScopeContext:
     def __post_init__(self) -> None:
         _require_non_empty_string(self.tenant_id, "tenant_id")
         if self.tenant_id == _DEFAULT_TENANT_ID:
-            raise ValueError(
-                "the reserved default tenant requires for_default_compatibility()"
-            )
+            raise ValueError("the reserved default tenant requires for_default_compatibility()")
 
     @classmethod
     def for_default_compatibility(cls) -> TenantWideScopeContext:
@@ -92,14 +103,17 @@ class ResourceScopeDefinition:
     operations: frozenset[ResourceOperation]
     scope: ResourceScope = ResourceScope.TENANT_SCOPED
     workspace_scoped: bool = False
+    direct_scope_ready: bool = True
 
     def __post_init__(self) -> None:
-        _require_non_empty_string(self.resource_name, "resource_name")
-        _require_non_empty_string(self.table_name, "table_name")
+        _require_stable_resource_name(self.resource_name)
+        _require_sql_identifier(self.table_name, "table_name")
         if type(self.scope) is not ResourceScope:
             raise TypeError("scope must be a ResourceScope")
         if type(self.workspace_scoped) is not bool:
             raise TypeError("workspace_scoped must be a bool")
+        if type(self.direct_scope_ready) is not bool:
+            raise TypeError("direct_scope_ready must be a bool")
         if not isinstance(self.operations, frozenset):
             raise TypeError("operations must be a frozenset")
         if not self.operations:
@@ -108,6 +122,8 @@ class ResourceScopeDefinition:
             raise TypeError("operations must contain only ResourceOperation members")
         if self.workspace_scoped and self.scope is ResourceScope.GLOBAL:
             raise ValueError("workspace_scoped resources must be tenant scoped")
+        if not self.direct_scope_ready and self.scope is ResourceScope.GLOBAL:
+            raise ValueError("global resources cannot have pending direct ownership")
 
 
 type ScopeBinding = ScopeContext | TenantWideScopeContext | None
@@ -160,6 +176,8 @@ class ResourceScopeRegistry:
             if context is not None:
                 raise ValueError("global resources do not accept a tenant context")
             return definition
+        if not definition.direct_scope_ready:
+            raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
         if context is None:
             raise ValueError("tenant-scoped resources require a tenant context")
         if type(context) not in (ScopeContext, TenantWideScopeContext):
@@ -182,6 +200,8 @@ class ResourceScopeRegistry:
         self._validate_operation(definition, operation)
         if definition.scope is ResourceScope.GLOBAL:
             raise ValueError("global resources do not accept a tenant context")
+        if not definition.direct_scope_ready:
+            raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
         return definition
 
     @staticmethod

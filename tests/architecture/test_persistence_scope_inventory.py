@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import importlib
 import os
 import pkgutil
@@ -18,12 +19,17 @@ from zeroth.platform.storage.scoping import (
     ResourceScope,
     ResourceScopeDefinition,
     ResourceScopeRegistry,
+    ScopeContext,
 )
 from zeroth.platform.storage.scoped_table import (
     ASYNC_PERSISTENCE_MODULES,
+    ASYNC_NON_PERSISTENCE_MODULES,
     ECON_MIGRATION_SCOPE_DEFINITIONS,
+    SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES,
     SERVICE_SCOPE_DEFINITIONS,
+    ScopedTable,
 )
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 _ECON_PLANE_ROOT = Path(econ_plane_paths[0])
 _SOURCE_ROOT = _ECON_PLANE_ROOT.parents[1]
@@ -31,7 +37,9 @@ _GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_role
 
 
 @pytest.fixture(scope="module")
-def migration_head_tables(tmp_path_factory: pytest.TempPathFactory) -> tuple[set[str], set[str]]:
+def migration_head_tables(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[set[str], set[str], dict[str, set[str]]]:
     root = Path(__file__).resolve().parents[2]
 
     service_path = tmp_path_factory.mktemp("service-scope-head") / "service.db"
@@ -56,14 +64,22 @@ def migration_head_tables(tmp_path_factory: pytest.TempPathFactory) -> tuple[set
         else:
             os.environ["ECP_DATABASE_URL"] = previous_econ_url
 
-    def table_names(url: str) -> set[str]:
+    def schema(url: str) -> tuple[set[str], dict[str, set[str]]]:
         engine = create_engine(url)
         try:
-            return set(inspect(engine).get_table_names())
+            inspector = inspect(engine)
+            tables = set(inspector.get_table_names())
+            columns = {
+                table: {column["name"] for column in inspector.get_columns(table)}
+                for table in tables
+            }
+            return tables, columns
         finally:
             engine.dispose()
 
-    return table_names(service_url), table_names(econ_url)
+    service_tables, service_columns = schema(service_url)
+    econ_tables, _ = schema(econ_url)
+    return service_tables, econ_tables, service_columns
 
 
 def _import_econ_model_modules() -> None:
@@ -118,9 +134,9 @@ def test_econ_scope_classifications_match_product_semantics() -> None:
 
 
 def test_service_migration_head_has_exactly_one_production_scope_definition(
-    migration_head_tables: tuple[set[str], set[str]],
+    migration_head_tables: tuple[set[str], set[str], dict[str, set[str]]],
 ) -> None:
-    service_tables, _ = migration_head_tables
+    service_tables, _, _ = migration_head_tables
     registry = ResourceScopeRegistry(SERVICE_SCOPE_DEFINITIONS)
 
     assert {definition.table_name for definition in registry.definitions} == service_tables
@@ -148,9 +164,9 @@ def test_service_migration_head_has_exactly_one_production_scope_definition(
 
 
 def test_econ_migration_head_reuses_mapper_definitions_without_duplicates(
-    migration_head_tables: tuple[set[str], set[str]],
+    migration_head_tables: tuple[set[str], set[str], dict[str, set[str]]],
 ) -> None:
-    _, econ_tables = migration_head_tables
+    _, econ_tables, _ = migration_head_tables
     mapper_definitions = [model.scope_definition for model in _econ_mapper_classes()]
     registry = ResourceScopeRegistry([*mapper_definitions, *ECON_MIGRATION_SCOPE_DEFINITIONS])
 
@@ -169,9 +185,9 @@ def test_econ_migration_head_reuses_mapper_definitions_without_duplicates(
 
 
 def test_service_workspace_scope_definitions_match_head_columns(
-    migration_head_tables: tuple[set[str], set[str]],
+    migration_head_tables: tuple[set[str], set[str], dict[str, set[str]]],
 ) -> None:
-    del migration_head_tables  # The fixture proves this assertion is against the live head.
+    _, _, service_columns = migration_head_tables
     workspace_tables = {
         definition.table_name
         for definition in SERVICE_SCOPE_DEFINITIONS
@@ -186,6 +202,40 @@ def test_service_workspace_scope_definitions_match_head_columns(
         "runs",
         "threads",
     }
+    assert all("workspace_id" in service_columns[table] for table in workspace_tables)
+
+
+def test_service_direct_ownership_matches_live_head_and_pending_is_not_bindable(
+    migration_head_tables: tuple[set[str], set[str], dict[str, set[str]]],
+    tmp_path: Path,
+) -> None:
+    _, _, service_columns = migration_head_tables
+    tenant_definitions = {
+        definition.table_name: definition
+        for definition in SERVICE_SCOPE_DEFINITIONS
+        if definition.scope is ResourceScope.TENANT_SCOPED
+    }
+    missing_direct_tenant = {
+        table_name
+        for table_name in tenant_definitions
+        if "tenant_id" not in service_columns[table_name]
+    }
+
+    assert missing_direct_tenant == SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES
+    for table_name, definition in tenant_definitions.items():
+        assert definition.direct_scope_ready is (
+            table_name not in SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES
+        )
+        if definition.direct_scope_ready:
+            assert "tenant_id" in service_columns[table_name]
+
+    registry = ResourceScopeRegistry(SERVICE_SCOPE_DEFINITIONS)
+    database = AsyncSQLiteDatabase(str(tmp_path / "pending-scope.db"))
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    for table_name in SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES:
+        definition = registry.definition_for_table(table_name)
+        with pytest.raises(ValueError, match="pending direct ownership"):
+            ScopedTable(database, registry, definition.resource_name, context)
 
 
 class _RawSessionVisitor(ast.NodeVisitor):
@@ -701,6 +751,22 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
     _RAW_METHODS = {"execute", "execute_script", "fetch_all", "fetch_one", "transaction"}
     _CONNECTION_METHODS = _RAW_METHODS - {"transaction"}
     _CONNECTION_CONTEXT_METHODS = {"acquire", "connect", "connection", "transaction"}
+    _DATABASE_RECEIVER_NAMES = {
+        "_coordinator",
+        "_database",
+        "coordinator",
+        "database",
+        "db",
+        "pool",
+    }
+    _POTENTIAL_CONNECTION_NAMES = {
+        "_conn",
+        "_connection",
+        "conn",
+        "connection",
+        "raw",
+        "transaction",
+    }
 
     def __init__(self, relative_path: str) -> None:
         self.relative_path = relative_path
@@ -708,6 +774,7 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         self.violations: list[str] = []
         self._counts: dict[tuple[str, str], int] = {}
         self._connection_paths: set[str] = set()
+        self._database_paths: set[str] = set()
         self._transaction_factory_paths: set[str] = set()
 
     def _record(self, method: str) -> None:
@@ -744,8 +811,13 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         }
 
     @classmethod
+    def _is_database_annotation(cls, node: ast.AST | None) -> bool:
+        dotted = cls._dotted_name(node)
+        return dotted is not None and dotted.endswith("AsyncDatabase")
+
+    @classmethod
     def _seed_connection_argument(cls, argument: ast.arg) -> set[str]:
-        if argument.arg in {"conn", "connection"} or cls._is_connection_annotation(
+        if argument.arg in cls._POTENTIAL_CONNECTION_NAMES or cls._is_connection_annotation(
             argument.annotation
         ):
             return {argument.arg}
@@ -754,17 +826,31 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
             return {f"{argument.arg}.connection"}
         return set()
 
+    def _is_database_receiver(self, node: ast.AST) -> bool:
+        dotted = self._dotted_name(node)
+        if dotted is None:
+            return False
+        leaf = dotted.rsplit(".", 1)[-1]
+        return leaf in self._DATABASE_RECEIVER_NAMES or any(
+            dotted == path or dotted.startswith(f"{path}.") for path in self._database_paths
+        )
+
     def _is_connection_receiver(self, node: ast.AST) -> bool:
         dotted = self._dotted_name(node)
-        return dotted is not None and any(
+        if dotted is None:
+            return False
+        leaf = dotted.rsplit(".", 1)[-1]
+        return leaf in self._POTENTIAL_CONNECTION_NAMES or any(
             dotted == path or dotted.startswith(f"{path}.") for path in self._connection_paths
         )
 
     def _is_transaction_factory(self, node: ast.AST) -> bool:
         dotted = self._dotted_name(node)
-        return (isinstance(node, ast.Attribute) and node.attr == "transaction") or (
-            dotted is not None and dotted in self._transaction_factory_paths
-        )
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "transaction"
+            and self._is_database_receiver(node.value)
+        ) or (dotted is not None and dotted in self._transaction_factory_paths)
 
     def _is_connection_context(self, node: ast.AST) -> bool:
         if not isinstance(node, ast.Call):
@@ -774,6 +860,7 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         return (
             isinstance(node.func, ast.Attribute)
             and node.func.attr in self._CONNECTION_CONTEXT_METHODS
+            and self._is_database_receiver(node.func.value)
         )
 
     def _is_connection_value(self, node: ast.AST) -> bool:
@@ -785,6 +872,7 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in self._CONNECTION_CONTEXT_METHODS
+            and self._is_database_receiver(node.func.value)
         )
 
     def _update_connection_target(self, target: ast.AST, value: ast.AST) -> None:
@@ -805,10 +893,18 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         else:
             self._transaction_factory_paths.difference_update(paths)
 
+    def _update_database_target(self, target: ast.AST, value: ast.AST) -> None:
+        paths = self._assigned_paths(target)
+        if self._is_database_receiver(value):
+            self._database_paths.update(paths)
+        else:
+            self._database_paths.difference_update(paths)
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         previous = (
             self.function,
             self._connection_paths,
+            self._database_paths,
             self._transaction_factory_paths,
         )
         self.function = node.name
@@ -817,11 +913,18 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
             for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
             for path in self._seed_connection_argument(argument)
         }
+        self._database_paths = {
+            argument.arg
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            if argument.arg in {"database", "db"}
+            or self._is_database_annotation(argument.annotation)
+        }
         self._transaction_factory_paths = set()
         self.generic_visit(node)
         (
             self.function,
             self._connection_paths,
+            self._database_paths,
             self._transaction_factory_paths,
         ) = previous
 
@@ -831,12 +934,14 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
             self._update_connection_target(target, node.value)
+            self._update_database_target(target, node.value)
             self._update_transaction_factory_target(target, node.value)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self._update_connection_target(node.target, node.value)
+            self._update_database_target(node.target, node.value)
             if self._is_connection_annotation(node.annotation):
                 self._connection_paths.update(self._assigned_paths(node.target))
             self._update_transaction_factory_target(node.target, node.value)
@@ -861,13 +966,16 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
             and len(node.args) >= 2
             and isinstance(node.args[1], ast.Constant)
             and node.args[1].value in self._RAW_METHODS
-            and (node.args[1].value == "transaction" or self._is_connection_receiver(node.args[0]))
+            and (
+                (node.args[1].value == "transaction" and self._is_database_receiver(node.args[0]))
+                or self._is_connection_receiver(node.args[0])
+            )
         ):
             self._record(str(node.args[1].value))
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr == "transaction" or (
+        if self._is_transaction_factory(node) or (
             node.attr in self._CONNECTION_METHODS and self._is_connection_receiver(node.value)
         ):
             self._record(node.attr)
@@ -887,6 +995,42 @@ def _raw_async_repository_violations(
         visitor.visit(ast.parse(path.read_text(), filename=str(path)))
         violations.update(visitor.violations)
     return violations
+
+
+_PERSISTENCE_DISCOVERY_ROOTS = (
+    "contracts",
+    "governance",
+    "integrations/memory",
+    "integrations/persistence",
+    "platform/artifacts",
+    "platform/secrets",
+    "runtime/agents",
+    "service/deployments",
+    "service/langgraph_gateway",
+    "service/webhooks",
+)
+_PERSISTENCE_FILENAME_PATTERNS = (
+    "repository.py",
+    "*_repository.py",
+    "store.py",
+    "*_store.py",
+    "storage.py",
+    "registry.py",
+)
+
+
+def _discover_persistence_shaped_modules(root: Path) -> frozenset[str]:
+    discovered: set[str] = set()
+    for relative_root in _PERSISTENCE_DISCOVERY_ROOTS:
+        directory = root / relative_root
+        if not directory.exists():
+            continue
+        for path in directory.rglob("*.py"):
+            if any(
+                fnmatch.fnmatch(path.name, pattern) for pattern in _PERSISTENCE_FILENAME_PATTERNS
+            ):
+                discovered.add(path.relative_to(root).as_posix())
+    return frozenset(discovered)
 
 
 # Task 3 records the exact pre-migration debt. Tasks 7-10 delete entries as repositories
@@ -1162,6 +1306,30 @@ def test_async_persistence_registry_covers_named_non_repository_stores() -> None
     } <= ASYNC_PERSISTENCE_MODULES
 
 
+def test_persistence_module_discovery_is_fully_classified() -> None:
+    discovered = _discover_persistence_shaped_modules(_SOURCE_ROOT)
+
+    assert discovered - ASYNC_PERSISTENCE_MODULES - ASYNC_NON_PERSISTENCE_MODULES == set()
+    assert discovered >= ASYNC_NON_PERSISTENCE_MODULES
+    assert _raw_async_repository_violations(_SOURCE_ROOT, ASYNC_NON_PERSISTENCE_MODULES) == set()
+
+
+def test_new_persistence_shaped_module_requires_explicit_classification(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "service/webhooks"
+    directory.mkdir(parents=True)
+    (directory / "new_repository.py").write_text(
+        "async def unsafe(raw):\n    await raw.execute('DELETE FROM rows')\n"
+    )
+
+    discovered = _discover_persistence_shaped_modules(tmp_path)
+
+    assert discovered - ASYNC_PERSISTENCE_MODULES - ASYNC_NON_PERSISTENCE_MODULES == {
+        "service/webhooks/new_repository.py"
+    }
+
+
 def test_raw_async_repository_guard_reports_new_transaction_and_execute_calls(
     tmp_path: Path,
 ) -> None:
@@ -1194,27 +1362,18 @@ def test_raw_async_repository_guard_tracks_aliases_and_getattr(tmp_path: Path) -
     assert any("::execute#" in violation for violation in violations)
 
 
-def test_registered_non_repository_store_is_scanned_but_unregistered_file_is_not(
-    tmp_path: Path,
-) -> None:
+def test_registered_non_repository_store_is_scanned(tmp_path: Path) -> None:
     (tmp_path / "registered_store.py").write_text(
         "async def unsafe(database):\n"
         "    async with database.transaction() as connection:\n"
         "        await connection.execute('DELETE FROM runs')\n"
         "        return await connection.fetch_one('SELECT 1')\n"
     )
-    (tmp_path / "unrelated_repository.py").write_text(
-        "async def unrelated(database):\n"
-        "    async with database.transaction() as connection:\n"
-        "        await connection.execute('DELETE FROM unrelated')\n"
-    )
-
     violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
 
     assert any("registered_store.py::unsafe::transaction#" in item for item in violations)
     assert any("registered_store.py::unsafe::execute#" in item for item in violations)
     assert any("registered_store.py::unsafe::fetch_one#" in item for item in violations)
-    assert all("unrelated_repository.py" not in item for item in violations)
 
 
 def test_registered_store_ignores_non_database_execute_receivers(tmp_path: Path) -> None:
@@ -1286,6 +1445,29 @@ def test_raw_async_guard_keeps_untainted_clients_and_pipelines_clean(tmp_path: P
     )
 
     assert _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"})) == set()
+
+
+def test_raw_async_guard_ignores_non_database_unit_of_work_transaction(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(unit_of_work):\n"
+        "    async with unit_of_work.transaction() as event_batch:\n"
+        "        await event_batch.publish()\n"
+    )
+
+    assert _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"})) == set()
+
+
+def test_raw_async_guard_rejects_unannotated_raw_connection_receiver(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(raw):\n"
+        "    await raw.execute('DELETE FROM runs')\n"
+        "    return await getattr(raw, 'fetch_one')('SELECT 1')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert any("::execute#" in item for item in violations)
+    assert any("::fetch_one#" in item for item in violations)
 
 
 def test_missing_registered_persistence_module_fails_closed(tmp_path: Path) -> None:
