@@ -358,13 +358,19 @@ def _historical_inline_context(line: str, start: int, end: int) -> bool:
         elif boundary.start() >= end:
             context_end = boundary.start()
             break
-    before = line[context_start:start]
-    historical_before = list(HISTORICAL_CONTEXT_RE.finditer(before))
-    if historical_before and not INLINE_CODE_RE.search(before, historical_before[-1].end()):
-        return True
-    after = line[end:context_end]
-    historical_after = HISTORICAL_CONTEXT_RE.search(after)
-    return bool(historical_after and not INLINE_CODE_RE.search(after[: historical_after.start()]))
+    inline_spans = list(INLINE_CODE_RE.finditer(line, context_start, context_end))
+    return any(
+        min(
+            inline_spans,
+            key=lambda inline: max(
+                historical.start() - inline.end(),
+                inline.start() - historical.end(),
+                0,
+            ),
+        ).span()
+        == (start, end)
+        for historical in HISTORICAL_CONTEXT_RE.finditer(line, context_start, context_end)
+    )
 
 
 def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Violation]:

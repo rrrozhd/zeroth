@@ -118,6 +118,24 @@ def test_historical_inline_code_with_following_marker_is_not_actionable() -> Non
     assert scan_markdown(markdown, "docs/history.md", REPO_ROOT) == []
 
 
+def test_suffix_historical_marker_does_not_hide_replacement_target() -> None:
+    markdown = "Use `ZEROTH_DEAD_NEW` instead of removed `ZEROTH_OLD`."
+
+    assert [
+        (violation.kind, violation.target)
+        for violation in scan_markdown(markdown, "docs/history.md", REPO_ROOT)
+    ] == [("environment", "ZEROTH_DEAD_NEW")]
+
+
+def test_parenthetical_historical_marker_does_not_hide_replacement_target() -> None:
+    markdown = "Replace `ZEROTH_OLD` (removed) with `ZEROTH_DEAD_NEW`."
+
+    assert [
+        (violation.kind, violation.target)
+        for violation in scan_markdown(markdown, "docs/history.md", REPO_ROOT)
+    ] == [("environment", "ZEROTH_DEAD_NEW")]
+
+
 def test_historical_inline_does_not_hide_actionable_reference_on_same_line() -> None:
     markdown = (
         "The removed setting `ZEROTH_DEAD_SETTING` was used before 0.17; "
