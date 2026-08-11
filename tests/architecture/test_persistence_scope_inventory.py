@@ -347,7 +347,6 @@ def _raw_session_violations(root: Path) -> set[str]:
 # This exact allowlist is shrink-only: deleting a violation requires deleting its entry,
 # while any new import, reference, construction, or raw-only API use fails this test.
 _ALLOWED_SESSION_REFERENCES = {
-    "auth/service.py": {"issue_token"},
     "capabilities/service.py": {
         "active_experiment",
         "create_capability",

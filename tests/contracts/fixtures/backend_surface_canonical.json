@@ -11275,7 +11275,7 @@
       ],
       "module": "zeroth.econ.plane.auth.schemas",
       "name": "LoginRequest",
-      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str]) -> None"
+      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], tenant_id: str = 'default', workspace_id: str | None = None) -> None"
     },
     {
       "evidence": [
@@ -11299,7 +11299,7 @@
       ],
       "module": "zeroth.econ.plane.auth.schemas",
       "name": "UserClaims",
-      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], exp: int, iss: str) -> None"
+      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], tenant_id: str, workspace_id: str | None = None, exp: int, iss: str) -> None"
     },
     {
       "evidence": [

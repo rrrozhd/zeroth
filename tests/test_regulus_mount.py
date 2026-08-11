@@ -227,7 +227,7 @@ async def test_budget_fails_open_on_bad_token_but_sends_headers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
+async def test_tenant_budget_cap_persists_and_trips_the_enforcer(monkeypatch) -> None:
     """End-to-end budget closure: a cap set on the bundled econ plane, plus an
     ingested execution that exceeds it, makes the REAL /budget/status payload
     deny — parsed by the actual BudgetEnforcer, not a hand-mocked contract.
@@ -236,7 +236,9 @@ async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
     /dashboard/kpis reading fields that endpoint never returned.
     """
     import httpx
+    from zeroth.econ.plane.config import settings as ecp_settings
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "acme")
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
     headers = provider()
@@ -358,7 +360,7 @@ def _seed_cap_and_spend(
 
 
 @pytest.mark.asyncio
-async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
+async def test_budget_cap_trips_through_mounted_plane_asgi(monkeypatch) -> None:
     """HEADLINE: the cap trips through the ACTUAL mounted econ plane in-process.
 
     Constructs ``BudgetEnforcer(asgi_app=<mounted econ_plane app>)`` — no
@@ -368,7 +370,9 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
     of ingested spend makes the enforcer deny.
     """
     from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "acme")
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
     headers = provider()
@@ -394,20 +398,24 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_cap_isolation() -> None:
+async def test_cross_tenant_cap_isolation(monkeypatch) -> None:
     """A cap seeded for tenant A only denies A after over-spend while tenant B
     (no cap) stays unlimited — caps do not leak across tenants."""
     from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
-    headers = provider()
 
     with TestClient(app) as client:
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_a")
+        headers = provider()
         _seed_cap_and_spend(
             client, headers, "tenant_a", cap_usd=0.01, spend_usd=0.05, exec_id="exec_iso_a"
         )
         # tenant_b: no cap set, only spend ingested.
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_b")
+        headers = provider()
         ingest_b = client.post(
             "/regulus/v1/instrumentation/executions",
             headers=headers,
@@ -428,11 +436,17 @@ async def test_cross_tenant_cap_isolation() -> None:
         )
         assert ingest_b.status_code == 200, ingest_b.text
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_a")
     enforcer = BudgetEnforcer(
         asgi_app=econ_plane_app,
         headers_provider=make_self_auth_headers_provider(_ZEROTH_KEY),
     )
     a_allowed, a_spend, a_cap = await enforcer.check_budget("tenant_a")
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_b")
+    enforcer = BudgetEnforcer(
+        asgi_app=econ_plane_app,
+        headers_provider=make_self_auth_headers_provider(_ZEROTH_KEY),
+    )
     b_allowed, _, b_cap = await enforcer.check_budget("tenant_b")
 
     assert a_allowed is False  # A is capped and over.
@@ -496,6 +510,7 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     assert RegulusSettings().enabled is True
 
     tenant = "g1_default_tenant"
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant)
     app = create_app(_GatedBootstrap())
 
     # Entering the TestClient runs the lifespan. The OLD guard raised RuntimeError

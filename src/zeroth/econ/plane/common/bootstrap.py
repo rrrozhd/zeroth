@@ -30,6 +30,16 @@ def _ensure_schema_compat() -> None:
             if has_column(table, "id") and not has_column(table, column):
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
 
+        ensure_col("users", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'default'")
+        ensure_col("users", "workspace_id", "workspace_id VARCHAR(128)")
+        if has_column("users", "tenant_id"):
+            conn.execute(
+                text(
+                    "UPDATE users SET tenant_id = 'default' "
+                    "WHERE tenant_id IS NULL OR tenant_id = 'tenant_default'"
+                )
+            )
+
         ensure_col("capabilities", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("capabilities", "type", "type VARCHAR(64) DEFAULT 'RISK'")
         ensure_col("capabilities", "description", "description VARCHAR(1024) DEFAULT ''")

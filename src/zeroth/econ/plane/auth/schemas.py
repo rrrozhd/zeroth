@@ -5,6 +5,8 @@ class LoginRequest(BaseModel):
     sub: str
     email: EmailStr
     roles: list[str]
+    tenant_id: str = "default"
+    workspace_id: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -16,5 +18,7 @@ class UserClaims(BaseModel):
     sub: str
     email: EmailStr
     roles: list[str]
+    tenant_id: str
+    workspace_id: str | None = None
     exp: int
     iss: str

@@ -73,6 +73,17 @@ def _ensure_sqlite_compat() -> None:
         for table in tenant_ownership_tables:
             ensure_col(table, "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
 
+        ensure_col("users", "workspace_id", "workspace_id VARCHAR(128)")
+        if conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+        ).first():
+            conn.execute(
+                text(
+                    "UPDATE users SET tenant_id = 'default' "
+                    "WHERE tenant_id IS NULL OR tenant_id = 'tenant_default'"
+                )
+            )
+
         ensure_col("capabilities", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("capabilities", "type", "type VARCHAR(64) DEFAULT 'RISK'")
         ensure_col("capabilities", "description", "description VARCHAR(1024) DEFAULT ''")

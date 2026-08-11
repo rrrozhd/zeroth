@@ -22,10 +22,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-# econ_plane's UserClaims.email is an EmailStr; use a deliverable-looking domain
-# (special-use domains like .local are rejected by email-validator).
-_SERVICE_SUBJECT = "zeroth-service"
-_SERVICE_EMAIL = "zeroth-service@example.com"
 _TOKEN_TTL_SECONDS = 300
 
 HeadersProvider = Callable[[], dict[str, str]]
@@ -46,9 +42,13 @@ def mint_econ_service_token() -> str | None:
 
     exp = datetime.now(tz=UTC) + timedelta(seconds=_TOKEN_TTL_SECONDS)
     claims = {
-        "sub": _SERVICE_SUBJECT,
-        "email": _SERVICE_EMAIL,
-        "roles": ["Admin"],  # covers ingest (Admin/Analyst) and KPIs (Viewer-tier)
+        "sub": ecp_settings.service_principal_subject,
+        "email": ecp_settings.service_principal_email,
+        "roles": [
+            role.strip() for role in ecp_settings.service_principal_roles.split(",") if role.strip()
+        ],
+        "tenant_id": ecp_settings.service_principal_tenant_id,
+        "workspace_id": ecp_settings.service_principal_workspace_id,
         "iss": "econ-plane",
         "exp": int(exp.timestamp()),
     }
