@@ -2077,7 +2077,7 @@
         "additionalProperties": false,
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "type": "string"
           },
@@ -2212,7 +2212,7 @@
         "additionalProperties": false,
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "type": "string"
           },
@@ -3451,7 +3451,7 @@
         "additionalProperties": false,
         "properties": {
           "adapter_version": {
-            "default": "1",
+            "default": "2",
             "minLength": 1,
             "type": "string"
           },

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.10.3] - 2026-08-11
+
+### Fixed
+
+- Registered governance metadata is now authoritative during tool admission, so a
+  request cannot downgrade approval or alter other reviewed fields. Complete metadata
+  survives inventory persistence, both adapter contract versions advance for the new
+  shape and encoding, and decision and inventory serialization share one canonical
+  record with recorder-parity coverage (ZER-43).
+
 ## [0.22.2.10.2] - 2026-08-10
 
 ### Changed

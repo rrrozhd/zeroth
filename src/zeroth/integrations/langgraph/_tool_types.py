@@ -160,55 +160,6 @@ class ToolAction:
 
 
 @dataclass(frozen=True, slots=True)
-class ToolPolicyDescriptor:
-    """The governance facts both decision wires must carry for one tool.
-
-    ``ToolAction`` also carries call-local material such as arguments and a
-    principal. Those fields have different trust and privacy treatment at each
-    boundary. This descriptor is the shared field set policies consume; its
-    generic wire projection makes an added field reach both strict DTOs, where
-    omitting the corresponding schema field fails validation instead of
-    silently dropping it.
-    """
-
-    identity: ToolIdentity
-    side_effect: SideEffectClass
-    contract_ref: str | None
-    capability_refs: tuple[str, ...]
-    requires_approval: bool
-    identity_configuration: tuple[str, ...]
-
-    def wire_fields(self) -> dict[str, object]:
-        """Flatten the identity and return every policy field by dataclass shape."""
-        payload: dict[str, object] = {
-            "name": self.identity.name,
-            "fingerprint": self.identity.fingerprint,
-        }
-        payload.update(
-            {
-                field.name: getattr(self, field.name)
-                for field in fields(self)
-                if field.name != "identity"
-            }
-        )
-        return payload
-
-
-def describe_tool_policy(action: ToolAction) -> ToolPolicyDescriptor:
-    """Derive the one policy descriptor from an exactly-typed action."""
-    if type(action) is not ToolAction:
-        raise TypeError("a ToolAction is required to describe tool policy")
-    return ToolPolicyDescriptor(
-        identity=action.identity,
-        side_effect=action.side_effect,
-        contract_ref=action.contract_ref,
-        capability_refs=tuple(action.capability_refs),
-        requires_approval=action.requires_approval,
-        identity_configuration=tuple(action.identity_configuration),
-    )
-
-
-@dataclass(frozen=True, slots=True)
 class ToolDecision:
     """The verdict tool governance returned, with the reason it is recorded under.
 
@@ -270,6 +221,26 @@ class ToolInventoryEntry:
             value = getattr(self, field.name)
             payload[field.name] = value.value if type(value) is SideEffectClass else value
         return payload
+
+
+# Compatibility name for callers that imported the short-lived descriptor.
+# It is deliberately an alias, not a second dataclass: decision serialization
+# and inventory evidence must share one physical governance-semantic record.
+ToolPolicyDescriptor = ToolInventoryEntry
+
+
+def describe_tool_policy(action: ToolAction) -> ToolInventoryEntry:
+    """Derive the canonical governance entry from an exactly-typed action."""
+    if type(action) is not ToolAction:
+        raise TypeError("a ToolAction is required to describe tool policy")
+    return ToolInventoryEntry(
+        identity=action.identity,
+        side_effect=action.side_effect,
+        contract_ref=action.contract_ref,
+        capability_refs=action.capability_refs,
+        requires_approval=action.requires_approval,
+        identity_configuration=action.identity_configuration,
+    )
 
 
 @dataclass(frozen=True, slots=True)

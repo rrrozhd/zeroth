@@ -235,10 +235,7 @@ class InventoryRegistrationRepository:
                     json.dumps([tool.name for tool in registration.tools]),
                     registration.registered_at.isoformat(),
                     json.dumps(
-                        [
-                            {"name": tool.name, "fingerprint": tool.fingerprint}
-                            for tool in registration.tools
-                        ]
+                        [tool.model_dump(mode="json") for tool in registration.tools]
                     ),
                 ),
             )

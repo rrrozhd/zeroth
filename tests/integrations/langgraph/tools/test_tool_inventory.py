@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import Any
 
 import pytest
@@ -60,6 +60,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolInventoryEntry,
 )
 from zeroth.integrations.langgraph._tool_wrappers import GovernedToolBinding, govern_tools
+from zeroth.integrations.langgraph import identity_configuration
 
 FINGERPRINT_SHAPE = 64
 """How long a hex SHA-256 digest is, so a fabricated one is recognisably shaped."""
@@ -300,6 +301,45 @@ def test_a_binding_inventory_records_exactly_what_was_pinned() -> None:
 
     assert inventory.coverage is InventoryCoverage.PARTIAL
     assert [entry.identity for entry in inventory.entries] == [b.identity for b in bindings]
+
+
+def test_both_recorders_preserve_every_nondefault_canonical_field() -> None:
+    """Adding a canonical field without carrying it through either recorder fails."""
+
+    @identity_configuration("endpoint")
+    def search(query: str) -> str:
+        """Search one configured endpoint."""
+        return query
+
+    search.endpoint = "https://search.example"  # type: ignore[attr-defined]
+    [governed] = govern_tools(
+        [search],
+        side_effect=lambda _tool: SideEffectClass.SIDE_EFFECTING,
+        contract_ref=lambda _tool: "contract:search@v1",
+        capability_refs=lambda _tool: ("network_read", "records_read"),
+        requires_approval=lambda _tool: True,
+    )
+    expected = ToolInventoryEntry(
+        identity=governed.zeroth_binding.identity,
+        side_effect=SideEffectClass.SIDE_EFFECTING,
+        contract_ref="contract:search@v1",
+        capability_refs=("network_read", "records_read"),
+        requires_approval=True,
+        identity_configuration=("endpoint",),
+    )
+
+    assert record_tool_inventory([governed]).entries == (expected,)
+    assert record_binding_inventory([governed.zeroth_binding]).entries == (expected,)
+
+
+def test_binding_and_inventory_entry_share_one_complete_governance_field_set() -> None:
+    """The binding may add coverage, but cannot omit or invent governance facts."""
+    canonical = {field.name for field in fields(ToolInventoryEntry)}
+    binding = {
+        field.name for field in fields(GovernedToolBinding) if field.name != "coverage"
+    }
+
+    assert binding == canonical
 
 
 def test_a_binding_inventory_reports_the_same_levels_a_wrapper_inventory_does() -> None:

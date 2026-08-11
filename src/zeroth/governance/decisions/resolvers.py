@@ -17,26 +17,26 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from zeroth.governance.attestations.inventory import RegisteredTool
 from zeroth.governance.decisions.request import DecisionRequest
 
 
 class ToolInventoryLookup(Protocol):
-    """The set of tool *identities* a deployment has registered.
+    """The complete tool descriptors a deployment has registered.
 
-    Identities, not names. Audit round 2 found that admission compared
-    ``action.name`` alone while both the registration and the action already
-    carried fingerprints, so a call arriving under a governed name with a
-    foreign fingerprint -- a different callable answering to a registered label
-    -- was admitted. A name is a label the caller chose; the pair is what the
-    server actually registered.
+    Complete descriptors, not names or identity pairs. Identity-only matching
+    prevents callable substitution but still lets a request weaken approval,
+    side-effect, contract, capability, or identity-configuration facts the
+    deployment registered. Admission therefore compares the entire immutable
+    server-held descriptor.
     """
 
-    async def registered_tool_identities(
+    async def registered_tools(
         self,
         tenant_id: str,
         deployment_ref: str,
-    ) -> frozenset[tuple[str, str]] | None:
-        """Return the registered ``(name, fingerprint)`` pairs, or ``None``.
+    ) -> tuple[RegisteredTool, ...] | None:
+        """Return the registered governance descriptors, or ``None``.
 
         ``None`` means no inventory was ever registered, which is distinct
         from an empty set: both refuse everything, for different reasons.
@@ -60,7 +60,7 @@ class RegisteredInventoryLookup:
     """Answer from the deployment's most recent inventory registration.
 
     ``None`` -- never registered -- is deliberately distinct from an empty
-    frozenset. The first means the server knows nothing about this
+    tuple. The first means the server knows nothing about this
     deployment's tools and must refuse everything; the second means the
     deployment registered that it governs no tools, which refuses everything
     too but for a reason an operator can act on.
@@ -69,17 +69,16 @@ class RegisteredInventoryLookup:
     def __init__(self, registrations: Any) -> None:
         self._registrations = registrations
 
-    async def registered_tool_identities(
+    async def registered_tools(
         self,
         tenant_id: str,
         deployment_ref: str,
-    ) -> frozenset[tuple[str, str]] | None:
-        """Return the identities on the newest registration for this deployment.
+    ) -> tuple[RegisteredTool, ...] | None:
+        """Return complete descriptors from the newest registration.
 
-        ``RegisteredTool`` carries the fingerprint alongside the name and the
-        registration's digest is computed over both, so the pair is available
-        here at no extra cost -- the audited defect was that the pair was
-        available and then discarded.
+        ``RegisteredTool`` carries every governance field and the registration
+        digest covers them all. Returning the models whole keeps those stored
+        facts authoritative at admission rather than projecting them away.
         """
         registration = await self._registrations.latest_for_deployment(
             tenant_id,
@@ -87,7 +86,7 @@ class RegisteredInventoryLookup:
         )
         if registration is None:
             return None
-        return frozenset((tool.name, tool.fingerprint) for tool in registration.tools)
+        return registration.tools
 
 
 class DeploymentRecordPolicyResolver:

@@ -40,10 +40,14 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
     ToolGovernanceContext,
     ToolIdentity,
+    ToolInventoryEntry,
     ToolPolicyDescriptor,
     describe_tool_policy,
 )
-from zeroth.integrations.langgraph.enforcement_protocol import ActionDescriptorV1
+from zeroth.integrations.langgraph.enforcement_protocol import (
+    ADAPTER_PROTOCOL_VERSION,
+    ActionDescriptorV1,
+)
 from zeroth.governance.decisions.request import NormalizedAction
 
 BASE_URL = "http://zeroth.test"
@@ -134,6 +138,8 @@ def test_both_decision_wires_accept_the_whole_canonical_policy_descriptor() -> N
         identity_configuration=("endpoint",),
     )
     assert descriptor == expected
+    assert type(descriptor) is ToolInventoryEntry
+    assert ToolPolicyDescriptor is ToolInventoryEntry
     policy_fields = descriptor.wire_fields()
 
     normalized = NormalizedAction(**policy_fields, arguments_digest="sha256:arguments")
@@ -141,6 +147,10 @@ def test_both_decision_wires_accept_the_whole_canonical_policy_descriptor() -> N
 
     assert normalized.model_dump(include=set(policy_fields)) == policy_fields
     assert gateway.model_dump(include=set(policy_fields)) == policy_fields
+
+
+def test_gateway_inventory_shape_change_advanced_its_protocol_version() -> None:
+    assert ADAPTER_PROTOCOL_VERSION == "2"
 
 
 def test_a_deny_verdict_keeps_the_reason_the_service_gave() -> None:

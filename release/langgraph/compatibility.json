@@ -1,5 +1,5 @@
 {
-  "adapter_version": "1.0",
+  "adapter_version": "2.0",
   "deployment_artifacts": {
     "adapter": {
       "artifact": "zeroth-core[langgraph]",

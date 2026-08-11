@@ -91,7 +91,7 @@ the plain string a writer must use.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel
@@ -264,16 +264,30 @@ def _entry_from_binding(binding: object) -> ToolInventoryEntry:
     Raises:
         UnstableToolIdentityError: If the binding carries no usable identity.
     """
-    return ToolInventoryEntry(
-        identity=_gated_identity(_peek(binding, "identity")),
-        side_effect=classify_side_effect(_peek(binding, "side_effect")),
-        contract_ref=normalize_contract_ref(_peek(binding, "contract_ref")),
-        capability_refs=normalize_capability_refs(_peek(binding, "capability_refs")),
-        requires_approval=_peek(binding, "requires_approval") is True,
-        identity_configuration=normalize_identity_configuration(
-            _peek(binding, "identity_configuration")
-        ),
-    )
+    values = {
+        field.name: _normalize_entry_field(field.name, _peek(binding, field.name))
+        for field in fields(ToolInventoryEntry)
+    }
+    return ToolInventoryEntry(**values)
+
+
+def _normalize_entry_field(name: str, value: object) -> object:
+    """Gate one canonical entry field, refusing fields with no reviewed rule."""
+    normalizers = {
+        "identity": _gated_identity,
+        "side_effect": classify_side_effect,
+        "contract_ref": normalize_contract_ref,
+        "capability_refs": normalize_capability_refs,
+        "requires_approval": lambda candidate: candidate is True,
+        "identity_configuration": normalize_identity_configuration,
+    }
+    try:
+        normalize = normalizers[name]
+    except KeyError as error:
+        raise ToolGovernanceError(
+            f"canonical inventory field {name!r} has no normalization rule"
+        ) from error
+    return normalize(value)
 
 
 def _entry_for(tool: object) -> ToolInventoryEntry:

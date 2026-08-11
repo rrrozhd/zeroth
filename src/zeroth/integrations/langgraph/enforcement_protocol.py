@@ -38,7 +38,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
 )
 
-ADAPTER_PROTOCOL_VERSION = "1"
+ADAPTER_PROTOCOL_VERSION = "2"
 
 
 class ActionDescriptorV1(BaseModel):

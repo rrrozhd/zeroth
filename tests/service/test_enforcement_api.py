@@ -336,6 +336,48 @@ async def test_a_registration_records_versions_fingerprint_and_coverage(sqlite_d
     assert stored.inventory_fingerprint == recompute_inventory_fingerprint(tools)
 
 
+async def test_http_decision_cannot_downgrade_registered_approval(sqlite_db) -> None:
+    """The production route refuses a request weaker than its stored descriptor."""
+    app, deployment = await _single_tenant_app(sqlite_db)
+    registration = {
+        "deployment_ref": deployment.deployment_ref,
+        "graph_version": "graph-enforcement-solo@1",
+        "adapter_version": "2.0",
+        "coverage": "complete",
+        "tools": [
+            {
+                "name": "search",
+                "fingerprint": "sha256:fingerprint",
+                "side_effect": "read_only",
+                "requires_approval": True,
+            }
+        ],
+    }
+    decision = _decision_body(
+        deployment.deployment_ref,
+        key="approval-downgrade",
+        side_effect="read_only",
+    )
+    decision["action"]["requires_approval"] = False
+
+    with TestClient(app) as client:
+        registered = client.post(
+            "/v1/enforcement/registrations",
+            json=registration,
+            headers=api_key_headers(SECRET_A),
+        )
+        response = client.post(
+            "/v1/enforcement/decisions",
+            json=decision,
+            headers=api_key_headers(SECRET_A),
+        )
+
+    assert registered.status_code == 201
+    assert response.status_code == 200
+    assert response.json()["kind"] == "deny"
+    assert response.json()["reason_code"] == "capability_denied"
+
+
 async def test_a_registration_cannot_declare_its_own_digest_or_count(sqlite_db) -> None:
     """R8: the self-certifying fields are not merely ignored -- they are gone.
 

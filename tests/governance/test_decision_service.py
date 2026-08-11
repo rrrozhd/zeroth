@@ -30,6 +30,7 @@ import pytest
 from zeroth.contracts.langgraph_gateway.models import AdmissionRequest
 from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit.capture_vocabulary import REASON_CODES
+from zeroth.governance.attestations.inventory import RegisteredTool
 from zeroth.governance.decisions import (
     DIGEST_EXCLUDED_FIELDS,
     DecisionKind,
@@ -158,12 +159,12 @@ def make_request(**overrides: Any) -> DecisionRequest:
 class StubInventory:
     """Inventory lookup holding exactly the identity ``make_action`` produces."""
 
-    async def registered_tool_identities(
+    async def registered_tools(
         self,
         tenant_id: str,
         deployment_ref: str,
-    ) -> frozenset[tuple[str, str]] | None:
-        """Report the one ``(name, fingerprint)`` pair ``make_action`` names.
+    ) -> tuple[RegisteredTool, ...] | None:
+        """Report the complete descriptor ``make_action`` names.
 
         The fingerprint is read off ``make_action`` rather than repeated as a
         literal, so a change to the fixture cannot silently leave this double
@@ -171,7 +172,17 @@ class StubInventory:
         """
         del tenant_id, deployment_ref
         action = make_action()
-        return frozenset({(action.name, action.fingerprint)})
+        return (
+            RegisteredTool(
+                name=action.name,
+                fingerprint=action.fingerprint,
+                side_effect=action.side_effect,
+                contract_ref=action.contract_ref,
+                capability_refs=action.capability_refs,
+                requires_approval=action.requires_approval,
+                identity_configuration=action.identity_configuration,
+            ),
+        )
 
 
 class StubDeploymentPolicies:
