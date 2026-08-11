@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).parents[2]
 #: Paths the wheel must ship. Each one is a resource that a pure-Python import
 #: check would miss: typing metadata, vendored attribution, and package data.
 REQUIRED_ENTRIES = (
+    "zeroth/_architecture.py",
     "zeroth/py.typed",
     "zeroth/contracts/governed/LICENSE",
     "zeroth/contracts/governed/PROVENANCE.md",
@@ -43,6 +44,7 @@ FORBIDDEN_PREFIXES = (
 )
 
 CANONICAL_WHEEL_SOURCES = (
+    "src/zeroth/_architecture.py",
     "src/zeroth/contracts",
     "src/zeroth/econ",
     "src/zeroth/eval",

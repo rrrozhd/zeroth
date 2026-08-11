@@ -6,7 +6,7 @@
 
 services:
   zeroth:
-    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.17.0.4}
+    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.20.1.1}
     build:
       context: .
     init: true
@@ -18,12 +18,15 @@ services:
     pids_limit: 256
     tmpfs:
       - /tmp
+    volumes:
+      - zeroth-data:/data
     stop_grace_period: 30s
     ports:
       - "8000:8000"
     environment:
       ZEROTH_DATABASE__BACKEND: postgres
       ZEROTH_DATABASE__POSTGRES_DSN: postgresql://zeroth:zeroth@db:5432/zeroth
+      ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR: /data/artifacts
       ZEROTH_SERVICE_API_KEYS_JSON: ${ZEROTH_SERVICE_API_KEYS_JSON:-}
       SIGNING_DEPLOYMENT: ${SIGNING_DEPLOYMENT:-}
       ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"
@@ -89,4 +92,5 @@ services:
       retries: 15
 
 volumes:
+  zeroth-data:
   zeroth-pg:
