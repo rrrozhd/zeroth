@@ -483,6 +483,10 @@ class ScopedScalarResult:
     def one_or_none(self) -> Any:
         return self.__result.one_or_none()
 
+    def unique(self) -> ScopedScalarResult:
+        return ScopedScalarResult(self.__result.unique())
+
+
 class ScopedResult:
     """Restricted ORM result view with no cursor or connection exposure."""
 
