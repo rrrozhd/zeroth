@@ -3,10 +3,11 @@ from __future__ import annotations
 import importlib.util
 import inspect as python_inspect
 from pathlib import Path
+from typing import Annotated
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
@@ -15,11 +16,14 @@ from sqlalchemy.orm import Session
 from zeroth.econ.analytics.service_auth import mint_econ_service_token
 from zeroth.econ.plane.auth.api import router as auth_router
 from zeroth.econ.plane.auth.models import Role, User
+from zeroth.econ.plane.auth.schemas import UserClaims
 from zeroth.econ.plane.auth.service import decode_token
-from zeroth.econ.plane.auth.deps import get_current_scoped_db
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.costing.models import CalibrationMetric, GroundTruthCost
 from zeroth.econ.plane.database import Base, get_db
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
+from zeroth.econ.plane.reconciliation.api import router as reconciliation_router
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -134,6 +138,40 @@ def test_protected_route_rejects_request_selected_tenant(tmp_path: Path, monkeyp
     assert response.status_code == 403
 
 
+def test_execution_rejects_foreign_metadata_tenant_even_when_top_level_matches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'metadata-route.db'}")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    app = FastAPI()
+    app.include_router(instrumentation_router, prefix="/v1")
+
+    def scoped_db():
+        with Session(engine) as db:
+            yield ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-a"))
+
+    app.dependency_overrides[get_current_scoped_db] = scoped_db
+    token = mint_econ_service_token()
+    assert token is not None
+
+    response = TestClient(app).post(
+        "/v1/instrumentation/executions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "tenant_id": "tenant-a",
+            "execution_id": "metadata-cross-tenant",
+            "timestamp": "2026-08-11T00:00:00Z",
+            "capability_id": "cap",
+            "implementation_id": "impl",
+            "model_version": "v1",
+            "metadata": {"tenant_id": "tenant-b"},
+        },
+    )
+
+    assert response.status_code == 403
+
+
 def _dependency_calls(route: APIRoute) -> set[object]:
     pending = list(route.dependant.dependencies)
     calls: set[object] = set()
@@ -144,7 +182,7 @@ def _dependency_calls(route: APIRoute) -> set[object]:
     return calls
 
 
-def test_every_protected_econ_route_binds_database_from_authenticated_scope() -> None:
+def test_every_operational_econ_database_route_requires_auth_and_structural_scope() -> None:
     from zeroth.econ.plane.auth.deps import (
         get_current_global_db,
         get_current_scoped_db,
@@ -152,17 +190,95 @@ def test_every_protected_econ_route_binds_database_from_authenticated_scope() ->
     )
     from zeroth.econ.plane.main import app
 
-    protected = []
+    operational = []
+    non_operational_database_routes = {"/v1/auth/token", "/v1/metrics"}
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
         calls = _dependency_calls(route)
         has_database_parameter = "db" in python_inspect.signature(route.endpoint).parameters
-        if get_current_user in calls and has_database_parameter:
-            protected.append(route)
+        if has_database_parameter and route.path not in non_operational_database_routes:
+            operational.append(route)
+            assert get_current_user in calls, route.path
             assert calls.intersection({get_current_scoped_db, get_current_global_db}), route.path
 
-    assert protected
+    assert operational
+
+
+def _tenant_reconciliation_app(engine) -> FastAPI:
+    app = FastAPI()
+    app.include_router(reconciliation_router, prefix="/v1")
+
+    def scoped_db(user: Annotated[UserClaims, Depends(get_current_user)]):
+        with Session(engine) as db:
+            scope = TenantWideScopeContext(tenant_id=user.tenant_id)
+            yield ScopedSession(db, scope)
+
+    app.dependency_overrides[get_current_scoped_db] = scoped_db
+    return app
+
+
+def test_standalone_reconciliation_requires_authentication(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'reconcile-auth.db'}")
+    Base.metadata.create_all(engine)
+
+    response = TestClient(_tenant_reconciliation_app(engine)).get(
+        "/v1/reconciliation/calibration-summary"
+    )
+
+    assert response.status_code in {401, 403}
+
+
+def test_reconciliation_writes_and_reads_only_authenticated_tenant(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'reconcile-scope.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                CalibrationMetric(
+                    tenant_id="tenant-a",
+                    period="2026-08",
+                    capability_id="visible-a",
+                ),
+                CalibrationMetric(
+                    tenant_id="tenant-b",
+                    period="2026-08",
+                    capability_id="hidden-b",
+                ),
+            ]
+        )
+        db.commit()
+    app = _tenant_reconciliation_app(engine)
+    monkeypatch.setattr(settings, "service_principal_tenant_id", "tenant-a")
+    token = mint_econ_service_token()
+    assert token is not None
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestClient(app) as client:
+        imported = client.post(
+            "/v1/reconciliation/ground-truth-import",
+            headers=headers,
+            json={
+                "rows": [
+                    {
+                        "period_start": "2026-08-01T00:00:00Z",
+                        "period_end": "2026-08-31T00:00:00Z",
+                        "capability_id": "cap-a",
+                        "component": "llm",
+                        "amount_usd": 12.5,
+                    }
+                ]
+            },
+        )
+        summary = client.get("/v1/reconciliation/calibration-summary", headers=headers)
+
+    assert imported.status_code == 200, imported.text
+    assert [row["capability_id"] for row in summary.json()] == ["visible-a"]
+    with Session(engine) as db:
+        persisted = db.query(GroundTruthCost).one()
+        assert persisted.tenant_id == "tenant-a"
 
 
 def _load_auth_scope_migration():
@@ -177,7 +293,43 @@ def _load_auth_scope_migration():
     return module
 
 
-def test_auth_scope_migration_backfills_reserved_default_and_enforces_not_null() -> None:
+def _auth_scope_shape(bind) -> dict[str, object]:
+    inspector = inspect(bind)
+    scope_columns = {"tenant_id", "workspace_id"}
+    columns = {column["name"]: column for column in inspector.get_columns("users")}
+    indexes = {
+        tuple(index["column_names"]): (index["name"], bool(index["unique"]))
+        for index in inspector.get_indexes("users")
+        if set(index["column_names"]) <= scope_columns
+    }
+    unique_constraints = sorted(
+        tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints("users")
+        if set(constraint["column_names"]) & scope_columns
+    )
+    foreign_keys = sorted(
+        tuple(constraint["constrained_columns"])
+        for constraint in inspector.get_foreign_keys("users")
+        if set(constraint["constrained_columns"]) & scope_columns
+    )
+    check_constraints = sorted(
+        constraint["sqltext"]
+        for constraint in inspector.get_check_constraints("users")
+        if any(column in constraint["sqltext"] for column in scope_columns)
+    )
+    return {
+        "tenant_nullable": columns["tenant_id"]["nullable"],
+        "tenant_default": columns["tenant_id"]["default"],
+        "workspace_nullable": columns["workspace_id"]["nullable"],
+        "workspace_default": columns["workspace_id"]["default"],
+        "indexes": indexes,
+        "unique_constraints": unique_constraints,
+        "foreign_keys": foreign_keys,
+        "check_constraints": check_constraints,
+    }
+
+
+def test_auth_scope_migration_matches_fresh_schema_and_backfills_reserved_default() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     with engine.begin() as connection:
         connection.execute(
@@ -198,13 +350,16 @@ def test_auth_scope_migration_backfills_reserved_default_and_enforces_not_null()
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
 
-        columns = {column["name"]: column for column in inspect(connection).get_columns("users")}
+        migrated_shape = _auth_scope_shape(connection)
         rows = connection.execute(
             text("SELECT tenant_id, workspace_id FROM users ORDER BY id")
         ).all()
 
-    assert columns["tenant_id"]["nullable"] is False
-    assert columns["workspace_id"]["nullable"] is True
+    fresh = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(fresh)
+    fresh_shape = _auth_scope_shape(fresh)
+
+    assert migrated_shape == fresh_shape
     assert rows == [("default", None), ("default", None)]
 
 
@@ -215,5 +370,6 @@ def test_fresh_auth_schema_matches_migrated_scope_shape() -> None:
     columns = {column["name"]: column for column in inspect(engine).get_columns("users")}
 
     assert columns["tenant_id"]["nullable"] is False
+    assert columns["tenant_id"]["default"] is None
     assert columns["workspace_id"]["nullable"] is True
     assert User.__table__.c.tenant_id.default.arg == "default"

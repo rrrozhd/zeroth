@@ -11899,7 +11899,7 @@
       ],
       "module": "zeroth.econ.plane.reconciliation.service",
       "name": "add_ground_truth_rows",
-      "signature": "(db: 'Session', rows: 'list[GroundTruthCost]') -> 'int'"
+      "signature": "(db: 'ScopedSession', rows: 'list[GroundTruthCost]') -> 'int'"
     },
     {
       "evidence": [
@@ -11911,7 +11911,7 @@
       ],
       "module": "zeroth.econ.plane.reconciliation.service",
       "name": "compute_calibration_summary",
-      "signature": "(db: 'Session') -> 'list[CalibrationMetric]'"
+      "signature": "(db: 'ScopedSession') -> 'list[CalibrationMetric]'"
     },
     {
       "evidence": [

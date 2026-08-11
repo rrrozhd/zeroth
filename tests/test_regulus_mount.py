@@ -598,3 +598,44 @@ def test_costing_writes_require_econ_role() -> None:
             json=pricing,
         )
         assert authorized.status_code not in (401, 403)
+
+
+def test_mounted_reconciliation_requires_econ_auth_and_persists_claimed_tenant(
+    monkeypatch,
+) -> None:
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.costing.models import GroundTruthCost
+    from zeroth.econ.plane.database import SessionLocal
+
+    tenant_id = "mounted-reconciliation"
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant_id)
+    app = create_app(_GatedBootstrap())
+    body = {
+        "rows": [
+            {
+                "period_start": "2026-08-01T00:00:00Z",
+                "period_end": "2026-08-31T00:00:00Z",
+                "capability_id": "mounted-cap",
+                "component": "llm",
+                "amount_usd": 3.5,
+            }
+        ]
+    }
+
+    with TestClient(app) as client:
+        unauthenticated = client.post(
+            "/regulus/v1/reconciliation/ground-truth-import",
+            headers={"X-API-Key": _ZEROTH_KEY},
+            json=body,
+        )
+        authenticated = client.post(
+            "/regulus/v1/reconciliation/ground-truth-import",
+            headers=app.state.regulus_self_auth_headers(),
+            json=body,
+        )
+
+    assert unauthenticated.status_code in {401, 403}
+    assert authenticated.status_code == 200, authenticated.text
+    with SessionLocal() as db:
+        row = db.query(GroundTruthCost).filter(GroundTruthCost.capability_id == "mounted-cap").one()
+        assert row.tenant_id == tenant_id

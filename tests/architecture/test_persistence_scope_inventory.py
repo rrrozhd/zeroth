@@ -378,8 +378,6 @@ _ALLOWED_SESSION_REFERENCES = {
     },
     "costing/service.py": {
         "_lookup_pricing",
-        "add_ground_truth_rows",
-        "compute_calibration_summary",
         "create_cost_profile",
         "create_pricing_catalog",
         "estimate_cost_for_period",
