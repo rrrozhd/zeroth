@@ -268,6 +268,79 @@ def test_evaluation_uses_only_bound_tenant_executions_and_outcomes(
         raw.close()
 
 
+def test_evaluation_filters_outcomes_to_requested_implementation(econ_engine, monkeypatch) -> None:
+    _seed_capabilities(econ_engine)
+    monkeypatch.setattr(
+        "zeroth.econ.plane.counterfactual.service.settings.connectors_enabled", False
+    )
+    with Session(econ_engine) as seed:
+        seed.add(
+            Implementation(
+                id="impl-alt",
+                tenant_id="tenant-a",
+                capability_id="cap-a",
+                name="Alternate A implementation",
+            )
+        )
+        seed.add(
+            ExecutionEvent(
+                tenant_id="tenant-a",
+                execution_id="execution-a",
+                join_key="shared-implementation-join",
+                timestamp=_NOW,
+                capability_id="cap-a",
+                implementation_id="impl-a",
+                model_version="v1",
+            )
+        )
+        for implementation_id in ("impl-a", "impl-alt"):
+            seed.add(
+                OutcomeEvent(
+                    tenant_id="tenant-a",
+                    execution_id="execution-a",
+                    join_key="shared-implementation-join",
+                    capability_id="cap-a",
+                    implementation_id=implementation_id,
+                    outcome_type="conversion",
+                    outcome_value="1",
+                    outcome_payload_json={"value": True},
+                    occurred_at=_NOW,
+                    ingested_at=_NOW,
+                    outcome_timestamp=_NOW,
+                )
+            )
+        seed.commit()
+
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        estimate = run_evaluation(
+            tenant_a,
+            EvaluationRunRequest(
+                capability_id="cap-a",
+                implementation_id="impl-a",
+                mode="PROXY_MODEL",
+                period_start=_NOW,
+                period_end=_NOW,
+            ),
+        )
+        assert estimate.method_metadata["sample_size"] == 1
+        assert float(estimate.estimated_value_usd) == pytest.approx(120.0)
+
+        all_implementations = run_evaluation(
+            tenant_a,
+            EvaluationRunRequest(
+                capability_id="cap-a",
+                mode="PROXY_MODEL",
+                period_start=_NOW,
+                period_end=_NOW,
+            ),
+        )
+        assert all_implementations.method_metadata["sample_size"] == 2
+        assert float(all_implementations.estimated_value_usd) == pytest.approx(240.0)
+    finally:
+        raw.close()
+
+
 def test_connector_configuration_requires_bound_tenant(econ_engine) -> None:
     """A01-29: connector selection cannot choose a different tenant."""
     with Session(econ_engine) as seed:

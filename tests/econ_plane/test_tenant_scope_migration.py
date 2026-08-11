@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -11,7 +12,9 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
 
+from tests.conftest import requires_docker
 from zeroth.econ.plane.capabilities import models as capability_models  # noqa: F401
 from zeroth.econ.plane.connectors import models as connector_models  # noqa: F401
 from zeroth.econ.plane.counterfactual import models as counterfactual_models  # noqa: F401
@@ -40,6 +43,14 @@ def _load_migration():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _econ_config(database_url: str) -> Config:
+    root = Path(__file__).parents[2]
+    config = Config()
+    config.set_main_option("script_location", str(root / "src/zeroth/econ/plane/_migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
 
 
 def _legacy_schema(connection) -> None:
@@ -241,6 +252,150 @@ def test_alembic_upgrade_from_previous_sqlite_revision_preserves_connector_rows(
             os.environ.pop("ECP_DATABASE_URL", None)
         else:
             os.environ["ECP_DATABASE_URL"] = previous_url
+
+
+@pytest.mark.postgres
+@requires_docker
+def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, monkeypatch) -> None:
+    root_url = make_url(postgres_container.get_connection_url().replace("psycopg2", "psycopg"))
+    database_name = f"econ_tenant_scope_{uuid4().hex[:10]}"
+    admin_engine = create_engine(root_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin_engine.connect() as connection:
+        connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+    database_url = root_url.set(database=database_name).render_as_string(hide_password=False)
+    monkeypatch.setenv("ECP_DATABASE_URL", database_url)
+    engine = None
+    try:
+        config = _econ_config(database_url)
+        command.upgrade(config, "20260811_04")
+        engine = create_engine(database_url)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE execution_events ("
+                    "id INTEGER PRIMARY KEY, "
+                    "tenant_id VARCHAR(128) DEFAULT 'tenant_default', "
+                    "execution_id VARCHAR(128) NOT NULL, payload VARCHAR(32), "
+                    "CONSTRAINT uq_execution_events_execution_id UNIQUE (execution_id))"
+                )
+            )
+            for table in ("outcome_events", "valuation_runs", "value_estimates"):
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {table} ("
+                        "id INTEGER PRIMARY KEY, "
+                        "tenant_id VARCHAR(128) DEFAULT 'tenant_default', "
+                        "payload VARCHAR(32))"
+                    )
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO execution_events "
+                    "(id, tenant_id, execution_id, payload) VALUES "
+                    "(1, 'tenant_default', 'shared', 'event')"
+                )
+            )
+            for table in ("outcome_events", "valuation_runs", "value_estimates"):
+                connection.execute(
+                    text(
+                        f"INSERT INTO {table} (id, tenant_id, payload) "
+                        "VALUES (1, 'tenant_default', 'preserved')"
+                    )
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO connector_configs "
+                    "(id, tenant_id, connector_type, enabled, config_json, created_at, updated_at) "
+                    "VALUES (3, 'tenant_default', 'posthog', FALSE, '{}', "
+                    "'2026-08-11 00:00:00', '2026-08-11 00:00:00')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO connector_outbox "
+                    "(id, tenant_id, event_type, event_key, payload_json, status, attempts, "
+                    "next_attempt_at, created_at) VALUES "
+                    "(7, 'tenant-a', 'event', 'key', '{}', 'PENDING', 0, "
+                    "'2026-08-11 00:00:00', '2026-08-11 00:00:00')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO connector_delivery_log "
+                    "(id, outbox_id, connector_type, attempt, duration_ms, created_at) VALUES "
+                    "(8, 7, 'posthog', 1, 0, '2026-08-11 00:00:00')"
+                )
+            )
+        engine.dispose()
+        engine = None
+
+        command.upgrade(config, "head")
+
+        engine = create_engine(database_url)
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT tenant_id, execution_id, payload FROM execution_events")
+            ).one() == ("default", "shared", "event")
+            for table in ("outcome_events", "valuation_runs", "value_estimates"):
+                assert connection.execute(
+                    text(f"SELECT tenant_id, payload FROM {table}")
+                ).one() == ("default", "preserved")
+            assert connection.execute(
+                text("SELECT tenant_id, connector_type FROM connector_configs")
+            ).one() == ("default", "posthog")
+            assert connection.execute(
+                text("SELECT tenant_id, outbox_id FROM connector_delivery_log WHERE id = 8")
+            ).one() == ("tenant-a", 7)
+
+            inspector = inspect(connection)
+            for table in _TABLES:
+                columns = {column["name"]: column for column in inspector.get_columns(table)}
+                assert columns["tenant_id"]["nullable"] is False
+                assert columns["tenant_id"]["default"] is None
+                assert any(
+                    tuple(index["column_names"]) == ("tenant_id",)
+                    for index in inspector.get_indexes(table)
+                )
+            execution_uniques = {
+                tuple(constraint["column_names"])
+                for constraint in inspector.get_unique_constraints("execution_events")
+            }
+            assert execution_uniques == {("tenant_id", "execution_id")}
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO execution_events "
+                    "(id, tenant_id, execution_id, payload) "
+                    "VALUES (2, 'tenant-b', 'shared', 'other')"
+                )
+            )
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO execution_events "
+                        "(id, tenant_id, execution_id, payload) "
+                        "VALUES (3, 'tenant-b', 'shared', 'duplicate')"
+                    )
+                )
+    finally:
+        if engine is not None:
+            engine.dispose()
+        admin_engine.dispose()
+        cleanup_engine = create_engine(
+            root_url.set(database="postgres"), isolation_level="AUTOCOMMIT"
+        )
+        with cleanup_engine.connect() as connection:
+            connection.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :database_name"
+                ),
+                {"database_name": database_name},
+            )
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
+        cleanup_engine.dispose()
 
 
 def test_tenant_scope_migration_has_no_permissive_defaults_and_matches_fresh_scope() -> None:
