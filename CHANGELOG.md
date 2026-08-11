@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-08-11
+
+### Fixed
+
+- **`Gate — package` reports on the wheel again, instead of on tooling a wheel venv
+  never has.** The job installs the built wheel into a clean venv and runs the suite
+  there to answer one question — does the built product work? On nightly 31469899049
+  it answered with **25 failures and 96 errors**, and only two of those were about the
+  wheel. Three separate causes, fixed separately:
+  - **84 errors: `-m` on the command line replaces `addopts`, it does not extend it.**
+    `-m "not live"` therefore re-selected the `langgraph_conformance` and
+    `deployed_acceptance` suites that the project deselects by default, and a wheel
+    venv has no Agent Server to start. Both wheel-venv jobs
+    (`release-gates:package`, `release-zeroth-core:test-wheel`) now repeat every
+    marker the default excludes. Measured: the shipped expression admitted **449**
+    node ids the project default excludes.
+  - **12 errors: `FileNotFoundError: uv`.** `tests/architecture/test_wheel_packaging.py`
+    shells out to `uv build` to inspect what the distribution actually ships — the most
+    on-topic check either job has — and `package` was the one gate job that did not
+    install `uv`. It is installed on the runner now, rather than the test file being
+    excluded; excluding it would have made the gate green by deleting the part that was
+    about the wheel.
+  - **23 failures: `ModuleNotFoundError: mkdocs`.** MkDocs is a `[docs]` extra, absent
+    from a wheel venv by design. A new `dev_toolchain` marker covers exactly the eight
+    tests that reach `on_post_page`'s `mkdocs.utils` import; the rest of the module still
+    runs in both wheel jobs.
+- **The ephemeral candidate's contract leg said "the Agent Server exited before
+  serving" and meant `ModuleNotFoundError: No module named 'langgraph_api'`.** The
+  launcher sent the child's stderr to `DEVNULL`, so the one line that named the cause
+  was discarded and the fixture reported the symptom. `langgraph-api` is a
+  `gateway-conformance` dev-group pin, absent from a wheel venv by design, so the test
+  is marked `dev_toolchain` — the other five in that module do not boot a server and
+  stay in the wheel jobs. The launcher now keeps stderr and reports its last line plus
+  the interpreter, which is the whole diagnosis when one tree runs under two
+  environments. ZER-35 landed this file after the last nightly, so no gate has
+  recorded it either.
+- **Two wheel-venv failures that no nightly has recorded yet.** ZER-41 added
+  `test_the_lint_gate_environment_really_has_ruff`, which hard-asserts that Ruff is
+  importable while its own failure message says "if this is the wheel-venv job that is
+  expected". Nightly 31469899049 tested `7249ca04`, one commit before ZER-41 merged, so
+  the gate has never reported it — the next run would have, for precisely the reason
+  this release removes. Marked `dev_toolchain`; it still runs in both places the lint
+  gate runs, which the marker guard proves rather than asserts.
+- **The `dev_toolchain` marker cannot become a place to hide a test.**
+  `tests/release_gates/test_marker_integrity.py` executes the selections rather than
+  reading them: every marked test must be selected by the project's own default, the
+  wheel jobs must really deselect it, and no whole-suite invocation may admit anything
+  the default excludes. Reading the workflow files instead would have been defeated in
+  one move — adding `and not dev_toolchain` to `addopts` deselects the marker everywhere
+  while every workflow file still scans clean. The excluded files and the two jobs
+  allowed to deselect are recorded, compared for equality, and may only shrink.
+- **The schema attestation work bound no longer fails for a reason it does not name.**
+  `test_a_wide_generated_schema_graph_has_a_total_work_bound` pinned the boundary at
+  width 2,026 admitted / 2,027 refused. At that width the wide branches consume 8,104 of
+  the 8,192 available visits, leaving 88 for everything else in the graph — so a pydantic
+  release that adds a few reachable attributes spends the headroom and the case that is
+  supposed to be *admitted* is refused, reporting `ToolGovernanceError: ... exceeded its
+  work bound` when nothing about the bound had changed. The boundary is now measured by
+  bisection, and a second test halves `_MAX_ATTESTATION_WORK` and requires the boundary
+  to move with it, so the refusal is attributed to the bound rather than assumed. There
+  is no clock in this bound; a slow runner can neither cause nor prevent it. Exactness
+  has not moved — `test_schema_attestation_work_bound_is_exact` seeds the counter
+  directly and depends on no ambient cost.
+- **The protected surface pins Zeroth's constructor parameters, not pydantic-settings'.**
+  `pyproject.toml` declares `pydantic-settings>=2.13` with no upper bound, so `uv sync`
+  resolved 2.13.1 while the wheel venv's `pip install` resolved 2.15.0 — which adds
+  `_cli_show_env_vars` to `BaseSettings.__init__`. The gate reported the protected
+  surface of `ZerothSettings` as changed when nothing about Zeroth had. The comparison
+  now drops exactly the parameters the *installed* base class contributes, derived from
+  that class rather than listed, and refuses any derivation that reaches one of Zeroth's
+  own 22 fields. Verified against `pydantic-settings==2.15.0`: the previous comparison
+  fails and the new one passes with every Zeroth field still pinned.
+
+### Known red
+
+- `Gate — LangGraph` fails `compatibility-current` on all three recorded nightlies:
+  `release/langgraph/compatibility.json` declares release `0.17.0.4` against a candidate
+  of `0.22.3`. That is the gate naming a real, unfixed gap — the compatibility matrix has
+  not been re-run since 0.17.0.4 — and re-stamping the string without re-running it would
+  be the exact dishonesty this release is removing.
+
 ## [0.22.2.10.3] - 2026-08-11
 
 ### Fixed
