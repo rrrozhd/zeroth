@@ -34,7 +34,7 @@ export type NodeType = S["NodeTypeResponse"];
 export type StudioNode = S["StudioNodeResponse"];
 export type StudioEdge = S["StudioEdgeResponse"];
 export type StudioViewport = S["StudioViewport"];
-export type StudioContract = S["StudioContractResponse"];
+type StudioContract = S["StudioContractResponse"];
 export type CreateContractRequest = S["CreateContractRequest"];
 export type CreateDeploymentRequest = S["CreateDeploymentRequest"];
 export type AuditVerification = S["AuditVerificationResponse"];
@@ -201,7 +201,7 @@ export type TenantEconomics = {
   failure_tax_usd: number;
 };
 
-export type QualityEconomics = {
+type QualityEconomics = {
   terminal_runs: number;
   labeled_terminal_runs: number;
   coverage: number;
@@ -448,29 +448,6 @@ export function rollbackDeployment(
   );
 }
 
-/** Verify the audit digest chain + signatures for one run (WS-D three-state). */
-export function getRunAuditVerification(runId: string): Promise<AuditVerification> {
-  return apiFetch<AuditVerification>(
-    `/v1/runs/${encodeURIComponent(runId)}/audit-verification`,
-  );
-}
-
-/** The persisted deployment attestation, including its keyed signature (WS-D). */
-export async function getDeploymentAttestation(): Promise<DeploymentAttestation> {
-  const ref = await deploymentRef();
-  return apiFetch<DeploymentAttestation>(
-    `/v1/deployments/${encodeURIComponent(ref)}/attestation`,
-  );
-}
-
-/** Server self-verifies the persisted attestation: digest recompute + signature. */
-export async function verifyDeploymentAttestation(): Promise<AttestationVerification> {
-  const ref = await deploymentRef();
-  return apiFetch<AttestationVerification>(
-    `/v1/deployments/${encodeURIComponent(ref)}/attestation/verify`,
-  );
-}
-
 // ---- Metrics ----
 
 /** Runtime metrics snapshot for the connected service. The spec leaves the
@@ -526,13 +503,6 @@ export function testConnector(ref: string): Promise<ConnectorTestResponse> {
 /** Registered executable units & agent runners — the resolvable manifest_ref values. */
 export function listManifests(): Promise<ManifestSummary[]> {
   return apiFetch<ManifestSummary[]>("/v1/manifests");
-}
-
-// ---- Cost (deployment-scoped) ----
-
-export async function getCost(): Promise<DeploymentCost> {
-  const ref = await deploymentRef();
-  return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
 }
 
 // ---- Model right-sizing (authoring-time nudge) ----
@@ -756,10 +726,7 @@ export function verifyDeploymentAuditChain(ref: string): Promise<AuditVerificati
   );
 }
 
-// Attestation + cost — ref-parameterized. The older getDeploymentAttestation /
-// verifyDeploymentAttestation / getCost helpers target the *serving* deployment
-// (they resolve `deploymentRef()`); the Deployments screen selects an arbitrary
-// deployment, so it needs variants that take the ref explicitly.
+// Attestation + cost for an explicitly selected deployment reference.
 
 /** The persisted attestation for a specific deployment `ref` (WS-D). */
 export function getAttestationOf(ref: string): Promise<DeploymentAttestation> {
@@ -789,7 +756,7 @@ export async function postVerifyAttestationOf(
   );
 }
 
-/** Cumulative spend for a specific deployment `ref` (ref-taking sibling of getCost). */
+/** Cumulative spend for a specific deployment `ref`. */
 export function getCostOf(ref: string): Promise<DeploymentCost> {
   return apiFetch<DeploymentCost>(`/v1/deployments/${encodeURIComponent(ref)}/cost`);
 }
@@ -868,7 +835,6 @@ export function replayDeadLetter(id: string): Promise<void> {
 
 // Destination-only Integrations page compatibility aliases. Keep one transport
 // implementation while the rebuilt Connectors page uses the shorter names.
-export type WebhookDeadLetter = DeadLetter;
 export const listWebhookDeadLetters = listDeadLetters;
 export const replayWebhookDeadLetter = replayDeadLetter;
 
