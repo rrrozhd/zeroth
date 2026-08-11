@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.3.2] - 2026-08-11
+
+### Fixed
+
+- Historical documentation markers bind only to the nearest inline code span,
+  keeping unrelated replacement targets actionable.
+
 ## [0.20.1.3.1] - 2026-08-11
 
 ### Fixed
