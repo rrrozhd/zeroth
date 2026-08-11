@@ -7,7 +7,9 @@ from typing import Any, TypeVar
 
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
+from sqlalchemy.sql import visitors
 from sqlalchemy.sql.dml import Delete, Insert, Update
+from sqlalchemy.sql.elements import TextClause
 
 from zeroth.platform.storage.scoping import (
     ResourceOperation,
@@ -34,11 +36,31 @@ def _models_for_statement(state: ORMExecuteState) -> tuple[type, ...]:
     models: dict[type, None] = {}
     if state.bind_mapper is not None:
         models[state.bind_mapper.class_] = None
-    for description in getattr(state.statement, "column_descriptions", ()):
-        entity = description.get("entity")
-        inspected = inspect(entity, raiseerr=False) if entity is not None else None
-        if inspected is not None and hasattr(inspected, "class_"):
-            models[inspected.class_] = None
+    for element in visitors.iterate(state.statement):
+        for description in getattr(element, "column_descriptions", ()):
+            entity = description.get("entity")
+            inspected = inspect(entity, raiseerr=False) if entity is not None else None
+            if inspected is None:
+                continue
+            mapper = getattr(inspected, "mapper", inspected)
+            if hasattr(mapper, "class_"):
+                models[mapper.class_] = None
+    return tuple(models)
+
+
+def _registered_models(state: ORMExecuteState, referenced: tuple[type, ...]) -> tuple[type, ...]:
+    registries: dict[object, None] = {}
+    if state.bind_mapper is not None:
+        registries[state.bind_mapper.registry] = None
+    for model in referenced:
+        inspected = inspect(model, raiseerr=False)
+        if inspected is not None and hasattr(inspected, "registry"):
+            registries[inspected.registry] = None
+    models: dict[type, None] = {}
+    for registry in registries:
+        for mapper in registry.mappers:
+            if type(vars(mapper.class_).get("scope_definition")) is ResourceScopeDefinition:
+                models[mapper.class_] = None
     return tuple(models)
 
 
@@ -82,16 +104,28 @@ def _statement_values(statement: Insert | Update | Delete) -> dict[str, Any]:
     return values
 
 
-def _reject_ownership_rewrite(statement: Update | Delete, context: ScopeBinding) -> None:
+def _mapping_has_ownership(values: Mapping[Any, Any]) -> bool:
+    names = {getattr(key, "key", key) for key in values}
+    return bool(names & {"tenant_id", "workspace_id"})
+
+
+def _reject_update_ownership(state: ORMExecuteState) -> None:
+    statement = state.statement
     if not isinstance(statement, Update):
         return
-    values = _statement_values(statement)
-    if isinstance(context, (ScopeContext, TenantWideScopeContext)):
-        if "tenant_id" in values and values["tenant_id"] != context.tenant_id:
-            raise ValueError("tenant ownership does not match the bound scope")
-    if isinstance(context, ScopeContext):
-        if "workspace_id" in values and values["workspace_id"] != context.workspace_id:
-            raise ValueError("workspace ownership does not match the bound scope")
+    if _mapping_has_ownership(getattr(statement, "_values", None) or {}):
+        raise ValueError("tenant ownership is immutable; workspace ownership is immutable")
+    parameters = state.parameters
+    if isinstance(parameters, Mapping):
+        mappings = (parameters,)
+    elif isinstance(parameters, (list, tuple)) and all(
+        isinstance(item, Mapping) for item in parameters
+    ):
+        mappings = parameters
+    else:
+        mappings = ()
+    if any(_mapping_has_ownership(values) for values in mappings):
+        raise ValueError("tenant ownership is immutable; workspace ownership is immutable")
 
 
 def _normalize_insert_mapping(
@@ -155,25 +189,62 @@ def _scope_insert(
     raise ValueError("mapped INSERT parameters must be mappings")
 
 
-def _scope_statement(state: ORMExecuteState) -> None:
-    if _SCOPE_INFO_KEY not in state.session.info:
+def _validate_select_shape(
+    state: ORMExecuteState,
+    registered: tuple[type, ...],
+) -> None:
+    statement = state.statement
+    if type(statement).__name__ == "FromStatement" or any(
+        isinstance(element, TextClause) for element in visitors.iterate(statement)
+    ):
+        raise ValueError("scoped execution requires a scopable ORM SELECT")
+
+    tenant_tables = {
+        inspect(model).local_table.name
+        for model in registered
+        if _definition(model).scope is ResourceScope.TENANT_SCOPED
+    }
+    for selectable in visitors.iterate(statement):
+        descriptions = getattr(selectable, "column_descriptions", None)
+        final_froms = getattr(selectable, "get_final_froms", None)
+        if descriptions is None or final_froms is None:
+            continue
+        orm_tables: set[str] = set()
+        for description in descriptions:
+            entity = description.get("entity")
+            inspected = inspect(entity, raiseerr=False) if entity is not None else None
+            mapper = getattr(inspected, "mapper", inspected)
+            if mapper is not None and hasattr(mapper, "local_table"):
+                orm_tables.add(mapper.local_table.name)
+            expression = description.get("expr")
+            table = getattr(expression, "table", None)
+            if (
+                getattr(table, "name", None) in tenant_tables
+                and not getattr(expression, "_annotations", {})
+            ):
+                raise ValueError("scoped execution requires a scopable ORM SELECT")
+        for from_clause in final_froms():
+            for element in visitors.iterate(from_clause):
+                table_name = getattr(element, "name", None)
+                if (
+                    table_name in tenant_tables
+                    and table_name not in orm_tables
+                    and not getattr(element, "_annotations", {})
+                ):
+                    raise ValueError("scoped execution requires a scopable ORM SELECT")
+
+
+def _apply_tenant_criteria(
+    state: ORMExecuteState,
+    models: tuple[type, ...],
+    context: ScopeBinding,
+) -> None:
+    if context is None:
         return
-    context: ScopeBinding = state.session.info[_SCOPE_INFO_KEY]
-    operation = _operation_for_statement(state)
-    models = _models_for_statement(state)
-    if not models:
-        raise ValueError("scoped SQL execution must target a mapped resource")
     for model in models:
         definition = _definition(model)
-        _validate_binding(definition, context, operation)
-        if state.is_insert:
-            _scope_insert(state, definition, context)
-            continue
-        if isinstance(state.statement, (Update, Delete)):
-            _reject_ownership_rewrite(state.statement, context)
         if definition.scope is ResourceScope.GLOBAL:
             continue
-        assert context is not None
         tenant_id = context.tenant_id
         state.statement = state.statement.options(
             with_loader_criteria(
@@ -182,8 +253,7 @@ def _scope_statement(state: ORMExecuteState) -> None:
                 include_aliases=True,
             )
         )
-        if definition.workspace_scoped:
-            assert isinstance(context, ScopeContext)
+        if definition.workspace_scoped and isinstance(context, ScopeContext):
             workspace_id = context.workspace_id
             state.statement = state.statement.options(
                 with_loader_criteria(
@@ -192,6 +262,34 @@ def _scope_statement(state: ORMExecuteState) -> None:
                     include_aliases=True,
                 )
             )
+
+
+def _scope_statement(state: ORMExecuteState) -> None:
+    if _SCOPE_INFO_KEY not in state.session.info:
+        return
+    context: ScopeBinding = state.session.info[_SCOPE_INFO_KEY]
+    operation = _operation_for_statement(state)
+    models = _models_for_statement(state)
+    if not models:
+        raise ValueError("scoped SQL execution must target a mapped resource")
+    registered = _registered_models(state, models)
+    for model in models:
+        definition = _definition(model)
+        _validate_binding(definition, context, operation)
+        if state.is_insert:
+            _scope_insert(state, definition, context)
+            continue
+    if state.is_insert:
+        return
+    if state.is_update:
+        _reject_update_ownership(state)
+        if isinstance(state.parameters, (list, tuple)):
+            state.update_execution_options(synchronize_session=False, dml_strategy="orm")
+    if state.is_select or state.is_from_statement:
+        _validate_select_shape(state, registered)
+        _apply_tenant_criteria(state, registered, context)
+    else:
+        _apply_tenant_criteria(state, models, context)
 
 
 def _ownership_value(instance: object, name: str) -> Any:
@@ -263,6 +361,66 @@ event.listen(Session, "do_orm_execute", _scope_statement)
 event.listen(Session, "before_flush", _validate_pending_ownership)
 
 
+class ScopedScalarResult:
+    """Restricted scalar-result view with no connection escape surface."""
+
+    __slots__ = ("__result",)
+
+    def __init__(self, result: Any) -> None:
+        self.__result = result
+
+    def __iter__(self):
+        return iter(self.__result)
+
+    def all(self) -> list[Any]:
+        return self.__result.all()
+
+    def first(self) -> Any:
+        return self.__result.first()
+
+    def one(self) -> Any:
+        return self.__result.one()
+
+    def one_or_none(self) -> Any:
+        return self.__result.one_or_none()
+
+
+class ScopedResult:
+    """Restricted ORM result view with no cursor or connection exposure."""
+
+    __slots__ = ("__result",)
+
+    def __init__(self, result: Any) -> None:
+        self.__result = result
+
+    def __iter__(self):
+        return iter(self.__result)
+
+    def all(self) -> list[Any]:
+        return self.__result.all()
+
+    def first(self) -> Any:
+        return self.__result.first()
+
+    def one(self) -> Any:
+        return self.__result.one()
+
+    def one_or_none(self) -> Any:
+        return self.__result.one_or_none()
+
+    def scalar(self) -> Any:
+        return self.__result.scalar()
+
+    def scalar_one(self) -> Any:
+        return self.__result.scalar_one()
+
+    def scalar_one_or_none(self) -> Any:
+        return self.__result.scalar_one_or_none()
+
+    def scalars(self, index: int = 0) -> ScopedScalarResult:
+        return ScopedScalarResult(self.__result.scalars(index))
+
+
 class ScopedSession:
     """Small service-facing facade over a scope-bound private SQLAlchemy session."""
 
@@ -275,6 +433,8 @@ class ScopedSession:
             raise TypeError("scope must be a recognized scope context")
         if _SCOPE_INFO_KEY in session.info:
             raise ValueError("session is already scope-bound")
+        if session.identity_map:
+            raise ValueError("session identity map must be empty before scope binding")
         session.info[_SCOPE_INFO_KEY] = scope
         self.__session = session
         self.scope = scope
@@ -287,11 +447,11 @@ class ScopedSession:
             return None
         return instance
 
-    def execute(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
-        return self.__session.execute(statement, params=params, **kwargs)
+    def execute(self, statement: Any, params: Any = None, **kwargs: Any) -> ScopedResult:
+        return ScopedResult(self.__session.execute(statement, params=params, **kwargs))
 
-    def scalars(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
-        return self.__session.scalars(statement, params=params, **kwargs)
+    def scalars(self, statement: Any, params: Any = None, **kwargs: Any) -> ScopedScalarResult:
+        return ScopedScalarResult(self.__session.scalars(statement, params=params, **kwargs))
 
     def add(self, instance: object) -> None:
         self.__session.add(instance)
