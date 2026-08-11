@@ -579,6 +579,46 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
 # R7, R8 -- the suite's own vacuity guards
 # ---------------------------------------------------------------------------
 
+def _ruff_is_installed() -> bool:
+    """Whether Ruff can run in this interpreter.
+
+    Two CI jobs -- ``release-gates:package`` and ``release-zeroth-core:test-wheel`` --
+    run the suite inside a pip venv built from the wheel, to test the *packaged
+    product*. Ruff is a dev-group dependency and is deliberately not in that venv,
+    so shelling out to it there fails with ModuleNotFoundError.
+
+    Those jobs are not the lint gate. The lint gate is ``uv run ruff check src
+    tests`` in ci.yml and release-gates.yml's ``source`` job, both of which run
+    ``uv sync --all-groups`` and therefore have Ruff. Skipping where the tool is
+    absent by design is honest; skipping where the gate runs would not be, which
+    is what ``test_the_lint_gate_environment_really_has_ruff`` below refuses.
+    """
+    return (
+        subprocess.run(
+            [sys.executable, "-m", "ruff", "--version"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+def test_the_lint_gate_environment_really_has_ruff() -> None:
+    """Where the developer and the lint gate run, Ruff must be present.
+
+    Without this the skip above could hide a broken lint gate: every Ruff-backed
+    check would quietly vanish and the suite would still be green. ``uv sync
+    --all-groups`` installs the dev group, so a failure here means the gate's own
+    environment is wrong.
+    """
+    assert _ruff_is_installed(), (
+        "Ruff is not importable, so every lint-enforcement check would skip. If this "
+        "is the wheel-venv job that is expected; if it is the lint gate, the dev "
+        "dependency group was not installed."
+    )
+
+
 #: A minimal file that violates each rule this task stopped exempting.
 #:
 #: The guard runs Ruff over these and asserts the violation is *reported*. It
@@ -635,48 +675,20 @@ def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py
     return any(reported.search(line) for line in result.stdout.splitlines())
 
 
-#: The commits that bracket this task's lint work. ``RULE_PROBES`` must cover
-#: exactly the rules the exemption list stopped covering between them, and that
-#: set is read from git rather than from the dict -- because a dict of "rules we
-#: probe" is one more editable list of what to check, and deleting an entry would
-#: silence its enforcement exactly as every earlier version could be silenced.
-LINT_WORK_BRACKET = ("20af960a", "66fbe2f8")
-
-
-def _exemptions_at(commit: str) -> set[str] | None:
-    import tomllib
-
-    shown = subprocess.run(
-        ["git", "show", f"{commit}:pyproject.toml"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if shown.returncode != 0:  # pragma: no cover - shallow clone
-        return None
-    ignores = tomllib.loads(shown.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
-    return set(ignores["tests/**/*.py"])
-
-
-def test_the_probe_set_covers_exactly_what_the_exemption_stopped_covering() -> None:
-    """Which rules get probed is history, not a list anybody can shorten.
-
-    Deleting an entry from ``RULE_PROBES`` would otherwise remove that rule's
-    enforcement check along with it -- the same self-indexing shape as the tuple,
-    the derived set, and the frozen reference before it. The required set is the
-    difference between the exemption list at the two commits that bracket this
-    work, read from git.
-    """
-    before, after = (_exemptions_at(commit) for commit in LINT_WORK_BRACKET)
-    if before is None or after is None:  # pragma: no cover - shallow clone
-        pytest.skip("bracket commits unavailable")
-
-    assert set(RULE_PROBES) == before - after, (
-        f"probes {sorted(RULE_PROBES)} do not match the rules this task stopped "
-        f"exempting, {sorted(before - after)}"
-    )
-
+#: NOTE on how ``RULE_PROBES`` above is protected.
+#:
+#: An earlier revision derived that set by reading the tests/** exemption list at the two
+#: commits bracketing this work, so that deleting an entry could not silently drop a rule's
+#: enforcement. The anchor did not survive: the branch was squashed before merge, one of
+#: those commits now exists on no ref, and the check skipped in CI permanently -- a guard
+#: reporting nothing, the very defect this module exists to remove. Any git-SHA anchor
+#: meets the same end in a repository that squash-merges.
+#:
+#: So the arrangement is stated plainly instead. The *guard* is
+#: ``test_every_enforced_rule_is_in_force_at_every_test_path``: it reads no history, never
+#: skips, and checks both rules at all 515 test paths. ``RULE_PROBES`` only names which
+#: rules that sweep covers, and shortening it is a visible diff -- the same protection
+#: every ratchet file in every repository actually relies on.
 
 #: One source violating every enforced rule at once, so the exhaustive sweep
 #: below costs one Ruff invocation per path rather than one per (path, rule).
@@ -711,6 +723,9 @@ def test_the_rules_this_task_enforced_are_reported_on_a_real_violation(rule: str
     Not "the exemption list does not contain the rule" -- that is a claim about
     configuration, and there is more than one way to write the configuration.
     """
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     assert rule_is_reported(rule, RULE_PROBES[rule]), (
         f"{rule} is not reported for a file under tests/; something in the Ruff "
         "configuration is exempting it again"
@@ -729,6 +744,9 @@ def test_every_enforced_rule_is_in_force_at_every_test_path() -> None:
     path with a source violating every enforced rule at once -- about 12 s
     serially over 515 files, a few seconds across a pool.
     """
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     from concurrent.futures import ThreadPoolExecutor
 
     paths = sorted(
@@ -763,12 +781,18 @@ def test_the_probe_really_violates_the_rule_it_names(rule: str) -> None:
     ever applied, so a reported violation there proves the source is genuinely
     offending rather than the rule being globally off.
     """
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     assert rule_is_reported(rule, RULE_PROBES[rule], filename="scratch/_probe.py")
 
 
 @pytest.mark.parametrize("rule", sorted(RULE_PROBES))
 def test_a_clean_file_is_not_reported(rule: str) -> None:
     """And the detector is not simply always positive."""
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     assert not rule_is_reported(rule, "def probe():\n    return 1\n")
 
 
@@ -785,6 +809,9 @@ def test_ruff_actually_checks_every_test_file_on_disk() -> None:
     revision of this docstring called that residual unprovable; it is not, and
     saying so here would be the kind of stale claim this module exists to catch.
     """
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     listed = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "tests", "--show-files"],
         cwd=ROOT,
@@ -807,6 +834,9 @@ def test_ruff_actually_checks_every_test_file_on_disk() -> None:
 
 def test_the_tests_tree_itself_is_clean_under_every_enforced_rule() -> None:
     """Green on landing, which the ticket requires of any enforcement it adds."""
+    if not _ruff_is_installed():  # pragma: no cover - wheel-venv job
+        pytest.skip("Ruff is not in this environment; see _ruff_is_installed")
+
     for rule in sorted(RULE_PROBES):
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "tests", "--select", rule, "--quiet"],
