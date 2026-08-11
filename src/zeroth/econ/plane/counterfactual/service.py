@@ -190,16 +190,17 @@ def run_evaluation(db: ScopedSession, payload: EvaluationRunRequest) -> ValueEst
         exec_stmt = exec_stmt.where(ExecutionEvent.implementation_id == payload.implementation_id)
     executions = list(db.execute(exec_stmt).scalars())
 
-    outcomes = list(
-        db.execute(
-            select(OutcomeEvent).where(
-                OutcomeEvent.tenant_id == tenant_id,
-                OutcomeEvent.capability_id == payload.capability_id,
-                OutcomeEvent.occurred_at >= payload.period_start,
-                OutcomeEvent.occurred_at <= payload.period_end,
-            )
-        ).scalars()
+    outcome_stmt = select(OutcomeEvent).where(
+        OutcomeEvent.tenant_id == tenant_id,
+        OutcomeEvent.capability_id == payload.capability_id,
+        OutcomeEvent.occurred_at >= payload.period_start,
+        OutcomeEvent.occurred_at <= payload.period_end,
     )
+    if payload.implementation_id:
+        outcome_stmt = outcome_stmt.where(
+            OutcomeEvent.implementation_id == payload.implementation_id
+        )
+    outcomes = list(db.execute(outcome_stmt).scalars())
 
     join_lookup = {e.join_key or e.execution_id: e for e in executions}
     filtered_outcomes = [o for o in outcomes if (o.join_key or o.execution_id) in join_lookup]
