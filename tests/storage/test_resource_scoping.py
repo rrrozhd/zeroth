@@ -265,10 +265,84 @@ def test_registry_resolves_definitions_by_resource_and_physical_table() -> None:
     )
     registry = ResourceScopeRegistry([definition])
 
-    assert registry.definition_for_resource("runs") is definition
-    assert registry.definition_for_table("runtime_runs") is definition
+    by_resource = registry.definition_for_resource("runs")
+    by_table = registry.definition_for_table("runtime_runs")
+
+    assert by_resource == definition
+    assert by_table == definition
+    assert by_resource is not definition
+    assert by_table is not definition
+    assert by_resource is not by_table
     with pytest.raises(KeyError):
         registry.definition_for_resource("missing")
+
+
+def test_registry_snapshots_caller_definition_values_at_registration() -> None:
+    definition = ResourceScopeDefinition(
+        resource_name="children",
+        table_name="children",
+        workspace_scoped=True,
+        operations=frozenset({ResourceOperation.CREATE}),
+    )
+    expected = ResourceScopeDefinition(
+        resource_name="children",
+        table_name="children",
+        workspace_scoped=True,
+        operations=frozenset({ResourceOperation.CREATE}),
+    )
+    registry = ResourceScopeRegistry([definition])
+
+    object.__setattr__(definition, "resource_name", "parents")
+    object.__setattr__(definition, "table_name", "forged_children")
+    object.__setattr__(definition, "workspace_scoped", False)
+    object.__setattr__(definition, "operations", frozenset({ResourceOperation.ENUMERATE}))
+    object.__setattr__(definition, "direct_scope_ready", False)
+
+    assert registry.definition_for_resource("children") == expected
+    assert registry.definition_for_table("children") == expected
+    with pytest.raises(KeyError):
+        registry.definition_for_resource("parents")
+    with pytest.raises(KeyError):
+        registry.definition_for_table("forged_children")
+
+
+def test_registry_lookup_and_definition_views_are_defensive_copies() -> None:
+    expected = ResourceScopeDefinition(
+        resource_name="children",
+        table_name="children",
+        workspace_scoped=True,
+        operations=frozenset({ResourceOperation.CREATE}),
+    )
+    registry = ResourceScopeRegistry([expected])
+    lookup = registry.definition_for_resource("children")
+    view = registry.definitions[0]
+
+    for exposed in (lookup, view):
+        object.__setattr__(exposed, "resource_name", "parents")
+        object.__setattr__(exposed, "table_name", "forged_children")
+        object.__setattr__(exposed, "workspace_scoped", False)
+        object.__setattr__(
+            exposed,
+            "operations",
+            frozenset({ResourceOperation.ENUMERATE}),
+        )
+
+    fresh = registry.definition_for_resource("children")
+    assert fresh == expected
+    assert fresh is not expected
+    assert registry.definitions == (expected,)
+    with pytest.raises(ValueError, match="operation"):
+        registry.validate_binding(
+            "children",
+            ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+            operation=ResourceOperation.ENUMERATE,
+        )
+    with pytest.raises(ValueError, match="workspace"):
+        registry.validate_binding(
+            "children",
+            TenantWideScopeContext(tenant_id="tenant-a"),
+            operation=ResourceOperation.CREATE,
+        )
 
 
 def test_registry_exposes_an_immutable_definition_snapshot() -> None:
@@ -586,6 +660,12 @@ async def test_scoped_table_rejects_create_only_join_before_query() -> None:
 @pytest.mark.asyncio
 async def test_scoped_join_cannot_replace_child_definition_to_bypass_operations() -> None:
     database = _RecordingDatabase()
+    child_definition = ResourceScopeDefinition(
+        resource_name="children",
+        table_name="children",
+        workspace_scoped=True,
+        operations=frozenset({ResourceOperation.CREATE}),
+    )
     registry = ResourceScopeRegistry(
         [
             ResourceScopeDefinition(
@@ -594,12 +674,7 @@ async def test_scoped_join_cannot_replace_child_definition_to_bypass_operations(
                 workspace_scoped=True,
                 operations=frozenset({ResourceOperation.ENUMERATE}),
             ),
-            ResourceScopeDefinition(
-                resource_name="children",
-                table_name="children",
-                workspace_scoped=True,
-                operations=frozenset({ResourceOperation.CREATE}),
-            ),
+            child_definition,
         ]
     )
     context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
@@ -614,6 +689,25 @@ async def test_scoped_join_cannot_replace_child_definition_to_bypass_operations(
 
     with pytest.raises(AttributeError):
         child._definition = forged  # type: ignore[misc]
+
+    exposed_definitions = (
+        child_definition,
+        registry.definition_for_resource("children"),
+        next(
+            definition
+            for definition in registry.definitions
+            if definition.resource_name == "children"
+        ),
+    )
+    for exposed in exposed_definitions:
+        object.__setattr__(exposed, "resource_name", "parents")
+        object.__setattr__(exposed, "table_name", "children")
+        object.__setattr__(exposed, "workspace_scoped", False)
+        object.__setattr__(
+            exposed,
+            "operations",
+            frozenset({ResourceOperation.ENUMERATE}),
+        )
     with pytest.raises(ValueError, match="operation"):
         await parent.select(
             joins=(
@@ -625,7 +719,8 @@ async def test_scoped_join_cannot_replace_child_definition_to_bypass_operations(
             )
         )
 
-    assert child._definition is registry.definition_for_resource("children")
+    assert child._definition == registry.definition_for_resource("children")
+    assert child._definition is not registry.definition_for_resource("children")
     assert database.transactions == []
 
 
@@ -811,23 +906,33 @@ async def test_select_revalidates_exact_join_identifiers_at_render_time() -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["select", "insert", "update", "delete"])
-async def test_gateway_revalidates_mutated_table_identifier_before_sql(operation: str) -> None:
+@pytest.mark.parametrize(
+    "operation",
+    ["select", "select_one", "insert", "update", "delete"],
+)
+async def test_gateway_ignores_mutation_of_exposed_definition_copy(operation: str) -> None:
     database = _RecordingDatabase()
     table = _scoped_table(database)
-    object.__setattr__(table._definition, "table_name", "runs; DROP TABLE runs")
+    exposed = table._definition
+    object.__setattr__(exposed, "table_name", "runs; DROP TABLE runs")
+    object.__setattr__(exposed, "workspace_scoped", False)
 
-    with pytest.raises(ValueError, match="table_name"):
-        if operation == "select":
-            await table.select()
-        elif operation == "insert":
-            await table.insert({"run_id": "run-1"})
-        elif operation == "update":
-            await table.update({"status": "done"}, where={"run_id": "run-1"})
-        else:
-            await table.delete(where={"run_id": "run-1"})
+    if operation == "select":
+        await table.select()
+    elif operation == "select_one":
+        await table.select_one(where={"run_id": "run-1"})
+    elif operation == "insert":
+        await table.insert({"run_id": "run-1"})
+    elif operation == "update":
+        await table.update({"status": "done"}, where={"run_id": "run-1"})
+    else:
+        await table.delete(where={"run_id": "run-1"})
 
-    assert database.transactions == []
+    _, sql, params = database.connection.calls[0]
+    assert "runs; DROP TABLE runs" not in sql
+    assert "runs" in sql
+    assert "workspace_id = ?" in sql or "workspace_id" in sql
+    assert "workspace-a" in params
 
 
 def test_scoped_and_global_gateways_are_separate_and_hide_raw_database() -> None:
