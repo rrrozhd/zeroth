@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.2] - 2026-08-11
+
+### Changed
+
+- Removed unused private backend helpers, obsolete Console API declarations,
+  and the redundant token-engine CLI wrapper while preserving live runtime and
+  compatibility paths.
+- Documented the protected backend-surface fixture maintenance procedure and
+  deferred wider module splitting and child-graph consolidation.
+
 ## [0.20.1.1] - 2026-08-11
 
 ### Fixed
