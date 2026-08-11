@@ -1,15 +1,20 @@
 # Migration from the monolith layout
 
-If you have a codebase that imports from the pre-split monolithic `zeroth.*` namespace, this guide walks you through the one-time upgrade to the published `zeroth-core` package under `zeroth.runtime.*`. The change is a pure rename — no runtime semantics change, no API breaks.
+If you have a codebase that imports from the pre-split monolithic `zeroth.*`
+namespace, this guide walks you through the one-time upgrade to the published
+`zeroth-core` package. The current package is split across `zeroth.runtime`,
+`zeroth.contracts`, `zeroth.integrations`, `zeroth.governance`, and other
+subsystems, so migrate each import by responsibility rather than applying a
+global prefix rename.
 
-The rename was introduced in the v3.0 milestone.
+The legacy import surface was removed in release 0.17.
 
 ## TL;DR
 
-1. `pip install "zeroth-core>=0.1.1"` (drop any local/path dependency on `zeroth`)
-2. Rewrite imports: `from zeroth.X` → `from zeroth.runtime.X`
-3. Drop any local path dependency on `econ-instrumentation-sdk` — it's now a transitive PyPI dep of `zeroth-core`
-4. Keep all `ZEROTH_*` env vars as-is — no renames
+1. `pip install zeroth-core` (drop any local/path dependency on `zeroth`)
+2. Rewrite imports using the mappings below
+3. Drop any local path dependency on `econ-instrumentation-sdk`; its code is bundled in `zeroth-core`
+4. Check renamed environment variables against the generated configuration reference
 5. Rebuild your Docker image against the new package name
 
 Most small projects complete this migration in under 10 minutes.
@@ -25,9 +30,9 @@ pip install -e /path/to/zeroth-monolith
 **After** (PyPI):
 
 ```bash
-pip install "zeroth-core>=0.1.1"
+pip install zeroth-core
 # Or with extras matching your backend:
-pip install "zeroth-core[memory-pg,dispatch]>=0.1.1"
+pip install "zeroth-core[memory-pg,dispatch]"
 ```
 
 If your project pins zeroth in `pyproject.toml`, change:
@@ -40,15 +45,17 @@ dependencies = [
 
 # After
 dependencies = [
-  "zeroth-core>=0.1.1",
+  "zeroth-core",
 ]
 ```
 
-Note the distribution name is `zeroth-core` but you import it as `zeroth.runtime.*` (PEP 420 namespace package). Available extras match the monolith: `memory-pg`, `memory-chroma`, `memory-es`, `dispatch`, `sandbox`, and `all`.
+The distribution name is `zeroth-core`; its modules share the PEP 420 `zeroth`
+namespace. See the root `pyproject.toml` for the current optional extras.
 
 ## 2. Rewrite imports
 
-Every import from `zeroth.<subsystem>` becomes `zeroth.runtime.<subsystem>`.
+Map each old subsystem to its current owner. The examples below cover the
+common orchestration, graph, memory, and policy imports.
 
 **Before:**
 
@@ -62,58 +69,29 @@ import zeroth.policy as policy
 **After:**
 
 ```python
-from zeroth.runtime.orchestration import Orchestrator
+from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.contracts.graph import Graph, Node
-from zeroth.integrations.memory import EphemeralMemory
+from zeroth.integrations.memory import RunEphemeralMemoryConnector
 import zeroth.governance.policy as policy
 ```
-
-### Grep + sed recipe
-
-For a quick in-place rename across a project, the following works on macOS (BSD sed) and Linux (GNU sed — remove the empty `''` after `-i`):
-
-```bash
-# macOS (BSD sed)
-grep -rl "from zeroth\." src/ tests/ | xargs sed -i '' 's/from zeroth\./from zeroth.runtime./g'
-grep -rl "import zeroth\." src/ tests/ | xargs sed -i '' 's/import zeroth\./import zeroth.runtime./g'
-
-# Linux (GNU sed)
-grep -rl "from zeroth\." src/ tests/ | xargs sed -i 's/from zeroth\./from zeroth.runtime./g'
-grep -rl "import zeroth\." src/ tests/ | xargs sed -i 's/import zeroth\./import zeroth.runtime./g'
-```
-
-**Caveat:** this is a naive substitution. It will correctly rewrite `from zeroth.graph` and `import zeroth.runtime`, but will also match false positives like string literals (`"zeroth.something"`) and dotted paths inside YAML/TOML configs or docstrings. Always diff before committing:
-
-```bash
-git diff --stat
-git diff src/ tests/ | less
-```
-
-A future release will ship a LibCST-based codemod (`python -m zeroth.runtime.codemods.rename_from_monolith`) that handles edge cases correctly — tracked internally as `FUTURE-01`.
 
 ### Verify the rewrite
 
 ```bash
-# Should return zero matches after the rewrite.
-grep -rn "^from zeroth\." src/ tests/
-grep -rn "^import zeroth\." src/ tests/
+# Review every remaining Zeroth import against the current package tree.
+rg '^(from|import) zeroth\.' src tests
 
 # Run your test suite.
 uv run pytest
 ```
 
-If either `grep` prints anything, the offending lines still reference the monolith namespace — fix them by hand or rerun the sed recipe against the remaining paths.
+Review each match by hand; current imports still begin with `zeroth.`, so a raw
+substring search cannot distinguish a migrated import from a legacy one.
 
-## 3. econ SDK path swap
+## 3. Econ instrumentation path swap
 
-The monolith depended on `econ-instrumentation-sdk` via a local file path. Zeroth-core pins it as a published PyPI dependency:
-
-```toml
-# In zeroth-core's pyproject.toml (transitive — you don't need to declare it)
-"econ-instrumentation-sdk>=0.1.1",
-```
-
-**Action:** remove any local path dep from your own `pyproject.toml`:
+The instrumentation client now ships inside `zeroth-core`. Remove any local
+`econ-instrumentation-sdk` dependency from your own `pyproject.toml`:
 
 ```toml
 # Before
@@ -124,38 +102,27 @@ dependencies = [
 
 # After
 dependencies = [
-  "zeroth-core>=0.1.1",
+  "zeroth-core",
 ]
 ```
 
-`zeroth-core` will install `econ-instrumentation-sdk` automatically. If you need to override the version for testing, pin it explicitly alongside zeroth-core:
-
-```toml
-dependencies = [
-  "zeroth-core>=0.1.1",
-  "econ-instrumentation-sdk==0.1.1",
-]
-```
-
-After the swap, run `uv sync` (or `pip install -e .`) and confirm only one `econ-instrumentation-sdk` shows up:
-
-```bash
-uv pip list | grep econ-instrumentation-sdk
-```
+Import the bundled client from `zeroth.econ.instrumentation`; no separate
+distribution is installed or versioned.
 
 ## 4. Environment variables
 
-**No env vars were renamed during the rename phase.** All `ZEROTH_*` settings keep their names, their nesting conventions (`ZEROTH_<SECTION>__<FIELD>`), and their defaults. This includes:
+Most settings use the nested `ZEROTH_<SECTION>__<FIELD>` convention. Service
+authentication is a maintained flat override, so check old deployments in
+particular for:
 
 - `ZEROTH_DATABASE__POSTGRES_DSN`
-- `ZEROTH_REDIS__*`
-- `ZEROTH_REGULUS__*`
-- `ZEROTH_AUTH__API_KEYS_JSON`
-- …and every other nested `ZEROTH_*` key your monolith deployment already used.
+- `ZEROTH_SERVICE_API_KEYS_JSON`
 
 See the full [Configuration Reference](../reference/configuration.md) for every supported variable.
 
-If your deployment sets `ZEROTH_*` vars via `.env`, docker-compose, Kubernetes secrets, or a systemd unit file, **no changes are required**. The monolith and `zeroth.runtime` layouts share the exact same pydantic-settings schema.
+Compare every `.env`, Compose, Kubernetes, or systemd key with that generated
+reference before rollout; it reflects the settings schema shipped by the
+current checkout.
 
 ## 5. Docker image retag
 
@@ -169,17 +136,18 @@ COPY zeroth-monolith /src/zeroth-monolith
 RUN pip install -e /src/zeroth-monolith
 
 # After
-RUN pip install "zeroth-core[memory-pg,dispatch]>=0.1.1"
+RUN pip install "zeroth-core[memory-pg,dispatch]"
 ```
 
 **Retag** your image (the tag is arbitrary — pick one that matches your registry layout):
 
 ```bash
-docker build -t registry.example.com/myorg/myapp:zeroth-core-0.1.1 .
-docker push registry.example.com/myorg/myapp:zeroth-core-0.1.1
+docker build -t registry.example.com/myorg/myapp:zeroth-core .
+docker push registry.example.com/myorg/myapp:zeroth-core
 ```
 
-Update your Kubernetes manifests, Helm values, or docker-compose files to point at the new tag, and roll the deployment. Because env vars are unchanged (see Section 4), no ConfigMap/Secret edits are needed.
+Update your Kubernetes manifests, Helm values, or Docker Compose files to point
+at the new tag, and apply any environment-variable changes found in Section 4.
 
 ## 6. Verify the migration
 
@@ -196,16 +164,22 @@ uv run zeroth-core serve  # or however you launch your app
 curl http://localhost:8000/health/ready
 ```
 
-If a test fails with an `ImportError` mentioning `zeroth.<something>` (without `.core`), the rename missed that file — rerun the sed recipe or fix manually.
+If a test fails with an `ImportError` naming a retired top-level module such as
+`zeroth.orchestrator`, `zeroth.graph`, `zeroth.memory`, or `zeroth.policy`, that
+import still needs the responsibility-based rewrite from Section 2.
 
 ## Troubleshooting
 
 - **`ModuleNotFoundError: No module named 'zeroth'`** after install — PEP 420 namespace package: make sure nothing in your project creates a `zeroth/__init__.py` that would shadow the namespace. The `zeroth-core` wheel intentionally ships no top-level `__init__.py`.
 - **`ModuleNotFoundError: No module named 'zeroth.orchestrator'`** — rename missed; check for imports in `.pyi` stub files, `conftest.py`, plugin entry points in `pyproject.toml`, and any YAML/TOML config referencing dotted module paths.
-- **Duplicate `econ-instrumentation-sdk` install** — remove the local path dep from your `pyproject.toml`; the PyPI version pulled in by `zeroth-core` is canonical.
-- **My CI is still using the monolith wheel** — clear your CI's pip cache and pin `zeroth-core>=0.1.1` explicitly. If you use `uv`, delete `uv.lock` and re-run `uv lock`.
-- **Docstring or comment still says `zeroth.foo`** — the sed recipe only targets `from`/`import` lines; fix prose references by hand as you find them.
+- **Duplicate `econ-instrumentation-sdk` install** — remove the old local or
+  published dependency; the implementation is part of `zeroth-core`.
+- **My CI is still using the monolith wheel** — clear its pip cache, require
+  `zeroth-core`, and regenerate the lock file with your package manager.
+- **Docstring or comment still names an old module** — update prose references
+  by hand after the import migration.
 
 ## What's not covered
 
-This guide only covers the monolith → `zeroth.runtime.*` rename. Future migrations (e.g., between `zeroth-core` minor versions) will get their own per-release guides as they ship. The CHANGELOG on the `zeroth-core` repo is the canonical source for version-to-version upgrade notes.
+This guide covers the removed monolith import surface. The CHANGELOG is the
+canonical source for later version-to-version upgrade notes.

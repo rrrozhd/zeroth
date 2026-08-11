@@ -11,7 +11,7 @@ and the exact startup ordering you must respect.
 
 ## Minimal example
 
-The shipped production entrypoint is `src/zeroth/core/service/entrypoint.py`.
+The shipped production entrypoint is `src/zeroth/service/entrypoint.py`.
 In a container you run:
 
 ```bash
