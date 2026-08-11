@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import final
 
 _DEFAULT_TENANT_ID = "default"
 
@@ -34,6 +35,7 @@ def _require_non_empty_string(value: object, field_name: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+@final
 class ScopeContext:
     """A tenant and workspace identity for an ordinary scoped operation."""
 
@@ -59,6 +61,7 @@ class ScopeContext:
 
 
 @dataclass(frozen=True, slots=True)
+@final
 class TenantWideScopeContext:
     """An explicit privileged context spanning all workspaces in one tenant."""
 
@@ -80,6 +83,7 @@ class TenantWideScopeContext:
 
 
 @dataclass(frozen=True, slots=True)
+@final
 class ResourceScopeDefinition:
     """The stable scope contract for one persistent resource."""
 
@@ -120,7 +124,7 @@ class ResourceScopeRegistry:
 
     def register(self, definition: ResourceScopeDefinition) -> None:
         """Register a definition, rejecting either kind of duplicate identity."""
-        if not isinstance(definition, ResourceScopeDefinition):
+        if type(definition) is not ResourceScopeDefinition:
             raise TypeError("definition must be a ResourceScopeDefinition")
         if definition.resource_name in self._by_resource:
             raise ValueError(f"duplicate resource_name: {definition.resource_name!r}")
@@ -158,9 +162,9 @@ class ResourceScopeRegistry:
             return definition
         if context is None:
             raise ValueError("tenant-scoped resources require a tenant context")
-        if not isinstance(context, (ScopeContext, TenantWideScopeContext)):
+        if type(context) not in (ScopeContext, TenantWideScopeContext):
             raise TypeError("context must be a recognized scope context")
-        if definition.workspace_scoped and isinstance(context, TenantWideScopeContext):
+        if definition.workspace_scoped and type(context) is TenantWideScopeContext:
             raise ValueError("workspace-scoped resources require a workspace context")
         return definition
 
@@ -172,7 +176,7 @@ class ResourceScopeRegistry:
         operation: ResourceOperation | None = None,
     ) -> ResourceScopeDefinition:
         """Explicitly validate privileged tenant-wide access to a tenant resource."""
-        if not isinstance(context, TenantWideScopeContext):
+        if type(context) is not TenantWideScopeContext:
             raise TypeError("context must be a TenantWideScopeContext")
         definition = self.definition_for_resource(resource_name)
         self._validate_operation(definition, operation)

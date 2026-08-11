@@ -311,3 +311,59 @@ def test_registry_rejects_an_operation_not_declared_by_the_resource() -> None:
             ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
             operation=ResourceOperation.DELETE,
         )
+
+
+def test_registry_rejects_a_definition_subclass_that_bypasses_validation() -> None:
+    class ForgedDefinition(ResourceScopeDefinition):
+        def __post_init__(self) -> None:
+            pass
+
+    forged = ForgedDefinition(
+        resource_name="",
+        table_name="runtime_runs",
+        operations=frozenset(),
+    )
+
+    with pytest.raises(TypeError, match="ResourceScopeDefinition"):
+        ResourceScopeRegistry([forged])
+
+
+def test_binding_rejects_a_scope_context_subclass_that_bypasses_validation() -> None:
+    class ForgedScopeContext(ScopeContext):
+        def __post_init__(self) -> None:
+            pass
+
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="runs",
+                table_name="runtime_runs",
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+    forged = ForgedScopeContext(tenant_id="default", workspace_id="")
+
+    with pytest.raises(TypeError, match="recognized scope context"):
+        registry.validate_binding("runs", forged)
+
+
+def test_privileged_binding_rejects_a_tenant_wide_subclass() -> None:
+    class ForgedTenantWideScopeContext(TenantWideScopeContext):
+        def __post_init__(self) -> None:
+            pass
+
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="runs",
+                table_name="runtime_runs",
+                workspace_scoped=True,
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+    forged = ForgedTenantWideScopeContext(tenant_id="default")
+
+    with pytest.raises(TypeError, match="TenantWideScopeContext"):
+        registry.validate_privileged_tenant_wide_binding("runs", forged)
