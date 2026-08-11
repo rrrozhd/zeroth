@@ -549,6 +549,49 @@ def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py
     return any(reported.search(line) for line in result.stdout.splitlines())
 
 
+#: The commits that bracket this task's lint work. ``RULE_PROBES`` must cover
+#: exactly the rules the exemption list stopped covering between them, and that
+#: set is read from git rather than from the dict -- because a dict of "rules we
+#: probe" is one more editable list of what to check, and deleting an entry would
+#: silence its enforcement exactly as every earlier version could be silenced.
+LINT_WORK_BRACKET = ("20af960a", "66fbe2f8")
+
+
+def _exemptions_at(commit: str) -> set[str] | None:
+    import tomllib
+
+    shown = subprocess.run(
+        ["git", "show", f"{commit}:pyproject.toml"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if shown.returncode != 0:  # pragma: no cover - shallow clone
+        return None
+    ignores = tomllib.loads(shown.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
+    return set(ignores["tests/**/*.py"])
+
+
+def test_the_probe_set_covers_exactly_what_the_exemption_stopped_covering() -> None:
+    """Which rules get probed is history, not a list anybody can shorten.
+
+    Deleting an entry from ``RULE_PROBES`` would otherwise remove that rule's
+    enforcement check along with it -- the same self-indexing shape as the tuple,
+    the derived set, and the frozen reference before it. The required set is the
+    difference between the exemption list at the two commits that bracket this
+    work, read from git.
+    """
+    before, after = (_exemptions_at(commit) for commit in LINT_WORK_BRACKET)
+    if before is None or after is None:  # pragma: no cover - shallow clone
+        pytest.skip("bracket commits unavailable")
+
+    assert set(RULE_PROBES) == before - after, (
+        f"probes {sorted(RULE_PROBES)} do not match the rules this task stopped "
+        f"exempting, {sorted(before - after)}"
+    )
+
+
 @pytest.mark.parametrize("rule", sorted(RULE_PROBES))
 def test_the_rules_this_task_enforced_are_reported_on_a_real_violation(rule: str) -> None:
     """The property itself: a violating test file is flagged.

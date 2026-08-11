@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.9.1] - 2026-08-10
+
+### Fixed
+
+- Which lint rules get probed is derived from git rather than from an editable dict.
+  Deleting a probe entry would have removed that rule's enforcement check along with it —
+  the same self-indexing shape as the three lists before it (ZER-41 / ZER41-G01-001).
+
 ## [0.22.2.9] - 2026-08-10
 
 ### Fixed
