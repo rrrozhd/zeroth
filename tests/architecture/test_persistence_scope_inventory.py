@@ -20,6 +20,7 @@ from zeroth.platform.storage.scoping import (
     ResourceScopeRegistry,
 )
 from zeroth.platform.storage.scoped_table import (
+    ASYNC_PERSISTENCE_MODULES,
     ECON_MIGRATION_SCOPE_DEFINITIONS,
     SERVICE_SCOPE_DEFINITIONS,
 )
@@ -698,6 +699,8 @@ def test_raw_session_guard_ignores_unrelated_symbols_and_results(
 
 class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
     _RAW_METHODS = {"execute", "execute_script", "fetch_all", "fetch_one", "transaction"}
+    _CONNECTION_METHODS = _RAW_METHODS - {"transaction"}
+    _CONNECTION_NAMES = {"conn", "connection", "transaction"}
 
     def __init__(self, relative_path: str) -> None:
         self.relative_path = relative_path
@@ -710,6 +713,14 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         ordinal = self._counts.get(key, 0) + 1
         self._counts[key] = ordinal
         self.violations.append(f"{self.relative_path}::{self.function}::{method}#{ordinal}")
+
+    @classmethod
+    def _is_connection_receiver(cls, node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in cls._CONNECTION_NAMES
+        if isinstance(node, ast.Attribute):
+            return node.attr == "connection" or cls._is_connection_receiver(node.value)
+        return False
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         previous = self.function
@@ -727,20 +738,28 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
             and len(node.args) >= 2
             and isinstance(node.args[1], ast.Constant)
             and node.args[1].value in self._RAW_METHODS
+            and (node.args[1].value == "transaction" or self._is_connection_receiver(node.args[0]))
         ):
             self._record(str(node.args[1].value))
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in self._RAW_METHODS:
+        if node.attr == "transaction" or (
+            node.attr in self._CONNECTION_METHODS and self._is_connection_receiver(node.value)
+        ):
             self._record(node.attr)
         self.generic_visit(node)
 
 
-def _raw_async_repository_violations(root: Path) -> set[str]:
+def _raw_async_repository_violations(
+    root: Path,
+    modules: frozenset[str] = ASYNC_PERSISTENCE_MODULES,
+) -> set[str]:
     violations: set[str] = set()
-    for path in sorted(root.rglob("*repository.py")):
-        relative_path = path.relative_to(root).as_posix()
+    for relative_path in sorted(modules):
+        path = root / relative_path
+        if not path.is_file():
+            raise AssertionError(f"registered persistence module is missing: {relative_path}")
         visitor = _RawAsyncRepositoryVisitor(relative_path)
         visitor.visit(ast.parse(path.read_text(), filename=str(path)))
         violations.update(visitor.violations)
@@ -912,9 +931,112 @@ service/webhooks/repository.py::mark_failed::transaction#1
 """.split()  # noqa: SIM905 - readable exact snapshot
 )
 
+_RAW_ASYNC_REPOSITORY_ALLOWLIST |= frozenset(
+    """
+contracts/registry/registry.py::_fetch_row::fetch_one#1
+contracts/registry/registry.py::_fetch_row::transaction#1
+contracts/registry/registry.py::_now::fetch_one#1
+contracts/registry/registry.py::_now::transaction#1
+contracts/registry/registry.py::delete::execute#1
+contracts/registry/registry.py::delete::execute#2
+contracts/registry/registry.py::delete::transaction#1
+contracts/registry/registry.py::latest_version::fetch_one#1
+contracts/registry/registry.py::latest_version::transaction#1
+contracts/registry/registry.py::list_names::fetch_all#1
+contracts/registry/registry.py::list_names::transaction#1
+contracts/registry/registry.py::list_versions::fetch_all#1
+contracts/registry/registry.py::list_versions::transaction#1
+contracts/registry/registry.py::register::execute#1
+contracts/registry/registry.py::register::fetch_one#1
+contracts/registry/registry.py::register::transaction#1
+contracts/registry/registry.py::register_schema::execute#1
+contracts/registry/registry.py::register_schema::fetch_one#1
+contracts/registry/registry.py::register_schema::transaction#1
+governance/attestations/store.py::find_by_correlation::fetch_one#1
+governance/attestations/store.py::find_by_correlation::transaction#1
+governance/attestations/store.py::find_for_deployment::fetch_one#1
+governance/attestations/store.py::find_for_deployment::transaction#1
+governance/attestations/store.py::latest_for_deployment::fetch_one#1
+governance/attestations/store.py::latest_for_deployment::transaction#1
+governance/attestations/store.py::record::execute#1
+governance/attestations/store.py::record::fetch_one#1
+governance/attestations/store.py::record::transaction#1
+governance/attestations/store.py::register::execute#1
+governance/attestations/store.py::register::transaction#1
+governance/audit/coordination.py::_fetch_legacy_records::fetch_all#1
+governance/audit/coordination.py::_fetch_sequenced_records::fetch_all#1
+governance/audit/coordination.py::_has_legacy_records::fetch_one#1
+governance/audit/coordination.py::advance_audit_chain::execute#1
+governance/retention/claims.py::record_heartbeat::transaction#1
+governance/retention/claims.py::record_operation_delta::transaction#1
+governance/retention/claims.py::record_terminal::transaction#1
+governance/retention/claims.py::release::transaction#1
+governance/retention/coordination.py::transaction::transaction#1
+integrations/persistence/runs/checkpoint_store.py::delete::fetch_one#1
+integrations/persistence/runs/checkpoint_store.py::delete::transaction#1
+integrations/persistence/runs/checkpoint_store.py::get::fetch_all#1
+integrations/persistence/runs/checkpoint_store.py::get::transaction#1
+integrations/persistence/runs/checkpoint_store.py::latest_id_for_run::fetch_one#1
+integrations/persistence/runs/checkpoint_store.py::latest_id_for_run::transaction#1
+integrations/persistence/runs/checkpoint_store.py::list_ids::fetch_all#1
+integrations/persistence/runs/checkpoint_store.py::list_ids::transaction#1
+integrations/persistence/runs/checkpoint_store.py::write_row::transaction#1
+integrations/persistence/runs/checkpoint_store.py::write_row_in_connection::execute#1
+integrations/persistence/runs/retention_queries.py::erase_checkpoints_for_run::execute#1
+integrations/persistence/runs/retention_queries.py::erase_checkpoints_for_run::fetch_all#1
+integrations/persistence/runs/retention_queries.py::erase_token_snapshot_for_run::execute#1
+integrations/persistence/runs/retention_queries.py::erase_token_snapshot_for_run::fetch_one#1
+integrations/persistence/runs/retention_queries.py::erasure_payloads::fetch_all#1
+integrations/persistence/runs/retention_queries.py::erasure_payloads::fetch_one#1
+integrations/persistence/runs/retention_queries.py::erasure_payloads::fetch_one#2
+integrations/persistence/runs/retention_queries.py::fence_token_snapshot_writes::execute#1
+integrations/persistence/runs/retention_queries.py::fence_token_snapshot_writes::fetch_one#1
+integrations/persistence/runs/retention_queries.py::lock_and_recheck_erasable_run::fetch_one#1
+integrations/persistence/runs/retention_queries.py::redact_run::execute#1
+integrations/persistence/runs/retention_queries.py::redact_run::fetch_one#1
+integrations/persistence/runs/retention_queries.py::select_erasable_run_ids::fetch_all#1
+integrations/persistence/runs/retention_queries.py::tenant_id_for_run::fetch_one#1
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::fetch_one#1
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::fetch_one#2
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::fetch_one#3
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::fetch_one#4
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::fetch_one#5
+integrations/persistence/runs/token_snapshot_store.py::compare_and_swap::transaction#1
+integrations/persistence/runs/token_snapshot_store.py::get::fetch_one#1
+integrations/persistence/runs/token_snapshot_store.py::get::transaction#1
+service/langgraph_gateway/enforcement_store.py::count_decisions::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::count_decisions::transaction#1
+service/langgraph_gateway/enforcement_store.py::get_attestation::fetch_all#1
+service/langgraph_gateway/enforcement_store.py::get_attestation::transaction#1
+service/langgraph_gateway/enforcement_store.py::get_attestation_by_run_id::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::get_attestation_by_run_id::transaction#1
+service/langgraph_gateway/enforcement_store.py::get_inventory::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::get_inventory::transaction#1
+service/langgraph_gateway/enforcement_store.py::heartbeat::execute#1
+service/langgraph_gateway/enforcement_store.py::heartbeat::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::heartbeat::transaction#1
+service/langgraph_gateway/enforcement_store.py::register_inventory::execute#1
+service/langgraph_gateway/enforcement_store.py::register_inventory::transaction#1
+service/langgraph_gateway/enforcement_store.py::save_attestation::execute#1
+service/langgraph_gateway/enforcement_store.py::save_attestation::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::save_attestation::transaction#1
+service/langgraph_gateway/enforcement_store.py::save_decision::execute#1
+service/langgraph_gateway/enforcement_store.py::save_decision::fetch_one#1
+service/langgraph_gateway/enforcement_store.py::save_decision::transaction#1
+""".split()  # noqa: SIM905 - readable exact snapshot
+)
+
 
 def test_raw_async_repository_allowlist_is_exact_and_shrink_only() -> None:
     assert _raw_async_repository_violations(_SOURCE_ROOT) == _RAW_ASYNC_REPOSITORY_ALLOWLIST
+
+
+def test_async_persistence_registry_covers_named_non_repository_stores() -> None:
+    assert {
+        "service/langgraph_gateway/enforcement_store.py",
+        "integrations/persistence/runs/checkpoint_store.py",
+        "integrations/persistence/runs/token_snapshot_store.py",
+    } <= ASYNC_PERSISTENCE_MODULES
 
 
 def test_raw_async_repository_guard_reports_new_transaction_and_execute_calls(
@@ -927,7 +1049,7 @@ def test_raw_async_repository_guard_reports_new_transaction_and_execute_calls(
         "        await connection.execute('DELETE FROM runs')\n"
     )
 
-    violations = _raw_async_repository_violations(tmp_path)
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"unsafe_repository.py"}))
 
     assert any("::transaction#" in violation for violation in violations)
     assert any("::execute#" in violation for violation in violations)
@@ -943,7 +1065,48 @@ def test_raw_async_repository_guard_tracks_aliases_and_getattr(tmp_path: Path) -
         "        await run_statement('DELETE FROM runs')\n"
     )
 
-    violations = _raw_async_repository_violations(tmp_path)
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"unsafe_repository.py"}))
 
     assert any("::transaction#" in violation for violation in violations)
     assert any("::execute#" in violation for violation in violations)
+
+
+def test_registered_non_repository_store_is_scanned_but_unregistered_file_is_not(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def unsafe(database):\n"
+        "    async with database.transaction() as connection:\n"
+        "        await connection.execute('DELETE FROM runs')\n"
+        "        return await connection.fetch_one('SELECT 1')\n"
+    )
+    (tmp_path / "unrelated_repository.py").write_text(
+        "async def unrelated(database):\n"
+        "    async with database.transaction() as connection:\n"
+        "        await connection.execute('DELETE FROM unrelated')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert any("registered_store.py::unsafe::transaction#" in item for item in violations)
+    assert any("registered_store.py::unsafe::execute#" in item for item in violations)
+    assert any("registered_store.py::unsafe::fetch_one#" in item for item in violations)
+    assert all("unrelated_repository.py" not in item for item in violations)
+
+
+def test_registered_store_ignores_non_database_execute_receivers(tmp_path: Path) -> None:
+    (tmp_path / "registered_store.py").write_text(
+        "async def persist(database, pipe):\n"
+        "    await pipe.execute()\n"
+        "    async with database.transaction() as connection:\n"
+        "        await connection.execute('DELETE FROM runs')\n"
+    )
+
+    violations = _raw_async_repository_violations(tmp_path, frozenset({"registered_store.py"}))
+
+    assert sum("::execute#" in item for item in violations) == 1
+
+
+def test_missing_registered_persistence_module_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="missing_store.py"):
+        _raw_async_repository_violations(tmp_path, frozenset({"missing_store.py"}))

@@ -26,6 +26,7 @@ from zeroth.platform.storage.redis import (
     docker_container_running,
 )
 from zeroth.platform.storage.scoped_table import (
+    ASYNC_PERSISTENCE_MODULES,
     ECON_MIGRATION_SCOPE_DEFINITIONS,
     SERVICE_SCOPE_DEFINITIONS,
     SERVICE_SCOPE_REGISTRY,
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
 __all__ = [
+    "ASYNC_PERSISTENCE_MODULES",
     "AsyncConnection",
     "AsyncDatabase",
     "AsyncPostgresDatabase",
