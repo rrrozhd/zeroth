@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, TypeVar
 
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, select
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.dml import Delete, Insert, Update
 from sqlalchemy.sql.elements import ColumnClause, TextClause
+from sqlalchemy.sql.schema import Table as SchemaTable
 from sqlalchemy.sql.selectable import TableClause
 
 from zeroth.platform.storage.scoping import (
@@ -242,26 +243,59 @@ def _validate_no_textual_sql(
     state: ORMExecuteState,
     registered: tuple[type, ...],
 ) -> None:
-    governed_tables = {inspect(model).local_table.name for model in registered}
+    registered_tables = {inspect(model).local_table: model for model in registered}
+
+    def has_genuine_orm_provenance(element: ColumnClause[Any]) -> bool:
+        annotations = getattr(element, "_annotations", {})
+        table = getattr(element, "table", None)
+        internal_model = registered_tables.get(table)
+        if (
+            internal_model is not None
+            and (state.is_column_load or state.is_relationship_load)
+            and annotations.get("_orm_adapt") is True
+        ):
+            internal_column = table.c.get(getattr(element, "key", None))
+            if internal_column is not None and element.shares_lineage(internal_column):
+                return True
+        for key in ("parententity", "entity_namespace", "parentmapper"):
+            candidate = annotations.get(key)
+            inspected = inspect(candidate, raiseerr=False) if candidate is not None else None
+            mapper = getattr(inspected, "mapper", inspected)
+            if mapper is None or not hasattr(mapper, "class_"):
+                continue
+            model = mapper.class_
+            mapped_table = inspect(model).local_table
+            if registered_tables.get(mapped_table) is not model:
+                continue
+            mapped_column = mapped_table.c.get(getattr(element, "key", None))
+            if mapped_column is not None and element.shares_lineage(mapped_column):
+                return True
+        return False
+
     for element in visitors.iterate(state.statement):
         class_name = type(element).__name__.lower()
         if isinstance(element, TextClause) or "textual" in class_name:
             raise ValueError(
                 "scoped execution requires a scopable ORM SELECT and rejects textual SQL constructs"
             )
-        if not isinstance(element, ColumnClause) or getattr(element, "_annotations", {}):
+        if isinstance(element, SchemaTable) and element not in registered_tables:
+            raise ValueError("scoped execution rejects an unrecognized SQLAlchemy table or column")
+        if not isinstance(element, ColumnClause):
             continue
         table = getattr(element, "table", None)
-        table_name = getattr(table, "name", None)
-        if (
-            element.is_literal
-            or table_name is None
-            or type(table) is TableClause
-            or table_name in governed_tables
-        ):
+        if element.is_literal:
             raise ValueError(
                 "scoped execution requires a scopable ORM SELECT and rejects textual SQL constructs"
             )
+        if isinstance(table, SchemaTable) and table not in registered_tables:
+            raise ValueError("scoped execution rejects an unrecognized SQLAlchemy table or column")
+        if has_genuine_orm_provenance(element):
+            continue
+        if table is None or type(table) is TableClause or table in registered_tables:
+            raise ValueError(
+                "scoped execution requires a scopable ORM SELECT and rejects textual SQL constructs"
+            )
+        raise ValueError("scoped execution rejects an unrecognized SQLAlchemy table or column")
 
 
 def _apply_tenant_criteria(
@@ -473,7 +507,17 @@ class ScopedSession:
     def get(self, entity: type[_ModelT], ident: Any) -> _ModelT | None:
         definition = _definition(entity)
         _validate_binding(definition, self.scope, ResourceOperation.READ)
-        instance = self.__session.get(entity, ident)
+        primary_key = inspect(entity).primary_key
+        identity = ident if isinstance(ident, tuple) else (ident,)
+        if len(identity) != len(primary_key):
+            raise ValueError("identity does not match the mapped primary key")
+        statement = select(entity).where(
+            *(
+                getattr(entity, column.key) == value
+                for column, value in zip(primary_key, identity, strict=True)
+            )
+        )
+        instance = self.__session.scalars(statement).one_or_none()
         if instance is not None and not _instance_matches_scope(instance, self.scope):
             return None
         return instance
