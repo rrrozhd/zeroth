@@ -1,14 +1,23 @@
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
+
+_ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
 class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.performance_snapshot",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+    )
     __table_args__ = (Index("ix_performance_snapshots_capability_period", "capability_id", "captured_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

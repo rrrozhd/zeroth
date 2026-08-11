@@ -1,14 +1,21 @@
 from datetime import datetime, timezone
+from typing import ClassVar
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
+
+_ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
 class Capability(Base):
     __tablename__ = "capabilities"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.capability", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
@@ -26,6 +33,9 @@ class Capability(Base):
 
 class Implementation(Base):
     __tablename__ = "implementations"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.implementation", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (Index("ix_implementation_capability_period", "capability_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
@@ -47,6 +57,9 @@ class Implementation(Base):
 
 class Deployment(Base):
     __tablename__ = "deployments"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.deployment", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (Index("ix_deployments_tenant_capability", "tenant_id", "capability_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -59,13 +72,22 @@ class Deployment(Base):
 
 class DeploymentImplementation(Base):
     __tablename__ = "deployment_implementations"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.deployment_implementation",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+    )
 
     deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), primary_key=True)
     implementation_id: Mapped[str] = mapped_column(ForeignKey("implementations.id"), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
 
 
 class Experiment(Base):
     __tablename__ = "experiments"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.experiment", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (Index("ix_experiments_tenant_capability_status", "tenant_id", "capability_id", "status"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

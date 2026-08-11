@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.scoped_session import ScopedSession
+from zeroth.platform.storage.scoping import ScopeContext
 
 
 class Base(DeclarativeBase):
@@ -24,6 +26,17 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def get_scoped_db(context: ScopeContext) -> Generator[ScopedSession, None, None]:
+    """Yield a tenant-scoped econ gateway from an explicit trusted context."""
+    Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_compat()
+    db = SessionLocal()
+    try:
+        yield ScopedSession(db, context)
+    finally:
+        db.close()
+
+
 def _ensure_sqlite_compat() -> None:
     with engine.begin() as conn:
         if conn.dialect.name != "sqlite":
@@ -34,8 +47,31 @@ def _ensure_sqlite_compat() -> None:
             return any(r[1] == column for r in rows)
 
         def ensure_col(table: str, column: str, ddl: str) -> None:
-            if has_column(table, "id") and not has_column(table, column):
+            if has_column(table, column):
+                return
+            table_exists = conn.execute(
+                text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table"),
+                {"table": table},
+            ).first()
+            if table_exists:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+        tenant_ownership_tables = (
+            "users",
+            "deployment_implementations",
+            "connector_delivery_log",
+            "cost_profiles",
+            "cost_estimates",
+            "ground_truth_costs",
+            "calibration_metrics",
+            "dashboard_views",
+            "enforcement_actions",
+            "traffic_policies",
+            "budget_policies",
+            "audit_log",
+        )
+        for table in tenant_ownership_tables:
+            ensure_col(table, "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
 
         ensure_col("capabilities", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("capabilities", "type", "type VARCHAR(64) DEFAULT 'RISK'")
