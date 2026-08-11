@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib.util
 import inspect as python_inspect
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import Depends, FastAPI
@@ -25,6 +27,10 @@ from zeroth.econ.plane.costing.models import CalibrationMetric, GroundTruthCost
 from zeroth.econ.plane.database import Base, get_db
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.reconciliation.api import router as reconciliation_router
+from zeroth.econ.plane.reconciliation.service import (
+    add_ground_truth_rows as legacy_add_ground_truth_rows,
+    compute_calibration_summary as legacy_compute_calibration_summary,
+)
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
 
@@ -346,6 +352,69 @@ def test_reconciliation_writes_and_reads_only_authenticated_tenant(
     with Session(engine) as db:
         persisted = db.query(GroundTruthCost).one()
         assert persisted.tenant_id == "tenant-a"
+
+
+def test_legacy_reconciliation_compute_rejects_raw_session_before_enumeration(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'legacy-read.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(CalibrationMetric(tenant_id="tenant-a", period="2026-08", capability_id="secret"))
+        db.commit()
+
+        with pytest.raises(TypeError, match="ScopedSession"):
+            legacy_compute_calibration_summary(db)
+
+
+def test_legacy_reconciliation_add_rejects_raw_session_before_persistence(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'legacy-write.db'}")
+    Base.metadata.create_all(engine)
+    row = GroundTruthCost(
+        tenant_id="tenant-b",
+        period_start=datetime(2026, 8, 1, tzinfo=UTC),
+        period_end=datetime(2026, 8, 31, tzinfo=UTC),
+        capability_id="secret",
+        component="llm",
+        amount_usd=12.5,
+    )
+    with Session(engine) as db:
+        with pytest.raises(TypeError, match="ScopedSession"):
+            legacy_add_ground_truth_rows(db, [row])
+
+        assert db.query(GroundTruthCost).count() == 0
+
+
+def test_legacy_reconciliation_accepts_only_exact_scoped_session_and_remains_isolated(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'legacy-scoped.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                CalibrationMetric(tenant_id="tenant-a", period="2026-08", capability_id="visible"),
+                CalibrationMetric(tenant_id="tenant-b", period="2026-08", capability_id="hidden"),
+            ]
+        )
+        db.commit()
+        scoped = ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-a"))
+
+        rows = legacy_compute_calibration_summary(scoped)
+
+        assert [row.capability_id for row in rows] == ["visible"]
+
+        class MisleadingScopedSession(ScopedSession):
+            pass
+
+        with Session(engine) as adapter_db:
+            misleading = MisleadingScopedSession(
+                adapter_db, TenantWideScopeContext(tenant_id="tenant-a")
+            )
+            with pytest.raises(TypeError, match="ScopedSession"):
+                legacy_compute_calibration_summary(misleading)
 
 
 def _load_auth_scope_migration():
