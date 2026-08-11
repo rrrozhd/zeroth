@@ -9,7 +9,8 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.dml import Delete, Insert, Update
-from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.elements import ColumnClause, TextClause
+from sqlalchemy.sql.selectable import TableClause
 
 from zeroth.platform.storage.scoping import (
     ResourceOperation,
@@ -114,6 +115,9 @@ def _reject_update_ownership(state: ORMExecuteState) -> None:
     if not isinstance(statement, Update):
         return
     if _mapping_has_ownership(getattr(statement, "_values", None) or {}):
+        raise ValueError("tenant ownership is immutable; workspace ownership is immutable")
+    ordered_values = getattr(statement, "_ordered_values", None) or ()
+    if _mapping_has_ownership(dict(ordered_values)):
         raise ValueError("tenant ownership is immutable; workspace ownership is immutable")
     parameters = state.parameters
     if isinstance(parameters, Mapping):
@@ -234,6 +238,32 @@ def _validate_select_shape(
                     raise ValueError("scoped execution requires a scopable ORM SELECT")
 
 
+def _validate_no_textual_sql(
+    state: ORMExecuteState,
+    registered: tuple[type, ...],
+) -> None:
+    governed_tables = {inspect(model).local_table.name for model in registered}
+    for element in visitors.iterate(state.statement):
+        class_name = type(element).__name__.lower()
+        if isinstance(element, TextClause) or "textual" in class_name:
+            raise ValueError(
+                "scoped execution requires a scopable ORM SELECT and rejects textual SQL constructs"
+            )
+        if not isinstance(element, ColumnClause) or getattr(element, "_annotations", {}):
+            continue
+        table = getattr(element, "table", None)
+        table_name = getattr(table, "name", None)
+        if (
+            element.is_literal
+            or table_name is None
+            or type(table) is TableClause
+            or table_name in governed_tables
+        ):
+            raise ValueError(
+                "scoped execution requires a scopable ORM SELECT and rejects textual SQL constructs"
+            )
+
+
 def _apply_tenant_criteria(
     state: ORMExecuteState,
     models: tuple[type, ...],
@@ -273,6 +303,7 @@ def _scope_statement(state: ORMExecuteState) -> None:
     if not models:
         raise ValueError("scoped SQL execution must target a mapped resource")
     registered = _registered_models(state, models)
+    _validate_no_textual_sql(state, registered)
     for model in models:
         definition = _definition(model)
         _validate_binding(definition, context, operation)
