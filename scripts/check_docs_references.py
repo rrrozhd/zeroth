@@ -348,15 +348,23 @@ def _scan_actionable_text(
     return violations
 
 
-def _historical_inline_context(line: str, start: int) -> bool:
-    """Suppress only the first inline span governed by historical prose."""
+def _historical_inline_context(line: str, start: int, end: int) -> bool:
+    """Suppress only the inline span nearest a historical marker."""
     context_start = 0
+    context_end = len(line)
     for boundary in INLINE_CONTEXT_BOUNDARY_RE.finditer(line):
         if boundary.end() <= start:
             context_start = boundary.end()
-    context = line[context_start:start]
-    historical = list(HISTORICAL_CONTEXT_RE.finditer(context))
-    return bool(historical and not INLINE_CODE_RE.search(context, historical[-1].end()))
+        elif boundary.start() >= end:
+            context_end = boundary.start()
+            break
+    before = line[context_start:start]
+    historical_before = list(HISTORICAL_CONTEXT_RE.finditer(before))
+    if historical_before and not INLINE_CODE_RE.search(before, historical_before[-1].end()):
+        return True
+    after = line[end:context_end]
+    historical_after = HISTORICAL_CONTEXT_RE.search(after)
+    return bool(historical_after and not INLINE_CODE_RE.search(after[: historical_after.start()]))
 
 
 def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Violation]:
@@ -414,7 +422,7 @@ def scan_markdown(text: str, path: str, repo_root: Path = REPO_ROOT) -> list[Vio
                 continued_text = ""
         else:
             for inline in INLINE_CODE_RE.finditer(line):
-                if not _historical_inline_context(line, inline.start()):
+                if not _historical_inline_context(line, inline.start(), inline.end()):
                     violations.update(
                         _scan_actionable_text(
                             inline.group(1), path, line_number, repo_root, valid_env, project
