@@ -51,6 +51,15 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
 )
 """Production persistence modules that must use structured storage gateways."""
 
+ASYNC_NON_PERSISTENCE_MODULES = frozenset(
+    {
+        "contracts/templates/registry.py",
+        "governance/policy/registry.py",
+        "integrations/memory/registry.py",
+    }
+)
+"""Persistence-shaped modules explicitly classified as in-memory metadata helpers."""
+
 _SERVICE_TABLES = (
     "approvals",
     "audit_chain_heads",
@@ -94,12 +103,27 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "threads",
     }
 )
+SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
+    {
+        "audit_chain_heads",
+        "contract_versions",
+        "quota_counters",
+        "rate_limit_buckets",
+        "retention_cleanup_operations",
+        "side_effect_operations",
+        "token_engine_snapshots",
+        "webhook_dead_letters",
+        "webhook_deliveries",
+    }
+)
+"""Tenant resources awaiting their direct ownership migrations in Tasks 7-9."""
 
 SERVICE_SCOPE_DEFINITIONS = tuple(
     ResourceScopeDefinition(
         resource_name=f"service.{table_name}",
         table_name=table_name,
         workspace_scoped=table_name in _SERVICE_WORKSPACE_TABLES,
+        direct_scope_ready=table_name not in SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES,
         operations=frozenset(ResourceOperation),
     )
     for table_name in _SERVICE_TABLES
@@ -144,6 +168,13 @@ def _identifier(value: str) -> str:
     return value
 
 
+def _definition_table_name(definition: ResourceScopeDefinition) -> str:
+    try:
+        return _identifier(definition.table_name)
+    except ValueError as exc:
+        raise ValueError("table_name must be a SQL identifier") from exc
+
+
 def _columns(values: tuple[str, ...], *, qualifier: str | None = None) -> str:
     if values == ("*",):
         return f"{qualifier}.*" if qualifier else "*"
@@ -186,6 +217,7 @@ class _StructuredTable:
         self.__database = database
         self._registry = registry
         self._definition = definition
+        _definition_table_name(definition)
 
     def _validate_operation(self, operation: ResourceOperation) -> None:
         raise NotImplementedError
@@ -237,17 +269,24 @@ class _StructuredTable:
     ) -> list[dict[str, Any]]:
         """Return scoped rows selected through structured equality predicates."""
         self._validate_operation(ResourceOperation.ENUMERATE)
-        table_name = self._definition.table_name
+        table_name = _definition_table_name(self._definition)
         selected = _columns(columns, qualifier=table_name if joins else None)
         sql = f"SELECT {selected} FROM {table_name}"
         predicates, params = self._where(where, qualifier=table_name if joins else None)
         for index, join in enumerate(joins, start=1):
+            if type(join) is not ScopedJoin:
+                raise TypeError("joins must contain exact ScopedJoin values")
+            if type(join.table) is not ScopedTable:
+                raise TypeError("join table must be an exact ScopedTable")
+            _identifier(join.local_column)
+            _identifier(join.foreign_column)
             if type(self) is not ScopedTable:
                 raise ValueError("global tables cannot join through a scoped gateway")
             assert isinstance(self, ScopedTable)
             self._validate_join(join.table)
+            join.table._validate_operation(ResourceOperation.ENUMERATE)
             alias = f"j{index}"
-            joined_name = join.table._definition.table_name
+            joined_name = _definition_table_name(join.table._definition)
             sql += (
                 f" JOIN {joined_name} AS {alias} ON "
                 f"{table_name}.{join.local_column} = {alias}.{join.foreign_column}"
@@ -268,9 +307,10 @@ class _StructuredTable:
     ) -> dict[str, Any] | None:
         """Return one scoped row or ``None``."""
         self._validate_operation(ResourceOperation.READ)
+        table_name = _definition_table_name(self._definition)
         predicates, params = self._where(where)
         sql = (
-            f"SELECT {_columns(columns)} FROM {self._definition.table_name} WHERE "
+            f"SELECT {_columns(columns)} FROM {table_name} WHERE "
             + " AND ".join(predicates)
             + " LIMIT 1"
         )
@@ -280,10 +320,11 @@ class _StructuredTable:
     async def insert(self, values: dict[str, Any]) -> None:
         """Insert a row after filling and validating its ownership columns."""
         self._validate_operation(ResourceOperation.CREATE)
+        table_name = _definition_table_name(self._definition)
         rendered = self._validate_values(values, create=True)
         columns = tuple(rendered)
         sql = (
-            f"INSERT INTO {self._definition.table_name} ({', '.join(columns)}) VALUES "
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
             f"({', '.join('?' for _ in columns)})"
         )
         async with self.__database.transaction(write_lock=True) as connection:
@@ -292,24 +333,24 @@ class _StructuredTable:
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update rows selected by caller predicates plus the bound scope."""
         self._validate_operation(ResourceOperation.UPDATE)
+        table_name = _definition_table_name(self._definition)
         if not where:
             raise ValueError("update requires a non-empty where predicate")
         rendered = self._validate_values(values, create=False)
         predicates, where_params = self._where(where)
         assignments = ", ".join(f"{column} = ?" for column in rendered)
-        sql = f"UPDATE {self._definition.table_name} SET {assignments} WHERE " + " AND ".join(
-            predicates
-        )
+        sql = f"UPDATE {table_name} SET {assignments} WHERE " + " AND ".join(predicates)
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, (*rendered.values(), *where_params))
 
     async def delete(self, *, where: dict[str, Any]) -> None:
         """Delete rows selected by caller predicates plus the bound scope."""
         self._validate_operation(ResourceOperation.DELETE)
+        table_name = _definition_table_name(self._definition)
         if not where:
             raise ValueError("delete requires a non-empty where predicate")
         predicates, params = self._where(where)
-        sql = f"DELETE FROM {self._definition.table_name} WHERE " + " AND ".join(predicates)
+        sql = f"DELETE FROM {table_name} WHERE " + " AND ".join(predicates)
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, tuple(params))
 
