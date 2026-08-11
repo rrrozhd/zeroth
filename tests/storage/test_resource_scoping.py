@@ -16,6 +16,7 @@ from zeroth.platform.storage import (
     ScopeContext,
     TenantWideScopeContext,
 )
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 
 
 class _RecordingConnection:
@@ -163,6 +164,30 @@ def test_resource_definition_defaults_operational_data_to_tenant_scope() -> None
 
     assert definition.scope is ResourceScope.TENANT_SCOPED
     assert definition.workspace_scoped is False
+    assert definition.direct_scope_ready is True
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    ["runs; DROP TABLE runs", "runs -- comment", 'runs"quoted', "schema.runs"],
+)
+def test_resource_definition_rejects_non_identifier_table_names(table_name: str) -> None:
+    with pytest.raises(ValueError, match="table_name"):
+        ResourceScopeDefinition(
+            resource_name="runs",
+            table_name=table_name,
+            operations=frozenset({ResourceOperation.READ}),
+        )
+
+
+@pytest.mark.parametrize("resource_name", ["runs;drop", "runs comment", "runs/other"])
+def test_resource_definition_rejects_unstable_resource_names(resource_name: str) -> None:
+    with pytest.raises(ValueError, match="resource_name"):
+        ResourceScopeDefinition(
+            resource_name=resource_name,
+            table_name="runs",
+            operations=frozenset({ResourceOperation.READ}),
+        )
 
 
 def test_resource_definition_is_immutable_and_requires_stable_names_and_operations() -> None:
@@ -523,6 +548,143 @@ async def test_scoped_table_rejects_foreign_scope_join() -> None:
         await runs.select(
             joins=(ScopedJoin(table=foreign, local_column="run_id", foreign_column="run_id"),)
         )
+
+
+@pytest.mark.asyncio
+async def test_scoped_table_rejects_create_only_join_before_query() -> None:
+    database = _RecordingDatabase()
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="runs",
+                table_name="runs",
+                operations=frozenset({ResourceOperation.ENUMERATE}),
+            ),
+            ResourceScopeDefinition(
+                resource_name="children",
+                table_name="children",
+                operations=frozenset({ResourceOperation.CREATE}),
+            ),
+        ]
+    )
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+
+    with pytest.raises(ValueError, match="operation"):
+        await ScopedTable(database, registry, "runs", context).select(
+            joins=(
+                ScopedJoin(
+                    table=ScopedTable(database, registry, "children", context),
+                    local_column="run_id",
+                    foreign_column="run_id",
+                ),
+            )
+        )
+
+    assert database.transactions == []
+
+
+@pytest.mark.asyncio
+async def test_select_rejects_forged_join_before_real_sqlite_query(tmp_path) -> None:
+    class CountingSQLiteDatabase(AsyncSQLiteDatabase):
+        def __init__(self, path: str) -> None:
+            super().__init__(path)
+            self.transaction_count = 0
+
+        @asynccontextmanager
+        async def transaction(self, *, write_lock: bool = False):
+            self.transaction_count += 1
+            async with super().transaction(write_lock=write_lock) as connection:
+                yield connection
+
+    class ForgedJoin(ScopedJoin):
+        def __post_init__(self) -> None:
+            pass
+
+    database = CountingSQLiteDatabase(str(tmp_path / "join-injection.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            CREATE TABLE runs (
+                run_id TEXT, tenant_id TEXT, workspace_id TEXT
+            );
+            CREATE TABLE children (
+                run_id TEXT, tenant_id TEXT, workspace_id TEXT
+            );
+            INSERT INTO runs VALUES ('run-a', 'tenant-a', 'workspace-a');
+            INSERT INTO runs VALUES ('run-b', 'tenant-b', 'workspace-b');
+            INSERT INTO children VALUES ('run-a', 'tenant-a', 'workspace-a');
+            INSERT INTO children VALUES ('run-b', 'tenant-b', 'workspace-b');
+            """
+        )
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="runs",
+                table_name="runs",
+                operations=frozenset({ResourceOperation.ENUMERATE}),
+            ),
+            ResourceScopeDefinition(
+                resource_name="children",
+                table_name="children",
+                operations=frozenset({ResourceOperation.ENUMERATE}),
+            ),
+        ]
+    )
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    runs = ScopedTable(database, registry, "runs", context)
+    children = ScopedTable(database, registry, "children", context)
+    forged = ForgedJoin(
+        table=children,
+        local_column="run_id = j1.run_id OR 1 = 1 --",
+        foreign_column="run_id",
+    )
+    transactions_before_attack = database.transaction_count
+
+    with pytest.raises(TypeError, match="ScopedJoin"):
+        await runs.select(joins=(forged,))
+
+    assert database.transaction_count == transactions_before_attack
+    async with database.transaction() as connection:
+        rows = await connection.fetch_all("SELECT tenant_id FROM runs ORDER BY tenant_id")
+    assert rows == [{"tenant_id": "tenant-a"}, {"tenant_id": "tenant-b"}]
+
+
+@pytest.mark.asyncio
+async def test_select_revalidates_exact_join_identifiers_at_render_time() -> None:
+    database = _RecordingDatabase()
+    registry = _gateway_registry()
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    join = ScopedJoin(
+        table=ScopedTable(database, registry, "checkpoints", context),
+        local_column="run_id",
+        foreign_column="run_id",
+    )
+    object.__setattr__(join, "local_column", "run_id OR 1 = 1 --")
+
+    with pytest.raises(ValueError, match="identifier"):
+        await ScopedTable(database, registry, "runs", context).select(joins=(join,))
+
+    assert database.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["select", "insert", "update", "delete"])
+async def test_gateway_revalidates_mutated_table_identifier_before_sql(operation: str) -> None:
+    database = _RecordingDatabase()
+    table = _scoped_table(database)
+    object.__setattr__(table._definition, "table_name", "runs; DROP TABLE runs")
+
+    with pytest.raises(ValueError, match="table_name"):
+        if operation == "select":
+            await table.select()
+        elif operation == "insert":
+            await table.insert({"run_id": "run-1"})
+        elif operation == "update":
+            await table.update({"status": "done"}, where={"run_id": "run-1"})
+        else:
+            await table.delete(where={"run_id": "run-1"})
+
+    assert database.transactions == []
 
 
 def test_scoped_and_global_gateways_are_separate_and_hide_raw_database() -> None:

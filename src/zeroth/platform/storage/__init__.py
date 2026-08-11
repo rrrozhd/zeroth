@@ -26,8 +26,10 @@ from zeroth.platform.storage.redis import (
     docker_container_running,
 )
 from zeroth.platform.storage.scoped_table import (
+    ASYNC_NON_PERSISTENCE_MODULES,
     ASYNC_PERSISTENCE_MODULES,
     ECON_MIGRATION_SCOPE_DEFINITIONS,
+    SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES,
     SERVICE_SCOPE_DEFINITIONS,
     SERVICE_SCOPE_REGISTRY,
     GlobalTable,
@@ -49,6 +51,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ASYNC_PERSISTENCE_MODULES",
+    "ASYNC_NON_PERSISTENCE_MODULES",
     "AsyncConnection",
     "AsyncDatabase",
     "AsyncPostgresDatabase",
@@ -65,6 +68,7 @@ __all__ = [
     "ResourceScopeRegistry",
     "ScopeContext",
     "SERVICE_SCOPE_DEFINITIONS",
+    "SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES",
     "SERVICE_SCOPE_REGISTRY",
     "ScopedJoin",
     "ScopedTable",
