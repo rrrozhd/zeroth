@@ -56,10 +56,8 @@ from __future__ import annotations
 from typing import Protocol
 
 from zeroth.contracts.langgraph_gateway.models import AdmissionDecision, AdmissionRequest
-from zeroth.governance.audit.capture_vocabulary import (
-    REASON_CODES,
-    normalize_reason_code,
-)
+from zeroth.governance.attestations.inventory import RegisteredTool
+from zeroth.governance.audit.capture_vocabulary import REASON_CODES, normalize_reason_code
 from zeroth.governance.decisions.admission import AdmissionEvaluator
 from zeroth.governance.decisions.repository import DecisionRepository
 from zeroth.governance.decisions.request import (
@@ -361,7 +359,7 @@ class ToolDecisionService:
             )
 
     async def _is_registered(self, request: DecisionRequest) -> bool:
-        """Return whether this deployment registered the *identity* being called.
+        """Return whether this deployment registered the complete action descriptor.
 
         The action is resolved against inventory the *server* stored, not
         against anything in the request. A deployment that never registered an
@@ -369,19 +367,17 @@ class ToolDecisionService:
         registered set are all the same answer: the server cannot say what this
         tool is, so it will not say yes to it.
 
-        **The match is on ``(name, fingerprint)``, exactly.** Matching the name
-        alone -- which is what an earlier revision did -- admits a call that
-        arrives under a governed label carrying a different callable's
-        fingerprint, the substitution ZER-6 exists to detect. Both sides have
-        carried fingerprints since the inventory became structured, so the
-        name-only comparison was discarding evidence it already held.
+        **The match covers every ``RegisteredTool`` field, exactly.** Identity
+        matching prevents callable substitution, but an identity-only gate lets
+        the caller weaken registered approval and classification metadata. The
+        complete comparison makes the stored descriptor authoritative.
 
         Runs before :meth:`_admit` so an unregistered tool never reaches the policy
         evaluator -- the same ordering, and for the same reason, as the
         side-effect gate above it.
         """
         try:
-            registered = await self._inventory.registered_tool_identities(
+            registered = await self._inventory.registered_tools(
                 request.tenant_id,
                 request.deployment_ref,
             )
@@ -389,7 +385,17 @@ class ToolDecisionService:
             return False
         if registered is None:
             return False
-        return (request.action.name, request.action.fingerprint) in registered
+        action = request.action
+        descriptor = RegisteredTool(
+            name=action.name,
+            fingerprint=action.fingerprint,
+            side_effect=action.side_effect,
+            contract_ref=action.contract_ref,
+            capability_refs=action.capability_refs,
+            requires_approval=action.requires_approval,
+            identity_configuration=action.identity_configuration,
+        )
+        return descriptor in registered
 
     async def _admit(self, request: AdmissionRequest) -> AdmissionDecision | None:
         """Ask the injected evaluator to rule, or report that nobody did.

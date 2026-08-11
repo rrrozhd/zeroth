@@ -7,128 +7,255 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.22.2.3] - 2026-08-11
+## [0.22.2.10.3] - 2026-08-11
 
 ### Fixed
 
-- **A conformance evidence watermark can no longer attribute a record to the case that
-  follows it.** `execute_paired_case` took `evidence_start` as a count of complete records,
-  and the reader deliberately ignores a record still being appended — so a count taken while
-  the gateway was mid-write was one short, and the later `evidence(since=watermark)` handed
-  the next case a record written before it. Its consumers ask `any(row["kind"] == "audit")`,
-  so one leaked record reported an audit event for a case that produced none: a silent pass
-  where the previous reader raised. The watermark now waits for the log to end on a record
-  boundary and fails closed if it never does. Two fixtures cover it, both failing when the
-  wait is removed.
-- **The splice guard detects the regression it exists to catch.** At 8 concurrent writers it
-  missed a split-writer mutation in 25 of 300 trials; at 24 it detected 120 of 120 with the
-  unmutated writer clean throughout. A guard that reports success 8% of the times it should
-  fail is the defect this branch is about.
-- **A comment no longer states a mechanism that is false at the size its own pin uses.**
-  `_append_evidence` claimed buffered text I/O holds a record until close; that holds only
-  below `TextIOWrapper._CHUNK_SIZE`, and the test cited as its pin uses 32,000-byte records.
-  The invariant is true for any size — one `.write()` reaches the file as one raw write — so
-  the comment now says that, and names the real caveat (an OS returning a short write).
+- Registered governance metadata is now authoritative during tool admission, so a
+  request cannot downgrade approval or alter other reviewed fields. Complete metadata
+  survives inventory persistence, both adapter contract versions advance for the new
+  shape and encoding, and decision and inventory serialization share one canonical
+  record with recorder-parity coverage (ZER-43).
 
-## [0.22.2.2] - 2026-08-11
+## [0.22.2.10.2] - 2026-08-10
+
+### Changed
+
+- Tool decisions and inventory attestations derive from one canonical governed-tool
+  descriptor. HTTP and gateway wires now carry approval, capability, contract,
+  side-effect, and declared identity-configuration fields without lossy reconstruction;
+  inventory fingerprints cover the complete entry (ZER-43 / A17-1, A17-2, A17-5,
+  A17-6, A17-9).
 
 ### Fixed
 
-- **A conformance evidence read no longer parses a record the gateway is still writing.**
-  The gateway subprocess appends JSONL evidence while the test process reads the same file,
-  so a read could land mid-record and raise `JSONDecodeError` — observed as
-  `test_paired_subscriptions_capture_bounded_exact_sse_frames` failing intermittently at
-  char 775, passing and failing on identical commits. The reader now treats everything up
-  to the final newline as complete and leaves any trailing fragment for the next read; a
-  newline-terminated line that does not parse is genuine corruption and still raises. Four
-  fixtures cover it, two of which reproduce the original `JSONDecodeError` when the parser
-  is reverted.
+- Explicit approval requirements survive both decision transports and hold even
+  read-only actions until approval is recorded. Governed LangGraph wrappers bind their
+  sealed execution plans to the exact wrapper owner and reject resolver-driven published
+  identity drift before execution (ZER-43 / A17-8).
 
-This release also merges `0.22.1.1.2`, which gives the ephemeral acceptance candidate the
-Regulus origin it actually has; its entry is below.
-
-## [0.22.2.1] - 2026-08-11
+## [0.22.2.10.1] - 2026-08-10
 
 ### Fixed
 
-- Removed a lint-ratchet provenance check that could never run again. It read the exemption
-  list at two commits, one of which stopped existing when this branch was squashed, so it
-  skipped permanently in CI — a guard reporting nothing, which is the defect this work
-  exists to remove. Enforcement is unaffected: the sweep that checks both rules at all 515
-  test paths reads no history and never skips (ZER-41).
+- A docstring still called path-scoped lint suppression unprovable and deferred. The
+  exhaustive sweep closed it, so the claim was stale — exactly the kind this module exists
+  to catch (ZER-41).
 
-## [0.22.2] - 2026-08-11
+## [0.22.2.10] - 2026-08-10
 
 ### Fixed
 
-Release gates and parts of the test suite could report PASS while the property they name
-was never checked. Every item below was measured behaving that way first, and each ships a
-negative fixture that feeds the gate a deliberately broken input and requires it to reject.
+- Lint enforcement is checked at every test path, not at one representative filename. A
+  `per-file-ignores` entry naming a single exact path suppressed both rules there while
+  every probe elsewhere stayed green. The set of test files is finite, so the sweep is too:
+  one Ruff call per path with a source violating both rules, ~2.7s over 515 files
+  (ZER-41 / ZER41-G01-001).
 
-- **A skipped required test no longer certifies a release.** `_validate_junit` summed
-  `tests`, `failures` and `errors` and never read `skipped`, so final-phase validation
-  returned "release evidence complete" over a JUnit document in which all five required
-  identities carried `<skipped>`. Both the suite counter and the per-identity element are
-  rejected now.
-- **A matrix-bound security test may not carry `skip` or `skipif`.** Only `xfail` was
-  refused, and a skipped bound node stays *collected*, so the exact-collection guard was
-  satisfied and the tier exited 0. Measured against the live PR-critical tier: one real
-  `@pytest.mark.skip` gave "95 passed, 1 skipped" and exit 0; it exits 4 naming the node now.
-- **The pull-request path verifies the security outcomes it already produced.** The job
-  wrote an outcomes file nothing read, so pytest's exit code was the whole verdict. It runs
-  `verify-coverage` and `verify-outcomes`, both with `if: always()`.
-- **Performance thresholds no longer derive from the baseline they police.** Scaling the
-  committed baseline ten-fold scaled every threshold ten-fold and validated clean. The
-  thresholds are literals, the baseline is pinned by digest, and a test recomputes each
-  literal from the pinned content so a legitimate re-measurement fails loudly instead of
-  silently moving the thresholds.
-- **The application image digest comes from `docker image inspect`, not from the SBOM.** A
-  digest forged consistently across `image.spdx.json`, `image-compatibility.json` and
-  `image-packages.json` validated clean, because every check compared the SBOM with itself.
-  The digest is bound to the daemon-reported `id`, and a base image recorded with no
-  registry digest is rejected.
-- **Workflow steps that record a gate result can now reach it.** GitHub's `shell: bash` runs
-  with `-e`, which `set -uo pipefail` does not clear, so eight blocks aborted before their
-  `VAR=$?` capture and every recorded status could only ever be 0. The final verdict step
-  also promised to seal "regardless of the verdict" and never did.
-- **The vacuity guard rejects an assertion over a truthy literal**, having run green while
-  `assert True` was live in the tree it polices.
-- **`F841` and `B017` are enforced on tests** instead of muted tree-wide, checked by running
-  Ruff over a real violation at each of the 515 test paths rather than by reading
-  configuration — which has more than one way to say the same thing.
-- **Sandbox hardening flags are asserted on the argv the manager executes.** Deleting the
-  splice from `docker run` had left all 76 tests in that module passing.
-- **The guard suite covers TypeScript.** Every console test file must be collected by
-  `vitest.config.ts`, and the console version test derives from `pyproject.toml` instead of
-  a frozen literal it had drifted five releases away from.
-- **Exemptions applied in code are recorded.** Constructor fields hidden from the
-  protected-surface gate, and upstream Agent Server operations the gateway does not
-  implement, are declared in shrink-only records the gates read — so taking an exemption is
-  a reviewable act rather than an invisible one.
-- **Smaller corrections in the same vein:** `release/langgraph` imports resolve through the
-  package with no `sys.path` prepend; the container version label is checked against the
-  evidence release rather than asserted as the same literal it contains, with any gap to the
-  package version declared; and `validate_manifest` no longer presents evidence resolution
-  as manifest-driven when every artifact resolves from a hardcoded set.
-
-## [0.22.1.1.2] - 2026-08-11
+## [0.22.2.9.4] - 2026-08-10
 
 ### Fixed
 
-- The ephemeral acceptance candidate now declares the Regulus origin it actually has.
-  `RegulusSettings.base_url` defaults to `http://localhost:8000/v1`, an external
-  control-plane topology the candidate never deployed, so `check_regulus` probed a
-  dead port, reported `unavailable`, and degraded `/health/ready`. That failed the
-  `readiness` scenario and cascaded into `approvals`, which polls readiness back to
-  `ok` after its restart, and from there into `audit`, `artifacts` and
-  `restart_recovery`. It passed locally only on machines with something unrelated
-  bound to port 8000. The candidate runs the bundled plane in-process at `/regulus`,
-  so it now points at its own origin, as `apps/vendor_dd/entrypoint.py` and the
-  deployment guide already do.
-- Paired that with a test that the declared origin is served by the econ plane itself.
-  `check_regulus` treats any answer — a 401, a 404 — as `ok`, so readiness alone could
-  not tell a mounted plane from an absent one; without this, dropping the `regulus`
-  extra would leave the gate green over a plane that was never there.
+- The console version test derives the expected value from `pyproject.toml` instead of the
+  frozen literal `"0.22"`. The package had reached 0.22.1.1.1 and the console suite was red
+  and unnoticed, because no pull-request workflow runs it (ZER-41 / R10).
+
+## [0.22.2.9.3] - 2026-08-10
+
+### Fixed
+
+- `Klass.__signature__: Any = ...` is discovered. It is an `AnnAssign`, not an `Assign`,
+  and hides constructor fields exactly as well (ZER-41 / ZER41-G01-004).
+- The non-class allowlist validator no longer passes unconditionally. It split a
+  three-part key with `partition`, so every reference resolved to `None` and a real class
+  would have been accepted (ZER-41 / ZER41-G01-004).
+- Ruff is asserted to check every test file on disk, so an `extend-exclude` that silences a
+  file for every rule at once is caught (ZER-41 / ZER41-G01-001).
+
+## [0.22.2.9.2] - 2026-08-10
+
+### Fixed
+
+- The errexit guard asks bash whether each block's prologue clears errexit, instead of
+  reasoning about `set` lines textually. Ten capture blocks are executed against the shell
+  under the flags GitHub uses; removing a `set +e` is caught by bash rather than by a
+  pattern (ZER-41 / A11-1, A11-2, A11-11).
+
+## [0.22.2.9.1] - 2026-08-10
+
+### Fixed
+
+- Which lint rules get probed is derived from git rather than from an editable dict.
+  Deleting a probe entry would have removed that rule's enforcement check along with it —
+  the same self-indexing shape as the three lists before it (ZER-41 / ZER41-G01-001).
+
+## [0.22.2.9] - 2026-08-10
+
+### Fixed
+
+- Two guards now check the property instead of a representation of it, after three
+  attempts each hardened one representation and were defeated by another. The lint ratchet
+  runs Ruff over a real violation and asserts it is reported, reading no configuration at
+  all: `per-file-ignores`, `extend-per-file-ignores`, a global `ignore` and a narrowed
+  `select` are all caught, two of which nobody had enumerated. `__signature__` discovery
+  keys on the lexical assignment site with multiplicity preserved, so the allowlist exempts
+  a place rather than a name (ZER-41 / ZER41-G01-001, ZER41-G01-004).
+
+## [0.22.2.8.3] - 2026-08-10
+
+### Fixed
+
+- Each non-class `__signature__` exemption is executed rather than asserted in prose. A
+  plausible sentence beside a real class name would have escaped the record entirely, which
+  would make the per-site allowlist the category exemption it replaced (ZER-41).
+
+## [0.22.2.8.2] - 2026-08-10
+
+### Fixed
+
+- The lint ratchet compares against the exemption list at the point the debt was already
+  paid, not the point before. Comparing against the pre-payment list left the restored rule
+  a valid subset, so the defect had moved rather than gone (ZER-41).
+- `__signature__` discovery is recursive again, with the one verified non-class site named
+  explicitly. Skipping function bodies was justified by reasoning that is false: a
+  function-local `Klass.__signature__` hides constructor fields just as effectively
+  (ZER-41).
+
+## [0.22.2.8.1] - 2026-08-10
+
+### Fixed
+
+- The stale-evidence derivation check was itself a tautology: `({x} if x != x else set())`
+  is always the empty set, and being an expression rather than a literal it slipped past the
+  `ast.Constant` rule added in this same task. The rule is now a pure function of both
+  inputs, exercised over four pairs, and a tautological implementation fails the drift case
+  (ZER-41).
+
+## [0.22.2.8] - 2026-08-10
+
+### Fixed
+
+- Five shrink-only records could not detect their own drift, each found by this task's own
+  initial audit. The lint ratchet was self-indexing; the pull-request container record
+  accepted invented entries, forbade the legitimate shrink to empty, and could not see a
+  `uses:` container action; the stale-evidence record accepted pre-authorised releases;
+  `__signature__` discovery was regex-based and lost module identity; and the `-x` scan
+  missed a backslash-continued invocation. Each now derives the observed set independently
+  and compares exactly, and each ships the mutation that defeated it (ZER-41).
+
+## [0.22.2.7] - 2026-08-10
+
+### Fixed
+
+- The quota-window test advances the enforcer's clock instead of sleeping 1.1s through a
+  1s window, and now pins the boundary in both directions rather than only "eventually
+  allowed" (ZER-41 / A10-14).
+- The six observable-surface captures keep their independent setups, with the measured cost
+  and the reason recorded: sharing one capture would save ~2.2s and increase the exposure
+  the finding itself names (ZER-41 / A10-15).
+
+## [0.22.2.6.1] - 2026-08-10
+
+### Fixed
+
+- A release manifest that names an artifact the validator does not resolve fails, and the
+  release guide's manifest-driven wording is asserted gone (ZER-41 / A15-14).
+
+## [0.22.2.6] - 2026-08-10
+
+### Fixed
+
+- `release/langgraph` modules import through their package path, so nothing needs a
+  `sys.path` prepend to use them. The bare sibling imports were what forced it, not the
+  absent `__init__.py` (ZER-41 / A15-17).
+- The container version label and compose tag are checked against the evidence release
+  instead of being asserted as the same literal the Dockerfile contains, and a gap between
+  that release and the package version must be recorded with the reason that clears it
+  (ZER-41 / A14-10).
+- `validate_manifest` and the release guide stop presenting evidence resolution as
+  manifest-driven. The manifest is validated, never followed: every artifact resolves from
+  the hardcoded requirement set (ZER-41 / A15-14).
+- The absence of container evidence on the pull-request path is a declared, checked
+  exclusion rather than an unstated gap (ZER-41 / A14-13).
+
+## [0.22.2.5] - 2026-08-10
+
+### Fixed
+
+- Constructor fields hidden from the protected-surface gate are recorded in one
+  shrink-only list, checked in both directions. Ten classes assign `__signature__` to drop
+  parameters; nothing named the total, so the gate reported the surface as pinned while
+  `PolicyDefinition` had grown to fifteen fields behind eight parameters (ZER-41 / A03-14).
+- The Agent Server conformance manifest declares which pinned upstream operations the
+  gateway does not implement. `projected >= claimed` cannot see an operation the gateway
+  silently stops implementing, because dropping a claim still satisfies the relation
+  (ZER-41 / A10-10).
+
+## [0.22.2.4] - 2026-08-10
+
+### Fixed
+
+- The sandbox hardening flags are asserted on the argv the manager actually executes, not
+  only on the helper that builds them. Deleting the splice from `docker run` left all 76
+  tests in the module passing, so nothing noticed that untrusted code would run writable,
+  with every capability, in a container that could gain privileges (ZER-41 / A10-1).
+- The guard suite covers TypeScript: every `*.test.ts`/`*.test.tsx` file under
+  `frontend/app` must be collected by `vitest.config.ts`, so a narrowed `include` reduces
+  console coverage loudly instead of silently (ZER-41).
+
+## [0.22.2.3] - 2026-08-10
+
+### Fixed
+
+- The vacuity guard rejects an assertion over a truthy literal. It implemented three rules
+  and none inspected `ast.Constant`, so it ran green while `assert True` was live in the
+  tree it polices (ZER-41 / A10-11).
+- `F841` and `B017` are enforced on tests instead of being muted tree-wide. Two of the three
+  unused locals were latent test bugs, and the bare `pytest.raises(Exception)` passed whether
+  or not the production setting it named was configured (ZER-41 / A10-12, A10-13).
+
+## [0.22.2.2] - 2026-08-10
+
+### Fixed
+
+- Performance thresholds no longer derive from the baseline they police. They are literals
+  now, the baseline file is pinned by SHA-256, and a test recomputes each literal from the
+  pinned content so the derivation stays checked. Scaling every baseline metric by ten used
+  to scale every threshold by ten and validate clean (ZER-41 / A15-3, A15-6).
+- The application image's digest comes from `docker image inspect`, and the SBOM is checked
+  against it rather than supplying it. A digest forged consistently across `image.spdx.json`,
+  `image-compatibility.json` and `image-packages.json` used to validate clean, because every
+  check compared the SBOM with itself (ZER-41 / A15-4).
+- A base image recorded with no registry digest is rejected instead of being accepted with
+  an arbitrary `sha256:<64hex>` (ZER-41 / A15-10).
+
+## [0.22.2.1] - 2026-08-10
+
+### Fixed
+
+- Workflow steps that record a gate result now clear errexit before capturing an exit
+  status. GitHub's `shell: bash` runs with `-e` and `set -uo pipefail` does not clear it,
+  so a failing command aborted the step before its `VAR=$?` ran: every recorded status
+  could only ever be 0 and the gate result was decided by whichever command failed first.
+  Eight blocks across `release-gates.yml` and `release-zeroth-core.yml` were affected
+  (ZER-41 / A11-1, A11-2, A11-11).
+- The final release verdict now seals the evidence manifest as its comment always claimed.
+  Errexit aborted the step at the `verdict` call, so a blocked release was never sealed.
+
+## [0.22.2] - 2026-08-10
+
+### Fixed
+
+- Release evidence validation rejects a skipped required test. `_validate_junit` read
+  `tests`, `failures` and `errors` but never `skipped`, so a final-phase gate certified a
+  release in which none of the required tests actually ran (ZER-41 / A15-1, A15-15).
+- A matrix-bound security test may no longer carry `skip` or `skipif`, which suppress
+  execution exactly as the already-refused `xfail` does. A skipped bound node stayed
+  *collected*, so the exact-collection guard was satisfied and the tier exited 0
+  (ZER-41 / A15-2).
+- The pull-request path now verifies the security outcomes file it already produced.
+  `verify-coverage` and `verify-outcomes` run on every pull request, so a node skipped at
+  run time fails the job instead of being uploaded unchecked (ZER-41 / A11-5).
 
 ## [0.22.1.1.1] - 2026-08-10
 

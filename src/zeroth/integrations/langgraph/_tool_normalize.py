@@ -457,6 +457,7 @@ def normalize_tool_action(
     side_effect: object = None,
     capability_refs: object = (),
     requires_approval: object = False,
+    identity_configuration: object = (),
     tool_call_id: object = None,
 ) -> ToolAction:
     """Build the complete, normalized descriptor of one attempted tool call.
@@ -476,6 +477,7 @@ def normalize_tool_action(
         side_effect: The classifier's verdict, when it produced one.
         capability_refs: Capability references required by this call.
         requires_approval: Whether this call explicitly requires approval.
+        identity_configuration: Identity-bearing configuration names already pinned.
         tool_call_id: The framework's stable per-call identity, when available.
 
     Returns:
@@ -501,6 +503,7 @@ def normalize_tool_action(
         side_effect=classify_side_effect(side_effect),
         capability_refs=normalize_capability_refs(capability_refs),
         requires_approval=normalize_requires_approval(requires_approval),
+        identity_configuration=normalize_identity_configuration(identity_configuration),
         tool_call_id=normalized_call_id,
     )
 

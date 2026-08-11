@@ -38,7 +38,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
 )
 
-ADAPTER_PROTOCOL_VERSION = "1"
+ADAPTER_PROTOCOL_VERSION = "2"
 
 
 class ActionDescriptorV1(BaseModel):
@@ -56,6 +56,7 @@ class ActionDescriptorV1(BaseModel):
     contract_ref: str | None = None
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 class DecisionRequestV1(BaseModel):
@@ -101,6 +102,7 @@ class InventoryEntryV1(BaseModel):
     contract_ref: str | None = None
     capability_refs: tuple[str, ...] = ()
     requires_approval: bool = False
+    identity_configuration: tuple[str, ...] = ()
 
 
 class InventoryRegistrationV1(BaseModel):

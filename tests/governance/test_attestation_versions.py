@@ -99,3 +99,6 @@ class TestAdapterVersionConstant:
     def test_adapter_version_is_nonempty_string(self) -> None:
         assert isinstance(ADAPTER_VERSION, str)
         assert ADAPTER_VERSION != ""
+
+    def test_inventory_encoding_change_advanced_the_adapter_contract(self) -> None:
+        assert ADAPTER_VERSION == "2.0"

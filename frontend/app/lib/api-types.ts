@@ -2183,6 +2183,11 @@ export interface components {
             contract_ref?: string | null;
             /** Fingerprint */
             fingerprint: string;
+            /**
+             * Identity Configuration
+             * @default []
+             */
+            identity_configuration: string[];
             /** Name */
             name: string;
             /**
@@ -3398,7 +3403,7 @@ export interface components {
         HeartbeatV1: {
             /**
              * Adapter Version
-             * @default 1
+             * @default 2
              */
             adapter_version: string;
             /** Context Token */
@@ -3468,6 +3473,11 @@ export interface components {
             contract_ref?: string | null;
             /** Fingerprint */
             fingerprint: string;
+            /**
+             * Identity Configuration
+             * @default []
+             */
+            identity_configuration: string[];
             /** Name */
             name: string;
             /**
@@ -3485,7 +3495,7 @@ export interface components {
         InventoryRegistrationV1: {
             /**
              * Adapter Version
-             * @default 1
+             * @default 2
              */
             adapter_version: string;
             /** Context Token */
@@ -3875,16 +3885,34 @@ export interface components {
          *             is declared.
          *         side_effect: The classification, defaulting to the refusable ``unknown``
          *             rather than to anything the service would admit.
+         *         capability_refs: Capabilities the action requires.
+         *         requires_approval: Whether the tool explicitly requires a human approval.
+         *         identity_configuration: Identity-bearing configuration names in the fingerprint.
          */
         NormalizedAction: {
             /** Arguments Digest */
             arguments_digest: string;
+            /**
+             * Capability Refs
+             * @default []
+             */
+            capability_refs: string[];
             /** Contract Ref */
             contract_ref?: string | null;
             /** Fingerprint */
             fingerprint: string;
+            /**
+             * Identity Configuration
+             * @default []
+             */
+            identity_configuration: string[];
             /** Name */
             name: string;
+            /**
+             * Requires Approval
+             * @default false
+             */
+            requires_approval: boolean;
             /**
              * Side Effect
              * @default unknown
@@ -4016,7 +4044,7 @@ export interface components {
         };
         /**
          * RegisteredTool
-         * @description One governed tool: the name a call arrives under, and what answers it.
+         * @description One governed tool and the complete governance metadata registered for it.
          *
          *     The fingerprint is what makes the identity meaningful. A registration
          *     holding names alone says only which labels exist, so a tool swapped for
@@ -4024,10 +4052,33 @@ export interface components {
          *     substitution ZER-6's suite exists to catch.
          */
         RegisteredTool: {
+            /**
+             * Capability Refs
+             * @default []
+             */
+            capability_refs: string[];
+            /** Contract Ref */
+            contract_ref?: string | null;
             /** Fingerprint */
             fingerprint: string;
+            /**
+             * Identity Configuration
+             * @default []
+             */
+            identity_configuration: string[];
             /** Name */
             name: string;
+            /**
+             * Requires Approval
+             * @default false
+             */
+            requires_approval: boolean;
+            /**
+             * Side Effect
+             * @default unknown
+             * @enum {string}
+             */
+            side_effect: "read_only" | "side_effecting" | "unknown";
         };
         /**
          * RetentionPolicyBody
@@ -4150,7 +4201,7 @@ export interface components {
         RunAttestationV1: {
             /**
              * Adapter Version
-             * @default 1
+             * @default 2
              */
             adapter_version: string;
             /** @default observed */

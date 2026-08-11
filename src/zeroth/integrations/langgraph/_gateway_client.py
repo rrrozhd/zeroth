@@ -25,6 +25,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
     ToolGovernanceContext,
     ToolInventory,
+    describe_tool_policy,
 )
 from zeroth.integrations.langgraph.enforcement_protocol import (
     ADAPTER_PROTOCOL_VERSION,
@@ -85,15 +86,7 @@ class LangGraphGatewayClient:
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._entries = tuple(
-            InventoryEntryV1(
-                name=entry.identity.name,
-                fingerprint=entry.identity.fingerprint,
-                side_effect=entry.side_effect,
-                contract_ref=entry.contract_ref,
-                capability_refs=tuple(entry.capability_refs),
-                requires_approval=entry.requires_approval,
-            )
-            for entry in inventory.entries
+            InventoryEntryV1(**entry.wire_fields()) for entry in inventory.entries
         )
         self.inventory_fingerprint = inventory_fingerprint(self._entries)
         self._client = httpx.Client(
@@ -224,14 +217,9 @@ class LangGraphGatewayClient:
                 policy_version=policy_version,
                 inventory_fingerprint=self.inventory_fingerprint,
                 action=ActionDescriptorV1(
-                    name=action.identity.name,
-                    fingerprint=action.identity.fingerprint,
+                    **describe_tool_policy(action).wire_fields(),
                     tool_call_id=action.tool_call_id,
                     arguments=dict(action.arguments),
-                    side_effect=action.side_effect,
-                    contract_ref=action.contract_ref,
-                    capability_refs=tuple(action.capability_refs),
-                    requires_approval=action.requires_approval,
                 ),
             )
             response = DecisionResponseV1.model_validate(

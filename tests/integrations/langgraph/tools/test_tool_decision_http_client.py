@@ -40,7 +40,15 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
     ToolGovernanceContext,
     ToolIdentity,
+    ToolInventoryEntry,
+    ToolPolicyDescriptor,
+    describe_tool_policy,
 )
+from zeroth.integrations.langgraph.enforcement_protocol import (
+    ADAPTER_PROTOCOL_VERSION,
+    ActionDescriptorV1,
+)
+from zeroth.governance.decisions.request import NormalizedAction
 
 BASE_URL = "http://zeroth.test"
 DEPLOYMENT = "dep-1"
@@ -52,6 +60,9 @@ def _action() -> ToolAction:
         arguments={"query": "weather"},
         principal_id="principal-1",
         side_effect=SideEffectClass.READ_ONLY,
+        capability_refs=("network_read",),
+        requires_approval=True,
+        identity_configuration=("endpoint",),
     )
 
 
@@ -110,7 +121,36 @@ def test_an_allow_verdict_is_returned_as_the_seam_type() -> None:
     # The arguments themselves are never carried -- only their digest.
     assert "weather" not in json.dumps(captured["body"])
     assert captured["body"]["action"]["fingerprint"] == "sha256:tool"
+    assert captured["body"]["action"]["capability_refs"] == ["network_read"]
+    assert captured["body"]["action"]["requires_approval"] is True
     assert captured["body"]["deployment_ref"] == DEPLOYMENT
+
+
+def test_both_decision_wires_accept_the_whole_canonical_policy_descriptor() -> None:
+    """A new policy field cannot be added to the source record and dropped by a wire."""
+    descriptor = describe_tool_policy(_action())
+    expected = ToolPolicyDescriptor(
+        identity=ToolIdentity(name="search", fingerprint="sha256:tool"),
+        side_effect=SideEffectClass.READ_ONLY,
+        contract_ref=None,
+        capability_refs=("network_read",),
+        requires_approval=True,
+        identity_configuration=("endpoint",),
+    )
+    assert descriptor == expected
+    assert type(descriptor) is ToolInventoryEntry
+    assert ToolPolicyDescriptor is ToolInventoryEntry
+    policy_fields = descriptor.wire_fields()
+
+    normalized = NormalizedAction(**policy_fields, arguments_digest="sha256:arguments")
+    gateway = ActionDescriptorV1(**policy_fields, arguments={"query": "weather"})
+
+    assert normalized.model_dump(include=set(policy_fields)) == policy_fields
+    assert gateway.model_dump(include=set(policy_fields)) == policy_fields
+
+
+def test_gateway_inventory_shape_change_advanced_its_protocol_version() -> None:
+    assert ADAPTER_PROTOCOL_VERSION == "2"
 
 
 def test_a_deny_verdict_keeps_the_reason_the_service_gave() -> None:
