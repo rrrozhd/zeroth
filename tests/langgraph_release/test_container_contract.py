@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ IMAGE_EXPORT_COMMAND = (
 def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    compose_config = yaml.safe_load(compose)
     workflow = (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
     workflow_config = yaml.safe_load(workflow)
     runtime = (ROOT / "release/langgraph/runtime_smoke.py").read_text(encoding="utf-8")
@@ -47,7 +49,24 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert "ARG ZEROTH_EXTRAS" not in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 1
-    assert "org.opencontainers.image.version=0.17.0.4" in dockerfile
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = project["project"]["version"]
+    benchmark = json.loads(
+        (ROOT / "release/langgraph/benchmark-evidence.json").read_text(encoding="utf-8")
+    )
+    benchmark_source = (ROOT / "release/langgraph/langgraph_benchmark.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert f"org.opencontainers.image.version={version}" in dockerfile
+    assert compose_config["services"]["zeroth"]["image"] == (
+        f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{version}}}"
+    )
+    assert compatibility["release"] == version
+    assert compatibility["resolved"]["zeroth_core"] == version
+    assert manifest["release"] == version
+    assert benchmark["release"] == version
+    assert f'CURRENT_RELEASE = "{version}"' in benchmark_source
     assert "requirements-image.txt" in dockerfile
     build_step = next(
         step
@@ -185,7 +204,10 @@ def test_image_dependencies_are_hash_locked(tmp_path: Path) -> None:
 
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements-image.txt" in dockerfile
-    assert "pip install --no-cache-dir --require-hashes -r" in dockerfile
+    assert "pip install --no-cache-dir" in dockerfile
+    assert "--require-hashes" in dockerfile
+    assert "--only-binary=:all:" in dockerfile
+    assert "-r /tmp/requirements-image.txt" in dockerfile
 
 
 def test_compose_services_are_hardened() -> None:
@@ -207,6 +229,30 @@ def test_compose_services_are_hardened() -> None:
     assert "zeroth-pg:/var/lib/postgresql/data" in db["volumes"]
     db_tmpfs = {str(path).split(":", 1)[0] for path in db.get("tmpfs", [])}
     assert {"/tmp", "/var/run/postgresql"} <= db_tmpfs
+
+    zeroth = compose["services"]["zeroth"]
+    assert zeroth["environment"]["ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR"] == (
+        "/data/artifacts"
+    )
+    assert "zeroth-data:/data" in zeroth["volumes"]
+    assert "zeroth-data" in compose["volumes"]
+
+
+def test_container_docs_build_the_candidate_wheel_first() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs/how-to/deployment/langgraph-release.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "uv build --wheel" in readme
+    assert readme.index("uv build --wheel") < readme.index("docker build -t zeroth-core .")
+    assert "uv build --wheel" in deployment
+    assert deployment.index("uv build --wheel") < deployment.index("docker compose build")
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["version"]
+    assert f"Zeroth `{version}`" in deployment
+    assert f"=={version}" in deployment
 
 
 def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:

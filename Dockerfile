@@ -12,7 +12,7 @@
 
 FROM python:3.12.13-slim-bookworm
 
-LABEL org.opencontainers.image.version=0.17.0.4 \
+LABEL org.opencontainers.image.version=0.20.1.1 \
       io.zeroth.langgraph.adapter.version=1.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1
@@ -20,7 +20,8 @@ LABEL org.opencontainers.image.version=0.17.0.4 \
 RUN useradd --create-home --uid 10001 zeroth
 COPY requirements-image.txt /tmp/requirements-image.txt
 COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/
-RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements-image.txt \
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+        -r /tmp/requirements-image.txt \
     && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl \
     && rm /tmp/requirements-image.txt
 

@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.16.2.8`.
+This is the canonical clean install and operations path for Zeroth `0.20.1.1`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -16,7 +16,7 @@ Use Python 3.12 and install only the deployment surface you operate:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2.8"
+pip install "zeroth-core[langgraph,langgraph-gateway]==0.20.1.1"
 ```
 
 For managed Agent Server deployments, put the Zeroth gateway in front of the
@@ -29,8 +29,10 @@ For self-hosted deployment, build the release image and use Compose:
 ```bash
 export ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"release-smoke","secret":"release-smoke-key","subject":"release-operator","roles":["operator"]}]'
 export SIGNING_DEPLOYMENT="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+uv build --wheel
+docker compose build
 docker compose run --rm zeroth zeroth-core seed-demo
-docker compose up --build --wait
+docker compose up --wait
 python release/langgraph/harness.py smoke --require-gateway
 python release/langgraph/harness.py gateway-smoke --api-key release-smoke-key
 ```

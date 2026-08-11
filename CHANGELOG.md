@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.1] - 2026-08-11
+
+### Fixed
+
+- The wheel retains the tracked architecture contract, release images reject
+  source distributions, and container metadata identifies the candidate version.
+- Read-only Compose deployments keep artifact storage on the writable data volume,
+  and deployment instructions build the declared wheel before the image.
+
 ## [0.20.1] - 2026-08-11
 
 ### Changed

@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.20.1"
+version = "0.20.1.1"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -148,6 +148,7 @@ build-backend = "hatchling.build"
 # only the canonical product domains and typing marker into the wheel. Release
 # tooling remains repository-only and is never part of the published package.
 only-include = [
+    "src/zeroth/_architecture.py",
     "src/zeroth/contracts",
     "src/zeroth/econ",
     "src/zeroth/eval",
