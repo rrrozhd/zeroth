@@ -12,10 +12,11 @@ normalization, yet both are load-bearing:
   identifier for generated clients, so renaming or re-binding a handler is a
   breaking change.
 
-This fixture therefore pins the ordered ``(path, methods, name, permission)``
-contract for every route.  ``permission`` initially characterizes the checks
-performed by today's endpoint bodies; a later default-deny router policy can
-replace that discovery mechanism without losing the before-state.
+This fixture therefore pins the ordered
+``(path, methods, name, permission, public)`` contract for every route. The
+permission and public fields come from the same authoritative registry used by
+the default-deny middleware, so adding a route requires an explicit policy and
+an inventory update.
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ def current_route_inventory() -> list[dict[str, Any]]:
 
 
 def test_route_inventory_matches_ordered_snapshot() -> None:
-    """Route order, identity, and today's permission checks are all contract."""
+    """Route order, identity, and authorization policy are all contract."""
     expected = json.loads(FIXTURE.read_text())
     assert current_route_inventory() == expected
 
