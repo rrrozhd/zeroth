@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.1] - 2026-08-11
+
+### Fixed
+
+- Removed a lint-ratchet provenance check that could never run again. It read the exemption
+  list at two commits, one of which stopped existing when this branch was squashed, so it
+  skipped permanently in CI — a guard reporting nothing, which is the defect this work
+  exists to remove. Enforcement is unaffected: the sweep that checks both rules at all 515
+  test paths reads no history and never skips (ZER-41).
+
 ## [0.22.2] - 2026-08-11
 
 ### Fixed

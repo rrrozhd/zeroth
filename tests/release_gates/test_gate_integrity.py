@@ -675,65 +675,20 @@ def rule_is_reported(rule: str, source: str, *, filename: str = "tests/_probe.py
     return any(reported.search(line) for line in result.stdout.splitlines())
 
 
-#: The commits that bracket this task's lint work. ``RULE_PROBES`` must cover
-#: exactly the rules the exemption list stopped covering between them, and that
-#: set is read from git rather than from the dict -- because a dict of "rules we
-#: probe" is one more editable list of what to check, and deleting an entry would
-#: silence its enforcement exactly as every earlier version could be silenced.
-LINT_WORK_BRACKET = ("20af960a", "66fbe2f8")
-
-
-def _exemptions_at(commit: str) -> set[str] | None:
-    """The ``tests/**`` exemption list as of ``commit``, or None if unreachable.
-
-    Unreachable is a real and permanent state, not a misconfiguration: these are
-    branch-local commits, and once this branch is squash-merged and deleted they
-    exist on no ref that a clone of ``main`` fetches. A shallow checkout has the
-    same effect earlier.
-
-    The caller therefore treats this as *provenance*, not as the guard. The guard
-    -- ``test_every_enforced_rule_is_in_force_at_every_test_path`` -- reads no
-    history and never skips. Making this one assert instead would turn three
-    shallow full-suite jobs red for a cross-check that is by design temporary.
-    """
-    import tomllib
-
-    shown = subprocess.run(
-        ["git", "show", f"{commit}:pyproject.toml"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    if shown.returncode != 0:
-        return None
-    ignores = tomllib.loads(shown.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
-    return set(ignores["tests/**/*.py"])
-
-
-def test_the_probe_set_covers_exactly_what_the_exemption_stopped_covering() -> None:
-    """Which rules get probed is history, not a list anybody can shorten.
-
-    Deleting an entry from ``RULE_PROBES`` would otherwise remove that rule's
-    enforcement check along with it -- the same self-indexing shape as the tuple,
-    the derived set, and the frozen reference before it. The required set is the
-    difference between the exemption list at the two commits that bracket this
-    work, read from git.
-    """
-    before, after = (_exemptions_at(commit) for commit in LINT_WORK_BRACKET)
-    if before is None or after is None:
-        pytest.skip(
-            "bracket commits unreachable (shallow clone, or the branch was squashed "
-            "and deleted). Enforcement itself is checked unconditionally by "
-            "test_every_enforced_rule_is_in_force_at_every_test_path."
-        )
-
-    assert set(RULE_PROBES) == before - after, (
-        f"probes {sorted(RULE_PROBES)} do not match the rules this task stopped "
-        f"exempting, {sorted(before - after)}"
-    )
-
+#: NOTE on how ``RULE_PROBES`` above is protected.
+#:
+#: An earlier revision derived that set by reading the tests/** exemption list at the two
+#: commits bracketing this work, so that deleting an entry could not silently drop a rule's
+#: enforcement. The anchor did not survive: the branch was squashed before merge, one of
+#: those commits now exists on no ref, and the check skipped in CI permanently -- a guard
+#: reporting nothing, the very defect this module exists to remove. Any git-SHA anchor
+#: meets the same end in a repository that squash-merges.
+#:
+#: So the arrangement is stated plainly instead. The *guard* is
+#: ``test_every_enforced_rule_is_in_force_at_every_test_path``: it reads no history, never
+#: skips, and checks both rules at all 515 test paths. ``RULE_PROBES`` only names which
+#: rules that sweep covers, and shortening it is a visible diff -- the same protection
+#: every ratchet file in every repository actually relies on.
 
 #: One source violating every enforced rule at once, so the exhaustive sweep
 #: below costs one Ruff invocation per path rather than one per (path, rule).
