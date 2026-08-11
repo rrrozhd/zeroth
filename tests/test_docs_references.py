@@ -112,6 +112,12 @@ def test_historical_inline_code_is_not_actionable() -> None:
     assert scan_markdown(markdown, "docs/history.md", REPO_ROOT) == []
 
 
+def test_historical_inline_code_with_following_marker_is_not_actionable() -> None:
+    markdown = "`ZEROTH_DEAD_SETTING` was removed."
+
+    assert scan_markdown(markdown, "docs/history.md", REPO_ROOT) == []
+
+
 def test_historical_inline_does_not_hide_actionable_reference_on_same_line() -> None:
     markdown = (
         "The removed setting `ZEROTH_DEAD_SETTING` was used before 0.17; "
