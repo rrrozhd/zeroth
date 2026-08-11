@@ -205,36 +205,54 @@ def _validate_select_shape(
         raise ValueError("scoped execution requires a scopable ORM SELECT")
 
     tenant_tables = {
-        inspect(model).local_table.name
+        inspect(model).local_table
         for model in registered
         if _definition(model).scope is ResourceScope.TENANT_SCOPED
     }
+    registered_tables = {inspect(model).local_table: model for model in registered}
+
+    def mapped_table(candidate: Any) -> SchemaTable | None:
+        inspected = inspect(candidate, raiseerr=False) if candidate is not None else None
+        mapper = getattr(inspected, "mapper", inspected)
+        if mapper is None or not hasattr(mapper, "class_"):
+            return None
+        table = mapper.local_table
+        return table if registered_tables.get(table) is mapper.class_ else None
+
     for selectable in visitors.iterate(statement):
         descriptions = getattr(selectable, "column_descriptions", None)
         final_froms = getattr(selectable, "get_final_froms", None)
         if descriptions is None or final_froms is None:
             continue
-        orm_tables: set[str] = set()
+        orm_tables: set[SchemaTable] = set()
         for description in descriptions:
             entity = description.get("entity")
-            inspected = inspect(entity, raiseerr=False) if entity is not None else None
-            mapper = getattr(inspected, "mapper", inspected)
-            if mapper is not None and hasattr(mapper, "local_table"):
-                orm_tables.add(mapper.local_table.name)
+            entity_table = mapped_table(entity)
+            if entity_table is not None:
+                orm_tables.add(entity_table)
             expression = description.get("expr")
             table = getattr(expression, "table", None)
             if (
-                getattr(table, "name", None) in tenant_tables
+                table in tenant_tables
                 and not getattr(expression, "_annotations", {})
             ):
                 raise ValueError("scoped execution requires a scopable ORM SELECT")
         for from_clause in final_froms():
-            for element in visitors.iterate(from_clause):
-                table_name = getattr(element, "name", None)
-                if (
-                    table_name in tenant_tables
-                    and table_name not in orm_tables
-                    and not getattr(element, "_annotations", {})
+            from_elements = tuple(visitors.iterate(from_clause))
+            for element in from_elements:
+                annotations = getattr(element, "_annotations", {})
+                candidate = annotations.get("parententity")
+                if candidate is None:
+                    candidate = annotations.get("parentmapper")
+                alias_table = mapped_table(candidate)
+                original = getattr(element, "original", None)
+                if original is None:
+                    original = getattr(element, "element", None)
+                if alias_table is not None and original is alias_table:
+                    orm_tables.add(alias_table)
+            for element in from_elements:
+                if isinstance(element, SchemaTable) and (
+                    element in tenant_tables and element not in orm_tables
                 ):
                     raise ValueError("scoped execution requires a scopable ORM SELECT")
 
@@ -245,26 +263,34 @@ def _validate_no_textual_sql(
 ) -> None:
     registered_tables = {inspect(model).local_table: model for model in registered}
 
+    def trusted_loader_tables() -> tuple[SchemaTable, ...]:
+        if not (state.is_column_load or state.is_relationship_load):
+            return ()
+        candidates: list[Any] = [state.bind_mapper]
+        path = state.loader_strategy_path
+        if path is not None:
+            candidates.extend(path.path)
+        tables: dict[SchemaTable, None] = {}
+        for candidate in candidates:
+            mapper = getattr(candidate, "mapper", candidate)
+            if mapper is None or not hasattr(mapper, "class_"):
+                continue
+            table = mapper.local_table
+            if registered_tables.get(table) is mapper.class_:
+                tables[table] = None
+        return tuple(tables)
+
+    loader_tables = trusted_loader_tables()
+
     def has_genuine_orm_provenance(element: ColumnClause[Any]) -> bool:
         annotations = getattr(element, "_annotations", {})
         table = getattr(element, "table", None)
-        internal_model = registered_tables.get(table)
-        if (
-            internal_model is not None
-            and (state.is_column_load or state.is_relationship_load)
+        if any(
+            element.shares_lineage(mapped_column)
+            for loader_table in loader_tables
+            for mapped_column in loader_table.c
         ):
-            bound_mapper = state.bind_mapper
-            if bound_mapper is not None:
-                bound_model = bound_mapper.class_
-                bound_table = bound_mapper.local_table
-                bound_column = bound_table.c.get(getattr(element, "key", None))
-                if (
-                    registered_tables.get(bound_table) is bound_model
-                    and internal_model is bound_model
-                    and bound_column is not None
-                    and element.shares_lineage(bound_column)
-                ):
-                    return True
+            return True
         for key in ("parententity", "entity_namespace", "parentmapper"):
             candidate = annotations.get(key)
             inspected = inspect(candidate, raiseerr=False) if candidate is not None else None
@@ -457,7 +483,6 @@ class ScopedScalarResult:
     def one_or_none(self) -> Any:
         return self.__result.one_or_none()
 
-
 class ScopedResult:
     """Restricted ORM result view with no cursor or connection exposure."""
 
@@ -489,6 +514,9 @@ class ScopedResult:
 
     def scalar_one_or_none(self) -> Any:
         return self.__result.scalar_one_or_none()
+
+    def unique(self) -> ScopedResult:
+        return ScopedResult(self.__result.unique())
 
     def scalars(self, index: int = 0) -> ScopedScalarResult:
         return ScopedScalarResult(self.__result.scalars(index))
