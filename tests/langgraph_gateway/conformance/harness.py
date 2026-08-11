@@ -338,8 +338,27 @@ class _RecordingSink:
 def _append_evidence(path: str | None, row: dict[str, Any]) -> None:
     if path is None:
         return
+    # One record, one ``write(2)``: buffered text I/O holds the whole record and
+    # emits it on close, so a record is never split across syscalls and only the
+    # newest record can be incomplete on disk. ``_parse_evidence_records`` relies
+    # on that; ``test_concurrent_evidence_writers_never_splice_a_record`` pins it.
     with Path(path).open("a", encoding="utf-8") as evidence:
         evidence.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def _parse_evidence_records(raw: bytes) -> tuple[dict[str, Any], ...]:
+    """Parse the evidence log, ignoring a record that is still being appended.
+
+    The gateway subprocess appends to this file while the test process reads it, so
+    a read can land mid-record. A JSONL record is complete only once its trailing
+    newline is present, so everything up to the final newline is parsed and any
+    fragment after it is left for the caller's next read. A newline-terminated line
+    that does not parse is genuine corruption and is allowed to raise.
+    """
+    complete, newline, _in_flight = raw.rpartition(b"\n")
+    if not newline:
+        return ()
+    return tuple(json.loads(line) for line in complete.split(b"\n") if line)
 
 
 class _FileRecordingSink:
@@ -663,10 +682,7 @@ class ConformanceServers:
         path = Path(self.evidence_path)
         if not path.exists():
             return ()
-        rows = tuple(
-            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line
-        )
-        return rows[since:]
+        return _parse_evidence_records(path.read_bytes())[since:]
 
     def __exit__(self, *exc_info: object) -> None:
         for process in reversed(self._processes):

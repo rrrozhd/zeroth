@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.2] - 2026-08-11
+
+### Fixed
+
+- **A conformance evidence read no longer parses a record the gateway is still writing.**
+  The gateway subprocess appends JSONL evidence while the test process reads the same file,
+  so a read could land mid-record and raise `JSONDecodeError` — observed as
+  `test_paired_subscriptions_capture_bounded_exact_sse_frames` failing intermittently at
+  char 775, passing and failing on identical commits. The reader now treats everything up
+  to the final newline as complete and leaves any trailing fragment for the next read; a
+  newline-terminated line that does not parse is genuine corruption and still raises. Four
+  fixtures cover it, two of which reproduce the original `JSONDecodeError` when the parser
+  is reverted.
+
+This release also merges `0.22.1.1.2`, which gives the ephemeral acceptance candidate the
+Regulus origin it actually has; its entry is below.
+
 ## [0.22.2.1] - 2026-08-11
 
 ### Fixed
@@ -70,6 +87,24 @@ negative fixture that feeds the gate a deliberately broken input and requires it
   evidence release rather than asserted as the same literal it contains, with any gap to the
   package version declared; and `validate_manifest` no longer presents evidence resolution
   as manifest-driven when every artifact resolves from a hardcoded set.
+## [0.22.1.1.2] - 2026-08-11
+
+### Fixed
+
+- The ephemeral acceptance candidate now declares the Regulus origin it actually has.
+  `RegulusSettings.base_url` defaults to `http://localhost:8000/v1`, an external
+  control-plane topology the candidate never deployed, so `check_regulus` probed a
+  dead port, reported `unavailable`, and degraded `/health/ready`. That failed the
+  `readiness` scenario and cascaded into `approvals`, which polls readiness back to
+  `ok` after its restart, and from there into `audit`, `artifacts` and
+  `restart_recovery`. It passed locally only on machines with something unrelated
+  bound to port 8000. The candidate runs the bundled plane in-process at `/regulus`,
+  so it now points at its own origin, as `apps/vendor_dd/entrypoint.py` and the
+  deployment guide already do.
+- Paired that with a test that the declared origin is served by the econ plane itself.
+  `check_regulus` treats any answer — a 401, a 404 — as `ok`, so readiness alone could
+  not tell a mounted plane from an absent one; without this, dropping the `regulus`
+  extra would leave the gate green over a plane that was never there.
 
 ## [0.22.1.1.1] - 2026-08-10
 
