@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.8.2] - 2026-08-10
+
+### Fixed
+
+- The lint ratchet compares against the exemption list at the point the debt was already
+  paid, not the point before. Comparing against the pre-payment list left the restored rule
+  a valid subset, so the defect had moved rather than gone (ZER-41).
+- `__signature__` discovery is recursive again, with the one verified non-class site named
+  explicitly. Skipping function bodies was justified by reasoning that is false: a
+  function-local `Klass.__signature__` hides constructor fields just as effectively
+  (ZER-41).
+
 ## [0.22.2.8.1] - 2026-08-10
 
 ### Fixed

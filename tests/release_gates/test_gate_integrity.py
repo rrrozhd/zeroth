@@ -493,21 +493,27 @@ def test_the_daemon_reports_the_fields_the_producer_reads() -> None:
 # R7, R8 -- the suite's own vacuity guards
 # ---------------------------------------------------------------------------
 
-#: The ``tests/**`` exemption list exactly as it stood at the branch base,
-#: `20af960a3d58d297d62facdedd5c91f76fdd1078`.
-#:
-#: The ratchet is driven from *here*, not from a list of rules being enforced.
-#: A "rules we now enforce" tuple is self-indexing: deleting a rule from it also
-#: deletes that rule's verification, so the ratchet consents to its own removal.
-#: Deriving the enforced set as ``base - current`` fixes that -- restoring an
-#: exemption shrinks the derived set and the restored rule stops being checked
-#: only by *growing* the current list past its base, which the subset assertion
-#: refuses.
-#:
-#: This constant is history and never changes. The *current* list may only shrink.
+#: The ``tests/**`` exemption list as it stood at the branch base,
+#: `20af960a3d58d297d62facdedd5c91f76fdd1078` -- before this task paid any of the debt.
 EXEMPTIONS_AT_BASE = frozenset(
     {"D", "B006", "B017", "E501", "F401", "F841", "I001", "SIM117"}
 )
+
+#: The list after this task removed ``F841`` and ``B017``, at the audited HEAD
+#: `66fbe2f8fd14bdad90739d12e2975b42dd1cc51c`. **This is the ratchet reference.**
+#:
+#: The first attempt at this guard compared against a tuple of "rules we now
+#: enforce", which consented to its own removal: delete a rule and its check goes
+#: with it. The second attempt derived the enforced set as ``base - current``,
+#: which only moved the problem -- ``F841`` is *in* the base list, so restoring
+#: its exemption still yields a valid subset, and the one check that noticed read
+#: from a hand-written parameter list that could be edited just as easily.
+#:
+#: Comparing against the list at a point where the debt was **already paid** has
+#: no such lever. Restoring ``F841`` makes the current list a superset of this
+#: constant, and there is nothing to delete to make that go away: both constants
+#: are history and neither is derived from the live configuration.
+EXEMPTIONS_AT_RATCHET = frozenset({"D", "B006", "E501", "F401", "I001", "SIM117"})
 
 
 def _test_per_file_ignores() -> list[str]:
@@ -519,24 +525,32 @@ def _test_per_file_ignores() -> list[str]:
 
 
 def enforced_test_rules(current: set[str]) -> set[str]:
-    """Rules the tests tree is held to: those dropped from the base exemption list."""
+    """Rules the tests tree is held to: those dropped from the original base list."""
     return set(EXEMPTIONS_AT_BASE) - current
 
 
 def test_the_tests_exemption_list_only_ever_shrinks() -> None:
-    """No rule may be added to the exemption list, and none re-added once dropped."""
+    """The ratchet. No rule may be added, and none re-added once dropped.
+
+    Measured against the already-paid list, so restoring any of this task's two
+    fails here with no parameter list, tuple, or derived set to edit away.
+    """
     current = set(_test_per_file_ignores())
 
-    assert current <= EXEMPTIONS_AT_BASE, current - EXEMPTIONS_AT_BASE
+    assert current <= EXEMPTIONS_AT_RATCHET, (
+        "the tests exemption list grew: "
+        f"{sorted(current - EXEMPTIONS_AT_RATCHET)} was re-exempted"
+    )
+
+
+def test_the_ratchet_reference_really_is_tighter_than_the_base() -> None:
+    """Two constants that were equal would make the ratchet above vacuous."""
+    assert EXEMPTIONS_AT_RATCHET < EXEMPTIONS_AT_BASE
+    assert {"F841", "B017"} == EXEMPTIONS_AT_BASE - EXEMPTIONS_AT_RATCHET
 
 
 def test_every_rule_dropped_from_the_exemption_is_clean_in_the_tree() -> None:
-    """Whatever the current list stopped exempting is enforced and green.
-
-    Driven by the difference from the base list, so it cannot be silenced by
-    editing a list of enforced rules: re-adding ``F841`` to the exemption makes
-    the *derived* set smaller, and the previous test refuses the growth.
-    """
+    """Whatever the exemption stopped covering is enforced and green."""
     enforced = enforced_test_rules(set(_test_per_file_ignores()))
 
     assert enforced, "the exemption list has not shrunk at all since the base"
@@ -552,38 +566,47 @@ def test_every_rule_dropped_from_the_exemption_is_clean_in_the_tree() -> None:
         assert result.returncode == 0, f"{rule}: {result.stdout}"
 
 
-@pytest.mark.parametrize("rule", ["F841", "B017"])
-def test_the_rules_this_task_enforced_are_still_enforced(rule: str) -> None:
-    """Named explicitly, so ZER-41's own two cannot slip out of the derived set."""
-    assert rule not in _test_per_file_ignores()
-    assert rule in enforced_test_rules(set(_test_per_file_ignores()))
+@pytest.mark.parametrize(
+    ("restored", "still_ratcheted"),
+    [
+        ({"D", "B006", "E501", "F401", "I001", "SIM117"}, True),
+        ({"D", "B006", "E501", "F401", "I001"}, True),
+        ({"D", "B006", "B017", "E501", "F401", "I001", "SIM117"}, False),
+        ({"D", "B006", "E501", "F401", "F841", "I001", "SIM117"}, False),
+        (set(), True),
+    ],
+)
+def test_the_ratchet_refuses_any_restored_exemption(
+    restored: set[str], still_ratcheted: bool
+) -> None:
+    """The mutation both earlier attempts survived, over every relevant shape.
+
+    A pure comparison against the frozen reference, so no live configuration and
+    no editable list stands between the mutation and the failure.
+    """
+    assert (restored <= EXEMPTIONS_AT_RATCHET) is still_ratcheted
 
 
-def test_restoring_an_exemption_is_visible_to_the_ratchet() -> None:
-    """The mutation the auditor used: drop a rule from the enforced list and restore
-    its exemption. Under the old self-indexing tuple both checks stayed green."""
-    restored = set(_test_per_file_ignores()) | {"F841"}
-
-    assert not restored <= EXEMPTIONS_AT_BASE or "F841" not in enforced_test_rules(restored)
-    assert "F841" not in enforced_test_rules(restored)
-
-
-def test_the_base_exemption_list_is_the_one_the_branch_started_from() -> None:
-    """History, checked against git rather than trusted as a literal."""
+def test_the_recorded_history_matches_git() -> None:
+    """Both constants are claims about commits, checked against them."""
     import tomllib
 
-    base = subprocess.run(
-        ["git", "show", "20af960a:pyproject.toml"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if base.returncode != 0:  # pragma: no cover - shallow clone
-        pytest.skip("base commit unavailable")
-    recorded = tomllib.loads(base.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
+    for commit, expected in (
+        ("20af960a", EXEMPTIONS_AT_BASE),
+        ("66fbe2f8", EXEMPTIONS_AT_RATCHET),
+    ):
+        shown = subprocess.run(
+            ["git", "show", f"{commit}:pyproject.toml"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if shown.returncode != 0:  # pragma: no cover - shallow clone
+            pytest.skip(f"{commit} unavailable")
+        ignores = tomllib.loads(shown.stdout)["tool"]["ruff"]["lint"]["per-file-ignores"]
 
-    assert set(recorded["tests/**/*.py"]) == EXEMPTIONS_AT_BASE
+        assert set(ignores["tests/**/*.py"]) == expected, commit
 
 
 def test_vacuity_guard_rejects_a_constant_assertion() -> None:

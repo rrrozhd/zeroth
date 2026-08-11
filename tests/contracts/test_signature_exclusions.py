@@ -142,14 +142,36 @@ def _module_reference(path: Path) -> str:
     return ".".join(parts)
 
 
-def signature_assignments() -> dict[str, str]:
-    """Every ``<target>.__signature__ = ...`` in the tree, as ``module:qualname``.
+#: Assignment sites verified to target something other than a class.
+#:
+#: An earlier attempt scoped discovery to module level on the reasoning that a
+#: ``__signature__`` assigned inside a function must belong to a call-time object.
+#: **That reasoning is wrong**, and the reviewer disproved it: a function-local
+#: ``Klass.__signature__ = ...`` hides real constructor fields just as effectively,
+#: and a module-level-only scan reports nothing. Lexical scope does not establish
+#: what the target *is*.
+#:
+#: So the scan is recursive and the one genuinely non-class site is named here,
+#: with what it was verified to be. Adding an entry is a claim about a specific
+#: target, reviewable as such, rather than a rule that quietly exempts a whole
+#: category.
+NON_CLASS_SIGNATURE_SITES = {
+    "zeroth.integrations.langgraph._tool_wrappers:governed": (
+        "a per-call wrapper *function* returned by _sync_callable_wrapper / "
+        "_async_callable_wrapper and published by _govern_callable -- the ordinary "
+        "functools.wraps idiom, with no class constructor behind it"
+    ),
+}
 
-    Parsed, not matched. A regex on ``^Name.__signature__ = `` misses an extra
-    space, misses a qualified target like ``models.PolicyDefinition``, and -- worse
-    -- reduces the target to a bare name, so a same-named class in another module
-    would silently satisfy the record. The AST gives the assignment target
-    exactly, and pairing it with the module makes the identity canonical.
+
+def signature_assignments() -> dict[str, str]:
+    """Every ``<target>.__signature__ = ...`` in the tree, as ``module:name``.
+
+    Parsed, not matched, and parsed *recursively*. A regex on
+    ``^Name.__signature__ = `` misses an extra space, misses a qualified target
+    like ``models.PolicyDefinition``, and -- worse -- reduces the target to a bare
+    name, so a same-named class in another module would silently satisfy the
+    record. Restricting to module scope misses a hiding site outright.
     """
     found: dict[str, str] = {}
     for path in sorted(SOURCE.rglob("*.py")):
@@ -157,26 +179,27 @@ def signature_assignments() -> dict[str, str]:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - the tree parses
             continue
-        # Module level only. A ``__signature__`` assigned inside a function body
-        # belongs to an object built at call time -- ``_tool_wrappers`` publishes
-        # one on each governed callable it wraps, the ordinary ``functools.wraps``
-        # idiom. That cannot hide a field from a gate that pins *class*
-        # signatures, so scoping to module scope is what the record governs, not
-        # a convenient exclusion.
-        for node in tree.body:
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Assign):
                 continue
             for target in node.targets:
                 if not isinstance(target, ast.Attribute) or target.attr != "__signature__":
                     continue
-                owner = ast.unparse(target.value)
                 # `module.Class` and `Class` both name the class; keep the last
-                # component, but key the record by the module the assignment is in
-                # so two same-named classes cannot collide.
-                found[f"{_module_reference(path)}:{owner.rsplit('.', 1)[-1]}"] = (
-                    path.relative_to(ROOT).as_posix()
-                )
+                # component, but key by the module the assignment is in so two
+                # same-named classes cannot collide.
+                owner = ast.unparse(target.value).rsplit(".", 1)[-1]
+                found[f"{_module_reference(path)}:{owner}"] = path.relative_to(ROOT).as_posix()
     return found
+
+
+def class_signature_assignments() -> dict[str, str]:
+    """Assignment sites that are not on the verified non-class allowlist."""
+    return {
+        reference: where
+        for reference, where in signature_assignments().items()
+        if reference not in NON_CLASS_SIGNATURE_SITES
+    }
 
 
 def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
@@ -187,7 +210,7 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
     """
     unrecorded = sorted(
         f"{reference} ({where})"
-        for reference, where in signature_assignments().items()
+        for reference, where in class_signature_assignments().items()
         if reference not in HIDDEN_CONSTRUCTOR_FIELDS
     )
 
@@ -199,7 +222,7 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
 
 def test_the_record_names_no_class_that_stopped_hiding() -> None:
     """The other direction: a recorded entry whose assignment is gone must go too."""
-    assigning = set(signature_assignments())
+    assigning = set(class_signature_assignments())
     stale = sorted(set(HIDDEN_CONSTRUCTOR_FIELDS) - assigning)
 
     assert stale == [], f"recorded but no longer assigning __signature__: {stale}"
@@ -233,22 +256,68 @@ def test_the_assignment_detector_sees_every_spelling(tmp_path: Path, source: str
     assert targets == ["PolicyDefinition"]
 
 
-def test_a_signature_assigned_inside_a_function_is_not_a_class_pin() -> None:
-    """Scope is part of the rule, and the rule says so rather than filtering by name."""
-    module_level = ast.parse("Klass.__signature__ = value")
-    inside_function = ast.parse("def build():\n    obj.__signature__ = value\n")
+def test_a_function_local_assignment_on_a_class_still_hides_fields() -> None:
+    """Lexical scope does not establish what the target is.
 
-    def module_scope_targets(tree: ast.Module) -> list[str]:
-        return [
-            target.attr
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            for target in node.targets
-            if isinstance(target, ast.Attribute)
-        ]
+    The disproof of an earlier, wrong rule: a ``__signature__`` assigned inside a
+    function body was assumed to belong to a call-time object, so discovery
+    skipped function bodies. A class pinned from inside a function hides exactly
+    as much, and a module-level-only scan reports nothing at all.
+    """
 
-    assert module_scope_targets(module_level) == ["__signature__"]
-    assert module_scope_targets(inside_function) == []
+    @dataclasses.dataclass
+    class Sample:
+        visible: int = 0
+        concealed: int = 0
+
+    def pin_from_inside_a_function() -> None:
+        Sample.__signature__ = inspect.signature(Sample).replace(  # type: ignore[attr-defined]
+            parameters=[
+                parameter
+                for name, parameter in inspect.signature(Sample).parameters.items()
+                if name != "concealed"
+            ]
+        )
+
+    assert hidden_fields(Sample) == set()
+    pin_from_inside_a_function()
+    assert hidden_fields(Sample) == {"concealed"}
+
+
+def test_discovery_reaches_assignments_nested_in_a_function() -> None:
+    """The scan itself, over the shape the module-level rule could not see."""
+    source = "def build():\n    Klass.__signature__ = value\n"
+    nested = [
+        ast.unparse(target.value).rsplit(".", 1)[-1]
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute) and target.attr == "__signature__"
+    ]
+    module_only = [
+        target
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+    ]
+
+    assert nested == ["Klass"]
+    assert module_only == []
+
+
+def test_every_non_class_exemption_states_what_it_was_verified_to_be() -> None:
+    """An exemption without a reason is the silence this record exists to end."""
+    assert NON_CLASS_SIGNATURE_SITES
+    for reference, reason in NON_CLASS_SIGNATURE_SITES.items():
+        assert ":" in reference, reference
+        assert len(reason.strip()) > 40, reference
+
+
+def test_the_non_class_allowlist_names_only_sites_that_exist() -> None:
+    """A retired exemption would let a real hiding site inherit its pass."""
+    stale = sorted(set(NON_CLASS_SIGNATURE_SITES) - set(signature_assignments()))
+
+    assert stale == [], f"exempted but no longer present: {stale}"
 
 
 def test_the_record_names_no_class_that_hides_nothing() -> None:
