@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -151,3 +150,34 @@ def test_installed_image_packages_are_compared_with_compatibility(
         installed_package_evidence(
             f"zeroth-core:v{resolved['zeroth_core']}", compatibility_path, image_path
         )
+
+
+def test_the_governed_upstream_is_a_real_agent_server_not_an_imitation() -> None:
+    """The gateway's compatibility check is only worth running against real software.
+
+    What this replaced served `/ok`, `/info` and `/openapi.json` from literals and
+    rebuilt its OpenAPI document from `tests/langgraph_gateway/fixtures/
+    openapi-0.11.1.operations.json` — the same fixture the gateway's fingerprint pin was
+    derived from. So the pin was compared against its own answer key and the stack
+    reported a supported Agent Server with none present. An imitation that recites the
+    expected fingerprint is worse than no upstream, because it reports success.
+    """
+    root = Path(__file__).resolve().parents[2]
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    smoke = (root / "release/langgraph/runtime_smoke.py").read_text(encoding="utf-8")
+    dockerfile = (root / "release/langgraph/Dockerfile").read_text(encoding="utf-8")
+
+    # The upstream is built, and built from the pinned Agent Server package.
+    assert "release/langgraph/Dockerfile" in compose
+    assert "mock-upstream" not in compose
+    assert "langgraph-api==0.11.1" in dockerfile
+    assert "run_server" in dockerfile
+
+    # Nothing reconstructs the fingerprint's own source fixture any more.
+    assert "openapi-0.11.1.operations.json" not in smoke
+    assert "AgentServerFixtureHandler" not in smoke
+    assert "serve_shell_agent_server" in smoke
+
+    # And the graph it serves is a real compiled StateGraph.
+    graph_source = (root / "release/langgraph/shell_graph.py").read_text(encoding="utf-8")
+    assert "StateGraph" in graph_source and ".compile()" in graph_source

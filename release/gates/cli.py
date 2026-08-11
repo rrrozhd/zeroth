@@ -224,9 +224,7 @@ def _do_seal(args: argparse.Namespace) -> int:
     }
     for gate in select_gates(manifest, phase=args.phase):
         path = args.evidence_root / gate["record"]
-        sealed["records"][gate["id"]] = (
-            file_digest(path) if path.is_file() else "absent"
-        )
+        sealed["records"][gate["id"]] = file_digest(path) if path.is_file() else "absent"
     _write_json(args.output, sealed)
     print(sealed["candidate_digest"])
     return 0

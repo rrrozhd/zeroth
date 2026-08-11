@@ -40,12 +40,13 @@ services:
       start_period: 20s
 
   langgraph-fixture:
-    image: python:3.12.13-slim-bookworm
+    # The real Agent Server, at the version the compatibility gate pins, serving the
+    # shell application. Deliberately not a hand-written stand-in: the gateway's
+    # fingerprint check is only worth running against a surface nobody here authored.
+    build:
+      context: .
+      dockerfile: release/langgraph/Dockerfile
     working_dir: /workspace
-    command: python release/langgraph/harness.py mock-upstream
-    read_only: true
-    volumes:
-      - .:/workspace:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8123/ok',timeout=2))['ok']"]
       interval: 2s

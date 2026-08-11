@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "release/langgraph/harness.py"
 MANIFEST = ROOT / "release/langgraph/release-manifest.json"
@@ -62,9 +61,7 @@ def _validate(manifest: Path, evidence_root: Path, phase: str) -> subprocess.Com
     )
 
 
-def _validate_default(
-    manifest: Path, evidence_root: Path
-) -> subprocess.CompletedProcess[str]:
+def _validate_default(manifest: Path, evidence_root: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -118,9 +115,7 @@ def _syft_spdx_golden_fragment() -> dict[str, object]:
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": IMAGE_REFERENCE,
         "documentNamespace": "https://anchore.com/syft/image/zeroth-core-test-golden",
-        "creationInfo": {
-            "creators": ["Organization: Anchore, Inc", "Tool: syft-v0.42.0-bogus"]
-        },
+        "creationInfo": {"creators": ["Organization: Anchore, Inc", "Tool: syft-v0.42.0-bogus"]},
         "packages": [
             {
                 "name": IMAGE_REFERENCE,
@@ -297,9 +292,7 @@ def test_source_release_evidence_rejects_weakened_contracts(tmp_path: Path) -> N
     benchmark = evidence_root / "release/langgraph/benchmark-evidence.json"
 
     compatibility_payload = json.loads(compatibility.read_text(encoding="utf-8"))
-    compatibility_payload["deployment_artifacts"]["adapter"]["dependencies"] = [
-        "langchain>=1.0,<2"
-    ]
+    compatibility_payload["deployment_artifacts"]["adapter"]["dependencies"] = ["langchain>=1.0,<2"]
     compatibility.write_text(json.dumps(compatibility_payload), encoding="utf-8")
     result = _validate(manifest, evidence_root, "source")
     assert result.returncode != 0
@@ -317,8 +310,7 @@ def test_source_release_evidence_rejects_weakened_contracts(tmp_path: Path) -> N
     benchmark_payload = json.loads(benchmark.read_text(encoding="utf-8"))
     benchmark_payload["sample_count"] = 3
     benchmark_payload["sample_distribution"] = {
-        name: samples[:3]
-        for name, samples in benchmark_payload["sample_distribution"].items()
+        name: samples[:3] for name, samples in benchmark_payload["sample_distribution"].items()
     }
     benchmark.write_text(json.dumps(benchmark_payload), encoding="utf-8")
     result = _validate(manifest, evidence_root, "source")

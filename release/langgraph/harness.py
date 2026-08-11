@@ -14,7 +14,7 @@ from runtime_smoke import (
     gateway_smoke,
     installed_package_evidence,
     resolved_image_evidence,
-    serve_mock_upstream,
+    serve_shell_agent_server,
     smoke,
 )
 
@@ -36,11 +36,9 @@ def _parser() -> argparse.ArgumentParser:
     probe.add_argument("--url", default="http://127.0.0.1:8000/health/ready")
     probe.add_argument("--require-gateway", action="store_true")
     gateway_probe = commands.add_parser("gateway-smoke")
-    gateway_probe.add_argument(
-        "--url", default="http://127.0.0.1:8000/assistants/release-smoke"
-    )
+    gateway_probe.add_argument("--url", default="http://127.0.0.1:8000/assistants/release-smoke")
     gateway_probe.add_argument("--api-key", required=True)
-    fixture = commands.add_parser("mock-upstream")
+    fixture = commands.add_parser("shell-agent-server")
     fixture.add_argument("--host", default="0.0.0.0")
     fixture.add_argument("--port", type=int, default=8123)
     images = commands.add_parser("image-evidence")
@@ -71,9 +69,7 @@ def _benchmark(args: argparse.Namespace) -> int:
 
 
 def _validate(args: argparse.Namespace) -> int:
-    errors = validate_manifest(
-        args.manifest, phase=args.phase, evidence_root=args.evidence_root
-    )
+    errors = validate_manifest(args.manifest, phase=args.phase, evidence_root=args.evidence_root)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
@@ -108,20 +104,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "image-evidence":
         _write_json(
             args.output,
-            resolved_image_evidence(
-                args.image, sbom=args.sbom, artifact=args.artifact
-            ),
+            resolved_image_evidence(args.image, sbom=args.sbom, artifact=args.artifact),
         )
         return 0
     if args.command == "image-packages":
         _write_json(
             args.output,
-            installed_package_evidence(
-                args.image, args.compatibility, args.image_evidence
-            ),
+            installed_package_evidence(args.image, args.compatibility, args.image_evidence),
         )
         return 0
-    serve_mock_upstream(args.host, args.port)
+    serve_shell_agent_server(args.host, args.port)
     return 0
 
 

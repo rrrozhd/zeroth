@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.20"
+version = "0.22.1.1.2"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -180,10 +180,11 @@ gateway-conformance = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not live and not langgraph_conformance'"
+addopts = "-m 'not live and not langgraph_conformance and not deployed_acceptance'"
 markers = [
     "live: marks tests requiring live API keys (deselect with '-m not live')",
     "security_rc: mandatory distributed security release-candidate evidence",
+    "deployed_acceptance: black-box tests requiring a configured deployed candidate",
     "legacy_engine: explicit compatibility gates for sequential_join_enabled=False",
     "postgres: marks tests exercising PostgreSQL-specific coordination",
     "langgraph_conformance: pinned Agent Server compatibility release gate",

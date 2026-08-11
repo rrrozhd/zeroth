@@ -112,12 +112,16 @@ def _json_file(path: Path, label: str, errors: list[str]) -> dict[str, Any] | No
 
 
 def _positive_metrics(value: Any) -> bool:
-    return isinstance(value, dict) and bool(value) and all(
-        isinstance(item, (int, float))
-        and not isinstance(item, bool)
-        and math.isfinite(item)
-        and item > 0
-        for item in value.values()
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(
+            isinstance(item, (int, float))
+            and not isinstance(item, bool)
+            and math.isfinite(item)
+            and item > 0
+            for item in value.values()
+        )
     )
 
 
@@ -129,9 +133,7 @@ def _valid_hardware(value: Any) -> bool:
     )
 
 
-def _validate_compatibility(
-    path: Path, errors: list[str]
-) -> dict[str, Any] | None:
+def _validate_compatibility(path: Path, errors: list[str]) -> dict[str, Any] | None:
     value = _json_file(path, "compatibility evidence", errors)
     expected_keys = {
         "schema_version",
@@ -146,8 +148,7 @@ def _validate_compatibility(
         or value.get("schema_version") != 2
         or value.get("release") != CURRENT_RELEASE
         or value.get("adapter_version") != "1.0"
-        or value.get("tested")
-        != {"agent_server": "0.11.1", "langgraph": "1.2.9"}
+        or value.get("tested") != {"agent_server": "0.11.1", "langgraph": "1.2.9"}
         or value.get("deployment_artifacts") != EXPECTED_DEPLOYMENT_ARTIFACTS
         or value.get("resolved") != EXPECTED_RESOLVED
     ):
@@ -263,8 +264,7 @@ def _benchmark_schema_valid(value: dict[str, Any], baseline: Any) -> bool:
         and value.get("summary") == summary
         and value.get("variance") == variance
         and value.get("observed") == observed
-        and value.get("stream_ordering")
-        == {"valid": True, "samples_checked": sample_count}
+        and value.get("stream_ordering") == {"valid": True, "samples_checked": sample_count}
         and value.get("baseline") == baseline
         and value.get("thresholds") == THRESHOLDS
         and value.get("evaluation") == recomputed
@@ -273,9 +273,7 @@ def _benchmark_schema_valid(value: dict[str, Any], baseline: Any) -> bool:
     )
 
 
-def _validate_benchmark(
-    path: Path, baseline: dict[str, Any] | None, errors: list[str]
-) -> None:
+def _validate_benchmark(path: Path, baseline: dict[str, Any] | None, errors: list[str]) -> None:
     value = _json_file(path, "performance evidence", errors)
     if value is None:
         return
@@ -293,9 +291,7 @@ def _validate_benchmark(
         errors.append("performance evidence did not pass")
 
 
-def validate_manifest(
-    path: Path, *, phase: str = "final", evidence_root: Path = ROOT
-) -> list[str]:
+def validate_manifest(path: Path, *, phase: str = "final", evidence_root: Path = ROOT) -> list[str]:
     """Return fail-closed source or generated release-evidence errors."""
     errors: list[str] = []
     manifest = _json_file(path, "manifest", errors)
@@ -318,7 +314,5 @@ def validate_manifest(
     if phase == "final":
         security = REQUIRED_EVIDENCE["security"]["artifacts"]
         junit = REQUIRED_EVIDENCE["tests"]["artifacts"][0]
-        errors.extend(
-            validate_generated(evidence_root, security, compatibility or {}, junit)
-        )
+        errors.extend(validate_generated(evidence_root, security, compatibility or {}, junit))
     return errors

@@ -240,6 +240,7 @@ Behavioral capability-enforcement configuration (WS-C).
 | --- | --- | --- | --- | --- |
 | `ZEROTH_POLICY__ENFORCE_CAPABILITIES` | `bool` | `True` |  |  |
 | `ZEROTH_POLICY__LOCAL_NETWORK_STRICT` | `bool` | `True` |  |  |
+| `ZEROTH_POLICY__DEFINITIONS` | `tuple[dict[str, Any], Ellipsis]` | `()` |  |  |
 
 ## Retention
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -39,6 +40,7 @@ from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.governance.langgraph_gateway.capabilities import CapabilityReporter
 from zeroth.governance.langgraph_gateway.events import AuditGatewayEventSink
 from zeroth.governance.policy import (
+    PolicyDefinition,
     PolicyGuard,
     PolicyRegistry,
     default_capability_registry,
@@ -94,6 +96,26 @@ from zeroth.service.langgraph_gateway.enforcement import (
 from zeroth.service.langgraph_gateway.proxy import GatewayProxy
 from zeroth.service.langgraph_gateway.routes import WebSocketGatewayHandler
 from zeroth.service.langgraph_gateway.transport import HTTPGatewayTransport
+
+
+def _configured_policy_registry(
+    definitions: tuple[dict[str, Any], ...],
+) -> PolicyRegistry:
+    """Populate the registry the guard resolves policy bindings against.
+
+    `LangGraphGatewaySettings.policy_bindings` already names the policies a governed
+    request is evaluated against, but nothing ever put a definition into the registry
+    those refs resolve through — so a deployment naming a binding was refused with
+    `zeroth.policy_unavailable` on every governed request, and one naming none admitted
+    everything. The deny path existed and could not be reached either way.
+
+    Validated here rather than at settings-parse time so a malformed policy fails the
+    deployment loudly instead of degrading it into one that admits traffic silently.
+    """
+    registry = PolicyRegistry()
+    for definition in definitions:
+        registry.register(PolicyDefinition.model_validate(definition))
+    return registry
 
 
 async def bootstrap_service(
@@ -337,7 +359,7 @@ async def bootstrap_service(
     # orchestrator.policy_guard after bootstrap (e.g. with a bespoke ref scheme)
     # are unaffected — this only sets a default.
     policy_guard = PolicyGuard(
-        policy_registry=PolicyRegistry(),
+        policy_registry=_configured_policy_registry(settings.policy.definitions),
         capability_registry=default_capability_registry(),
     )
     if settings.policy.enforce_capabilities:
