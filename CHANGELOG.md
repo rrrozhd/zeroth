@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.2.1] - 2026-08-11
+
+### Fixed
+
+- Regenerated the release benchmark from the exact cleanup candidate instead
+  of carrying forward measurements from the preceding release.
+
 ## [0.20.1.2] - 2026-08-11
 
 ### Changed
