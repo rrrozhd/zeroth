@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.10.1] - 2026-08-10
+
+### Fixed
+
+- A docstring still called path-scoped lint suppression unprovable and deferred. The
+  exhaustive sweep closed it, so the claim was stale — exactly the kind this module exists
+  to catch (ZER-41).
+
 ## [0.22.2.10] - 2026-08-10
 
 ### Fixed

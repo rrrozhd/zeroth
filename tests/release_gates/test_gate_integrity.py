@@ -780,10 +780,10 @@ def test_ruff_actually_checks_every_test_file_on_disk() -> None:
     selection silences a file without touching any rule, and no per-rule probe
     can see that.
 
-    What neither check can prove is the absence of a future path-scoped
-    suppression aimed at some specific file -- an in-repo test cannot bound an
-    edit to the repo. That residual is recorded as a deferred discovery rather
-    than chased.
+    Path-scoped *rule* suppression is a different hole and is closed separately,
+    by ``test_every_enforced_rule_is_in_force_at_every_test_path``. An earlier
+    revision of this docstring called that residual unprovable; it is not, and
+    saying so here would be the kind of stale claim this module exists to catch.
     """
     listed = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "tests", "--show-files"],
