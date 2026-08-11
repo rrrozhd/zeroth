@@ -1800,49 +1800,6 @@
         "title": "KPIResponse",
         "type": "object"
       },
-      "LoginRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "roles": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Roles",
-            "type": "array"
-          },
-          "sub": {
-            "title": "Sub",
-            "type": "string"
-          },
-          "tenant_id": {
-            "default": "default",
-            "title": "Tenant Id",
-            "type": "string"
-          },
-          "workspace_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Id"
-          }
-        },
-        "required": [
-          "sub",
-          "email",
-          "roles"
-        ],
-        "title": "LoginRequest",
-        "type": "object"
-      },
       "OutcomeBatchIngestRequest": {
         "properties": {
           "events": {
@@ -2350,57 +2307,50 @@
         "title": "RetryOutboxResponse",
         "type": "object"
       },
-      "TenantBudgetUpsert": {
+      "ScopedLoginRequest": {
         "properties": {
-          "budget_cap_usd": {
-            "minimum": 0.0,
-            "title": "Budget Cap Usd",
-            "type": "number"
-          }
-        },
-        "required": [
-          "budget_cap_usd"
-        ],
-        "title": "TenantBudgetUpsert",
-        "type": "object"
-      },
-      "TokenResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
+          "email": {
+            "format": "email",
+            "title": "Email",
             "type": "string"
           },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "TokenResponse",
-        "type": "object"
-      },
-      "TrendPoint": {
-        "properties": {
-          "x": {
-            "title": "X",
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
             "type": "string"
           },
-          "y": {
-            "title": "Y",
-            "type": "number"
+          "tenant_id": {
+            "default": "default",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
           }
         },
         "required": [
-          "x",
-          "y"
+          "sub",
+          "email",
+          "roles"
         ],
-        "title": "TrendPoint",
+        "title": "ScopedLoginRequest",
         "type": "object"
       },
-      "UserClaims": {
+      "ScopedUserClaims": {
         "properties": {
           "email": {
             "format": "email",
@@ -2450,7 +2400,57 @@
           "exp",
           "iss"
         ],
-        "title": "UserClaims",
+        "title": "ScopedUserClaims",
+        "type": "object"
+      },
+      "TenantBudgetUpsert": {
+        "properties": {
+          "budget_cap_usd": {
+            "minimum": 0.0,
+            "title": "Budget Cap Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "budget_cap_usd"
+        ],
+        "title": "TenantBudgetUpsert",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "TrendPoint": {
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "string"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "TrendPoint",
         "type": "object"
       },
       "ValidationError": {
@@ -2734,7 +2734,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserClaims"
+                  "$ref": "#/components/schemas/ScopedUserClaims"
                 }
               }
             },
@@ -2759,7 +2759,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LoginRequest"
+                "$ref": "#/components/schemas/ScopedLoginRequest"
               }
             }
           },
@@ -4848,6 +4848,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Calibration Summary",
         "tags": [
           "reconciliation"
@@ -4893,6 +4898,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Import Ground Truth",
         "tags": [
           "reconciliation"

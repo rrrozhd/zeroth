@@ -4,7 +4,7 @@ from jose import jwt
 from sqlalchemy import select
 
 from zeroth.econ.plane.auth.models import User
-from zeroth.econ.plane.auth.schemas import LoginRequest, UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedLoginRequest, ScopedUserClaims
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.scoped_session import ScopedSession
 
@@ -13,7 +13,7 @@ class TenantIdentityMismatchError(ValueError):
     """The requested subject is not provisioned in the asserted scope."""
 
 
-def issue_token(payload: LoginRequest, db: ScopedSession) -> str:
+def issue_token(payload: ScopedLoginRequest, db: ScopedSession) -> str:
     """Issue a legacy development token inside an already-bound scope.
 
     The HTTP caller's tenant assertion only selects the structural scope; it
@@ -25,6 +25,8 @@ def issue_token(payload: LoginRequest, db: ScopedSession) -> str:
         raise TenantIdentityMismatchError("subject is not provisioned in the requested tenant")
     if user.email != str(payload.email):
         raise TenantIdentityMismatchError("subject identity does not match provisioning")
+    if payload.workspace_id is not None and payload.workspace_id != user.workspace_id:
+        raise TenantIdentityMismatchError("workspace does not match subject provisioning")
 
     exp = datetime.now(tz=timezone.utc) + timedelta(hours=12)
     claims = {
@@ -39,6 +41,6 @@ def issue_token(payload: LoginRequest, db: ScopedSession) -> str:
     return jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_token(token: str) -> UserClaims:
+def decode_token(token: str) -> ScopedUserClaims:
     payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    return UserClaims(**payload)
+    return ScopedUserClaims(**payload)

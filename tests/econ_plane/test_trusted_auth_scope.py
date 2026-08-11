@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect as python_inspect
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from zeroth.econ.analytics.service_auth import mint_econ_service_token
 from zeroth.econ.plane.auth.api import router as auth_router
 from zeroth.econ.plane.auth.models import Role, User
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.auth.service import decode_token
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.config import settings
@@ -105,6 +106,62 @@ def test_insecure_issuer_rejects_request_tenant_mismatch(tmp_path: Path, monkeyp
     )
 
     assert response.status_code == 403
+
+
+def test_insecure_issuer_validates_asserted_workspace_independently(
+    tmp_path: Path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'workspace-mismatch.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(
+            User(
+                tenant_id="tenant-a",
+                workspace_id="workspace-a",
+                subject="subject-1",
+                email="subject@example.com",
+                roles=[Role(name="Admin")],
+            )
+        )
+        db.commit()
+    monkeypatch.setattr(settings, "insecure_public_token_issuer_enabled", True)
+    client = TestClient(_auth_app(engine), raise_server_exceptions=False)
+
+    mismatch = client.post(
+        "/v1/auth/token",
+        json={
+            "sub": "subject-1",
+            "email": "subject@example.com",
+            "roles": ["Admin"],
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-b",
+        },
+    )
+    matching = client.post(
+        "/v1/auth/token",
+        json={
+            "sub": "subject-1",
+            "email": "subject@example.com",
+            "roles": ["Admin"],
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+        },
+    )
+    omitted = client.post(
+        "/v1/auth/token",
+        json={
+            "sub": "subject-1",
+            "email": "subject@example.com",
+            "roles": ["Admin"],
+            "tenant_id": "tenant-a",
+        },
+    )
+
+    assert mismatch.status_code == 403
+    assert matching.status_code == 200
+    assert decode_token(matching.json()["access_token"]).workspace_id == "workspace-a"
+    assert omitted.status_code == 200
+    assert decode_token(omitted.json()["access_token"]).workspace_id == "workspace-a"
 
 
 def test_protected_route_rejects_request_selected_tenant(tmp_path: Path, monkeypatch) -> None:
@@ -229,6 +286,16 @@ def test_standalone_reconciliation_requires_authentication(tmp_path: Path) -> No
     assert response.status_code in {401, 403}
 
 
+def test_committed_reconciliation_openapi_declares_bearer_security() -> None:
+    document = json.loads((Path(__file__).parents[2] / "frontend/openapi.regulus.json").read_text())
+
+    for path, method in (
+        ("/v1/reconciliation/ground-truth-import", "post"),
+        ("/v1/reconciliation/calibration-summary", "get"),
+    ):
+        assert {"HTTPBearer": []} in document["paths"][path][method]["security"]
+
+
 def test_reconciliation_writes_and_reads_only_authenticated_tenant(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -329,6 +396,20 @@ def _auth_scope_shape(bind) -> dict[str, object]:
     }
 
 
+def _table_shape(bind, table: str) -> dict[str, object]:
+    inspector = inspect(bind)
+    return {
+        "columns": [
+            {
+                **column,
+                "type": str(column["type"]),
+            }
+            for column in inspector.get_columns(table)
+        ],
+        "indexes": inspector.get_indexes(table),
+    }
+
+
 def test_auth_scope_migration_matches_fresh_schema_and_backfills_reserved_default() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     with engine.begin() as connection:
@@ -373,3 +454,47 @@ def test_fresh_auth_schema_matches_migrated_scope_shape() -> None:
     assert columns["tenant_id"]["default"] is None
     assert columns["workspace_id"]["nullable"] is True
     assert User.__table__.c.tenant_id.default.arg == "default"
+
+
+def test_auth_scope_empty_database_upgrade_then_downgrade_restores_empty_schema() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        migration = _load_auth_scope_migration()
+        migration.op = Operations(MigrationContext.configure(connection))
+
+        migration.upgrade()
+        assert {"roles", "users", "user_roles"} <= set(inspect(connection).get_table_names())
+
+        migration.downgrade()
+        assert inspect(connection).get_table_names() == []
+
+
+def test_auth_scope_existing_database_downgrade_restores_original_shape() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE roles (id INTEGER PRIMARY KEY, name VARCHAR(64))"))
+        connection.execute(
+            text(
+                "CREATE TABLE users ("
+                "id INTEGER PRIMARY KEY, tenant_id VARCHAR(128) DEFAULT 'legacy', "
+                "subject VARCHAR(128) NOT NULL, email VARCHAR(255) NOT NULL)"
+            )
+        )
+        connection.execute(text("CREATE INDEX legacy_tenant_idx ON users (tenant_id)"))
+        connection.execute(
+            text(
+                "CREATE TABLE user_roles ("
+                "user_id INTEGER NOT NULL REFERENCES users(id), "
+                "role_id INTEGER NOT NULL REFERENCES roles(id))"
+            )
+        )
+        before_tables = inspect(connection).get_table_names()
+        before_shape = _table_shape(connection, "users")
+        migration = _load_auth_scope_migration()
+        migration.op = Operations(MigrationContext.configure(connection))
+
+        migration.upgrade()
+        migration.downgrade()
+
+        assert inspect(connection).get_table_names() == before_tables
+        assert _table_shape(connection, "users") == before_shape

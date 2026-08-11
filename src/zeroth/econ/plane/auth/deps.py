@@ -3,7 +3,7 @@ from collections.abc import Callable, Generator
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.auth.service import decode_token
 from zeroth.econ.plane.database import get_scoped_db
 from zeroth.econ.plane.scoped_session import ScopedSession

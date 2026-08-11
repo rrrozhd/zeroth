@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.costing.models import GroundTruthCost
 from zeroth.econ.plane.costing.service import add_ground_truth_rows, compute_calibration_summary
 from zeroth.econ.plane.reconciliation.schemas import GroundTruthImportRequest

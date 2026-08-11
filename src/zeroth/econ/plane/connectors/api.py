@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.connectors.schemas import (
     ConnectorConfigOut,

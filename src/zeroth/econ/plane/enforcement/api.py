@@ -9,7 +9,7 @@ from zeroth.econ.plane.auth.deps import (
     require_claimed_tenant,
     require_roles,
 )
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.enforcement.schemas import BudgetStatusOut, DecisionRequest, EnforcementActionCreate, EnforcementActionOut, PolicyActionOut, TenantBudgetUpsert
 from zeroth.econ.plane.enforcement.service import create_action, decide_action, get_budget_status, list_actions, list_policy_actions, upsert_tenant_budget
