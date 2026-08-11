@@ -82,6 +82,7 @@ class _RawSessionVisitor(ast.NodeVisitor):
         self._sessionmaker_names = {"sessionmaker"}
         self._factory_names = {"SessionLocal"}
         self._orm_module_aliases = {"sqlalchemy.orm"}
+        self._tainted_result_names: set[str] = set()
 
     def _record(self, kind: str, detail: str) -> None:
         key = (kind, f"{self.function}:{detail}")
@@ -91,9 +92,12 @@ class _RawSessionVisitor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         previous = self.function
+        previous_taint = self._tainted_result_names
         self.function = node.name
+        self._tainted_result_names = set()
         self.generic_visit(node)
         self.function = previous
+        self._tainted_result_names = previous_taint
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         self.visit_FunctionDef(node)
@@ -151,15 +155,44 @@ class _RawSessionVisitor(ast.NodeVisitor):
             dotted == f"{module}.sessionmaker" for module in self._orm_module_aliases
         )
 
+    def _is_tainted_result(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self._tainted_result_names
+        if isinstance(node, ast.Attribute):
+            return self._is_tainted_result(node.value)
+        if not isinstance(node, ast.Call):
+            return False
+        dotted = self._dotted_name(node.func)
+        if dotted and dotted.rsplit(".", 1)[-1] in {"execute", "scalars"}:
+            return True
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and node.args
+            and self._is_tainted_result(node.args[0])
+        ):
+            return True
+        return self._is_tainted_result(node.func)
+
+    def _update_result_taint(self, targets: list[ast.expr], value: ast.AST) -> None:
+        assigned = {name for target in targets for name in self._assigned_names(target)}
+        if self._is_tainted_result(value):
+            self._tainted_result_names.update(assigned)
+        else:
+            self._tainted_result_names.difference_update(assigned)
+
     def visit_Assign(self, node: ast.Assign) -> None:
         if self._is_sessionmaker_call(node.value):
             for target in node.targets:
                 self._factory_names.update(self._assigned_names(target))
+        self._update_result_taint(node.targets, node.value)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None and self._is_sessionmaker_call(node.value):
             self._factory_names.update(self._assigned_names(node.target))
+        if node.value is not None:
+            self._update_result_taint([node.target], node.value)
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -183,24 +216,29 @@ class _RawSessionVisitor(ast.NodeVisitor):
             self._record("factory", dotted or "sessionmaker")
         if isinstance(node.func, ast.Call) and self._is_sessionmaker_call(node.func):
             self._record("construction", "sessionmaker-result")
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and self._is_tainted_result(node.args[0])
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in {"connection", "context", "raw", "root_connection"}
+        ):
+            self._record("raw-access", str(node.args[1].value))
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         dotted = self._dotted_name(node)
         root_name = dotted.split(".", 1)[0] if dotted else ""
-        result_like = root_name in {"cursor_result", "db_result", "result"}
         raw_session_like = root_name in {"db", "raw_session", "session"}
-        context_connection = (
-            node.attr == "connection"
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == "context"
-            and result_like
-        )
-        if (
-            node.attr == "root_connection"
-            or (node.attr in {"bind", "connection", "get_bind", "query"} and raw_session_like)
-            or context_connection
-            or (node.attr == "raw" and result_like)
+        tainted_escape = node.attr in {
+            "connection",
+            "context",
+            "raw",
+            "root_connection",
+        } and self._is_tainted_result(node.value)
+        if tainted_escape or (
+            node.attr in {"bind", "connection", "get_bind", "query"} and raw_session_like
         ):
             self._record("raw-access", node.attr)
         self.generic_visit(node)
@@ -356,7 +394,27 @@ def test_raw_session_guard_does_not_flag_unrelated_request_context(tmp_path: Pat
     service_dir = tmp_path / "new_feature"
     service_dir.mkdir()
     (service_dir / "service.py").write_text(
-        "def safe(request):\n    return request.context.connection\n"
+        "def safe(request):\n"
+        "    return request.context.connection, request.root_connection, request.raw\n"
     )
 
     assert _raw_session_violations(tmp_path) == set()
+
+
+def test_raw_session_guard_tracks_result_dataflow_and_getattr(tmp_path: Path) -> None:
+    service_dir = tmp_path / "new_feature"
+    service_dir.mkdir()
+    (service_dir / "service.py").write_text(
+        "def unsafe(db, statement):\n"
+        "    obscure_name = db.execute(statement)\n"
+        "    alias = obscure_name\n"
+        "    scalar_alias = alias.scalars()\n"
+        "    leaked_context = getattr(scalar_alias, 'context')\n"
+        "    return leaked_context.connection.root_connection\n"
+    )
+
+    violations = _raw_session_violations(tmp_path)
+
+    assert any("context" in violation for violation in violations)
+    assert any("connection" in violation for violation in violations)
+    assert any("root_connection" in violation for violation in violations)

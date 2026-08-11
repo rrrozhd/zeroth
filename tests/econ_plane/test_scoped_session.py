@@ -5,7 +5,11 @@ from typing import ClassVar
 
 import pytest
 from sqlalchemy import (
+    Column,
+    Integer,
+    MetaData,
     String,
+    Table,
     bindparam,
     column,
     create_engine,
@@ -400,6 +404,57 @@ def test_select_rejects_recursive_textual_column_constructs_before_sql(
         statements.clear()
         with pytest.raises(ValueError, match="textual SQL"):
             scoped.execute(select(Capability.id, unsafe_expression))
+
+    assert statements == []
+
+
+def test_select_rejects_external_schema_table_subquery_before_sql(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    external_metadata = MetaData()
+    external_secrets = Table(
+        "external_secrets",
+        external_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("secret", String(128), nullable=False),
+    )
+    external_metadata.create_all(scoped_engine)
+    with scoped_engine.begin() as connection:
+        connection.execute(external_secrets.insert().values(id=1, secret="foreign-secret"))
+
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, sql, _params, _context, _many: statements.append(sql),
+    )
+    foreign_secret = select(external_secrets.c.secret).scalar_subquery()
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="unrecognized SQLAlchemy table or column"):
+            scoped.execute(select(Capability.id, foreign_secret))
+
+    assert statements == []
+
+
+def test_annotated_literal_column_cannot_forge_orm_provenance(scoped_engine) -> None:
+    _seed_capabilities(scoped_engine)
+    forged = literal_column("(SELECT name FROM capabilities WHERE id = 'cap-b')")._annotate(
+        {"parententity": inspect(Capability)}
+    )
+    statements: list[str] = []
+    event.listen(
+        scoped_engine,
+        "before_cursor_execute",
+        lambda _conn, _cursor, sql, _params, _context, _many: statements.append(sql),
+    )
+
+    with Session(scoped_engine) as raw:
+        scoped = ScopedSession(raw, _scope())
+        statements.clear()
+        with pytest.raises(ValueError, match="textual SQL"):
+            scoped.execute(select(Capability.id, forged))
 
     assert statements == []
 
