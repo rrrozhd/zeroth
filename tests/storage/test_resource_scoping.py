@@ -584,6 +584,149 @@ async def test_scoped_table_rejects_create_only_join_before_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scoped_join_cannot_replace_child_definition_to_bypass_operations() -> None:
+    database = _RecordingDatabase()
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="parents",
+                table_name="parents",
+                workspace_scoped=True,
+                operations=frozenset({ResourceOperation.ENUMERATE}),
+            ),
+            ResourceScopeDefinition(
+                resource_name="children",
+                table_name="children",
+                workspace_scoped=True,
+                operations=frozenset({ResourceOperation.CREATE}),
+            ),
+        ]
+    )
+    context = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    parent = ScopedTable(database, registry, "parents", context)
+    child = ScopedTable(database, registry, "children", context)
+    forged = ResourceScopeDefinition(
+        resource_name="parents",
+        table_name="children",
+        workspace_scoped=False,
+        operations=frozenset({ResourceOperation.ENUMERATE}),
+    )
+
+    with pytest.raises(AttributeError):
+        child._definition = forged  # type: ignore[misc]
+    with pytest.raises(ValueError, match="operation"):
+        await parent.select(
+            joins=(
+                ScopedJoin(
+                    table=child,
+                    local_column="parent_id",
+                    foreign_column="parent_id",
+                ),
+            )
+        )
+
+    assert child._definition is registry.definition_for_resource("children")
+    assert database.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["select", "insert", "update", "delete"])
+async def test_scoped_crud_cannot_replace_canonical_definition(operation: str) -> None:
+    database = _RecordingDatabase()
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="restricted",
+                table_name="restricted",
+                workspace_scoped=True,
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+    table = ScopedTable(
+        database,
+        registry,
+        "restricted",
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+    forged = ResourceScopeDefinition(
+        resource_name="restricted",
+        table_name="forged",
+        workspace_scoped=False,
+        operations=frozenset(ResourceOperation),
+    )
+
+    with pytest.raises(AttributeError):
+        table._definition = forged  # type: ignore[misc]
+    with pytest.raises(ValueError, match="operation"):
+        if operation == "select":
+            await table.select()
+        elif operation == "insert":
+            await table.insert({"id": "row-1"})
+        elif operation == "update":
+            await table.update({"value": "changed"}, where={"id": "row-1"})
+        else:
+            await table.delete(where={"id": "row-1"})
+
+    assert database.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["select", "insert", "update", "delete"])
+async def test_global_crud_cannot_replace_canonical_definition(operation: str) -> None:
+    database = _RecordingDatabase()
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="reference-data",
+                table_name="reference_data",
+                scope=ResourceScope.GLOBAL,
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+    table = GlobalTable(database, registry, "reference-data")
+    forged = ResourceScopeDefinition(
+        resource_name="reference-data",
+        table_name="forged_reference_data",
+        scope=ResourceScope.GLOBAL,
+        operations=frozenset(ResourceOperation),
+    )
+
+    with pytest.raises(AttributeError):
+        table._definition = forged  # type: ignore[misc]
+    with pytest.raises(ValueError, match="operation"):
+        if operation == "select":
+            await table.select()
+        elif operation == "insert":
+            await table.insert({"id": "row-1"})
+        elif operation == "update":
+            await table.update({"value": "changed"}, where={"id": "row-1"})
+        else:
+            await table.delete(where={"id": "row-1"})
+
+    assert database.transactions == []
+
+
+def test_scoped_table_internal_binding_fields_are_read_only() -> None:
+    database = _RecordingDatabase()
+    registry = _gateway_registry()
+    table = ScopedTable(
+        database,
+        registry,
+        "runs",
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+
+    with pytest.raises(AttributeError):
+        table._registry = ResourceScopeRegistry()  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        table._context = TenantWideScopeContext(tenant_id="tenant-a")  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        table._privileged_tenant_wide = True  # type: ignore[misc]
+
+
+@pytest.mark.asyncio
 async def test_select_rejects_forged_join_before_real_sqlite_query(tmp_path) -> None:
     class CountingSQLiteDatabase(AsyncSQLiteDatabase):
         def __init__(self, path: str) -> None:

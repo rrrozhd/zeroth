@@ -202,7 +202,7 @@ class ScopedJoin:
 
 
 class _StructuredTable:
-    __slots__ = ("__database", "_definition", "_registry")
+    __slots__ = ("__database", "__registry", "__resource_name")
 
     def __init__(
         self,
@@ -214,22 +214,49 @@ class _StructuredTable:
             raise TypeError("database must implement AsyncDatabase")
         if type(registry) is not ResourceScopeRegistry:
             raise TypeError("registry must be a ResourceScopeRegistry")
+        canonical = registry.definition_for_resource(definition.resource_name)
+        if canonical is not definition:
+            raise ValueError("definition must be the canonical registry definition")
         self.__database = database
-        self._registry = registry
-        self._definition = definition
+        self.__registry = registry
+        self.__resource_name = definition.resource_name
         _definition_table_name(definition)
 
-    def _validate_operation(self, operation: ResourceOperation) -> None:
+    @property
+    def _registry(self) -> ResourceScopeRegistry:
+        return self.__registry
+
+    @property
+    def _definition(self) -> ResourceScopeDefinition:
+        return self._canonical_definition()
+
+    def _canonical_definition(self) -> ResourceScopeDefinition:
+        return self.__registry.definition_for_resource(self.__resource_name)
+
+    def _validate_operation(
+        self,
+        operation: ResourceOperation,
+        definition: ResourceScopeDefinition,
+    ) -> None:
         raise NotImplementedError
 
-    def _scope_items(self) -> tuple[tuple[str, str], ...]:
+    def _scope_items(
+        self,
+        definition: ResourceScopeDefinition,
+    ) -> tuple[tuple[str, str], ...]:
         return ()
 
-    def _validate_values(self, values: dict[str, Any], *, create: bool) -> dict[str, Any]:
+    def _validate_values(
+        self,
+        values: dict[str, Any],
+        *,
+        create: bool,
+        definition: ResourceScopeDefinition,
+    ) -> dict[str, Any]:
         if not isinstance(values, dict) or not values:
             raise ValueError("values must be a non-empty dict")
         rendered = {_identifier(key): value for key, value in values.items()}
-        scope_items = dict(self._scope_items())
+        scope_items = dict(self._scope_items(definition))
         if create:
             for column, expected in scope_items.items():
                 if column in rendered and rendered[column] != expected:
@@ -245,6 +272,7 @@ class _StructuredTable:
         *,
         qualifier: str | None = None,
         include_scope: bool = True,
+        definition: ResourceScopeDefinition,
     ) -> tuple[list[str], list[Any]]:
         predicates: list[str] = []
         params: list[Any] = []
@@ -254,7 +282,7 @@ class _StructuredTable:
             predicates.append(f"{rendered} = ?")
             params.append(value)
         if include_scope:
-            for column, value in self._scope_items():
+            for column, value in self._scope_items(definition):
                 rendered = f"{qualifier}.{column}" if qualifier else column
                 predicates.append(f"{rendered} = ?")
                 params.append(value)
@@ -268,11 +296,16 @@ class _StructuredTable:
         joins: tuple[ScopedJoin, ...] = (),
     ) -> list[dict[str, Any]]:
         """Return scoped rows selected through structured equality predicates."""
-        self._validate_operation(ResourceOperation.ENUMERATE)
-        table_name = _definition_table_name(self._definition)
+        definition = self._canonical_definition()
+        self._validate_operation(ResourceOperation.ENUMERATE, definition)
+        table_name = _definition_table_name(definition)
         selected = _columns(columns, qualifier=table_name if joins else None)
         sql = f"SELECT {selected} FROM {table_name}"
-        predicates, params = self._where(where, qualifier=table_name if joins else None)
+        predicates, params = self._where(
+            where,
+            qualifier=table_name if joins else None,
+            definition=definition,
+        )
         for index, join in enumerate(joins, start=1):
             if type(join) is not ScopedJoin:
                 raise TypeError("joins must contain exact ScopedJoin values")
@@ -284,14 +317,19 @@ class _StructuredTable:
                 raise ValueError("global tables cannot join through a scoped gateway")
             assert isinstance(self, ScopedTable)
             self._validate_join(join.table)
-            join.table._validate_operation(ResourceOperation.ENUMERATE)
+            joined_definition = join.table._canonical_definition()
+            join.table._validate_operation(ResourceOperation.ENUMERATE, joined_definition)
             alias = f"j{index}"
-            joined_name = _definition_table_name(join.table._definition)
+            joined_name = _definition_table_name(joined_definition)
             sql += (
                 f" JOIN {joined_name} AS {alias} ON "
                 f"{table_name}.{join.local_column} = {alias}.{join.foreign_column}"
             )
-            join_predicates, join_params = join.table._where(None, qualifier=alias)
+            join_predicates, join_params = join.table._where(
+                None,
+                qualifier=alias,
+                definition=joined_definition,
+            )
             predicates.extend(join_predicates)
             params.extend(join_params)
         if predicates:
@@ -306,9 +344,10 @@ class _StructuredTable:
         columns: tuple[str, ...] = ("*",),
     ) -> dict[str, Any] | None:
         """Return one scoped row or ``None``."""
-        self._validate_operation(ResourceOperation.READ)
-        table_name = _definition_table_name(self._definition)
-        predicates, params = self._where(where)
+        definition = self._canonical_definition()
+        self._validate_operation(ResourceOperation.READ, definition)
+        table_name = _definition_table_name(definition)
+        predicates, params = self._where(where, definition=definition)
         sql = (
             f"SELECT {_columns(columns)} FROM {table_name} WHERE "
             + " AND ".join(predicates)
@@ -319,9 +358,10 @@ class _StructuredTable:
 
     async def insert(self, values: dict[str, Any]) -> None:
         """Insert a row after filling and validating its ownership columns."""
-        self._validate_operation(ResourceOperation.CREATE)
-        table_name = _definition_table_name(self._definition)
-        rendered = self._validate_values(values, create=True)
+        definition = self._canonical_definition()
+        self._validate_operation(ResourceOperation.CREATE, definition)
+        table_name = _definition_table_name(definition)
+        rendered = self._validate_values(values, create=True, definition=definition)
         columns = tuple(rendered)
         sql = (
             f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
@@ -332,12 +372,13 @@ class _StructuredTable:
 
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update rows selected by caller predicates plus the bound scope."""
-        self._validate_operation(ResourceOperation.UPDATE)
-        table_name = _definition_table_name(self._definition)
+        definition = self._canonical_definition()
+        self._validate_operation(ResourceOperation.UPDATE, definition)
+        table_name = _definition_table_name(definition)
         if not where:
             raise ValueError("update requires a non-empty where predicate")
-        rendered = self._validate_values(values, create=False)
-        predicates, where_params = self._where(where)
+        rendered = self._validate_values(values, create=False, definition=definition)
+        predicates, where_params = self._where(where, definition=definition)
         assignments = ", ".join(f"{column} = ?" for column in rendered)
         sql = f"UPDATE {table_name} SET {assignments} WHERE " + " AND ".join(predicates)
         async with self.__database.transaction(write_lock=True) as connection:
@@ -345,11 +386,12 @@ class _StructuredTable:
 
     async def delete(self, *, where: dict[str, Any]) -> None:
         """Delete rows selected by caller predicates plus the bound scope."""
-        self._validate_operation(ResourceOperation.DELETE)
-        table_name = _definition_table_name(self._definition)
+        definition = self._canonical_definition()
+        self._validate_operation(ResourceOperation.DELETE, definition)
+        table_name = _definition_table_name(definition)
         if not where:
             raise ValueError("delete requires a non-empty where predicate")
-        predicates, params = self._where(where)
+        predicates, params = self._where(where, definition=definition)
         sql = f"DELETE FROM {table_name} WHERE " + " AND ".join(predicates)
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, tuple(params))
@@ -358,7 +400,7 @@ class _StructuredTable:
 class ScopedTable(_StructuredTable):
     """A structured tenant-scoped table bound to one trusted scope context."""
 
-    __slots__ = ("_context", "_privileged_tenant_wide")
+    __slots__ = ("__context", "__privileged_tenant_wide")
 
     def __init__(
         self,
@@ -378,8 +420,16 @@ class ScopedTable(_StructuredTable):
         if definition.scope is ResourceScope.GLOBAL:
             raise ValueError("global resources require GlobalTable")
         super().__init__(database, registry, definition)
-        self._context = context
-        self._privileged_tenant_wide = _privileged_tenant_wide
+        self.__context = context
+        self.__privileged_tenant_wide = _privileged_tenant_wide
+
+    @property
+    def _context(self) -> ScopeContext | TenantWideScopeContext:
+        return self.__context
+
+    @property
+    def _privileged_tenant_wide(self) -> bool:
+        return self.__privileged_tenant_wide
 
     @classmethod
     def for_privileged_tenant_wide(
@@ -398,26 +448,33 @@ class ScopedTable(_StructuredTable):
             _privileged_tenant_wide=True,
         )
 
-    def _validate_operation(self, operation: ResourceOperation) -> None:
+    def _validate_operation(
+        self,
+        operation: ResourceOperation,
+        definition: ResourceScopeDefinition,
+    ) -> None:
         if self._privileged_tenant_wide:
             assert type(self._context) is TenantWideScopeContext
-            if operation is ResourceOperation.CREATE and self._definition.workspace_scoped:
+            if operation is ResourceOperation.CREATE and definition.workspace_scoped:
                 raise ValueError("workspace-scoped creates require a workspace context")
             self._registry.validate_privileged_tenant_wide_binding(
-                self._definition.resource_name,
+                definition.resource_name,
                 self._context,
                 operation=operation,
             )
         else:
             self._registry.validate_binding(
-                self._definition.resource_name,
+                definition.resource_name,
                 self._context,
                 operation=operation,
             )
 
-    def _scope_items(self) -> tuple[tuple[str, str], ...]:
+    def _scope_items(
+        self,
+        definition: ResourceScopeDefinition,
+    ) -> tuple[tuple[str, str], ...]:
         items = [("tenant_id", self._context.tenant_id)]
-        if self._definition.workspace_scoped and type(self._context) is ScopeContext:
+        if definition.workspace_scoped and type(self._context) is ScopeContext:
             items.append(("workspace_id", self._context.workspace_id))
         return tuple(items)
 
@@ -447,11 +504,25 @@ class GlobalTable(_StructuredTable):
             raise ValueError("tenant resources require ScopedTable")
         super().__init__(database, registry, definition)
 
-    def _validate_operation(self, operation: ResourceOperation) -> None:
-        self._registry.validate_binding(self._definition.resource_name, None, operation=operation)
+    def _validate_operation(
+        self,
+        operation: ResourceOperation,
+        definition: ResourceScopeDefinition,
+    ) -> None:
+        self._registry.validate_binding(definition.resource_name, None, operation=operation)
 
-    def _validate_values(self, values: dict[str, Any], *, create: bool) -> dict[str, Any]:
-        rendered = super()._validate_values(values, create=create)
+    def _validate_values(
+        self,
+        values: dict[str, Any],
+        *,
+        create: bool,
+        definition: ResourceScopeDefinition,
+    ) -> dict[str, Any]:
+        rendered = super()._validate_values(
+            values,
+            create=create,
+            definition=definition,
+        )
         if _OWNERSHIP_COLUMNS.intersection(rendered):
             raise ValueError("global resources cannot contain tenant or workspace ownership")
         return rendered
@@ -462,7 +533,13 @@ class GlobalTable(_StructuredTable):
         *,
         qualifier: str | None = None,
         include_scope: bool = True,
+        definition: ResourceScopeDefinition,
     ) -> tuple[list[str], list[Any]]:
         if where is not None and _OWNERSHIP_COLUMNS.intersection(where):
             raise ValueError("global resources cannot filter by tenant or workspace ownership")
-        return super()._where(where, qualifier=qualifier, include_scope=include_scope)
+        return super()._where(
+            where,
+            qualifier=qualifier,
+            include_scope=include_scope,
+            definition=definition,
+        )
