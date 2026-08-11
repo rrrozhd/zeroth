@@ -5,7 +5,7 @@ from zeroth.econ.plane.auth.deps import (
     require_claimed_tenant,
     require_roles,
 )
-from zeroth.econ.plane.auth.schemas import UserClaims
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.capabilities.schemas import (
     CapabilityCreate,
     CapabilityDetail,
