@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.auth.deps import require_roles
+from zeroth.econ.plane.auth.deps import get_current_global_db, get_current_scoped_db, require_roles
 from zeroth.econ.plane.auth.schemas import UserClaims
 from zeroth.econ.plane.costing.schemas import CostEstimateOut, CostProfileCreate, CostProfileOut, PricingCatalogCreate
 from zeroth.econ.plane.costing.service import (
@@ -10,7 +9,7 @@ from zeroth.econ.plane.costing.service import (
     get_cost_profile,
     latest_cost_estimate,
 )
-from zeroth.econ.plane.database import get_db
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["costing"])
 
@@ -26,7 +25,7 @@ _WRITE_ROLES = require_roles("Admin")
 @router.post("/costing/profiles", response_model=CostProfileOut)
 def post_profile(
     payload: CostProfileCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(_WRITE_ROLES),
 ) -> CostProfileOut:
     row = create_cost_profile(db, payload)
@@ -36,7 +35,7 @@ def post_profile(
 @router.get("/costing/profiles/{profile_id}", response_model=CostProfileOut)
 def get_profile(
     profile_id: int,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(_READ_ROLES),
 ) -> CostProfileOut:
     row = get_cost_profile(db, profile_id)
@@ -48,7 +47,7 @@ def get_profile(
 @router.post("/costing/pricing-catalog")
 def post_pricing(
     payload: PricingCatalogCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_global_db),
     _user: UserClaims = Depends(_WRITE_ROLES),
 ) -> dict[str, int]:
     row = create_pricing_catalog(db, payload)
@@ -58,7 +57,7 @@ def post_pricing(
 @router.get("/costing/estimates/{capability_id}/latest", response_model=CostEstimateOut)
 def get_latest_estimate(
     capability_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(_READ_ROLES),
 ) -> CostEstimateOut:
     row = latest_cost_estimate(db, capability_id)

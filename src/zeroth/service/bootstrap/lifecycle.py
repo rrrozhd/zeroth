@@ -116,6 +116,13 @@ async def _service_runtime_lifespan(app: FastAPI):
                     "ECP_JWT_SECRET for multi-worker or persistent deployments."
                 )
 
+            # The in-process client is a provisioned service principal. Its
+            # tenant claim is configuration-owned and never copied from an econ
+            # request body; an empty scope would make the persistence boundary
+            # impossible to bind safely.
+            if not ecp_settings.service_principal_tenant_id.strip():
+                raise RuntimeError("ECP_SERVICE_PRINCIPAL_TENANT_ID must be non-empty")
+
             econ_plane_bootstrap()
             init_otel_metrics()  # no-op unless ECP_OTEL_METRICS_ENABLED
             logger.info("Initialized bundled Regulus control plane")

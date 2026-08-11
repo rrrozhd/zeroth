@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.auth.deps import require_roles
+from zeroth.econ.plane.auth.deps import (
+    get_current_scoped_db,
+    require_claimed_tenant,
+    require_roles,
+)
 from zeroth.econ.plane.auth.schemas import UserClaims
-from zeroth.econ.plane.database import get_db
+from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.enforcement.schemas import BudgetStatusOut, DecisionRequest, EnforcementActionCreate, EnforcementActionOut, PolicyActionOut, TenantBudgetUpsert
 from zeroth.econ.plane.enforcement.service import create_action, decide_action, get_budget_status, list_actions, list_policy_actions, upsert_tenant_budget
 
@@ -17,7 +20,7 @@ router = APIRouter(tags=["enforcement", "policy"])
 @router.post("/enforcement/actions", response_model=EnforcementActionOut)
 def create(
     payload: EnforcementActionCreate,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> EnforcementActionOut:
     row = create_action(db, payload)
@@ -27,7 +30,7 @@ def create(
 @router.get("/enforcement/actions", response_model=list[EnforcementActionOut])
 def list_all(
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[EnforcementActionOut]:
     return [EnforcementActionOut.model_validate(r) for r in list_actions(db, status)]
@@ -36,7 +39,7 @@ def list_all(
 @router.get("/enforcement/policy-actions", response_model=list[PolicyActionOut])
 def list_policies(
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> list[PolicyActionOut]:
     return [PolicyActionOut.model_validate(r) for r in list_policy_actions(db, status)]
@@ -46,7 +49,7 @@ def list_policies(
 def approve(
     action_id: int,
     payload: DecisionRequest,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     user: UserClaims = Depends(require_roles("Approver", "Admin")),
 ) -> EnforcementActionOut:
     row = decide_action(db, action_id, "approve", user.sub, payload.reason)
@@ -59,7 +62,7 @@ def approve(
 def reject(
     action_id: int,
     payload: DecisionRequest,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     user: UserClaims = Depends(require_roles("Approver", "Admin")),
 ) -> EnforcementActionOut:
     row = decide_action(db, action_id, "reject", user.sub, payload.reason)
@@ -71,18 +74,20 @@ def reject(
 @router.get("/budget/status", response_model=BudgetStatusOut)
 def budget_status(
     tenant_id: str,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
 ) -> BudgetStatusOut:
-    return BudgetStatusOut(**get_budget_status(db, tenant_id))
+    claimed_tenant = require_claimed_tenant(_user, tenant_id)
+    return BudgetStatusOut(**get_budget_status(db, claimed_tenant))
 
 
 @router.put("/budget/tenants/{tenant_id}", response_model=BudgetStatusOut)
 def set_tenant_budget(
     tenant_id: str,
     payload: TenantBudgetUpsert,
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin")),
 ) -> BudgetStatusOut:
-    upsert_tenant_budget(db, tenant_id, payload.budget_cap_usd)
-    return BudgetStatusOut(**get_budget_status(db, tenant_id))
+    claimed_tenant = require_claimed_tenant(_user, tenant_id)
+    upsert_tenant_budget(db, claimed_tenant, payload.budget_cap_usd)
+    return BudgetStatusOut(**get_budget_status(db, claimed_tenant))
