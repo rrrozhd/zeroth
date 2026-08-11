@@ -70,6 +70,17 @@ function variablesOf(t: Template): string[] {
   return t.variables.length > 0 ? t.variables : parseVars(t.template_str);
 }
 
+export async function deleteConfirmedTemplateVersion(
+  name: string,
+  version: number,
+  confirm: (message: string) => boolean = window.confirm,
+  remove: (name: string, version: string) => Promise<unknown> = deleteTemplateVersion,
+): Promise<boolean> {
+  if (!confirm(`Delete ${name}@v${version}? This cannot be undone.`)) return false;
+  await remove(name, String(version));
+  return true;
+}
+
 // --------------------------------------------------------------------------
 // Page shell
 // --------------------------------------------------------------------------
@@ -273,7 +284,7 @@ function TemplateRow({
 // TemplateResponse). name@vN header, delete-version, variable chips, Jinja2 body.
 // --------------------------------------------------------------------------
 
-function TemplateDetail({ template: t, onDeleted }: { template: Template; onDeleted: () => void }) {
+export function TemplateDetail({ template: t, onDeleted }: { template: Template; onDeleted: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const vars = variablesOf(t);
@@ -281,7 +292,10 @@ function TemplateDetail({ template: t, onDeleted }: { template: Template; onDele
   async function doDelete() {
     setBusy(true);
     try {
-      await deleteTemplateVersion(t.name, String(t.version));
+      if (!(await deleteConfirmedTemplateVersion(t.name, t.version))) {
+        setBusy(false);
+        return;
+      }
       toast(`Deleted ${t.name}@v${t.version}`);
       onDeleted();
     } catch (e) {
