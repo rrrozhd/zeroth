@@ -607,6 +607,8 @@ ACTION_MUTATIONS: dict[str, Any] = {
     "arguments_digest": f"sha256:{'8' * 64}",
     "contract_ref": "contracts/other@v9",
     "side_effect": "read_only",
+    "capability_refs": ("network_write",),
+    "requires_approval": True,
 }
 
 

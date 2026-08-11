@@ -227,6 +227,29 @@ async def test_a_read_only_call_is_not_held_by_a_side_effect_approval_policy(
     assert response.kind is DecisionKind.ALLOW
 
 
+async def test_a_tool_explicitly_requiring_approval_is_held_even_when_read_only(
+    sqlite_db: Any,
+) -> None:
+    """A tool-level approval declaration is authoritative, not merely metadata."""
+    registry = ApprovalRequiringRegistry()
+    service = make_guarded_service(
+        sqlite_db,
+        approval_gate=PolicyApprovalGate(registry),
+        deployment_policies=StaticDeploymentPolicies(()),
+    )
+
+    response = await service.decide(
+        make_request(
+            action=make_action(side_effect="read_only", requires_approval=True),
+            policy_bindings=(),
+        )
+    )
+
+    assert response.kind is DecisionKind.REQUIRE_APPROVAL
+    assert response.approval_ref is not None
+    assert registry.resolved == []
+
+
 # --------------------------------------------------------------------------
 # R7 -- an action outside the registered inventory is refused
 # --------------------------------------------------------------------------

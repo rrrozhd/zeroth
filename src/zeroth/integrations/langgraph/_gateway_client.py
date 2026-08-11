@@ -25,6 +25,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolDecisionKind,
     ToolGovernanceContext,
     ToolInventory,
+    describe_tool_policy,
 )
 from zeroth.integrations.langgraph.enforcement_protocol import (
     ADAPTER_PROTOCOL_VERSION,
@@ -224,14 +225,9 @@ class LangGraphGatewayClient:
                 policy_version=policy_version,
                 inventory_fingerprint=self.inventory_fingerprint,
                 action=ActionDescriptorV1(
-                    name=action.identity.name,
-                    fingerprint=action.identity.fingerprint,
+                    **describe_tool_policy(action).wire_fields(),
                     tool_call_id=action.tool_call_id,
                     arguments=dict(action.arguments),
-                    side_effect=action.side_effect,
-                    contract_ref=action.contract_ref,
-                    capability_refs=tuple(action.capability_refs),
-                    requires_approval=action.requires_approval,
                 ),
             )
             response = DecisionResponseV1.model_validate(

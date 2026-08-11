@@ -2973,6 +2973,13 @@
           "arguments_digest": {
             "type": "string"
           },
+          "capability_refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "contract_ref": {
             "anyOf": [
               {
@@ -2988,6 +2995,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "requires_approval": {
+            "default": false,
+            "type": "boolean"
           },
           "side_effect": {
             "default": "unknown",

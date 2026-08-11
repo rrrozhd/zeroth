@@ -181,6 +181,8 @@ class PolicyApprovalGate:
                 gate into a denial, so an unreadable policy set refuses the
                 call rather than quietly allowing it.
         """
+        if request.action.requires_approval:
+            return f"tool-approval:{request.tenant_id}:{request.idempotency_key}"
         if request.action.side_effect != "side_effecting":
             return None
         for ref in sorted(set(policy_bindings)):

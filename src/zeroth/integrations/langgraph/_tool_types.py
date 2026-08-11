@@ -33,7 +33,7 @@ decision was made about.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
@@ -157,6 +157,53 @@ class ToolAction:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolPolicyDescriptor:
+    """The governance facts both decision wires must carry for one tool.
+
+    ``ToolAction`` also carries call-local material such as arguments and a
+    principal. Those fields have different trust and privacy treatment at each
+    boundary. This descriptor is the shared field set policies consume; its
+    generic wire projection makes an added field reach both strict DTOs, where
+    omitting the corresponding schema field fails validation instead of
+    silently dropping it.
+    """
+
+    identity: ToolIdentity
+    side_effect: SideEffectClass
+    contract_ref: str | None
+    capability_refs: tuple[str, ...]
+    requires_approval: bool
+
+    def wire_fields(self) -> dict[str, object]:
+        """Flatten the identity and return every policy field by dataclass shape."""
+        payload: dict[str, object] = {
+            "name": self.identity.name,
+            "fingerprint": self.identity.fingerprint,
+        }
+        payload.update(
+            {
+                field.name: getattr(self, field.name)
+                for field in fields(self)
+                if field.name != "identity"
+            }
+        )
+        return payload
+
+
+def describe_tool_policy(action: ToolAction) -> ToolPolicyDescriptor:
+    """Derive the one policy descriptor from an exactly-typed action."""
+    if type(action) is not ToolAction:
+        raise TypeError("a ToolAction is required to describe tool policy")
+    return ToolPolicyDescriptor(
+        identity=action.identity,
+        side_effect=action.side_effect,
+        contract_ref=action.contract_ref,
+        capability_refs=tuple(action.capability_refs),
+        requires_approval=action.requires_approval,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ToolDecision:
     """The verdict tool governance returned, with the reason it is recorded under.
 
@@ -255,4 +302,6 @@ __all__ = [
     "ToolIdentity",
     "ToolInventory",
     "ToolInventoryEntry",
+    "ToolPolicyDescriptor",
+    "describe_tool_policy",
 ]
