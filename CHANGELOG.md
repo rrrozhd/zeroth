@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2.8.3] - 2026-08-10
+
+### Fixed
+
+- Each non-class `__signature__` exemption is executed rather than asserted in prose. A
+  plausible sentence beside a real class name would have escaped the record entirely, which
+  would make the per-site allowlist the category exemption it replaced (ZER-41).
+
 ## [0.22.2.8.2] - 2026-08-10
 
 ### Fixed

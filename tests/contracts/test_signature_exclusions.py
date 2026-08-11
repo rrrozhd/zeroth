@@ -313,6 +313,41 @@ def test_every_non_class_exemption_states_what_it_was_verified_to_be() -> None:
         assert len(reason.strip()) > 40, reference
 
 
+@pytest.mark.parametrize("reference", sorted(NON_CLASS_SIGNATURE_SITES))
+def test_every_non_class_exemption_really_targets_a_non_class(reference: str) -> None:
+    """The claim is checked, not taken.
+
+    A prose reason is unfalsifiable on its own: an entry naming a real class with
+    a plausible sentence beside it would escape the record entirely, which would
+    make this allowlist the category exemption it replaced. So the claim is
+    executed. A module-level class resolves by name; a target that does not
+    resolve at module level cannot be one, which is what distinguishes a
+    function-local wrapper from a pinned class.
+    """
+    module, _, name = reference.partition(":")
+    resolved = getattr(importlib.import_module(module), name, None)
+
+    assert not inspect.isclass(resolved), (
+        f"{reference} is exempted as non-class but resolves to the class {resolved!r}; "
+        "record its hidden fields in HIDDEN_CONSTRUCTOR_FIELDS instead of exempting it"
+    )
+
+
+def test_the_non_class_check_would_reject_a_class_named_in_the_allowlist() -> None:
+    """The detector, fed the escape it exists to refuse."""
+    honest = getattr(
+        importlib.import_module("zeroth.integrations.langgraph._tool_wrappers"),
+        "governed",
+        None,
+    )
+    a_real_class = importlib.import_module(
+        "zeroth.governance.policy.models"
+    ).PolicyDefinition
+
+    assert not inspect.isclass(honest)
+    assert inspect.isclass(a_real_class)
+
+
 def test_the_non_class_allowlist_names_only_sites_that_exist() -> None:
     """A retired exemption would let a real hiding site inherit its pass."""
     stale = sorted(set(NON_CLASS_SIGNATURE_SITES) - set(signature_assignments()))
