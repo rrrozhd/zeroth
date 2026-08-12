@@ -602,6 +602,13 @@ def _must_alias_events(
             )
         return _resolved_audit_repository_name(value, repository_names, module_names)
 
+    def leaf_identities(
+        value: ast.AST, state: dict[str, _AliasIdentity]
+    ) -> tuple[_AliasIdentity, ...]:
+        if isinstance(value, ast.IfExp):
+            return (*leaf_identities(value.body, state), *leaf_identities(value.orelse, state))
+        return (resolve(value, state),)
+
     def join(
         left: dict[str, _AliasIdentity], right: dict[str, _AliasIdentity]
     ) -> dict[str, _AliasIdentity]:
@@ -626,8 +633,7 @@ def _must_alias_events(
             identity = resolve(value, state)
             state[target.id] = identity
             if isinstance(value, ast.IfExp) and identity is None:
-                for branch in (value.body, value.orelse):
-                    branch_identity = resolve(branch, state)
+                for branch_identity in leaf_identities(value, state):
                     if branch_identity is not None:
                         events.setdefault(target.id, []).append(
                             ((statement.lineno, statement.col_offset), branch_identity)
@@ -938,6 +944,22 @@ def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
             return structural_pairs(target, value)
         body_pairs = compositional_pairs(target, value.body)
         orelse_pairs = compositional_pairs(target, value.orelse)
+        if len(body_pairs) > 1 and len(orelse_pairs) == 1 and orelse_pairs[0][0] is target:
+            return tuple(
+                (
+                    body_target,
+                    ast.IfExp(test=value.test, body=body_value, orelse=orelse_pairs[0][1]),
+                )
+                for body_target, body_value in body_pairs
+            )
+        if len(orelse_pairs) > 1 and len(body_pairs) == 1 and body_pairs[0][0] is target:
+            return tuple(
+                (
+                    orelse_target,
+                    ast.IfExp(test=value.test, body=body_pairs[0][1], orelse=orelse_value),
+                )
+                for orelse_target, orelse_value in orelse_pairs
+            )
         if len(body_pairs) != len(orelse_pairs) or any(
             body_target is not orelse_target
             for (body_target, _body_value), (orelse_target, _orelse_value) in zip(
@@ -2964,6 +2986,41 @@ def test_public_call_inventory_joins_conditional_type_aliases(
 
     assert _audit_repository_public_call_inventory(tmp_path) == expected
     assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+def test_public_call_inventory_reports_nested_divergent_conditional_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond, other):\n"
+        "    factory = (AuditRepository.scoped if cond else other) if cond else other\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_reports_mixed_structured_conditional_branch(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond, clients):\n"
+        "    repo, other = (AuditRepository.scoped(db, scope), object()) if cond else clients\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 @pytest.mark.parametrize(
