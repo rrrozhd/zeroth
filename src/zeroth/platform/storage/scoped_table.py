@@ -10,6 +10,7 @@ from typing import Any, Self
 
 from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.scoping import (
+    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
@@ -244,8 +245,12 @@ class _StructuredTable:
     ) -> tuple[tuple[str, str | None], ...]:
         return ()
 
-    def in_transaction(self, connection: AsyncConnection) -> BoundStructuredTable:
+    def in_transaction(
+        self, connection: AsyncConnection | BoundStructuredTable
+    ) -> BoundStructuredTable:
         """Bind this table's structural rules to an existing transaction."""
+        if isinstance(connection, BoundStructuredTable):
+            return connection.bind(self)
         return BoundStructuredTable(self, connection)
 
     @asynccontextmanager
@@ -475,6 +480,24 @@ class BoundStructuredTable:
         ):
             raise ValueError("bound tables must use the same database")
         return BoundStructuredTable(table, self.__connection)
+
+    async def delete_side_effect_operations_for_run(self, run_id: str) -> int:
+        """Delete legacy receipts during coordinated run erasure.
+
+        ``side_effect_operations`` predates direct ownership. Keeping this narrow
+        transition method on the transaction gateway avoids exposing its raw
+        connection while the table awaits its ownership migration.
+        """
+        rows = await self.__connection.fetch_all(
+            "SELECT operation_key FROM side_effect_operations WHERE run_id = ?",
+            (run_id,),
+        )
+        if rows:
+            await self.__connection.execute(
+                "DELETE FROM side_effect_operations WHERE run_id = ?",
+                (run_id,),
+            )
+        return len(rows)
 
     def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
         definition = self.__table._canonical_definition()
@@ -735,18 +758,28 @@ class BoundStructuredTable:
 class ScopedTable(_StructuredTable):
     """A structured tenant-scoped table bound to one trusted scope context."""
 
-    __slots__ = ("__context", "__privileged_tenant_wide")
+    __slots__ = ("__context", "__privileged_tenant_wide", "__cross_tenant_maintenance")
 
     def __init__(
         self,
         database: AsyncDatabase,
         registry: ResourceScopeRegistry,
         resource_name: str,
-        context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
+        context: (
+            ScopeContext
+            | NullWorkspaceScopeContext
+            | TenantWideScopeContext
+            | CrossTenantMaintenanceScopeContext
+        ),
         *,
         _privileged_tenant_wide: bool = False,
+        _cross_tenant_maintenance: bool = False,
     ) -> None:
-        if _privileged_tenant_wide:
+        if _cross_tenant_maintenance:
+            if type(context) is not CrossTenantMaintenanceScopeContext:
+                raise TypeError("maintenance context must be a CrossTenantMaintenanceScopeContext")
+            definition = registry.definition_for_resource(resource_name)
+        elif _privileged_tenant_wide:
             if type(context) is not TenantWideScopeContext:
                 raise TypeError("privileged context must be a TenantWideScopeContext")
             definition = registry.validate_privileged_tenant_wide_binding(resource_name, context)
@@ -757,9 +790,10 @@ class ScopedTable(_StructuredTable):
         super().__init__(database, registry, definition)
         self.__context = context
         self.__privileged_tenant_wide = _privileged_tenant_wide
+        self.__cross_tenant_maintenance = _cross_tenant_maintenance
 
     @property
-    def _context(self) -> ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext:
+    def _context(self) -> object:
         return self.__context
 
     @property
@@ -783,11 +817,33 @@ class ScopedTable(_StructuredTable):
             _privileged_tenant_wide=True,
         )
 
+    @classmethod
+    def for_cross_tenant_maintenance(
+        cls,
+        database: AsyncDatabase,
+        registry: ResourceScopeRegistry,
+        resource_name: str,
+        context: CrossTenantMaintenanceScopeContext,
+    ) -> Self:
+        """Construct an explicit read-only cross-tenant maintenance gateway."""
+        return cls(
+            database,
+            registry,
+            resource_name,
+            context,
+            _cross_tenant_maintenance=True,
+        )
+
     def _validate_operation(
         self,
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
     ) -> ResourceScopeDefinition:
+        if self.__cross_tenant_maintenance:
+            assert type(self._context) is CrossTenantMaintenanceScopeContext
+            return self._registry.validate_cross_tenant_maintenance_binding(
+                definition.resource_name, self._context, operation=operation
+            )
         if self._privileged_tenant_wide:
             assert type(self._context) is TenantWideScopeContext
             if operation is ResourceOperation.CREATE and definition.workspace_scoped:
@@ -807,6 +863,9 @@ class ScopedTable(_StructuredTable):
         self,
         definition: ResourceScopeDefinition,
     ) -> tuple[tuple[str, str | None], ...]:
+        if self.__cross_tenant_maintenance:
+            return ()
+        assert not isinstance(self._context, CrossTenantMaintenanceScopeContext)
         items = [("tenant_id", self._context.tenant_id)]
         if definition.workspace_scoped and type(self._context) is ScopeContext:
             items.append(("workspace_id", self._context.workspace_id))

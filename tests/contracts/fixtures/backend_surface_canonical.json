@@ -8462,7 +8462,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "LegalHoldRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -8475,7 +8475,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "RetentionAuditLogRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -8514,7 +8514,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "RetentionPolicyRepository",
-      "signature": "(database: 'AsyncDatabase', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext | TenantWideScopeContext | CrossTenantMaintenanceScopeContext', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -8527,7 +8527,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "RetentionPurgeWorker",
-      "signature": "(erasure_service: 'RetentionErasureService', policy_repository: 'RetentionPolicyRepository', poll_interval: 'float' = 3600.0) -> None"
+      "signature": "(database: 'AsyncDatabase', erasure_service_factory: 'Callable[[str], RetentionErasureService]', poll_interval: 'float' = 3600.0) -> None"
     },
     {
       "evidence": [
@@ -8674,7 +8674,7 @@
       ],
       "module": "zeroth.integrations.persistence.runs",
       "name": "RunRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -8748,7 +8748,7 @@
       ],
       "module": "zeroth.integrations.persistence.runs",
       "name": "ThreadRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -11133,7 +11133,7 @@
       ],
       "module": "zeroth.service.webhooks",
       "name": "WebhookRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [

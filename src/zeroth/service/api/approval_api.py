@@ -160,9 +160,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
 
                     for _ in range(100):  # up to ~5 s
                         await _asyncio.sleep(0.05)
-                        current = await bootstrap.run_repository.get(
-                            run.run_id, tenant_id=deployment.tenant_id
-                        )
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None and current.status not in {
                             RunStatus.PENDING,
                             RunStatus.RUNNING,
@@ -170,9 +168,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                             run = current
                             break
                     else:
-                        current = await bootstrap.run_repository.get(
-                            run.run_id, tenant_id=deployment.tenant_id
-                        )
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None:
                             run = current
                 else:

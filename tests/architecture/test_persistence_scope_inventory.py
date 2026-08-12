@@ -2005,9 +2005,12 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
 def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() -> None:
     root = Path(__file__).resolve().parents[2]
     # The binding inventory independently prohibits direct/default construction,
-    # so every operation below is rooted in the sole reviewed scoped factory.
+    # so every operation below is rooted in a reviewed scoped factory.
     assert _audit_repository_binding_inventory(root) == frozenset(
-        {"src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped"}
+        {
+            "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
+            "src/zeroth/service/bootstrap/factory.py::retention_service_for_tenant::scoped",
+        }
     )
     reviewed, unreviewed = _audit_repository_public_call_inventories(root)
     assert reviewed == _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY
@@ -4620,11 +4623,14 @@ def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
     return frozenset(inventory)
 
 
-def test_production_audit_repository_has_one_explicit_scoped_constructor() -> None:
+def test_production_audit_repository_has_only_explicit_scoped_constructors() -> None:
     """Keep the complete production construction surface owner-bound."""
     root = Path(__file__).resolve().parents[2]
     assert _audit_repository_binding_inventory(root) == frozenset(
-        {"src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped"}
+        {
+            "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
+            "src/zeroth/service/bootstrap/factory.py::retention_service_for_tenant::scoped",
+        }
     )
 
 
