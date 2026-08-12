@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
+import inspect
 
 import pytest
 
+from zeroth.governance.attestations import (
+    InventoryRegistrationRepository,
+    RunAttestationRepository,
+)
+from zeroth.governance.decisions import DecisionRepository
 from zeroth.platform.storage import ResourceOperation
 from zeroth.platform.storage.scoped_table import _StructuredTable
 from zeroth.platform.storage.service_surfaces import (
@@ -23,60 +30,11 @@ _OPERATION_CODE = {
 
 _PREDICATE_MECHANISMS = (
     (
-        "service.approvals",
-        "zeroth.governance.approvals.repository",
-        "_tenant_predicate",
-        "crnu",
-    ),
-    (
-        "service.approvals",
-        "zeroth.governance.approvals.repository",
-        "_ownership_conflict_clause",
-        "c",
-    ),
-    (
-        "service.decision_records",
-        "zeroth.governance.decisions.repository",
-        "_SELECT_BY_KEY",
-        "cr",
-    ),
-    (
-        "service.deployment_versions",
-        "zeroth.service.deployments.repository",
-        "_scope_clause",
-        "crnu",
-    ),
-    (
-        "service.graph_versions",
-        "zeroth.contracts.graph.repository",
-        "_scope_clause",
-        "crnu",
-    ),
-    (
         "service.enforcement_heartbeats",
         "zeroth.governance.attestations.heartbeat",
         "_SELECT_LATEST_HEARTBEAT",
         # ``record`` does not execute this lookup; CREATE ownership binding is
         # covered by the generated ScopedTable gateway mutation instead.
-        "r",
-    ),
-    (
-        "service.memory_connector_configs",
-        "zeroth.integrations.memory.config_repository",
-        "_tenant_predicate",
-        "crnud",
-    ),
-    (
-        "service.run_attestations",
-        "zeroth.governance.attestations.store",
-        "_SELECT_ATTESTATION",
-        "cr",
-    ),
-    (
-        "service.tool_inventory_registrations",
-        "zeroth.governance.attestations.store",
-        "_SELECT_LATEST_REGISTRATION",
-        # ``register`` is append-only and does not execute the latest-row SQL.
         "r",
     ),
 )
@@ -87,6 +45,48 @@ _MUTATIONS = tuple(
     for code in operation_codes
 )
 _SURFACES = load_service_persistence_surfaces()
+
+
+@pytest.mark.parametrize(
+    ("repository_type", "gateway_name"),
+    (
+        (InventoryRegistrationRepository, "_registrations"),
+        (RunAttestationRepository, "_attestations"),
+        (DecisionRepository, "_decisions"),
+    ),
+)
+@pytest.mark.parametrize("tenant_id", ("default", "tenant-alpha"))
+def test_scoped_gateway_factories_preserve_default_and_named_tenants(
+    async_database,
+    repository_type,
+    gateway_name: str,
+    tenant_id: str,
+) -> None:
+    repository = repository_type(async_database)
+    gateway = getattr(repository, gateway_name)(tenant_id)
+
+    assert gateway._context.tenant_id == tenant_id
+
+
+def test_custom_predicate_mechanism_inventory_matches_production() -> None:
+    reviewed = {
+        (module_name, predicate_name) for _, module_name, predicate_name, _ in _PREDICATE_MECHANISMS
+    }
+    direct_database_modules = {
+        surface.repository_type.__module__
+        for surface in _SURFACES
+        if "self._database.transaction(" in inspect.getsource(surface.repository_type)
+    }
+    assert {module_name for module_name, _ in reviewed} == direct_database_modules
+    for module_name, predicate_name in reviewed:
+        module = importlib.import_module(module_name)
+        assert hasattr(module, predicate_name)
+        loads = {
+            node.id
+            for node in ast.walk(ast.parse(inspect.getsource(module)))
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+        }
+        assert predicate_name in loads
 
 
 @pytest.mark.parametrize(
@@ -107,16 +107,6 @@ async def test_each_concrete_repository_predicate_bypass_is_detected(
     if isinstance(predicate, str):
         bypass = predicate.replace("tenant_id = ?", "? IS NOT NULL")
         assert bypass != predicate
-    elif predicate_name == "_scope_clause":
-
-        def bypass(*_):
-            return "1=1", ()
-
-    elif predicate_name == "_ownership_conflict_clause":
-
-        def bypass():
-            return ""
-
     else:
 
         def bypass(*_):
