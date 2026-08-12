@@ -1846,14 +1846,77 @@ def _audit_repository_public_call_provenance(
                 def bind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
                     return state[0] - names, state[1] | names
 
-                def expression_may_raise(expression: ast.AST | None) -> bool:
-                    return expression is not None and any(
-                        isinstance(
-                            node,
-                            (ast.Attribute, ast.Await, ast.Call, ast.Subscript, ast.YieldFrom),
+                def is_provably_nonraising(expression: ast.AST) -> bool:
+                    if isinstance(expression, (ast.Constant, ast.Name)):
+                        return True
+                    if isinstance(expression, ast.UnaryOp):
+                        return isinstance(expression.op, (ast.UAdd, ast.USub, ast.Invert)) and (
+                            is_provably_nonraising(expression.operand)
                         )
-                        for node in ast.walk(expression)
-                    )
+                    if isinstance(expression, ast.BinOp):
+                        if not (
+                            is_provably_nonraising(expression.left)
+                            and is_provably_nonraising(expression.right)
+                        ):
+                            return False
+                        if isinstance(expression.op, (ast.Div, ast.FloorDiv, ast.Mod)):
+                            return not (
+                                isinstance(expression.right, ast.Constant)
+                                and expression.right.value == 0
+                            )
+                        return isinstance(
+                            expression.op,
+                            (ast.Add, ast.Sub, ast.Mult, ast.Pow, ast.LShift, ast.RShift, ast.BitAnd, ast.BitOr, ast.BitXor),
+                        )
+                    return False
+
+                def expression_may_raise(expression: ast.AST | None) -> bool:
+                    if expression is None or is_provably_nonraising(expression):
+                        return False
+                    if isinstance(expression, ast.Lambda):
+                        return False
+                    if isinstance(expression, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        return any(
+                            expression_may_raise(node)
+                            for node in (
+                                *expression.decorator_list,
+                                *expression.args.defaults,
+                                *(default for default in expression.args.kw_defaults if default),
+                                expression.returns,
+                            )
+                        )
+                    if isinstance(
+                        expression,
+                        (ast.Attribute, ast.Await, ast.Call, ast.Subscript, ast.YieldFrom),
+                    ):
+                        return True
+                    if isinstance(expression, (ast.BinOp, ast.BoolOp, ast.Compare, ast.UnaryOp)):
+                        return True
+                    return any(expression_may_raise(child) for child in ast.iter_child_nodes(expression))
+
+                def known_raised_exception_name(block: list[ast.stmt]) -> str | None:
+                    if len(block) != 1 or not isinstance(block[0], ast.Raise):
+                        return None
+                    exception = block[0].exc
+                    if isinstance(exception, ast.Name):
+                        return exception.id
+                    if isinstance(exception, ast.Call) and isinstance(exception.func, ast.Name):
+                        return exception.func.id
+                    return None
+
+                def handler_catches_exception(
+                    handler: ast.ExceptHandler, exception_name: str
+                ) -> bool:
+                    def catches(annotation: ast.expr | None) -> bool:
+                        if annotation is None:
+                            return True
+                        if isinstance(annotation, ast.Name):
+                            return annotation.id in {exception_name, "Exception", "BaseException"}
+                        if isinstance(annotation, ast.Tuple):
+                            return any(catches(item) for item in annotation.elts)
+                        return False
+
+                    return catches(handler.type)
 
                 def apply_finally(flow: PotentialFlow, finalbody: list[ast.stmt]) -> PotentialFlow:
                     continuing: list[_PotentialState] = []
@@ -1944,7 +2007,15 @@ def _audit_repository_public_call_provenance(
                             handler_flows: list[PotentialFlow] = []
                             handler_state = join_states(*body_flow.exceptions)
                             if handler_state is not None:
-                                for handler in statement.handlers:
+                                known_exception = known_raised_exception_name(statement.body)
+                                handlers = statement.handlers
+                                if known_exception is not None:
+                                    handlers = tuple(
+                                        handler
+                                        for handler in statement.handlers
+                                        if handler_catches_exception(handler, known_exception)
+                                    )[:1]
+                                for handler in handlers:
                                     handler_names = {handler.name} if handler.name is not None else set()
                                     handler_flows.append(
                                         walk_potential_bindings(
@@ -2042,6 +2113,9 @@ def _audit_repository_public_call_provenance(
                                 )
                                 for case in statement.cases
                             ]
+                            for case in statement.cases:
+                                if expression_may_raise(case.guard):
+                                    exceptions.append(before)
 
                             def is_irrefutable(pattern: ast.pattern) -> bool:
                                 return (
@@ -5981,6 +6055,143 @@ def test_public_call_inventory_finally_rebind_transforms_break_exit(tmp_path: Pa
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "if 1 / 0:\n            Base = OtherRepository\n        else:\n            Base = AnotherRepository\n",
+        "match value:\n"
+        "            case _ if 1 / 0:\n"
+        "                Base = OtherRepository\n"
+        "            case _:\n"
+        "                Base = AnotherRepository\n",
+    ],
+    ids=["if-operator", "match-guard-operator"],
+)
+def test_public_call_inventory_keeps_potential_after_suppressed_operator_expression(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, value, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        "
+        + compound
+        + "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_clears_potential_after_safe_operator_expression(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        if 1 + 1:\n"
+        "            Base = OtherRepository\n"
+        "        else:\n"
+        "            Base = AnotherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "        callback = lambda: may_raise()\n",
+        "        def callback():\n            return may_raise()\n",
+    ],
+    ids=["lambda", "function"],
+)
+def test_public_call_inventory_ignores_unevaluated_definition_body(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        + definition
+        + "        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_skips_impossible_ordered_exception_handler(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    try:\n"
+        "        raise ValueError\n"
+        "    except TypeError:\n"
+        "        type Repo = Base\n"
+        "    except ValueError:\n"
+        "        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_unknown_exception_handler_conservative(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    try:\n"
+        "        may_raise()\n"
+        "        Base = OtherRepository\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    except ValueError:\n"
+        "        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 @pytest.mark.parametrize(
