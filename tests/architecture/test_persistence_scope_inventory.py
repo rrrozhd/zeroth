@@ -1850,16 +1850,50 @@ def _audit_repository_public_call_provenance(
                             invalidated_names = body_state[1] & else_state[1]
                             continue
                         if isinstance(statement, (ast.Try, ast.TryStar)):
+                            body_state = walk_potential_bindings(
+                                statement.body, potential_names, invalidated_names
+                            )
                             path_states = [
-                                walk_potential_bindings(
-                                    statement.body, potential_names, invalidated_names
-                                ),
+                                walk_potential_bindings(statement.orelse, *body_state),
                                 *(
                                     walk_potential_bindings(
                                         handler.body, potential_names, invalidated_names
                                     )
                                     for handler in statement.handlers
                                 ),
+                            ]
+                            potential_names = set().union(*(state[0] for state in path_states))
+                            invalidated_names = set.intersection(
+                                *(state[1] for state in path_states)
+                            )
+                            potential_names, invalidated_names = walk_potential_bindings(
+                                statement.finalbody, potential_names, invalidated_names
+                            )
+                            continue
+                        if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                            body_state = walk_potential_bindings(
+                                statement.body, potential_names, invalidated_names
+                            )
+                            loop_state = (
+                                (potential_names | body_state[0], invalidated_names & body_state[1])
+                                if any(isinstance(node, ast.Break) for node in ast.walk(statement))
+                                else body_state
+                            )
+                            potential_names, invalidated_names = walk_potential_bindings(
+                                statement.orelse, *loop_state
+                            )
+                            continue
+                        if isinstance(statement, (ast.With, ast.AsyncWith)):
+                            potential_names, invalidated_names = walk_potential_bindings(
+                                statement.body, potential_names, invalidated_names
+                            )
+                            continue
+                        if isinstance(statement, ast.Match):
+                            path_states = [
+                                walk_potential_bindings(
+                                    case.body, potential_names, invalidated_names
+                                )
+                                for case in statement.cases
                             ]
                             potential_names = set().union(*(state[0] for state in path_states))
                             invalidated_names = set.intersection(
@@ -5382,6 +5416,52 @@ def test_public_call_inventory_keeps_mixed_compound_potential_rebind_unreviewed(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "for value in values:\n    type Repo = Base\n    type Base = list[AuditRepository]\n",
+        "while cond:\n    type Repo = Base\n    type Base = list[AuditRepository]\n",
+        "with context:\n    type Repo = Base\n    type Base = list[AuditRepository]\n",
+        "match value:\n    case _:\n        type Repo = Base\n        type Base = list[AuditRepository]\n",
+        "try:\n    pass\nexcept Exception:\n    pass\nelse:\n    type Repo = Base\n    type Base = list[AuditRepository]\n",
+        "try:\n    pass\nfinally:\n    type Repo = Base\n    type Base = list[AuditRepository]\n",
+    ],
+    ids=["for", "while", "with", "match", "try-else", "try-finally"],
+)
+def test_public_call_inventory_propagates_remaining_nested_potential_type_aliases(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + definition
+        + "async def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_finally_rebind_clears_potential_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        "try:\n    pass\nfinally:\n    Base = OtherRepository\n"
+        "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 def test_public_call_inventory_treats_loop_target_as_a_local_shadow(tmp_path: Path) -> None:
