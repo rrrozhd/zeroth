@@ -117,7 +117,7 @@ class TestListSubscriptions:
         resp = client.get("/webhooks/subscriptions?deployment_ref=other&tenant_id=other")
         assert resp.status_code == 200
         mock_webhook_service.list_subscriptions.assert_called_once_with(
-            deployment_ref="deploy-1", tenant_id="default"
+            deployment_ref="deploy-1"
         )
 
 
@@ -382,12 +382,12 @@ async def test_repo_list_dead_letters_scoped_by_subscription_ids(sqlite_db) -> N
     from zeroth.service.webhooks.repository import WebhookRepository
 
     repo = WebhookRepository.for_default_compatibility(sqlite_db)
-    for sub_id, dep, tenant in [("own", "d1", "default"), ("foreign", "d2", "globex")]:
+    for sub_id, dep in [("own", "d1"), ("other", "d2")]:
         await repo.create_subscription(
             WebhookSubscription(
                 subscription_id=sub_id,
                 deployment_ref=dep,
-                tenant_id=tenant,
+                tenant_id="default",
                 target_url="https://example.com/hook",
                 event_types=[WebhookEventType.RUN_COMPLETED],
             )
