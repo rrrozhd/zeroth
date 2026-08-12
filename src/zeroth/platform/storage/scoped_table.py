@@ -21,7 +21,7 @@ from zeroth.platform.storage.scoping import (
 )
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_OWNERSHIP_COLUMNS = frozenset({"tenant_id", "workspace_id"})
+_OWNERSHIP_COLUMNS = frozenset({"tenant_id", "workspace_id", "workspace_scope"})
 
 ASYNC_PERSISTENCE_MODULES = frozenset(
     {
@@ -104,6 +104,16 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "node_audits",
         "run_checkpoints",
         "runs",
+        "side_effect_operations",
+        "threads",
+        "token_engine_snapshots",
+    }
+)
+_DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
+    {
+        "run_checkpoints",
+        "runs",
+        "side_effect_operations",
         "threads",
         "token_engine_snapshots",
     }
@@ -196,7 +206,6 @@ SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
     {
         "quota_counters",
         "rate_limit_buckets",
-        "side_effect_operations",
     }
 )
 """Tenant resources awaiting their direct ownership migrations in Tasks 7-9."""
@@ -328,6 +337,10 @@ class _StructuredTable:
         definition: ResourceScopeDefinition,
     ) -> tuple[tuple[str, str | None], ...]:
         return ()
+
+    def _transaction_scope_identity(self) -> tuple[object, ...]:
+        """Return the structural authority carried by a bound transaction."""
+        return (type(self),)
 
     def in_transaction(
         self, connection: AsyncConnection | BoundStructuredTable
@@ -563,25 +576,9 @@ class BoundStructuredTable:
             is not table._StructuredTable__database  # noqa: SLF001
         ):
             raise ValueError("bound tables must use the same database")
+        if self.__table._transaction_scope_identity() != table._transaction_scope_identity():
+            raise ValueError("bound tables must use the same structural scope")
         return BoundStructuredTable(table, self.__connection)
-
-    async def delete_side_effect_operations_for_run(self, run_id: str) -> int:
-        """Delete legacy receipts during coordinated run erasure.
-
-        ``side_effect_operations`` predates direct ownership. Keeping this narrow
-        transition method on the transaction gateway avoids exposing its raw
-        connection while the table awaits its ownership migration.
-        """
-        rows = await self.__connection.fetch_all(
-            "SELECT operation_key FROM side_effect_operations WHERE run_id = ?",
-            (run_id,),
-        )
-        if rows:
-            await self.__connection.execute(
-                "DELETE FROM side_effect_operations WHERE run_id = ?",
-                (run_id,),
-            )
-        return len(rows)
 
     def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
         definition = self.__table._canonical_definition()
@@ -786,6 +783,8 @@ class BoundStructuredTable:
         *,
         where: dict[str, Any],
         returning: str,
+        where_not_in: dict[str, tuple[Any, ...]] | None = None,
+        increment: tuple[str, ...] = (),
     ) -> bool:
         """Atomically update a scoped row and report whether predicates matched."""
         definition = self._definition(ResourceOperation.UPDATE)
@@ -793,10 +792,14 @@ class BoundStructuredTable:
         if not where:
             raise ValueError("update requires a non-empty where predicate")
         rendered = self.__table._validate_values(values, create=False, definition=definition)
-        predicates, where_params = self._where(definition, where)
-        assignments = ", ".join(f"{column} = ?" for column in rendered)
+        predicates, where_params = self._where(definition, where, where_not_in=where_not_in)
+        increments = tuple(_identifier(column) for column in increment)
+        if _OWNERSHIP_COLUMNS.intersection(increments):
+            raise ValueError("ownership columns cannot be updated")
+        assignments = [f"{column} = ?" for column in rendered]
+        assignments.extend(f"{column} = {column} + 1" for column in increments)
         row = await self.__connection.fetch_one(
-            f"UPDATE {table_name} SET {assignments} WHERE "
+            f"UPDATE {table_name} SET {', '.join(assignments)} WHERE "
             + " AND ".join(predicates)
             + f" RETURNING {_identifier(returning)}",
             (*rendered.values(), *where_params),
@@ -953,9 +956,21 @@ class ScopedTable(_StructuredTable):
         items = [("tenant_id", self._context.tenant_id)]
         if definition.workspace_scoped and type(self._context) is ScopeContext:
             items.append(("workspace_id", self._context.workspace_id))
+            if definition.table_name in _DERIVED_WORKSPACE_SCOPE_TABLES:
+                items.append(("workspace_scope", f"value:{self._context.workspace_id}"))
         elif definition.workspace_scoped and type(self._context) is NullWorkspaceScopeContext:
             items.append(("workspace_id", None))
+            if definition.table_name in _DERIVED_WORKSPACE_SCOPE_TABLES:
+                items.append(("workspace_scope", "null"))
         return tuple(items)
+
+    def _transaction_scope_identity(self) -> tuple[object, ...]:
+        return (
+            type(self._context),
+            self._context,
+            self.__privileged_tenant_wide,
+            self.__cross_tenant_maintenance,
+        )
 
     def _validate_join(self, other: ScopedTable) -> None:
         if (

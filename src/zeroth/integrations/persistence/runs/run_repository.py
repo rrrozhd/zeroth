@@ -89,10 +89,6 @@ DEAD_LETTER_REASON = "dead_letter"
 _UNSCOPED_WORKSPACE = object()
 
 
-def _workspace_scope(workspace_id: str | None) -> str:
-    return "null" if workspace_id is None else f"value:{workspace_id}"
-
-
 def _validate_transition(current: RunStatus, new: RunStatus) -> None:
     """Check that moving from one run status to another is valid.
 
@@ -147,7 +143,6 @@ def _run_values(run: Run) -> dict[str, object]:
         "metadata": to_json_value(run.metadata),
         "graph_version_ref": run.graph_version_ref,
         "deployment_ref": run.deployment_ref,
-        "workspace_scope": _workspace_scope(run.workspace_id),
         "submitted_by": _dump_model(run.submitted_by),
         "thread_id": run.thread_id,
         "current_node_ids": to_json_value(run.current_node_ids),
@@ -166,7 +161,6 @@ def _thread_values(thread: Thread) -> dict[str, object]:
         "thread_id": thread.thread_id,
         "graph_version_ref": thread.graph_version_ref,
         "deployment_ref": thread.deployment_ref,
-        "workspace_scope": _workspace_scope(thread.workspace_id),
         "status": thread.status.value,
         "participating_agent_refs": to_json_value(thread.participating_agent_refs),
         "state_snapshot_refs": to_json_value(thread.state_snapshot_refs),
@@ -295,22 +289,26 @@ class _RunThreadStore:
             # whether its existing owner also uses the guessed thread ID.
             await self._save_run_bound(runs, run, None, insert_only=True)
             threads = runs.bind(self.threads)
-            row = await threads.select_one(where={"thread_id": run.thread_id})
-            thread = (
-                Thread(
-                    thread_id=run.thread_id,
-                    graph_version_ref=run.graph_version_ref,
-                    deployment_ref=run.deployment_ref,
-                    tenant_id=run.tenant_id,
-                    workspace_id=run.workspace_id,
-                    status=ThreadStatus.ACTIVE,
-                )
-                if row is None
-                else row_to_thread(row)
+            seed = Thread(
+                thread_id=run.thread_id,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+                status=ThreadStatus.ACTIVE,
             )
-            if row is not None and (
-                thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id
-            ):
+            await threads.insert_if_absent(
+                _thread_values(seed),
+                conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
+            )
+            row = await threads.select_one(
+                where={"thread_id": run.thread_id},
+                for_update=True,
+            )
+            if row is None:  # pragma: no cover - insert/read transaction contract
+                raise RuntimeError("thread row unavailable after scoped insert")
+            thread = row_to_thread(row)
+            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
                 raise ValueError("thread identity mismatch")
             thread.run_ids = _merge(thread.run_ids, [run.run_id])
             thread.last_run_id = run.run_id

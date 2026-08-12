@@ -58,7 +58,7 @@ from zeroth.governance.retention.models import ErasureResult
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
 from zeroth.platform.artifacts.models import artifact_key_owner
-from zeroth.platform.dispatch.operations import erase_operations_for_run
+from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.storage import NullWorkspaceScopeContext
 
 if TYPE_CHECKING:
@@ -147,6 +147,10 @@ class RetentionErasureService:
         )
         self._coordinator = RetentionCoordinator(run_repository.database, self._scope_context)
         self._cleanup_state = CleanupStateRepository(run_repository.database, self._scope_context)
+        self._operations = SideEffectOperationStore(
+            run_repository.database,
+            run_repository.scope_context,
+        )
         self._cleanup_lease_seconds = cleanup_lease_seconds
 
     @property
@@ -322,7 +326,7 @@ class RetentionErasureService:
                 # ZER-26 receipts are the target's own response to a side effect
                 # -- the same class of content as a checkpoint, and equally
                 # unreached by deleting or redacting the run row.
-                result.operations_deleted = await erase_operations_for_run(
+                result.operations_deleted = await self._operations.erase_for_run_in_transaction(
                     transaction.connection,
                     run_id,
                 )

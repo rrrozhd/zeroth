@@ -15,6 +15,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from tests.conftest import requires_docker
+
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -27,6 +29,7 @@ from zeroth.integrations.persistence.runs.run_repository import (
     DEAD_LETTER_REASON,
     RunRepository,
 )
+from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
 
 
@@ -144,6 +147,43 @@ async def test_racing_tenants_can_create_the_same_run_id(
     assert all(isinstance(result, Run) for result in results)
     assert (await first.get("raced-run")).tenant_id == "tenant-a"
     assert (await second.get("raced-run")).tenant_id == "tenant-b"
+
+
+async def test_concurrent_runs_on_one_thread_preserve_all_references_sqlite(
+    sqlite_db: AsyncSQLiteDatabase,
+) -> None:
+    repository = _repository(sqlite_db)
+    runs = [_make_run(f"run-{index}", thread_id="shared-thread") for index in range(8)]
+
+    await asyncio.gather(*(repository.create(run) for run in runs))
+
+    thread = await ThreadRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1")).get(
+        "shared-thread"
+    )
+    assert thread is not None
+    assert set(thread.run_ids) == {run.run_id for run in runs}
+    assert set(thread.checkpoint_refs) == {run.checkpoint_id for run in runs}
+
+
+@requires_docker
+async def test_concurrent_runs_on_one_thread_preserve_all_references_postgres(
+    postgres_database,
+) -> None:
+    repository = _repository(postgres_database, tenant_id="thread-lock-tenant")
+    runs = [
+        _make_run(f"pg-run-{index}", thread_id="pg-shared-thread", tenant_id="thread-lock-tenant")
+        for index in range(12)
+    ]
+
+    await asyncio.gather(*(repository.create(run) for run in runs))
+
+    thread = await ThreadRepository(
+        postgres_database,
+        NullWorkspaceScopeContext(tenant_id="thread-lock-tenant"),
+    ).get("pg-shared-thread")
+    assert thread is not None
+    assert set(thread.run_ids) == {run.run_id for run in runs}
+    assert set(thread.checkpoint_refs) == {run.checkpoint_id for run in runs}
 
 
 async def test_replayed_same_run_id_is_refused_without_mutating_owner(

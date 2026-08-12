@@ -2266,7 +2266,6 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
-            "src/zeroth/service/bootstrap/factory.py::retention_service_for_tenant::scoped",
         }
     )
     reviewed, unreviewed = _audit_repository_public_call_inventories(root)
@@ -5211,7 +5210,6 @@ def test_production_audit_repository_has_only_explicit_scoped_constructors() -> 
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
-            "src/zeroth/service/bootstrap/factory.py::retention_service_for_tenant::scoped",
         }
     )
 
@@ -5588,6 +5586,7 @@ def test_service_workspace_scope_definitions_match_head_columns(
         "node_audits",
         "run_checkpoints",
         "runs",
+        "side_effect_operations",
         "threads",
         "token_engine_snapshots",
     }

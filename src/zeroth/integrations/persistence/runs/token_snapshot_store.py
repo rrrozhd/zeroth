@@ -50,13 +50,6 @@ class TokenSnapshotRowStore:
             self.scope_context,
         )
 
-    @property
-    def _workspace_scope(self) -> str:
-        workspace_id = (
-            self.scope_context.workspace_id if type(self.scope_context) is ScopeContext else None
-        )
-        return "null" if workspace_id is None else f"value:{workspace_id}"
-
     def _encode(self, snapshot: TokenEngineSnapshot) -> str:
         payload = snapshot.model_dump_json()
         encrypted_field = getattr(self.database, "encrypted_field", None)
@@ -238,7 +231,6 @@ class TokenSnapshotRowStore:
             if expected_revision is None:
                 written = await snapshots.insert_if_absent(
                     {
-                        "workspace_scope": self._workspace_scope,
                         "run_id": run_id,
                         "revision": snapshot.revision,
                         "schema_version": snapshot.schema_version,

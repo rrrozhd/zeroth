@@ -44,7 +44,7 @@ class TestSideEffectOperationsDualBackend:
     # -- R3: the five states are real and durable ---------------------------
 
     async def test_first_claim_is_in_flight_and_authorises_execution(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
 
         claim = await _claim(store)
 
@@ -55,7 +55,7 @@ class TestSideEffectOperationsDualBackend:
         assert record["state"] == OperationState.IN_FLIGHT
 
     async def test_completion_and_failure_are_persisted_distinctly(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.complete(KEY, receipt='{"charge":"ok"}')
 
@@ -76,7 +76,7 @@ class TestSideEffectOperationsDualBackend:
         Writing a row before the effect is attempted would itself be a side
         effect that recovery could not distinguish from a real attempt.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
 
         assert await store.get("op_never_seen") is None
         assert await store.state_of("op_never_seen") is OperationState.NOT_STARTED
@@ -90,7 +90,7 @@ class TestSideEffectOperationsDualBackend:
         overwrote the earlier one, the stored outcome would depend on arrival
         order -- exactly the non-determinism the receipt store exists to remove.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
 
         first = await store.complete(KEY, receipt='{"charge":"first"}')
@@ -111,7 +111,7 @@ class TestSideEffectOperationsDualBackend:
         the stored receipt to the supplied one passed it. Re-reporting the same
         result is exactly the case that comparison got wrong.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
 
         first = await store.complete(KEY, receipt='{"charge":"ok"}')
@@ -121,13 +121,13 @@ class TestSideEffectOperationsDualBackend:
         assert again is False
 
     async def test_completing_an_unknown_operation_reports_false(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
 
         assert await store.complete("op_never_claimed", receipt="{}") is False
 
     async def test_failure_cannot_overwrite_a_completed_operation(self, dual_database) -> None:
         """A late failure report must not erase a known success."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.complete(KEY, receipt='{"charge":"ok"}')
 
@@ -140,7 +140,7 @@ class TestSideEffectOperationsDualBackend:
 
     async def test_replay_of_a_completed_operation_is_suppressed(self, dual_database) -> None:
         """The crash-after-success case: recovery must not re-apply the effect."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.complete(KEY, receipt='{"charge":"ok"}')
 
@@ -152,7 +152,7 @@ class TestSideEffectOperationsDualBackend:
 
     async def test_a_failed_operation_may_be_retried(self, dual_database) -> None:
         """A confirmed failure is not ambiguous -- re-execution is safe."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.fail(KEY, error="connection refused")
 
@@ -172,7 +172,7 @@ class TestSideEffectOperationsDualBackend:
         applied. Reporting that as FAILED would be a claim the runtime cannot
         support; it becomes AMBIGUOUS and demands reconciliation instead.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
 
         resumed = await _claim(store, attempt=1)
@@ -185,7 +185,7 @@ class TestSideEffectOperationsDualBackend:
         assert record["state"] == OperationState.AMBIGUOUS
 
     async def test_ambiguity_is_never_reported_as_confirmed_failure(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout awaiting receipt")
 
@@ -195,7 +195,7 @@ class TestSideEffectOperationsDualBackend:
         assert record["state"] != OperationState.FAILED
 
     async def test_reconciliation_resolves_to_the_discovered_outcome(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
@@ -210,7 +210,7 @@ class TestSideEffectOperationsDualBackend:
 
     async def test_duplicate_reconciliation_converges(self, dual_database) -> None:
         """Two reconcilers racing must leave one result, not the last writer's."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
@@ -229,7 +229,9 @@ class TestSideEffectOperationsDualBackend:
         system that cannot answer. Exhaustion is surfaced, not converted into
         FAILED -- the runtime still does not know what happened.
         """
-        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=2)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, max_reconciliation_attempts=2
+        )
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
@@ -246,11 +248,11 @@ class TestSideEffectOperationsDualBackend:
 
     async def test_pending_reconciliation_is_durable_work(self, dual_database) -> None:
         """Ambiguity survives process death as queryable work, not an in-memory flag."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
-        reopened = SideEffectOperationStore(dual_database)
+        reopened = SideEffectOperationStore.for_default_compatibility(dual_database)
         pending = await reopened.pending_reconciliation(RUN)
 
         assert [row["operation_key"] for row in pending] == [KEY]
@@ -258,7 +260,7 @@ class TestSideEffectOperationsDualBackend:
     # -- R10: the residual guarantee is visible ------------------------------
 
     async def test_support_is_recorded_on_the_operation(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
 
         await _claim(store, support="at_least_once")
         await _claim(store, "op_key_idem", support="idempotent")
@@ -279,7 +281,7 @@ class TestSideEffectOperationsDualBackend:
         Re-executing may double-apply. The record has to say so, because this is
         the one situation the runtime cannot make safe on the integration's behalf.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store, support="at_least_once")
 
         resumed = await _claim(store, attempt=1)
@@ -288,7 +290,7 @@ class TestSideEffectOperationsDualBackend:
         assert resumed.residual_duplicate_risk is True
 
     async def test_idempotent_target_carries_no_residual_risk(self, dual_database) -> None:
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store, support="idempotent")
 
         resumed = await _claim(store, attempt=1, support="idempotent")
@@ -389,7 +391,7 @@ class TestSideEffectSuppressionEndToEnd:
         in for recovery after a crash that lost the completion checkpoint: it
         must return the stored result rather than charging the card again.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
 
@@ -411,7 +413,7 @@ class TestSideEffectSuppressionEndToEnd:
         """
         from zeroth.contracts.graph import Graph
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()
@@ -446,7 +448,7 @@ class TestSideEffectSuppressionEndToEnd:
 
     async def test_a_different_logical_operation_is_not_suppressed(self, dual_database) -> None:
         """The positive control: suppression must not swallow genuine new work."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
 
@@ -481,7 +483,7 @@ class TestSideEffectSuppressionEndToEnd:
             ):
                 raise TimeoutError("no receipt within deadline")
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         dispatcher = _dispatcher(store, _TimingOutRunner())
         run = _run_with_dispatch()
 
@@ -506,7 +508,7 @@ class TestSideEffectSuppressionEndToEnd:
             ):
                 raise RuntimeError("card declined")
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         dispatcher = _dispatcher(store, _FailingRunner())
         run = _run_with_dispatch()
 
@@ -529,7 +531,9 @@ class TestSideEffectSuppressionEndToEnd:
                 pass
 
         collector = _Collector()
-        store = SideEffectOperationStore(dual_database, metrics_collector=collector)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, metrics_collector=collector
+        )
         dispatcher = _dispatcher(store, _CountingRunner())
 
         await _dispatch_once(dispatcher, _run_with_dispatch())
@@ -594,7 +598,7 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         A resolvable ambiguity must be answered by asking the integration what
         happened, not by doing it again and hoping the target dedupes.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         asked: list[str] = []
 
@@ -634,7 +638,9 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
             SideEffectReconciliationExhaustedError,
         )
 
-        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=1)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, max_reconciliation_attempts=1
+        )
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()
@@ -658,7 +664,9 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         but only after the attempt is recorded, so the residual duplicate risk
         is visible rather than silent.
         """
-        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, max_reconciliation_attempts=5
+        )
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()
@@ -692,7 +700,9 @@ class TestAmbiguousReconciliationOnTheDispatchPath:
         fix the suppression branch additionally required the *local* receipt to
         be non-null, so exactly this interleaving re-executed.
         """
-        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, max_reconciliation_attempts=5
+        )
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()
@@ -738,7 +748,7 @@ class TestOperationTransitionsAreCompareAndSet:
         """
         import asyncio
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         claims = await asyncio.gather(*(_claim(store) for _ in range(3)))
 
         assert sum(1 for c in claims if c.first_execution) == 1
@@ -747,7 +757,7 @@ class TestOperationTransitionsAreCompareAndSet:
         """Only one completer may report that it stored the result."""
         import asyncio
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
 
         results = await asyncio.gather(
@@ -766,7 +776,7 @@ class TestOperationTransitionsAreCompareAndSet:
         """
         import asyncio
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
@@ -788,7 +798,7 @@ class TestOperationTransitionsAreCompareAndSet:
     ) -> None:
         import asyncio
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.fail(KEY, error="declined")
 
@@ -901,7 +911,7 @@ class TestClaimVersusSettleRaces:
         """The guarded transition must not demote a COMPLETED operation."""
         import asyncio
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)  # leaves it IN_FLIGHT
 
         claim, _ = await asyncio.gather(
@@ -923,7 +933,7 @@ class TestClaimVersusSettleRaces:
         not happen — which is exactly what nobody knows — and discards the
         reconciliation work that exists because the answer is unknown.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="crash before checkpoint")
 
@@ -944,7 +954,7 @@ class TestClaimVersusSettleRaces:
         passed without exercising the disputed transition at all. That fails the
         non-vacuity standard recorded after check 4, so the ordering is forced.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="crash before checkpoint")
         assert (await store.get(KEY))["state"] == OperationState.AMBIGUOUS
@@ -965,7 +975,7 @@ class TestClaimVersusSettleRaces:
         NOT happen had no path to FAILED. The distinction is who is asserting —
         a timeout knows nothing, whereas this is the target's own answer.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.mark_ambiguous(KEY, reason="timeout")
 
@@ -982,7 +992,7 @@ class TestClaimVersusSettleRaces:
 
     async def test_a_confirmed_failure_still_cannot_undo_a_completion(self, dual_database) -> None:
         """The new settle path must not become a way to erase a known success."""
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.complete(KEY, receipt='{"charge":"ok"}')
 
@@ -1003,7 +1013,7 @@ class TestClaimVersusSettleRaces:
         re-read happens. With the old COMPLETED-only re-read this returns
         AMBIGUOUS and the assertion fails.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
 
         # Stand in for the concurrent settle: the guarded IN_FLIGHT -> AMBIGUOUS
@@ -1147,7 +1157,7 @@ class TestSideEffectFreeUnitsAreNotGuarded:
         read-only unit was suppressed on its second dispatch and returned a
         stale receipt instead of running.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         runner.declares_side_effect = lambda ref: False  # type: ignore[attr-defined]
         dispatcher = _dispatcher(store, runner)
@@ -1169,7 +1179,7 @@ class TestSideEffectFreeUnitsAreNotGuarded:
         without the probe must all keep the guard. Guarding a read-only unit
         merely writes a receipt nobody needs.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()  # exposes no declares_side_effect probe
         dispatcher = _dispatcher(store, runner)
 
@@ -1184,7 +1194,7 @@ class TestSideEffectFreeUnitsAreNotGuarded:
         def _explode(ref):
             raise RuntimeError("registry unavailable")
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         runner = _CountingRunner()
         runner.declares_side_effect = _explode  # type: ignore[attr-defined]
         dispatcher = _dispatcher(store, runner)
@@ -1217,7 +1227,7 @@ class TestReceiptPrivacy:
         sentinel = '{"card":"4111-1111-1111-1111"}'
         dual_database.encrypted_field = _Field()  # type: ignore[attr-defined]
         try:
-            store = SideEffectOperationStore(dual_database)
+            store = SideEffectOperationStore.for_default_compatibility(dual_database)
             await _claim(store)
             await store.complete(KEY, receipt=sentinel)
 
@@ -1250,7 +1260,7 @@ class TestReceiptPrivacy:
         sentinel = '{"charge": "ok"}'
         dual_database.encrypted_field = _Field()  # type: ignore[attr-defined]
         try:
-            store = SideEffectOperationStore(dual_database)
+            store = SideEffectOperationStore.for_default_compatibility(dual_database)
             await _claim(store)
             await store.complete(KEY, receipt=sentinel)
 
@@ -1269,22 +1279,18 @@ class TestReceiptPrivacy:
         Without this the change introduced a durable copy of side-effect output
         that run erasure could not delete — a privacy regression, not a gap.
         """
-        from zeroth.platform.dispatch.operations import erase_operations_for_run
-
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         await _claim(store)
         await store.complete(KEY, receipt='{"charge":"ok"}')
         assert await store.get(KEY) is not None
 
-        async with dual_database.transaction() as conn:
-            deleted = await erase_operations_for_run(conn, RUN)
+        deleted = await store.erase_for_run(RUN)
 
         assert deleted == 1
         assert await store.get(KEY) is None, "an erased run must leave no receipt behind"
 
         # Idempotent: erasing again deletes nothing and does not raise.
-        async with dual_database.transaction() as conn:
-            assert await erase_operations_for_run(conn, RUN) == 0
+        assert await store.erase_for_run(RUN) == 0
 
 
 @requires_docker
@@ -1298,7 +1304,7 @@ class TestTerminalOperationAudit:
         IN_FLIGHT — the one state it definitively is not by the time the record
         is written.
         """
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         dispatcher = _dispatcher(store, _CountingRunner())
 
         _output, audit = await _dispatch_once(dispatcher, _run_with_dispatch())
@@ -1328,7 +1334,7 @@ class TestTerminalOperationAudit:
             ):
                 raise TimeoutError("no receipt within deadline")
 
-        store = SideEffectOperationStore(dual_database)
+        store = SideEffectOperationStore.for_default_compatibility(dual_database)
         dispatcher = _dispatcher(store, _TimingOutRunner())
 
         with pytest.raises(TimeoutError) as raised:
@@ -1348,7 +1354,9 @@ class TestTerminalOperationAudit:
         durable record said "still unknown" about an operation the store had
         just settled.
         """
-        store = SideEffectOperationStore(dual_database, max_reconciliation_attempts=5)
+        store = SideEffectOperationStore.for_default_compatibility(
+            dual_database, max_reconciliation_attempts=5
+        )
         runner = _CountingRunner()
         dispatcher = _dispatcher(store, runner)
         run = _run_with_dispatch()

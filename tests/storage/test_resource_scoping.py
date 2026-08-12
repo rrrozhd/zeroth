@@ -554,12 +554,18 @@ async def test_scoped_table_adds_tenant_and_workspace_to_every_crud_operation() 
     calls = database.connection.calls
     assert [call[0] for call in calls] == ["fetch_all", "execute", "execute", "execute"]
     assert "tenant_id = ?" in calls[0][1] and "workspace_id = ?" in calls[0][1]
-    assert calls[0][2] == ("run-1", "tenant-a", "workspace-a")
+    assert calls[0][2] == ("run-1", "tenant-a", "workspace-a", "value:workspace-a")
     assert "tenant_id" in calls[1][1] and "workspace_id" in calls[1][1]
-    assert calls[1][2] == ("run-1", "pending", "tenant-a", "workspace-a")
+    assert calls[1][2] == (
+        "run-1",
+        "pending",
+        "tenant-a",
+        "workspace-a",
+        "value:workspace-a",
+    )
     for _, sql, params in calls[2:]:
         assert "tenant_id = ?" in sql and "workspace_id = ?" in sql
-        assert params[-2:] == ("tenant-a", "workspace-a")
+        assert params[-3:] == ("tenant-a", "workspace-a", "value:workspace-a")
     assert database.transactions == [False, True, True, True]
 
 
@@ -598,7 +604,15 @@ async def test_foreign_key_join_scopes_both_tenant_tables() -> None:
     assert "JOIN run_checkpoints AS j1 ON runs.run_id = j1.run_id" in sql
     assert "runs.tenant_id = ?" in sql and "runs.workspace_id = ?" in sql
     assert "j1.tenant_id = ?" in sql and "j1.workspace_id = ?" in sql
-    assert params == ("run-1", "tenant-a", "workspace-a", "tenant-a", "workspace-a")
+    assert params == (
+        "run-1",
+        "tenant-a",
+        "workspace-a",
+        "value:workspace-a",
+        "tenant-a",
+        "workspace-a",
+        "value:workspace-a",
+    )
 
 
 @pytest.mark.asyncio
@@ -950,8 +964,10 @@ def test_scoped_and_global_gateways_are_separate_and_hide_raw_database() -> None
     for gateway in (scoped, global_table):
         assert not hasattr(gateway, "database")
         assert not hasattr(gateway, "connection")
-        assert not hasattr(gateway, "transaction")
         assert not hasattr(gateway, "execute")
+
+    assert callable(scoped.transaction)
+    assert callable(global_table.transaction)
 
 
 @pytest.mark.asyncio
