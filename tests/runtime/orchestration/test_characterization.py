@@ -44,6 +44,7 @@ from zeroth.governance.policy import (
     PolicyGuard,
     PolicyRegistry,
 )
+from zeroth.platform.measurement import MeasurementState
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.agents import (
@@ -345,7 +346,9 @@ async def test_failure_audit_payload_carries_error_type_and_run_attribution(sqli
     assert record.attempt == 1
     assert record.output_snapshot == {}
     # The runner wraps provider faults, so the recorded type is the runner's.
-    assert record.execution_metadata == {"reason_code": "agent_provider_error"}
+    assert record.execution_metadata["reason_code"] == "agent_provider_error"
+    assert record.execution_metadata["cost_measurement"] is MeasurementState.UNMEASURED
+    assert record.execution_metadata["usage_measurement"] is MeasurementState.UNMEASURED
     assert "provider exploded" in (record.error or "")
     # started_at is the dispatch time, so the record reports a real duration.
     assert record.started_at is not None

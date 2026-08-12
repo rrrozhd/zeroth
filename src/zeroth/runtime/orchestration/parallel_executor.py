@@ -33,7 +33,11 @@ from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import node_by_id
-from zeroth.runtime.parallel.errors import BranchApprovalPauseSignal, FanOutValidationError
+from zeroth.runtime.parallel.errors import (
+    BranchApprovalPauseSignal,
+    FanOutValidationError,
+    MultipleBranchPauseError,
+)
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
     BranchContext,
@@ -131,6 +135,37 @@ class RuntimeParallelExecutor:
             result.cost_usd = branch_cost.cost_usd
             result.estimated_cost_usd = branch_cost.estimated_cost_usd
             result.cost_measurement = branch_cost.cost_measurement
+
+    async def _settle_paused_children(
+        self,
+        run: Run,
+        graph: Graph,
+        contexts: list[BranchContext],
+        error: MultipleBranchPauseError,
+    ) -> None:
+        """Record each unsupported paused child once before failing the fan-out."""
+        by_index = {ctx.branch_index: ctx for ctx in contexts}
+        for pause in getattr(error, "pause_signals", []) or []:
+            ctx = by_index[pause.branch_index]
+            pause_error = RuntimeError(str(pause))
+            pause_error.audit_record = getattr(  # type: ignore[attr-defined]
+                pause,
+                "audit_record",
+                {
+                    "subgraph_run_id": pause.child_run_id,
+                    "subgraph_graph_ref": pause.graph_ref,
+                    "subgraph_status": RunStatus.WAITING_APPROVAL.value,
+                    "cost_measurement": MeasurementState.UNMEASURED,
+                },
+            )
+            await self.audit_recorder.record_failed_branch_execution(
+                run,
+                node_by_id(graph, pause.node_id),
+                pause.node_id,
+                ctx.metadata.get("subgraph_input", ctx.input_payload),
+                pause_error,
+                ctx,
+            )
 
     async def execute_fan_out(
         self,
@@ -255,13 +290,23 @@ class RuntimeParallelExecutor:
                     if child_run.status == RunStatus.WAITING_APPROVAL:
                         # D-11: propagate via BaseException so fail-fast
                         # gather re-raises, and best-effort inspects results.
-                        raise BranchApprovalPauseSignal(
+                        pause = BranchApprovalPauseSignal(
                             branch_index=ctx.branch_index,
                             child_run_id=child_run.run_id,
                             graph_ref=ds_node.subgraph.graph_ref,
                             version=ds_node.subgraph.version,
                             node_id=ds_node_id,
                         )
+                        child_cost = rollup_run_cost(child_run)
+                        pause.audit_record = {  # type: ignore[attr-defined]
+                            "subgraph_run_id": child_run.run_id,
+                            "subgraph_graph_ref": ds_node.subgraph.graph_ref,
+                            "subgraph_status": child_run.status.value,
+                            "cost_usd": child_cost.cost_usd,
+                            "estimated_cost_usd": child_cost.estimated_cost_usd,
+                            "cost_measurement": child_cost.cost_measurement,
+                        }
+                        raise pause
                     child_cost = rollup_run_cost(child_run)
                     if child_run.status != RunStatus.COMPLETED:
                         # A failed child must fail the branch (and, under
@@ -425,11 +470,20 @@ class RuntimeParallelExecutor:
         except Exception as exc:
             # Fail-fast never reaches fan-in, so preserve already-recorded branch
             # failures on the parent before the driver persists the failed run.
-            failed_histories = getattr(
-                exc,
-                "branch_histories",
-                [(list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts],
-            )
+            if isinstance(exc, MultipleBranchPauseError):
+                await self._settle_paused_children(run, graph, branch_contexts, exc)
+                failed_histories = [
+                    (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+                ]
+            else:
+                failed_histories = getattr(
+                    exc,
+                    "branch_histories",
+                    [
+                        (list(ctx.execution_history), list(ctx.audit_refs))
+                        for ctx in branch_contexts
+                    ],
+                )
             for history, refs in failed_histories:
                 for entry in history:
                     if not entry.audit_ref or all(
@@ -587,6 +641,8 @@ class RuntimeParallelExecutor:
         paused_child_run_id = paused_info["child_run_id"]
         paused_graph_ref = paused_info["graph_ref"]
         paused_version = paused_info.get("version")
+        paused_node_id = paused_info.get("node_id", node_id)
+        paused_node = node_by_id(graph, paused_node_id) if isinstance(graph, Graph) else node
 
         if self.subgraph_executor is None:
             raise OrchestratorError(
@@ -654,6 +710,32 @@ class RuntimeParallelExecutor:
                 "estimated_cost_usd": resumed_cost.estimated_cost_usd,
                 "cost_measurement": resumed_cost.cost_measurement,
             }
+            paused_ctx = _restore_branch_context(
+                paused_info.get("branch_context") or {"branch_index": paused_branch_index},
+                run.run_id,
+            )
+            await self.audit_recorder.record_failed_branch_execution(
+                run,
+                paused_node,
+                paused_node_id,
+                paused_ctx.metadata.get("subgraph_input", paused_ctx.input_payload),
+                error,
+                paused_ctx,
+            )
+            self._merge_histories(
+                run,
+                [
+                    *completed_results,
+                    BranchResult(
+                        branch_index=paused_branch_index,
+                        output=None,
+                        error=str(error),
+                        audit_refs=list(paused_ctx.audit_refs),
+                        execution_history=list(paused_ctx.execution_history),
+                    ),
+                    *self._cancelled_results(run, pending, paused_node_id),
+                ],
+            )
             raise error
 
         resumed_output = resumed_child_run.final_output or {}
@@ -665,8 +747,6 @@ class RuntimeParallelExecutor:
         }
         paused_ctx = _restore_branch_context(paused_ctx_data, run.run_id)
         audit_ref = self.audit_recorder.next_branch_audit_ref(run, paused_ctx)
-        paused_node_id = paused_info.get("node_id", node_id)
-        paused_node = node_by_id(graph, paused_node_id) if isinstance(graph, Graph) else node
         resumed_audit = {
             "subgraph_run_id": resumed_child_run.run_id,
             "subgraph_graph_ref": paused_graph_ref,
@@ -729,6 +809,24 @@ class RuntimeParallelExecutor:
         )
 
         # 3. Record cancelled siblings as None-output BranchResults (D-19).
+        cancelled_results = self._cancelled_results(
+            run, pending, paused_info.get("node_id", node_id)
+        )
+
+        # 4. Merge into branch-index order and run through collect_fan_in.
+        all_results = completed_results + [paused_result] + cancelled_results
+        all_results.sort(key=lambda br: br.branch_index)
+        return self.parallel_executor.collect_fan_in(
+            all_results, config, pending.get("split_input", {})
+        )
+
+    def _cancelled_results(
+        self,
+        run: Run,
+        pending: Mapping[str, Any],
+        paused_node_id: str,
+    ) -> list[BranchResult]:
+        """Rebuild cancelled siblings once for success and failed-resume settlement."""
         cancelled_results: list[BranchResult] = []
         for data in pending.get("cancelled_branches", []):
             cancelled_ctx = _restore_branch_context(data, run.run_id)
@@ -760,13 +858,21 @@ class RuntimeParallelExecutor:
                     cost_measurement=cancelled_cost.cost_measurement,
                 )
             )
+        return cancelled_results
 
-        # 4. Merge into branch-index order and run through collect_fan_in.
-        all_results = completed_results + [paused_result] + cancelled_results
-        all_results.sort(key=lambda br: br.branch_index)
-        return self.parallel_executor.collect_fan_in(
-            all_results, config, pending.get("split_input", {})
-        )
+    @staticmethod
+    def _merge_histories(run: Run, results: list[BranchResult]) -> None:
+        """Merge stashed branch state into the parent without duplicate audit refs."""
+        for result in results:
+            for entry in result.execution_history:
+                if not entry.audit_ref or all(
+                    existing.audit_ref != entry.audit_ref for existing in run.execution_history
+                ):
+                    run.execution_history.append(entry)
+            for ref in result.audit_refs:
+                if ref not in run.audit_refs:
+                    run.audit_refs.append(ref)
+        run.completed_steps = [entry.node_id for entry in run.execution_history]
 
     def merge_fan_in_state(self, run: Run, fan_in_result: FanInResult) -> None:
         """Merge branch execution state back into the parent Run.
@@ -774,13 +880,4 @@ class RuntimeParallelExecutor:
         Appends all branch execution_history entries and audit_refs to the
         parent run so that the full trace is visible in the run record.
         """
-        for branch_result in fan_in_result.results:
-            for entry in branch_result.execution_history:
-                if not entry.audit_ref or all(
-                    existing.audit_ref != entry.audit_ref for existing in run.execution_history
-                ):
-                    run.execution_history.append(entry)
-            for ref in branch_result.audit_refs:
-                if ref not in run.audit_refs:
-                    run.audit_refs.append(ref)
-        run.completed_steps = [entry.node_id for entry in run.execution_history]
+        self._merge_histories(run, fan_in_result.results)

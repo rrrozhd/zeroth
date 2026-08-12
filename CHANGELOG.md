@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.10.1] - 2026-08-12
+
+- Preserve incomplete provider attempts and paused or failed child-run spend,
+  and keep eligible zero-cost rightsizing candidates competitive.
+
 ## [0.23.0.10] - 2026-08-12
 
 - Preserve measurement completeness across budget checks, provider retries,

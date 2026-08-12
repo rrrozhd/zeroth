@@ -766,13 +766,12 @@ class AgentRunner:
                     )
                     raise
                 except TimeoutError as exc:
-                    if retry_policy.retry_on_timeout and attempt < max_attempts:
-                        provider_measurements.append(
-                            {
-                                "cost_measurement": MeasurementState.UNMEASURED,
-                                "usage_measurement": MeasurementState.UNMEASURED,
-                            }
-                        )
+                    provider_measurements.append(
+                        {
+                            "cost_measurement": MeasurementState.UNMEASURED,
+                            "usage_measurement": MeasurementState.UNMEASURED,
+                        }
+                    )
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
                     )
@@ -794,27 +793,34 @@ class AgentRunner:
                     retryable = is_retryable_provider_error(exc)
                     should_retry = retry_policy.retry_on_provider_error and retryable
                     carried_audit = getattr(last_error, "audit_record", None)
+                    failed_attempt = (
+                        dict(carried_audit)
+                        if isinstance(carried_audit, Mapping)
+                        else {
+                            "cost_measurement": MeasurementState.UNMEASURED,
+                            "usage_measurement": MeasurementState.UNMEASURED,
+                        }
+                    )
                     if should_retry and attempt < max_attempts:
-                        provider_measurements.append(
-                            dict(carried_audit)
-                            if isinstance(carried_audit, Mapping)
-                            else {
-                                "cost_measurement": MeasurementState.UNMEASURED,
-                                "usage_measurement": MeasurementState.UNMEASURED,
-                            }
-                        )
+                        provider_measurements.append(failed_attempt)
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
+                            terminal_parts = (
+                                provider_measurements
+                                if isinstance(carried_audit, Mapping)
+                                else [*provider_measurements, failed_attempt]
+                            )
                             self._attach_cost_audit(
-                                last_error, *provider_measurements, *compaction_results
+                                last_error,
+                                *terminal_parts,
+                                *compaction_results,
                             )
                             raise last_error from exc
                         error = AgentProviderError(str(last_error))
-                        carried_audit = getattr(last_error, "audit_record", None)
                         self._attach_cost_audit(
                             error,
-                            carried_audit,
                             *provider_measurements,
+                            failed_attempt,
                             *compaction_results,
                         )
                         raise error from last_error

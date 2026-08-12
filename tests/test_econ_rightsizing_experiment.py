@@ -258,6 +258,29 @@ async def test_confirmed_when_cheap_candidate_matches_over_enough_cases():
 
 
 @pytest.mark.asyncio
+async def test_recommendation_prefers_eligible_free_candidate_over_paid_candidate():
+    dataset, stats = _dataset_of(1)
+    paid = _option("paid", "acme", 1.0, 1.0)
+    free = _option("free", "acme", 0.0, 0.0)
+
+    report = await run_experiment(
+        incumbent=_INCUMBENT,
+        candidates=[paid, free],
+        dataset=dataset,
+        instruction="answer",
+        replay_provider=_replay_provider(lambda _model, inp: f"ANSWER-{inp['q']}"),
+        judge_provider=_equality_judge(),
+        judge_model="judge/model",
+        mean_input_tokens=stats.mean_input_tokens,
+        mean_output_tokens=stats.mean_output_tokens,
+        harvest=stats,
+        min_cases=1,
+    )
+
+    assert report.recommended_model == "acme/free"
+
+
+@pytest.mark.asyncio
 async def test_flagged_when_match_but_too_few_cases():
     dataset, stats = _dataset_of(2)
     good = _option("mini", "acme", 1.0, 3.0, savings_pct=90.0)

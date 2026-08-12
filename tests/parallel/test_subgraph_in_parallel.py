@@ -502,6 +502,108 @@ class TestScenario1SubgraphInFanOutBranch:
         assert summaries[0].cost_measurement is MeasurementState.MEASURED
 
     @pytest.mark.asyncio
+    async def test_multiple_paused_children_settle_every_child_rollup_once(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run, RunHistoryEntry
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="source"),
+            parallel_config=ParallelConfig(split_path="items", fail_mode="best_effort"),
+        )
+        child_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-multi-pause",
+            name="parent-multi-pause",
+            version=1,
+            nodes=[source, child_node],
+            edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=type(
+                "Result",
+                (),
+                {
+                    "output_data": {"items": [{"v": 0}, {"v": 1}]},
+                    "audit_record": {
+                        "cost_usd": 0.1,
+                        "cost_measurement": MeasurementState.MEASURED,
+                    },
+                },
+            )()
+        )
+
+        async def _pause(**kwargs: Any) -> Run:
+            index = kwargs["branch_context"].branch_index
+            cost = 0.2 + index / 10
+            return Run(
+                run_id=f"child-run-{index}",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.WAITING_APPROVAL,
+                execution_history=[
+                    RunHistoryEntry(
+                        node_id=f"paid-child-{index}",
+                        status="completed",
+                        cost_usd=cost,
+                        cost_measurement=MeasurementState.MEASURED,
+                    )
+                ],
+                metadata={
+                    "total_cost_usd": cost,
+                    "cost_measurement": MeasurementState.MEASURED,
+                },
+            )
+
+        subgraphs = MagicMock(spec=SubgraphExecutor)
+        subgraphs.execute = AsyncMock(side_effect=_pause)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.write_checkpoint = AsyncMock()
+        audit_repository = AsyncMock()
+        audit_repository.write = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            audit_repository=audit_repository,
+            subgraph_executor=subgraphs,
+        )
+
+        result = await orchestrator.run_graph(graph, {})
+
+        assert result.status is RunStatus.FAILED
+        paused = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
+        assert len(paused) == 2
+        assert sorted(entry.cost_usd for entry in paused) == pytest.approx([0.2, 0.3])
+        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(0.6)
+        child_audits = [
+            call.args[0]
+            for call in audit_repository.write.call_args_list
+            if call.args[0].node_id == "sub-step"
+        ]
+        assert sorted(audit.execution_metadata["subgraph_run_id"] for audit in child_audits) == [
+            "child-run-0",
+            "child-run-1",
+        ]
+
+    @pytest.mark.asyncio
     async def test_fan_out_subgraph_approval_pause_stashes_pending(
         self,
     ) -> None:
