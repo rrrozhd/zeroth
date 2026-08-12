@@ -36,6 +36,7 @@ from zeroth.platform.config import LangGraphGatewaySettings
 from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.secrets import EnvSecretProvider
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.service.langgraph_gateway.compatibility import CompatibilityResult
@@ -437,7 +438,10 @@ def create_gateway_app(
         database_path = str(Path(evidence_path).with_name("enforcement.sqlite3"))
         run_migrations(f"sqlite:///{database_path}")
         database = AsyncSQLiteDatabase(path=database_path)
-        repository = LangGraphEnforcementRepository.for_default_compatibility(database)
+        repository = LangGraphEnforcementRepository(
+            database,
+            NullWorkspaceScopeContext(tenant_id="conformance-tenant"),
+        )
         enforcement_service = LangGraphEnforcementService(
             repository,
             codec=context_codec,
