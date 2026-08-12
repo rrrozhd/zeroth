@@ -1844,7 +1844,16 @@ def _audit_repository_public_call_provenance(
                             )
                         if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
                             return names
+                        if isinstance(statement, ast.If):
+                            return bound_after_block(statement.body, names) & bound_after_block(
+                                statement.orelse, names
+                            )
                         return names | direct_binding_names(statement)
+
+                    def bound_after_block(block: list[ast.stmt], names: set[str]) -> set[str]:
+                        for statement in block:
+                            names = bound_after_statement(names, statement)
+                        return names
 
                     def bound_at_definition(
                         block: list[ast.stmt], names: set[str]
@@ -1991,14 +2000,19 @@ def _audit_repository_public_call_provenance(
                         unbind_states(flow.exceptions),
                     )
 
-                def deletion_may_raise(target: ast.AST, bound_names: set[str]) -> bool:
+                def delete_target(
+                    state: _PotentialState, target: ast.AST
+                ) -> tuple[_PotentialState, list[_PotentialState]]:
                     if isinstance(target, ast.Name):
-                        return target.id not in bound_names
+                        exception_states = [] if target.id in state[2] else [state]
+                        return unbind_names(state, {target.id}), exception_states
                     if isinstance(target, (ast.Tuple, ast.List)):
-                        return any(
-                            deletion_may_raise(item, bound_names) for item in target.elts
-                        )
-                    return True
+                        exceptions: list[_PotentialState] = []
+                        for item in target.elts:
+                            state, item_exceptions = delete_target(state, item)
+                            exceptions.extend(item_exceptions)
+                        return state, exceptions
+                    return state, [state]
 
                 def condition_bound_names(expression: ast.expr, *, true: bool) -> set[str]:
                     if isinstance(expression, ast.NamedExpr):
@@ -2042,9 +2056,13 @@ def _audit_repository_public_call_provenance(
                                 break
                         return names
                     if isinstance(expression, ast.IfExp):
-                        return evaluated_named_expression_names(
-                            expression.test
-                        ) | (
+                        test_names = evaluated_named_expression_names(expression.test)
+                        literal_test = literal_value(expression.test)
+                        if isinstance(literal_test, bool):
+                            return test_names | evaluated_named_expression_names(
+                                expression.body if literal_test else expression.orelse
+                            )
+                        return test_names | (
                             evaluated_named_expression_names(expression.body)
                             & evaluated_named_expression_names(expression.orelse)
                         )
@@ -2288,6 +2306,22 @@ def _audit_repository_public_call_provenance(
                                 return True, class_bound_names
                             class_bound_names = body_names & else_names
                             continue
+                        if isinstance(statement, (ast.For, ast.AsyncFor)):
+                            if expression_may_raise(statement.iter, bound_names):
+                                return True, class_bound_names
+                            guaranteed_nonempty = isinstance(statement.iter, (ast.Tuple, ast.List)) and bool(
+                                statement.iter.elts
+                            )
+                            if guaranteed_nonempty:
+                                body_raises, body_names = class_body_flow(
+                                    statement.body,
+                                    outer_bound_names,
+                                    class_bound_names | _bound_names(statement.target),
+                                )
+                                if body_raises:
+                                    return True, class_bound_names
+                                class_bound_names = body_names
+                            continue
                         if isinstance(statement, ast.AnnAssign):
                             if (
                                 (statement.value is not None and expression_may_raise(statement.value, bound_names))
@@ -2310,12 +2344,24 @@ def _audit_repository_public_call_provenance(
                 ) -> bool:
                     return class_body_flow(block, outer_bound_names)[0]
 
-                def pattern_may_raise(pattern: ast.pattern, bound_names: set[str]) -> bool:
+                def pattern_may_raise(
+                    pattern: ast.pattern,
+                    bound_names: set[str],
+                    lexical_local_names: set[str] = set(lexical_local_names),
+                    module_bound_names: set[str] = set(module_bound_names),
+                    module_names: dict[str, tuple[str, ...]] = dict(module_names),
+                ) -> bool:
                     if isinstance(pattern, ast.MatchClass):
                         safe_builtin_class = (
                             isinstance(pattern.cls, ast.Name)
                             and pattern.cls.id
                             in {"bool", "bytes", "dict", "float", "frozenset", "int", "list", "set", "str", "tuple"}
+                            and pattern.cls.id not in lexical_local_names
+                            and (
+                                pattern.cls.id not in module_bound_names
+                                or module_names.get(pattern.cls.id)
+                                == ("builtins", pattern.cls.id)
+                            )
                         )
                         return (
                             not safe_builtin_class
@@ -2690,15 +2736,9 @@ def _audit_repository_public_call_provenance(
                                 exceptions.extend(flow.exceptions)
                             continue
                         if isinstance(statement, ast.Delete):
-                            deleted_names = set().union(
-                                *(_bound_names(target) for target in statement.targets)
-                            )
-                            if any(
-                                deletion_may_raise(target, continuing[2])
-                                for target in statement.targets
-                            ):
-                                exceptions.append(before)
-                            continuing = unbind_names(continuing, deleted_names)
+                            for target in statement.targets:
+                                continuing, delete_exceptions = delete_target(continuing, target)
+                                exceptions.extend(delete_exceptions)
                             continue
                         if isinstance(statement, ast.AnnAssign) and statement.value is None:
                             continue
@@ -6919,6 +6959,141 @@ def test_public_call_inventory_tracks_recursive_delete_targets(
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+def test_public_call_inventory_keeps_potential_after_sequential_delete_failure(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    transient = None\n"
+        "    with suppressor:\n"
+        "        del transient, transient\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_shadowed_builtin_match_class(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, item, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    int = Custom\n"
+        "    with suppressor:\n"
+        "        match item:\n"
+        "            case int(value):\n"
+        "                Base = None\n"
+        "            case _:\n"
+        "                Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_seeds_completed_if_closure_binding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, condition, candidate, record):\n"
+        "    if condition:\n"
+        "        closure = None\n"
+        "    else:\n"
+        "        closure = None\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("expression", "name"),
+    [
+        ("(local := True) if True else None", "local"),
+        ("None if False else (local := True)", "local"),
+    ],
+    ids=["true-body", "false-else"],
+)
+def test_public_call_inventory_tracks_literal_conditional_walrus(
+    tmp_path: Path, expression: str, name: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        f"        {expression}\n"
+        f"        if {name}:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_tracks_guaranteed_class_loop_binding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        class Local:\n"
+        "            for captured in (None,):\n"
+        "                pass\n"
+        "            if captured:\n"
+        "                pass\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 def test_public_call_inventory_keeps_conditional_expression_walrus_conservative(
