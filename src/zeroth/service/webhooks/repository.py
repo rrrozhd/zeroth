@@ -233,18 +233,19 @@ class WebhookRepository:
         """
         now = utc_now()
         now_iso = now.isoformat()
-        eligible = {
+        eligible = (
             DeliveryStatus.PENDING.value,
             DeliveryStatus.FAILED.value,
             DeliveryStatus.DELIVERING.value,
-        }
+        )
         async with self._deliveries.transaction(write_lock=True) as deliveries:
             rows = await deliveries.select(
-                where_lt={"next_attempt_at": now_iso}, order_by=("next_attempt_at",)
+                where_lt={"next_attempt_at": now_iso},
+                where_in={"status": eligible},
+                order_by=("next_attempt_at",),
+                limit=16,
             )
             for row in rows:
-                if row["status"] not in eligible:
-                    continue
                 generation = int(row["attempt_count"]) + 1
                 lease_until = now + timedelta(seconds=lease_seconds)
                 claimed = await deliveries.update_if_matches(
@@ -403,11 +404,16 @@ class WebhookRepository:
         if subscription_ids is not None and not subscription_ids:
             return []
         async with self._dead_letters.transaction() as dead_letters:
-            rows = await dead_letters.select(where=where, order_by=("dead_lettered_at",))
-        if subscription_ids is not None:
-            allowed = set(subscription_ids)
-            rows = [row for row in rows if row["subscription_id"] in allowed]
-        rows = list(reversed(rows))[:limit]
+            rows = await dead_letters.select(
+                where=where,
+                where_in=(
+                    {"subscription_id": tuple(subscription_ids)}
+                    if subscription_ids is not None
+                    else None
+                ),
+                order_by_desc=("dead_lettered_at",),
+                limit=limit,
+            )
         return [self._row_to_dead_letter(r) for r in rows]
 
     @persistence_operation(ResourceOperation.READ)

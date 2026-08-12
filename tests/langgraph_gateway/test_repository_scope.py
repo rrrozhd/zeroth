@@ -9,6 +9,7 @@ import pytest
 from zeroth.integrations.langgraph.enforcement_protocol import _canonical
 from zeroth.platform.signing import EnvHmacSigner
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.platform.storage.json import to_json_value
 from zeroth.service.langgraph_gateway import enforcement as _enforcement  # noqa: F401
 from zeroth.service.langgraph_gateway.enforcement_store import (
@@ -115,3 +116,48 @@ async def test_evidence_provider_rejects_signed_foreign_scope(
 
     assert evidence is not None, case
     assert evidence.signature_valid is False, case
+
+
+async def test_decision_count_uses_scoped_aggregate(async_database, monkeypatch) -> None:
+    repository = LangGraphEnforcementRepository(
+        async_database, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    calls: list[dict[str, object]] = []
+    original = BoundStructuredTable.count
+
+    async def recording_count(self, **kwargs):
+        calls.append(kwargs)
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(BoundStructuredTable, "count", recording_count)
+
+    assert await repository.count_decisions() == 0
+    assert calls == [{"where": {}}]
+
+
+async def test_legacy_attestation_ambiguity_reads_at_most_two_rows(
+    async_database, monkeypatch
+) -> None:
+    repository = LangGraphEnforcementRepository(
+        async_database, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    calls: list[dict[str, object]] = []
+    original = BoundStructuredTable.select
+
+    async def recording_select(self, **kwargs):
+        calls.append(kwargs)
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(BoundStructuredTable, "select", recording_select)
+
+    with pytest.warns(DeprecationWarning):
+        assert await repository.get_attestation("deployment-a", "correlation-a") is None
+    assert calls == [
+        {
+            "where": {
+                "deployment_ref": "deployment-a",
+                "correlation_id": "correlation-a",
+            },
+            "limit": 2,
+        }
+    ]

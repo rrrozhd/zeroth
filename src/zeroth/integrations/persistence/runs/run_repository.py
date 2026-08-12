@@ -667,14 +667,12 @@ class _RunThreadStore:
     async def count_pending(self, deployment_ref: str) -> int:
         """Count runs with PENDING status for a deployment."""
         async with self.runs.transaction() as runs:
-            rows = await runs.select(
+            return await runs.count(
                 where={
                     "status": RunStatus.PENDING.value,
                     "deployment_ref": deployment_ref,
-                },
-                columns=("run_id",),
+                }
             )
-        return len(rows)
 
     async def increment_failure_count(self, run_id: str) -> int:
         """Atomically increment failure_count for a run; returns the new count."""
