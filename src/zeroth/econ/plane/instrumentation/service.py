@@ -68,6 +68,55 @@ def _derive_join_key_from_metadata(metadata: dict) -> str:
     return ""
 
 
+_ASSIGNMENT_METADATA_KEYS = {
+    "experiment_id",
+    "assigned_arm",
+    "assignment_key_type",
+    "assignment_input_hash",
+}
+
+
+def _event_metadata_identity(metadata: dict | None) -> dict:
+    return {
+        key: value
+        for key, value in (metadata or {}).items()
+        if key not in _ASSIGNMENT_METADATA_KEYS
+    }
+
+
+def _datetime_identity(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _execution_conflicts(
+    existing: ExecutionEvent,
+    payload: ExecutionEventCreate,
+    *,
+    join_key: str,
+    metadata: dict,
+) -> list[str]:
+    comparisons = {
+        "execution_id": (existing.execution_id, payload.execution_id),
+        "capability_id": (existing.capability_id, payload.capability_id),
+        "implementation_id": (existing.implementation_id, payload.implementation_id),
+        "join_key": (existing.join_key, join_key),
+        "timestamp": (_datetime_identity(existing.timestamp), _datetime_identity(payload.timestamp)),
+        "model_version": (existing.model_version, payload.model_version),
+        "token_cost_usd": (existing.token_cost_usd, payload.token_cost_usd),
+        "tool_cost_usd": (existing.tool_cost_usd, payload.tool_cost_usd),
+        "compute_cost_usd": (existing.compute_cost_usd, payload.compute_cost_usd),
+        "latency_ms": (existing.latency_ms, payload.latency_ms),
+        "compute_time_ms": (existing.compute_time_ms, payload.compute_time_ms),
+        "metadata": (
+            _event_metadata_identity(existing.event_metadata),
+            _event_metadata_identity(metadata),
+        ),
+    }
+    return [field for field, (stored, requested) in comparisons.items() if stored != requested]
+
+
 def ingest_execution(
     db: ScopedSession, payload: ExecutionEventCreate
 ) -> tuple[str, ExecutionEvent]:
@@ -85,12 +134,6 @@ def ingest_execution(
     if settings.strict_join_key_enforcement and not join_key:
         raise ValueError("join_key is required for execution ingestion")
 
-    _require_capability_and_implementation(
-        db,
-        tenant_id=tenant_id,
-        capability_id=payload.capability_id,
-        implementation_id=payload.implementation_id,
-    )
     existing = db.execute(
         select(ExecutionEvent).where(
             ExecutionEvent.tenant_id == tenant_id,
@@ -98,9 +141,20 @@ def ingest_execution(
         )
     ).scalar_one_or_none()
     if existing:
-        if existing.join_key != join_key:
-            raise ValueError("execution_id already exists with a different join_key")
+        conflicts = _execution_conflicts(existing, payload, join_key=join_key, metadata=metadata)
+        if conflicts:
+            raise ValueError(
+                "execution_id already exists with conflicting immutable fields: "
+                + ", ".join(conflicts)
+            )
         return "duplicate", existing
+
+    _require_capability_and_implementation(
+        db,
+        tenant_id=tenant_id,
+        capability_id=payload.capability_id,
+        implementation_id=payload.implementation_id,
+    )
 
     experiment = active_experiment(db, payload.capability_id, mode="AB")
     if experiment is not None and join_key:
@@ -171,7 +225,7 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         db,
         tenant_id=tenant_id,
         capability_id=payload.capability_id,
-        implementation_id=payload.implementation_id,
+        implementation_id=None,
     )
     linked_execution = None
     if payload.execution_id:
@@ -197,6 +251,15 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         and payload.implementation_id != linked_execution.implementation_id
     ):
         raise ValueError("outcome implementation_id does not match execution implementation_id")
+    implementation_id = payload.implementation_id or (
+        linked_execution.implementation_id if linked_execution is not None else None
+    )
+    _require_capability_and_implementation(
+        db,
+        tenant_id=tenant_id,
+        capability_id=payload.capability_id,
+        implementation_id=implementation_id,
+    )
 
     occurred_at = payload.occurred_at or payload.outcome_timestamp or datetime.now(timezone.utc)
     outcome_payload = dict(payload.outcome_payload_json)
@@ -208,7 +271,7 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         join_key=join_key,
         execution_id=payload.execution_id or join_key,
         capability_id=payload.capability_id,
-        implementation_id=payload.implementation_id,
+        implementation_id=implementation_id,
         outcome_type=payload.outcome_type,
         outcome_payload_json=outcome_payload,
         outcome_value=str(payload.outcome_value) if payload.outcome_value is not None else "",
@@ -227,7 +290,7 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
                 event_key=f"{join_key}:{occurred_at.isoformat()}:{payload.outcome_type}",
                 join_key=join_key,
                 capability_id=payload.capability_id,
-                implementation_id=payload.implementation_id,
+                implementation_id=implementation_id,
                 payload={
                     "execution_id": payload.execution_id,
                     "outcome_type": payload.outcome_type,

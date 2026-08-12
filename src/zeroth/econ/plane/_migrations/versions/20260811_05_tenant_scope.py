@@ -160,6 +160,27 @@ def _ensure_tenant_index(table_name: str) -> None:
     )
 
 
+def _preflight_execution_downgrade() -> None:
+    collisions = op.get_bind().execute(
+        sa.text(
+            "SELECT execution_id, COUNT(DISTINCT tenant_id) AS tenant_count, "
+            "COUNT(*) AS row_count FROM execution_events "
+            "GROUP BY execution_id HAVING COUNT(DISTINCT tenant_id) > 1 "
+            "ORDER BY execution_id"
+        )
+    ).all()
+    if not collisions:
+        return
+    details = ", ".join(
+        f"{execution_id} ({tenant_count} tenants, {row_count} rows)"
+        for execution_id, tenant_count, row_count in collisions
+    )
+    raise RuntimeError(
+        "cannot downgrade tenant-scoped execution identity: "
+        f"{len(collisions)} cross-tenant execution_id collision(s): {details}"
+    )
+
+
 def upgrade() -> None:
     tables = _table_names()
     migration_plan(op.get_bind().dialect.name)
@@ -177,6 +198,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     tables = _table_names()
     if "execution_events" in tables:
+        # The legacy global unique key cannot represent cross-tenant duplicates.
+        # Refuse before any DDL so operators can reconcile the named rows first.
+        _preflight_execution_downgrade()
         constraints = _execution_unique_constraints()
         with op.batch_alter_table("execution_events") as batch_op:
             for constraint in constraints:

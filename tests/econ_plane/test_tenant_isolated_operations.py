@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
@@ -22,6 +23,10 @@ from zeroth.econ.plane.connectors.service import (
     render_prometheus_metrics,
     retry_outbox_item,
 )
+from zeroth.econ.plane.connectors.workers import process_connector_outbox
+from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.counterfactual.service import run_evaluation
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
@@ -122,6 +127,81 @@ def test_cross_tenant_duplicate_execution_id_returns_only_bound_row(econ_engine)
         raw_b.close()
 
 
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("capability_id", "cap-other"),
+        ("implementation_id", "impl-other"),
+        ("join_key", "other-join"),
+        ("timestamp", datetime(2026, 8, 12, tzinfo=UTC)),
+        ("model_version", "v2"),
+        ("token_cost_usd", Decimal("2")),
+        ("tool_cost_usd", Decimal("2")),
+        ("compute_cost_usd", Decimal("2")),
+        ("latency_ms", 10),
+        ("compute_time_ms", 20),
+        ("metadata", {"request_id": "other-request"}),
+    ],
+)
+def test_conflicting_execution_replay_rejects_without_mutating_original(
+    econ_engine, field, replacement
+) -> None:
+    _seed_capabilities(econ_engine)
+    with Session(econ_engine) as seed:
+        seed.add_all(
+            [
+                Capability(id="cap-other", tenant_id="tenant-a", name="Other"),
+                Implementation(
+                    id="impl-other",
+                    tenant_id="tenant-a",
+                    capability_id="cap-other",
+                    name="Other implementation",
+                ),
+            ]
+        )
+        seed.commit()
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        original = _execution("replayed", "cap-a", "impl-a")
+        original.join_key = "original-join"
+        original.metadata = {"request_id": "original-request"}
+        status, row = ingest_execution(tenant_a, original)
+        assert status == "inserted"
+
+        replay = original.model_copy(update={field: replacement})
+        with pytest.raises(ValueError, match="conflicting immutable fields"):
+            ingest_execution(tenant_a, replay)
+
+        raw.expire_all()
+        unchanged = raw.get(ExecutionEvent, row.id)
+        assert unchanged is not None
+        assert unchanged.capability_id == "cap-a"
+        assert unchanged.implementation_id == "impl-a"
+        assert unchanged.join_key == "original-join"
+        assert unchanged.model_version == "v1"
+        assert unchanged.token_cost_usd == Decimal("1")
+        assert unchanged.event_metadata["request_id"] == "original-request"
+    finally:
+        raw.close()
+
+
+def test_exact_execution_replay_is_duplicate(econ_engine) -> None:
+    _seed_capabilities(econ_engine)
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        payload = _execution("exact-replay", "cap-a", "impl-a")
+        payload.join_key = "exact-join"
+        payload.metadata = {"request_id": "exact-request"}
+        _, original = ingest_execution(tenant_a, payload)
+
+        status, replay = ingest_execution(tenant_a, payload.model_copy(deep=True))
+
+        assert status == "duplicate"
+        assert replay.id == original.id
+    finally:
+        raw.close()
+
+
 def test_capability_owner_required_for_ingestion_and_implementation_scope(
     econ_engine,
 ) -> None:
@@ -171,6 +251,163 @@ def test_outcome_links_only_to_execution_in_bound_scope(econ_engine) -> None:
     finally:
         raw_a.close()
         raw_b.close()
+
+
+def test_linked_outcome_derives_implementation_and_is_evaluated(econ_engine, monkeypatch) -> None:
+    _seed_capabilities(econ_engine)
+    monkeypatch.setattr(
+        "zeroth.econ.plane.instrumentation.service.settings.connectors_enabled", False
+    )
+    monkeypatch.setattr(
+        "zeroth.econ.plane.counterfactual.service.settings.connectors_enabled", False
+    )
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        ingest_execution(tenant_a, _execution("derived-implementation", "cap-a", "impl-a"))
+        outcome = ingest_outcome(
+            tenant_a,
+            OutcomeEventCreate(
+                execution_id="derived-implementation",
+                capability_id="cap-a",
+                outcome_type="conversion",
+                outcome_value=True,
+                occurred_at=_NOW,
+            ),
+        )
+
+        assert outcome.implementation_id == "impl-a"
+        estimate = run_evaluation(
+            tenant_a,
+            EvaluationRunRequest(
+                capability_id="cap-a",
+                implementation_id="impl-a",
+                mode="PROXY_MODEL",
+                period_start=_NOW,
+                period_end=_NOW,
+            ),
+        )
+        assert estimate.method_metadata["sample_size"] == 1
+        assert float(estimate.estimated_value_usd) == pytest.approx(120.0)
+    finally:
+        raw.close()
+
+
+def test_linked_outcome_rejects_explicit_implementation_mismatch(econ_engine) -> None:
+    _seed_capabilities(econ_engine)
+    with Session(econ_engine) as seed:
+        seed.add(
+            Implementation(
+                id="impl-alt",
+                tenant_id="tenant-a",
+                capability_id="cap-a",
+                name="Alternate implementation",
+            )
+        )
+        seed.commit()
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        ingest_execution(tenant_a, _execution("mismatch", "cap-a", "impl-a"))
+        with pytest.raises(ValueError, match="does not match execution"):
+            ingest_outcome(
+                tenant_a,
+                OutcomeEventCreate(
+                    execution_id="mismatch",
+                    capability_id="cap-a",
+                    implementation_id="impl-alt",
+                    outcome_type="conversion",
+                ),
+            )
+    finally:
+        raw.close()
+
+
+def test_counterfactual_api_maps_expected_domain_errors_to_404(econ_engine) -> None:
+    _seed_capabilities(econ_engine)
+    with Session(econ_engine) as seed:
+        seed.add(
+            Implementation(
+                id="impl-other-capability",
+                tenant_id="tenant-a",
+                capability_id="cap-a",
+                name="Other capability implementation",
+            )
+        )
+        seed.commit()
+
+    app = FastAPI()
+    app.include_router(counterfactual_router, prefix="/v1")
+
+    def scoped_db():
+        with Session(econ_engine) as db:
+            yield ScopedSession(db, TenantWideScopeContext(tenant_id="tenant-b"))
+
+    app.dependency_overrides[get_current_scoped_db] = scoped_db
+    app.dependency_overrides[get_current_user] = lambda: ScopedUserClaims(
+        sub="analyst",
+        email="analyst@example.com",
+        roles=["Analyst"],
+        tenant_id="tenant-b",
+        exp=2_000_000_000,
+        iss="test",
+    )
+    client = TestClient(app)
+    payload = {
+        "capability_id": "missing",
+        "mode": "PROXY_MODEL",
+        "period_start": _NOW.isoformat(),
+        "period_end": _NOW.isoformat(),
+    }
+
+    missing = client.post("/v1/evaluations/run", json=payload)
+    mismatch = client.post(
+        "/v1/evaluations/run",
+        json={**payload, "capability_id": "cap-b", "implementation_id": "impl-a"},
+    )
+
+    assert (missing.status_code, missing.json()) == (
+        404,
+        {"detail": "capability does not exist in the bound tenant"},
+    )
+    assert (mismatch.status_code, mismatch.json()) == (
+        404,
+        {"detail": "implementation does not belong to the capability in the bound tenant"},
+    )
+
+
+def test_connector_worker_drains_each_eligible_tenant_scope(econ_engine, monkeypatch) -> None:
+    now = datetime.now(UTC)
+    with Session(econ_engine) as seed:
+        seed.add_all(
+            [
+                ConnectorOutbox(
+                    tenant_id=tenant_id,
+                    event_type="execution.event",
+                    event_key=f"event-{tenant_id}",
+                    payload_json={},
+                    status="PENDING",
+                    attempts=0,
+                    next_attempt_at=now,
+                    created_at=now,
+                )
+                for tenant_id in ("tenant-a", "tenant-b")
+            ]
+        )
+        seed.commit()
+    monkeypatch.setattr(
+        "zeroth.econ.plane.connectors.workers.SessionLocal",
+        sessionmaker(bind=econ_engine, class_=Session),
+    )
+    monkeypatch.setattr("zeroth.econ.plane.connectors.service.settings.connectors_enabled", True)
+    monkeypatch.setattr("zeroth.econ.plane.config.settings.service_principal_tenant_id", "tenant-a")
+
+    assert process_connector_outbox.fn(batch_size=10) == 2
+
+    with Session(econ_engine) as verify:
+        rows = verify.execute(select(ConnectorOutbox).order_by(ConnectorOutbox.tenant_id)).scalars()
+        assert [(row.tenant_id, row.status) for row in rows] == [
+            ("tenant-a", "SENT"),
+            ("tenant-b", "SENT"),
+        ]
 
 
 def test_evaluation_rejects_capability_outside_bound_scope(econ_engine) -> None:
