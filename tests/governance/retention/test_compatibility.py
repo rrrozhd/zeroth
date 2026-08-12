@@ -17,10 +17,11 @@ from zeroth.governance.retention.manifests import build_cleanup_manifest
 
 class _RecordingLog:
     def __init__(self, *, fail: bool = False) -> None:
+        self.tenant_id = "t1"
         self.entries: list[tuple[str, dict]] = []
         self._fail = fail
 
-    async def record(self, *, tenant_id, action, run_id=None, reason=None, detail=None) -> str:
+    async def record(self, *, action, run_id=None, reason=None, detail=None) -> str:
         if self._fail:
             raise RuntimeError("retention log unavailable")
         self.entries.append((action, dict(detail or {})))
@@ -97,9 +98,7 @@ async def test_a_failing_compatibility_write_is_swallowed() -> None:
 async def test_external_steps_log_artifacts_then_econ_then_completion() -> None:
     log = _RecordingLog()
 
-    await CompatibilityLog(log=log).record_external_steps(
-        _result(), _manifest(), failed=False
-    )
+    await CompatibilityLog(log=log).record_external_steps(_result(), _manifest(), failed=False)
 
     assert [action for action, _ in log.entries] == [
         "artifact_cleanup",
@@ -144,9 +143,7 @@ async def test_a_failed_cleanup_never_logs_a_completion() -> None:
 async def test_the_completion_detail_carries_the_whole_result() -> None:
     log = _RecordingLog()
 
-    await CompatibilityLog(log=log).record_external_steps(
-        _result(), _manifest(), failed=False
-    )
+    await CompatibilityLog(log=log).record_external_steps(_result(), _manifest(), failed=False)
 
     completion = dict(log.entries[-1][1])
     assert completion == {

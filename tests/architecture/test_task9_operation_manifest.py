@@ -11,11 +11,7 @@ from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRe
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
-from zeroth.governance.retention.policy_repository import (
-    EnabledPolicyMaintenanceReader,
-    RetentionPolicyRepository,
-)
-from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
+from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
@@ -60,10 +56,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "list_erasable_run_ids": frozenset({O.ENUMERATE}),
             "lock_and_recheck_erasable_run": frozenset({O.READ}),
             "fence_token_snapshot_writes_in_transaction": frozenset({O.READ, O.UPDATE}),
-        },
-        RetentionWorkspaceMaintenanceReader: {
-            "list_workspace_ids": frozenset({O.ENUMERATE}),
-        },
+        }
     },
     "service.threads": {
         ThreadRepository: {
@@ -164,10 +157,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "resolve": frozenset({O.READ}),
             "upsert": frozenset({O.CREATE, O.READ, O.UPDATE}),
             "list_for_tenant": frozenset({O.ENUMERATE}),
-        },
-        EnabledPolicyMaintenanceReader: {
-            "list_all_enabled_for_maintenance": frozenset({O.ENUMERATE}),
-        },
+        }
     },
     "service.legal_holds": {
         LegalHoldRepository: {

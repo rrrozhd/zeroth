@@ -199,7 +199,7 @@ async def test_erase_run_orders_every_side_effect_of_a_full_erasure(env, journal
 async def test_legal_hold_refusal_records_the_refusal_and_destroys_nothing(env, journal) -> None:
     """A hold short-circuits inside the lock: one log entry, no destructive call."""
     await env.seed_run("run-held", n_audits=2)
-    await env.hold_repo.place(tenant_id="default", run_id="run-held", reason="litigation")
+    await env.hold_repo.place(run_id="run-held", reason="litigation")
     _instrument(env.service, journal)
 
     from zeroth.governance.retention.erasure_service import LegalHoldError
