@@ -216,11 +216,16 @@ class InventoryRegistrationRepository:
         self._database = database
 
     def _registrations(self, tenant_id: str) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
         return ScopedTable(
             self._database,
             SERVICE_SCOPE_REGISTRY,
             "service.tool_inventory_registrations",
-            NullWorkspaceScopeContext(tenant_id=tenant_id),
+            context,
         )
 
     @persistence_operation(ResourceOperation.CREATE)
@@ -245,11 +250,11 @@ class InventoryRegistrationRepository:
                 "inventory_fingerprint": registration.inventory_fingerprint,
                 "coverage": registration.coverage,
                 "tool_count": registration.tool_count,
-                    # ``tools_json`` keeps its 016 shape -- the bare names --
-                    # because the column is NOT NULL and the names remain
-                    # useful for inspection. It is never read back: the
-                    # identities the digest is computed over live in
-                    # ``tool_identities_json``.
+                # ``tools_json`` keeps its 016 shape -- the bare names --
+                # because the column is NOT NULL and the names remain
+                # useful for inspection. It is never read back: the
+                # identities the digest is computed over live in
+                # ``tool_identities_json``.
                 "tools_json": json.dumps([tool.name for tool in registration.tools]),
                 "registered_at": registration.registered_at.isoformat(),
                 "tool_identities_json": json.dumps(
@@ -369,11 +374,16 @@ class RunAttestationRepository:
         self._database = database
 
     def _attestations(self, tenant_id: str) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
         return ScopedTable(
             self._database,
             SERVICE_SCOPE_REGISTRY,
             "service.run_attestations",
-            NullWorkspaceScopeContext(tenant_id=tenant_id),
+            context,
         )
 
     @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
