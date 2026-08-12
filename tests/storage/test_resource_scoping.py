@@ -124,7 +124,6 @@ _NON_PERSISTENCE_PUBLIC_METHODS = {
     ScopedSession: frozenset(),
     ScopedTable: frozenset(
         {
-            "for_cross_tenant_maintenance",
             "for_privileged_tenant_wide",
             "in_transaction",
             "transaction",

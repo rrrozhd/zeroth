@@ -47,11 +47,7 @@ from zeroth.governance.retention.cleanup_state_repository import CleanupStateRep
 from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
 from zeroth.governance.retention.models import RetentionPolicy
-from zeroth.governance.retention.policy_repository import (
-    EnabledPolicyMaintenanceReader,
-    RetentionPolicyRepository,
-)
-from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
+from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
@@ -145,9 +141,6 @@ async def _drive_runs(database: AsyncDatabase, operation: ResourceOperation) -> 
         run.thread_id = "driver-workspace-thread"
         run.workspace_id = "driver-workspace"
         await named.create(run)
-        assert await RetentionWorkspaceMaintenanceReader(
-            database, "driver-owner"
-        ).list_workspace_ids() == ["driver-workspace"]
     elif operation is O.UPDATE:
         with _raises(KeyError):
             await foreign.transition("driver-run", RunStatus.RUNNING)
@@ -443,18 +436,19 @@ async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation)
         assert (await foreign.get()).audit_ttl_seconds == 20
     elif operation is O.READ:
         assert await foreign.get() is None
-        assert await RetentionPolicyRepository(database, _scope("driver-unknown")).get() is None
+        assert (
+            await RetentionPolicyRepository(database, _scope("driver-unknown")).get() is None
+        )
         assert (await owner.get()).tenant_id == "driver-owner"
     elif operation is O.ENUMERATE:
         assert [row.tenant_id for row in await owner.list_for_tenant()] == ["driver-owner"]
         assert await foreign.list_for_tenant() == []
         assert (
-            await RetentionPolicyRepository(database, _scope("driver-unknown")).list_for_tenant()
+            await RetentionPolicyRepository(
+                database, _scope("driver-unknown")
+            ).list_for_tenant()
             == []
         )
-        maintenance = EnabledPolicyMaintenanceReader(database)
-        tenant_ids = {row.tenant_id for row in await maintenance.list_all_enabled_for_maintenance()}
-        assert {"driver-owner"}.issubset(tenant_ids)
     else:
         await foreign.upsert(RetentionPolicy(tenant_id="driver-foreign", audit_ttl_seconds=20))
         assert (await owner.get()).audit_ttl_seconds == 10

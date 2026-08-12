@@ -36,9 +36,7 @@ async def _drive_audit_resource(
             # ``write`` reads the current chain head before appending.  Using
             # the same run makes an unscoped head read observable in the
             # returned sequence/digest without exposing a raw table adapter.
-            foreign_written = await foreign.write(
-                _audit("driver-foreign", "driver-foreign-audit")
-            )
+            foreign_written = await foreign.write(_audit("driver-foreign", "driver-foreign-audit"))
             assert foreign_written.chain_sequence == 1
             assert foreign_written.previous_record_digest is None
             assert owner_written.chain_sequence == 1
