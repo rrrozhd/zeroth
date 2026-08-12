@@ -2479,6 +2479,16 @@ def _audit_repository_public_call_provenance(
                         return expression_may_raise(expression.value, bound_names)
                     if isinstance(expression, ast.Lambda):
                         return False
+                    if isinstance(expression, ast.IfExp):
+                        test_truth = literal_truth(expression.test)
+                        if test_truth is None or expression_may_raise(
+                            expression.test, bound_names
+                        ):
+                            return True
+                        return expression_may_raise(
+                            expression.body if test_truth else expression.orelse,
+                            bound_names,
+                        )
                     if isinstance(expression, ast.FormattedValue):
                         return (
                             not is_primitive_literal(expression.value)
@@ -2557,6 +2567,7 @@ def _audit_repository_public_call_provenance(
                             ast.Import,
                             ast.ImportFrom,
                             ast.Subscript,
+                            ast.Yield,
                             ast.YieldFrom,
                         ),
                     ):
@@ -9595,6 +9606,39 @@ def test_public_call_inventory_models_assert_message_aliases(
             frozenset(),
         ),
         (
+            "class TruthMessage:\n"
+            "    def __bool__(self):\n"
+            "        raise ValueError\n"
+            "truth_message = TruthMessage()\n",
+            "assert False, (1 if truth_message else 2)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert False, (1 if True else 2)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "class TruthMessage:\n"
+            "    def __bool__(self):\n"
+            "        raise ValueError\n"
+            "truth_message = TruthMessage()\n",
+            "assert False, truth_message and 2",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
             "",
             "assert True",
             "    except AssertionError:\n"
@@ -9649,6 +9693,9 @@ def test_public_call_inventory_models_assert_message_aliases(
         "list-dict-unpack-remains-conservative",
         "empty-dict-unpack-is-safe",
         "primitive-dict-unpack-is-safe",
+        "conditional-truth-protocol-remains-conservative",
+        "primitive-conditional-is-safe",
+        "boolean-truth-protocol-remains-conservative",
         "true-raises-none",
         "unknown-remains-conservative",
         "shadowed-assertion-error",
@@ -9692,6 +9739,44 @@ def test_public_call_inventory_routes_deterministic_assertion_errors(
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["yield", "yield from (None,)", "yield from ()"],
+    ids=["yield", "yield-from-suspends", "yield-from-empty-returns"],
+)
+def test_public_call_inventory_treats_generator_assert_messages_as_potentially_raising(
+    tmp_path: Path, message: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        f"        assert False, ({message})\n"
+        "    except ValueError:\n"
+        "        pass\n"
+        "    except AssertionError:\n"
+        "        closure = None\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 @pytest.mark.parametrize(
