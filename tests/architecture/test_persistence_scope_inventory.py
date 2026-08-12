@@ -1855,13 +1855,16 @@ def _audit_repository_public_call_provenance(
                             )
                             path_states = [
                                 walk_potential_bindings(statement.orelse, *body_state),
-                                *(
-                                    walk_potential_bindings(
-                                        handler.body, potential_names, invalidated_names
-                                    )
-                                    for handler in statement.handlers
-                                ),
                             ]
+                            for handler in statement.handlers:
+                                handler_names = {handler.name} if handler.name is not None else set()
+                                path_states.append(
+                                    walk_potential_bindings(
+                                        handler.body,
+                                        potential_names - handler_names,
+                                        invalidated_names | handler_names,
+                                    )
+                                )
                             potential_names = set().union(*(state[0] for state in path_states))
                             invalidated_names = set.intersection(
                                 *(state[1] for state in path_states)
@@ -1871,6 +1874,7 @@ def _audit_repository_public_call_provenance(
                             )
                             continue
                         if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                            pre_loop_state = (set(potential_names), set(invalidated_names))
                             if isinstance(statement, (ast.For, ast.AsyncFor)):
                                 bound_names = _bound_names(statement.target)
                                 potential_names.difference_update(bound_names)
@@ -1879,21 +1883,66 @@ def _audit_repository_public_call_provenance(
                                 statement.body, potential_names, invalidated_names
                             )
                             exhausted_state = walk_potential_bindings(statement.orelse, *body_state)
-                            potential_names = potential_names | body_state[0] | exhausted_state[0]
-                            invalidated_names &= body_state[1] & exhausted_state[1]
+                            zero_iteration_state = walk_potential_bindings(
+                                statement.orelse, *pre_loop_state
+                            )
+
+                            def has_direct_break(
+                                candidate: ast.AST, loop: ast.AST = statement
+                            ) -> bool:
+                                if candidate is not loop and isinstance(
+                                    candidate,
+                                    (
+                                        ast.For,
+                                        ast.AsyncFor,
+                                        ast.While,
+                                        ast.FunctionDef,
+                                        ast.AsyncFunctionDef,
+                                        ast.ClassDef,
+                                        ast.Lambda,
+                                    ),
+                                ):
+                                    return False
+                                if isinstance(candidate, ast.Break):
+                                    return True
+                                return any(
+                                    has_direct_break(child) for child in ast.iter_child_nodes(candidate)
+                                )
+
+                            path_states = [zero_iteration_state, exhausted_state]
+                            if has_direct_break(statement):
+                                # A break skips the loop's normal-exhaustion else block.
+                                path_states.append(pre_loop_state)
+                            potential_names = set().union(*(state[0] for state in path_states))
+                            invalidated_names = set.intersection(
+                                *(state[1] for state in path_states)
+                            )
                             continue
                         if isinstance(statement, (ast.With, ast.AsyncWith)):
-                            bound_names = set().union(
-                                *(
-                                    _bound_names(item.optional_vars)
-                                    for item in statement.items
-                                    if item.optional_vars is not None
-                                )
-                            )
-                            potential_names.difference_update(bound_names)
-                            invalidated_names.update(bound_names)
-                            potential_names, invalidated_names = walk_potential_bindings(
+                            suppressed_acquisition_states: list[tuple[set[str], set[str]]] = []
+                            for item_index, item in enumerate(statement.items):
+                                if item_index:
+                                    # A manager already entered can suppress a later acquisition
+                                    # failure, allowing execution to continue before this target binds.
+                                    suppressed_acquisition_states.append(
+                                        (set(potential_names), set(invalidated_names))
+                                    )
+                                if item.optional_vars is not None:
+                                    bound_names = _bound_names(item.optional_vars)
+                                    potential_names.difference_update(bound_names)
+                                    invalidated_names.update(bound_names)
+                            entered_state = (set(potential_names), set(invalidated_names))
+                            body_state = walk_potential_bindings(
                                 statement.body, potential_names, invalidated_names
+                            )
+                            path_states = [
+                                body_state,
+                                entered_state,
+                                *suppressed_acquisition_states,
+                            ]
+                            potential_names = set().union(*(state[0] for state in path_states))
+                            invalidated_names = set.intersection(
+                                *(state[1] for state in path_states)
                             )
                             continue
                         if isinstance(statement, ast.Match):
@@ -1905,10 +1954,17 @@ def _audit_repository_public_call_provenance(
                                 )
                                 for case in statement.cases
                             ]
+
+                            def is_irrefutable(pattern: ast.pattern) -> bool:
+                                return (
+                                    isinstance(pattern, ast.MatchAs) and pattern.pattern is None
+                                ) or (
+                                    isinstance(pattern, ast.MatchOr)
+                                    and any(is_irrefutable(item) for item in pattern.patterns)
+                                )
+
                             exhaustive = any(
-                                isinstance(case.pattern, ast.MatchAs)
-                                and case.pattern.pattern is None
-                                and case.guard is None
+                                is_irrefutable(case.pattern) and case.guard is None
                                 for case in statement.cases
                             )
                             if not exhaustive:
@@ -5514,11 +5570,10 @@ def test_public_call_inventory_keeps_unmatched_compound_potential_paths(
 @pytest.mark.parametrize(
     "compound",
     [
-        "for Base in values:\n    pass\n",
         "with context as Base:\n    pass\n",
         "match value:\n    case Base:\n        pass\n",
     ],
-    ids=["for", "with", "match"],
+    ids=["with", "match"],
 )
 def test_public_call_inventory_header_bindings_invalidate_potential_aliases(
     tmp_path: Path, compound: str
@@ -5530,6 +5585,139 @@ def test_public_call_inventory_header_bindings_invalidate_potential_aliases(
         "type Base = list[AuditRepository]\n"
         + compound
         + "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_potential_on_zero_iteration_loop_target(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        "for Base in values:\n    pass\n"
+        "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        "for value in ():\n    pass\nelse:\n    Base = OtherRepository\n",
+        "while False:\n    pass\nelse:\n    Base = OtherRepository\n",
+    ],
+    ids=["for", "while"],
+)
+def test_public_call_inventory_normal_loop_else_rebind_clears_potential(
+    tmp_path: Path, loop: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\ntype Base = list[AuditRepository]\n"
+        + loop
+        + "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_recognizes_or_wildcard_match_as_exhaustive(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\ntype Base = list[AuditRepository]\n"
+        "match value:\n    case 1 | _:\n        Base = OtherRepository\n"
+        "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "manager",
+    [
+        "with suppressor:\n        may_raise()\n        Base = OtherRepository\n",
+        "async with suppressor:\n        await may_raise()\n        Base = OtherRepository\n",
+    ],
+    ids=["with", "async-with"],
+)
+def test_public_call_inventory_keeps_potential_after_suppressed_with_rebind(
+    tmp_path: Path, manager: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        + "    "
+        + manager
+        + "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "manager",
+    [
+        "with suppressor, acquisition as Base:\n        pass\n",
+        "async with suppressor, acquisition as Base:\n        pass\n",
+    ],
+    ids=["with", "async-with"],
+)
+def test_public_call_inventory_keeps_potential_after_suppressed_with_acquisition(
+    tmp_path: Path, manager: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, acquisition, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        + "    "
+        + manager
+        + "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_invalidates_potential_at_except_target_entry(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        "try:\n    Base = OtherRepository\nexcept Exception as Base:\n    pass\n"
+        "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n    await candidate.write(record)\n",
         encoding="utf-8",
     )
 
