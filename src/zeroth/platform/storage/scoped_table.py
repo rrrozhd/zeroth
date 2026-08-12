@@ -729,6 +729,18 @@ class BoundStructuredTable:
             params.extend((limit, offset))
         return await self.__connection.fetch_all(sql, tuple(params))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def count(self, *, where: dict[str, Any] | None = None) -> int:
+        """Count scoped rows without materializing their identities."""
+        definition = self._definition(ResourceOperation.ENUMERATE)
+        table_name = _definition_table_name(definition)
+        predicates, params = self._where(definition, where)
+        sql = f"SELECT COUNT(*) AS row_count FROM {table_name}"
+        if predicates:
+            sql += " WHERE " + " AND ".join(predicates)
+        row = await self.__connection.fetch_one(sql, tuple(params))
+        return 0 if row is None else int(row["row_count"])
+
     @persistence_operation(ResourceOperation.READ)
     async def select_one(
         self,
