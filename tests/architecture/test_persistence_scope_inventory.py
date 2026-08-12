@@ -2134,24 +2134,53 @@ def _audit_repository_public_call_provenance(
                     *,
                     known_shape: bool,
                     may_fail_unpack: bool,
+                    value: ast.AST | None = None,
                 ) -> tuple[_PotentialState, list[_PotentialState]]:
                     if isinstance(target, ast.Starred):
                         return bind_target(
                             state,
                             target.value,
-                            known_shape=True,
-                            may_fail_unpack=False,
+                            known_shape=known_shape and target_shape_matches(value, target.value),
+                            may_fail_unpack=may_fail_unpack,
+                            value=value,
                         )
                     if isinstance(target, ast.Name):
                         return bind_names(state, {target.id}), []
                     if isinstance(target, (ast.Tuple, ast.List)):
                         exceptions = [] if known_shape or not may_fail_unpack else [state]
-                        for item in target.elts:
+                        starred_indexes = [
+                            index
+                            for index, item in enumerate(target.elts)
+                            if isinstance(item, ast.Starred)
+                        ]
+                        target_values: list[ast.AST | None] = [None] * len(target.elts)
+                        if isinstance(value, (ast.Tuple, ast.List)) and not any(
+                            isinstance(item, ast.Starred) for item in value.elts
+                        ):
+                            if starred_indexes:
+                                star_index = starred_indexes[0]
+                                suffix_length = len(target.elts) - star_index - 1
+                                for index, item_value in enumerate(value.elts[:star_index]):
+                                    target_values[index] = item_value
+                                target_values[star_index] = ast.List(
+                                    elts=value.elts[
+                                        star_index : len(value.elts) - suffix_length
+                                        if suffix_length
+                                        else None
+                                    ]
+                                )
+                                if suffix_length:
+                                    for index, item_value in enumerate(value.elts[-suffix_length:]):
+                                        target_values[star_index + 1 + index] = item_value
+                            elif len(value.elts) == len(target.elts):
+                                target_values = list(value.elts)
+                        for item, item_value in zip(target.elts, target_values, strict=True):
                             state, item_exceptions = bind_target(
                                 state,
                                 item,
                                 known_shape=known_shape,
                                 may_fail_unpack=may_fail_unpack,
+                                value=item_value,
                             )
                             exceptions.extend(item_exceptions)
                         return state, exceptions
@@ -2561,12 +2590,35 @@ def _audit_repository_public_call_provenance(
                             state[name] = identity
                             record_event(name, position, identity)
 
+                    def record_named_expressions(
+                        expression_node: ast.AST,
+                        state: dict[str, type[BaseException] | None],
+                    ) -> None:
+                        if isinstance(expression_node, ast.NamedExpr):
+                            record_named_expressions(expression_node.value, state)
+                            bind_alias(
+                                expression_node.target,
+                                expression_node.value,
+                                (expression_node.lineno, expression_node.col_offset),
+                                state,
+                            )
+                            return
+                        if isinstance(
+                            expression_node,
+                            (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                        ):
+                            return
+                        for child in ast.iter_child_nodes(expression_node):
+                            if not isinstance(child, ast.stmt):
+                                record_named_expressions(child, state)
+
                     def walk(
                         block: list[ast.stmt], state: dict[str, type[BaseException] | None]
                     ) -> dict[str, type[BaseException] | None]:
                         state = dict(state)
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
+                            record_named_expressions(statement, state)
                             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                                 targets = (
                                     statement.targets
@@ -2575,15 +2627,6 @@ def _audit_repository_public_call_provenance(
                                 )
                                 for target in targets:
                                     bind_alias(target, statement.value, position, state)
-                            elif isinstance(statement, ast.Expr) and isinstance(
-                                statement.value, ast.NamedExpr
-                            ):
-                                bind_alias(
-                                    statement.value.target,
-                                    statement.value.value,
-                                    position,
-                                    state,
-                                )
                             elif isinstance(statement, ast.ImportFrom):
                                 for alias in statement.names:
                                     name = alias.asname or alias.name
@@ -2635,6 +2678,19 @@ def _audit_repository_public_call_provenance(
                                 state = join(state, walk(statement.body, body_state))
                                 merge_events(statement, state)
                             elif isinstance(statement, ast.Match):
+                                def is_irrefutable_pattern(pattern: ast.pattern) -> bool:
+                                    if isinstance(pattern, ast.MatchAs):
+                                        return (
+                                            pattern.pattern is None
+                                            or is_irrefutable_pattern(pattern.pattern)
+                                        )
+                                    if isinstance(pattern, ast.MatchOr):
+                                        return any(
+                                            is_irrefutable_pattern(item)
+                                            for item in pattern.patterns
+                                        )
+                                    return False
+
                                 subject_identity = resolve(statement.subject, state)
                                 paths: list[dict[str, type[BaseException] | None]] = []
                                 exhaustive = False
@@ -2645,7 +2701,13 @@ def _audit_repository_public_call_provenance(
                                         record_event(
                                             case.pattern.name, position, subject_identity
                                         )
-                                        exhaustive = case.guard is None
+                                    exhaustive = (
+                                        exhaustive
+                                        or (
+                                            case.guard is None
+                                            and is_irrefutable_pattern(case.pattern)
+                                        )
+                                    )
                                     paths.append(walk(case.body, case_state))
                                 if not exhaustive:
                                     paths.append(state)
@@ -3046,6 +3108,13 @@ def _audit_repository_public_call_provenance(
                                     statement.target,
                                     known_shape=known_target_shape,
                                     may_fail_unpack=True,
+                                    value=(
+                                        statement.iter.elts[0]
+                                        if isinstance(statement, ast.For)
+                                        and isinstance(statement.iter, (ast.Tuple, ast.List))
+                                        and len(statement.iter.elts) == 1
+                                        else None
+                                    ),
                                 )
                                 exceptions.extend(target_exceptions)
                             body_flow = walk_potential_bindings(
@@ -3215,6 +3284,7 @@ def _audit_repository_public_call_provenance(
                                         target,
                                         known_shape=target_shape_matches(statement.value, target),
                                         may_fail_unpack=True,
+                                        value=statement.value,
                                     )
                                     exceptions.extend(target_exceptions)
                                 continuing = bind_names(
@@ -8294,6 +8364,123 @@ def test_public_call_inventory_routes_exception_alias_binding_forms(
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "alias_setup",
+    [
+        "if (TypeError := ValueError):\n"
+        "    pass\n",
+        "Alias = (TypeError := ValueError)\n",
+    ],
+    ids=["if-test", "assignment-rhs"],
+)
+def test_public_call_inventory_routes_nested_named_expression_aliases(
+    tmp_path: Path, alias_setup: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + alias_setup
+        + "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_conditional_match_capture_unbound(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "match ValueError:\n"
+        "    case int() as TypeError:\n"
+        "        pass\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "(None, None, None)",
+            frozenset(),
+        ),
+        (
+            "(None,)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["valid-nested-star", "short-nested-star"],
+)
+def test_public_call_inventory_models_nested_starred_target_shapes(
+    tmp_path: Path, value: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    with suppressor:\n"
+        f"        for first, *(closure, last) in ({value},):\n"
+        "            pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
 @pytest.mark.parametrize("has_value", [False, True], ids=["annotation-only", "valued"])
