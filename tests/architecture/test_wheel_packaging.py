@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -24,6 +25,7 @@ REPO_ROOT = Path(__file__).parents[2]
 #: Paths the wheel must ship. Each one is a resource that a pure-Python import
 #: check would miss: typing metadata, vendored attribution, and package data.
 REQUIRED_ENTRIES = (
+    "zeroth/_architecture.py",
     "zeroth/py.typed",
     "zeroth/contracts/governed/LICENSE",
     "zeroth/contracts/governed/PROVENANCE.md",
@@ -39,6 +41,19 @@ FORBIDDEN_PREFIXES = (
     "zeroth/econ_plane/",
     "zeroth/examples/",
     "zeroth/demos/",
+)
+
+CANONICAL_WHEEL_SOURCES = (
+    "src/zeroth/_architecture.py",
+    "src/zeroth/contracts",
+    "src/zeroth/econ",
+    "src/zeroth/eval",
+    "src/zeroth/governance",
+    "src/zeroth/integrations",
+    "src/zeroth/platform",
+    "src/zeroth/runtime",
+    "src/zeroth/service",
+    "src/zeroth/py.typed",
 )
 
 
@@ -77,6 +92,40 @@ def test_the_wheel_ships_no_retired_or_example_tree(prefix: str, wheel_names: li
     shipped = sorted(name for name in wheel_names if name.startswith(prefix))
 
     assert not shipped, f"wheel ships {prefix}:\n  " + "\n  ".join(shipped)
+
+
+def test_wheel_members_come_from_explicit_tracked_sources(wheel_names: list[str]) -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    wheel_config = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
+
+    assert wheel_config.get("only-include") == list(CANONICAL_WHEEL_SOURCES)
+    assert wheel_config.get("sources") == ["src"]
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "src/zeroth"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split("\0")
+    missing_sources = sorted(
+        name
+        for name in wheel_names
+        if name
+        and not name.endswith("/")
+        and ".dist-info/" not in name
+        and f"src/{name}" not in tracked
+    )
+
+    assert not missing_sources, "wheel members have no tracked src/ file:\n  " + "\n  ".join(
+        missing_sources
+    )
+
+
+def test_the_wheel_does_not_ship_release_tooling(wheel_names: list[str]) -> None:
+    shipped = sorted(name for name in wheel_names if name.startswith("release/"))
+
+    assert not shipped, "wheel ships release tooling:\n  " + "\n  ".join(shipped)
 
 
 def test_find_spec_resolves_no_retired_package_against_the_installed_wheel(

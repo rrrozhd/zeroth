@@ -41,6 +41,19 @@ RELEASE_ONLY_WORK = (
     "test.pypi.org",
 )
 
+PRIVILEGED_ACTION_REFS = {
+    "actions/checkout": ("11d5960a326750d5838078e36cf38b85af677262", "v4"),
+    "actions/setup-python": ("a26af69be951a213d495a4c3e4e4022e16d87065", "v5"),
+    "actions/download-artifact": ("d3f86a106a0bac45b974a628896c90dbdf5c8093", "v4"),
+    "actions/upload-artifact": ("ea165f8d65b6e75b540449e92b4886f43607fa02", "v4"),
+    "actions/attest": ("1e69f48acb82d1966a394da916b4c1698aa569d6", "v4"),
+    "anchore/sbom-action": ("e22c389904149dbc22b58101806040fa8d37a610", "v0"),
+    "pypa/gh-action-pypi-publish": (
+        "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
+        "release/v1",
+    ),
+}
+
 
 def _load(path: Path) -> dict:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -88,6 +101,35 @@ def _scripts(path: Path) -> dict[str, str]:
         .replace("'", "")
         for name, job in _jobs(path).items()
     }
+
+
+def test_privileged_release_jobs_pin_external_actions() -> None:
+    workflow = _load(RELEASE_WORKFLOW)
+    source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    privileged_jobs = {
+        name: job
+        for name, job in workflow["jobs"].items()
+        if "write" in (job.get("permissions", workflow["permissions"])).values()
+    }
+
+    assert privileged_jobs
+    for job_name, job in privileged_jobs.items():
+        for step in _steps(job):
+            uses = str(step.get("uses", ""))
+            if not uses or uses.startswith("./"):
+                continue
+            action, _, ref = uses.partition("@")
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"{job_name}: {action} is not pinned to a 40-hex commit"
+            )
+            assert action in PRIVILEGED_ACTION_REFS, f"{job_name}: unreviewed action {action}"
+            expected_ref, version = PRIVILEGED_ACTION_REFS[action]
+            assert ref == expected_ref
+            assert re.search(
+                rf"^\s*uses:\s*{re.escape(action)}@{ref}\s+#\s+{re.escape(version)}\s*$",
+                source,
+                re.MULTILINE,
+            ), f"{job_name}: {action} pin has no {version} version comment"
 
 
 # --------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 # Zeroth service image. Runs `zeroth-core serve`: migrations (SQLite or
 # Postgres per ZEROTH_DATABASE__*) then uvicorn on :8000.
 #
+#   uv build --wheel
 #   docker build -t zeroth-core .
 #   docker run -p 8000:8000 \
 #     -e ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"ops","secret":"<token>","subject":"ops","roles":["admin"]}]' \
@@ -9,28 +10,20 @@
 # Seed a runnable demo deployment first (same volume):
 #   docker run -v zeroth-data:/data zeroth-core zeroth-core seed-demo
 
-FROM python:3.12.13-slim-bookworm AS build
-
-WORKDIR /src
-COPY pyproject.toml README.md LICENSE ./
-COPY src ./src
-RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
-
 FROM python:3.12.13-slim-bookworm
 
-# Release image includes both supported LangGraph deployment surfaces.
-ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"
-
-LABEL org.opencontainers.image.version=0.17.0.4 \
+LABEL org.opencontainers.image.version=0.22.4 \
       io.zeroth.langgraph.adapter.version=1.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1
 
 RUN useradd --create-home --uid 10001 zeroth
-COPY --from=build /dist/*.whl /tmp/
-RUN WHEEL="$(ls /tmp/*.whl)" \
-    && pip install --no-cache-dir "${WHEEL}${ZEROTH_EXTRAS:+[${ZEROTH_EXTRAS}]}" \
-    && rm /tmp/*.whl
+COPY requirements-image.txt /tmp/requirements-image.txt
+COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+        -r /tmp/requirements-image.txt \
+    && pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl \
+    && rm /tmp/requirements-image.txt
 
 # Redis is disabled by default so the single-container image is
 # self-contained and /health/ready reports healthy; override

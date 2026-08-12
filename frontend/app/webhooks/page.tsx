@@ -28,6 +28,17 @@ import {
   type WebhookSubscription,
 } from "@/app/lib/api";
 
+export async function deactivateConfirmedWebhook(
+  id: string,
+  targetUrl: string,
+  confirm: (message: string) => boolean = window.confirm,
+  remove: (id: string) => Promise<unknown> = deleteWebhookSubscription,
+): Promise<boolean> {
+  if (!confirm(`Deactivate webhook subscription ${id} (${targetUrl})?`)) return false;
+  await remove(id);
+  return true;
+}
+
 export default function WebhooksPage() {
   const connected = useConnected();
   return (
@@ -56,6 +67,7 @@ function SubscriptionsCard() {
   const [createErr, setCreateErr] = useState<string | null>(null);
   // The secret is returned only once, on create — surface it prominently.
   const [created, setCreated] = useState<WebhookSubscription | null>(null);
+  const [removeErr, setRemoveErr] = useState<string | null>(null);
 
   async function create() {
     const target = url.trim();
@@ -80,13 +92,20 @@ function SubscriptionsCard() {
     }
   }
 
-  async function remove(id: string) {
+  async function remove(subscription: WebhookSubscription) {
+    setRemoveErr(null);
     try {
-      await deleteWebhookSubscription(id);
+      if (
+        !(await deactivateConfirmedWebhook(
+          subscription.subscription_id,
+          subscription.target_url,
+        ))
+      ) {
+        return;
+      }
       reload();
-    } catch {
-      /* re-fetch reflects reality; keep the row quiet */
-      reload();
+    } catch (e) {
+      setRemoveErr(errMsg(e));
     }
   }
 
@@ -96,6 +115,7 @@ function SubscriptionsCard() {
     <Card title="Webhook subscriptions">
       <div className="space-y-5">
         {error && <ApiErrorNote error={error} />}
+        {removeErr && <ErrorBox message={`Deactivation failed: ${removeErr}`} />}
 
         <div className="space-y-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted">
@@ -150,7 +170,7 @@ function SubscriptionsCard() {
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     <StatusBadge status={s.active ? "active" : "cancelled"} />
-                    <Button size="sm" variant="danger" onClick={() => remove(s.subscription_id)}>
+                    <Button size="sm" variant="danger" onClick={() => remove(s)}>
                       Deactivate
                     </Button>
                   </div>

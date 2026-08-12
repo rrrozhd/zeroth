@@ -242,13 +242,13 @@ jobs:
       contents: read
     steps:
       - name: Download dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
           path: dist/
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           # Sigstore attestations are default-on in v1.14+ (D-13)
@@ -422,10 +422,10 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -435,7 +435,7 @@ jobs:
       # record that never arrives is reported as `missing`, which blocks.
       - name: Collect every gate record
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: gate-*
           path: release/evidence
@@ -443,7 +443,7 @@ jobs:
 
       - name: Download the full candidate identity
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: candidate-identity-full
           path: release/evidence
@@ -526,7 +526,7 @@ jobs:
 
       - name: Attest the evidence manifest
         if: always()
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           # Signs over the candidate identity and the digest of every gate
           # record, so the evidence itself carries an attestation rather than
@@ -535,7 +535,7 @@ jobs:
 
       - name: Retain the final evidence bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-evidence-final
           path: release/evidence
@@ -551,13 +551,13 @@ jobs:
       contents: read
     steps:
       - name: Download dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         # Default index, Sigstore attestations default-on in v1.14+ (D-13)
 
   container-evidence:
@@ -575,19 +575,45 @@ jobs:
       SIGNING_DEPLOYMENT: release-smoke-signing-key-not-for-production
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist/
 
       - name: Validate source release evidence
         run: python release/langgraph/harness.py validate --phase source --manifest release/langgraph/release-manifest.json
 
       - name: Download JUnit release evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: langgraph-junit
           path: release/langgraph
 
       - name: Build release image
-        run: docker build --build-arg ZEROTH_EXTRAS=memory-pg,langgraph,langgraph-gateway -t zeroth-core:${{ github.ref_name }} .
+        run: docker build -t zeroth-core:${{ github.ref_name }} .
+
+      - name: Compare image wheel with release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTAINER_ID=$(docker create zeroth-core:${{ github.ref_name }})
+          trap 'docker rm -f "${CONTAINER_ID}" >/dev/null' EXIT
+          mkdir -p /tmp/zeroth-image-wheel
+          docker cp "${CONTAINER_ID}:/opt/zeroth/wheel/." /tmp/zeroth-image-wheel/
+          DIST_WHEELS=(dist/zeroth_core-*.whl)
+          IMAGE_WHEELS=(/tmp/zeroth-image-wheel/zeroth_core-*.whl)
+          if [ "${#DIST_WHEELS[@]}" -ne 1 ] || [ ! -f "${DIST_WHEELS[0]}" ]; then
+            echo "::error::expected exactly one release candidate wheel"
+            exit 1
+          fi
+          if [ "${#IMAGE_WHEELS[@]}" -ne 1 ] || [ ! -f "${IMAGE_WHEELS[0]}" ]; then
+            echo "::error::expected exactly one retained image wheel"
+            exit 1
+          fi
+          cmp "${DIST_WHEELS[0]}" "${IMAGE_WHEELS[0]}"
 
       - name: Reject invalid configuration
         shell: bash
@@ -628,7 +654,7 @@ jobs:
         run: docker save --output zeroth-core-image.tar zeroth-core:${{ github.ref_name }}
 
       - name: Generate image SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: zeroth-core:${{ github.ref_name }}
           format: spdx-json
@@ -659,7 +685,7 @@ jobs:
 
       - name: Attest build provenance
         id: provenance
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: zeroth-core-image.tar
 
@@ -679,7 +705,7 @@ jobs:
             > release/langgraph/attestation-verification.json
 
       - name: Attest image SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-name: zeroth-core
           subject-digest: ${{ steps.images.outputs.digest }}
@@ -687,12 +713,6 @@ jobs:
 
       - name: Validate generated release evidence
         run: python release/langgraph/harness.py validate --phase final --manifest release/langgraph/release-manifest.json
-
-      - name: Download dist for the package identity
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
 
       - name: Measure the full candidate identity and record the deployment gate
         shell: bash
@@ -741,13 +761,13 @@ jobs:
           cat release/evidence/deployment-smoke.json
 
       - name: Upload the full candidate identity
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-identity-full
           path: release/evidence/candidate-identity-full.json
 
       - name: Upload deployment-smoke evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           # Every path stays under release/evidence so the artifact root is
           # that directory; adding a path from elsewhere would move the common
@@ -756,7 +776,7 @@ jobs:
           path: release/evidence/deployment-*
 
       - name: Upload reproducible container evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: langgraph-container-evidence
           path: |

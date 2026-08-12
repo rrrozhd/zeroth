@@ -59,7 +59,7 @@ https://github.com/rrrozhd/zeroth/issues
 When reporting a bug, include:
 
 - Steps to reproduce (a minimal snippet is ideal)
-- The `zeroth-core` version (`python -c "import zeroth.core; print(zeroth.core.__version__)"` when available, otherwise your install command)
+- The `zeroth-core` version (`python -c "from importlib.metadata import version; print(version('zeroth-core'))"`)
 - Your Python version (`python --version`) and operating system
 - The full traceback, if any
 

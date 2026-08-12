@@ -43,6 +43,16 @@ from zeroth.service.bootstrap.lifecycle import service_lifespan
 logger = logging.getLogger(__name__)
 
 _PUBLIC_HEALTH_PATHS = frozenset({"/health", "/health/live", "/health/ready"})
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
+        "img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:"
+    ),
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 class ServiceBootstrapLike(Protocol):
@@ -275,5 +285,21 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
             allow_headers=["X-API-Key", "Content-Type", "Accept", "X-Correlation-ID"],
             allow_credentials=False,
         )
+
+    # Registered last so every API, auth, CORS, and mounted-console response
+    # passes through the same browser-security boundary.
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("unhandled request failure: %s %s", request.method, request.url.path)
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal Server Error"},
+            )
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
 
     return app
