@@ -16,6 +16,7 @@ from zeroth.governance.retention.policy_repository import (
     RetentionPolicyRepository,
 )
 from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
+from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
@@ -40,6 +41,18 @@ O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 # listed when one public transaction performs a lifecycle transition (for
 # example an upsert or dead-letter move).
 TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOperation]]]] = {
+    "service.quota_counters": {
+        QuotaEnforcer: {
+            "check_and_increment": frozenset({O.CREATE, O.READ, O.UPDATE}),
+            "get": frozenset({O.READ}),
+        }
+    },
+    "service.rate_limit_buckets": {
+        TokenBucketRateLimiter: {
+            "check_and_consume": frozenset({O.CREATE, O.READ, O.UPDATE}),
+            "get": frozenset({O.READ}),
+        }
+    },
     "service.runs": {
         RunRepository: {
             "create": frozenset({O.CREATE}),
@@ -266,6 +279,14 @@ def test_task9_manifest_names_real_public_repository_methods() -> None:
                 method = vars(repository_type).get(method_name)
                 assert method is not None, f"{repository_type.__name__}.{method_name} is not public"
                 assert inspect.isfunction(method), f"{repository_type.__name__}.{method_name}"
+
+
+def test_task9_guardrail_manifest_matches_production_operation_metadata() -> None:
+    for resource_name in ("service.quota_counters", "service.rate_limit_buckets"):
+        for repository_type, methods in TASK9_OPERATION_MANIFEST[resource_name].items():
+            for method_name, operations in methods.items():
+                method = vars(repository_type)[method_name]
+                assert getattr(method, "__persistence_operations__", frozenset()) == operations
 
 
 def test_task9_manifest_covers_every_public_persistence_method() -> None:

@@ -30,6 +30,7 @@ from zeroth.governance.retention.policy_repository import (
     RetentionPolicyRepository,
 )
 from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
+from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
@@ -877,7 +878,39 @@ async def _drive_side_effect_operations(
         assert await owner.erase_for_run("driver-run") == 1
 
 
+async def _drive_rate_limit_buckets(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    owner = TokenBucketRateLimiter.scoped(database, _scope("driver-owner"))
+    foreign = TokenBucketRateLimiter.scoped(database, _scope("driver-foreign"))
+    await owner.check_and_consume("driver-key", capacity=1, refill_rate=0)
+    if operation is O.CREATE:
+        assert await foreign.check_and_consume("driver-key", capacity=1, refill_rate=0)
+    elif operation is O.READ:
+        assert await foreign.get("driver-key") is None
+        assert await foreign.get("unknown-key") is None
+    else:
+        assert not await owner.check_and_consume("driver-key", capacity=1, refill_rate=0)
+        assert await foreign.check_and_consume("driver-key", capacity=2, refill_rate=0)
+        assert (await owner.get("driver-key"))["token_count"] == 0
+
+
+async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    owner = QuotaEnforcer.scoped(database, _scope("driver-owner"))
+    foreign = QuotaEnforcer.scoped(database, _scope("driver-foreign"))
+    assert await owner.check_and_increment("driver-key", limit=1)
+    if operation is O.CREATE:
+        assert await foreign.check_and_increment("driver-key", limit=1)
+    elif operation is O.READ:
+        assert await foreign.get("driver-key") is None
+        assert await foreign.get("unknown-key") is None
+    else:
+        assert not await owner.check_and_increment("driver-key", limit=1)
+        assert await foreign.check_and_increment("driver-key", limit=2)
+        assert (await owner.get("driver-key"))["value"] == 1
+
+
 _RESOURCE_DRIVERS: dict[str, Callable[[AsyncDatabase, ResourceOperation], Awaitable[None]]] = {
+    "service.quota_counters": _drive_quota_counters,
+    "service.rate_limit_buckets": _drive_rate_limit_buckets,
     "service.runs": _drive_runs,
     "service.threads": _drive_threads,
     "service.run_checkpoints": _drive_checkpoints,
@@ -898,6 +931,8 @@ _RESOURCE_DRIVERS: dict[str, Callable[[AsyncDatabase, ResourceOperation], Awaita
 }
 
 _OPERATIONS = {
+    "service.quota_counters": frozenset({O.CREATE, O.READ, O.UPDATE}),
+    "service.rate_limit_buckets": frozenset({O.CREATE, O.READ, O.UPDATE}),
     "service.runs": frozenset(O),
     "service.threads": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
     "service.run_checkpoints": frozenset(O),

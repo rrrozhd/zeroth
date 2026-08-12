@@ -15,8 +15,13 @@ from zeroth.platform.storage import (
     ScopedTable,
     ScopeContext,
     TenantWideScopeContext,
+    persistence_operation,
 )
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.econ.plane.scoped_session import ScopedSession
+from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+from zeroth.platform.secrets.vault import TenantScopedVaultDriver
 
 
 class _RecordingConnection:
@@ -102,6 +107,99 @@ def test_resource_operation_has_explicit_persistent_operations() -> None:
         ResourceOperation.UPDATE,
         ResourceOperation.DELETE,
     }
+
+
+def test_persistence_operation_requires_non_empty_exact_operation_metadata() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        persistence_operation()
+    with pytest.raises(TypeError, match="ResourceOperation"):
+        persistence_operation("read")  # type: ignore[arg-type]
+
+
+def test_production_gateway_methods_carry_exact_operation_metadata() -> None:
+    expected = {
+        "select": frozenset({ResourceOperation.ENUMERATE}),
+        "select_one": frozenset({ResourceOperation.READ}),
+        "insert": frozenset({ResourceOperation.CREATE}),
+        "insert_if_absent": frozenset({ResourceOperation.CREATE}),
+        "update": frozenset({ResourceOperation.UPDATE}),
+        "delete": frozenset({ResourceOperation.DELETE}),
+    }
+    actual = {
+        name: getattr(getattr(ScopedTable, name), "__persistence_operations__", frozenset())
+        for name in expected
+    }
+
+    assert actual == expected
+
+
+def test_public_persistence_gateway_methods_have_no_missing_or_extra_metadata() -> None:
+    expected = {
+        "select": frozenset({ResourceOperation.ENUMERATE}),
+        "select_one": frozenset({ResourceOperation.READ}),
+        "insert": frozenset({ResourceOperation.CREATE}),
+        "insert_if_absent": frozenset({ResourceOperation.CREATE}),
+        "update": frozenset({ResourceOperation.UPDATE}),
+        "delete": frozenset({ResourceOperation.DELETE}),
+    }
+    public = {
+        name: method
+        for name, method in vars(ScopedTable.__mro__[1]).items()
+        if not name.startswith("_") and callable(method)
+    }
+    declared = {
+        name: method.__persistence_operations__
+        for name, method in public.items()
+        if hasattr(method, "__persistence_operations__")
+    }
+
+    assert declared == expected
+
+
+def test_every_public_persistence_method_declares_exact_operations() -> None:
+    expected = {
+        ScopedSession: {
+            "get": {ResourceOperation.READ},
+            "execute": set(ResourceOperation),
+            "scalars": {ResourceOperation.READ, ResourceOperation.ENUMERATE},
+            "add": {ResourceOperation.CREATE},
+            "delete": {ResourceOperation.DELETE},
+            "commit": set(ResourceOperation),
+            "flush": set(ResourceOperation),
+            "rollback": set(ResourceOperation),
+            "refresh": {ResourceOperation.READ},
+        },
+        BoundStructuredTable: {
+            "select": {ResourceOperation.ENUMERATE},
+            "select_one": {ResourceOperation.READ},
+            "insert": {ResourceOperation.CREATE},
+            "insert_if_absent": {ResourceOperation.CREATE},
+            "upsert": {ResourceOperation.CREATE, ResourceOperation.UPDATE},
+            "update": {ResourceOperation.UPDATE},
+            "update_if_matches": {ResourceOperation.UPDATE},
+            "increment_and_get": {ResourceOperation.UPDATE},
+            "delete": {ResourceOperation.DELETE},
+        },
+        TenantScopedArtifactStore: {
+            "store": {ResourceOperation.CREATE},
+            "retrieve": {ResourceOperation.READ},
+            "delete": {ResourceOperation.DELETE},
+            "refresh_ttl": {ResourceOperation.UPDATE},
+            "exists": {ResourceOperation.READ},
+            "cleanup_run": {ResourceOperation.DELETE},
+        },
+        TenantScopedVaultDriver: {
+            "resolve": {ResourceOperation.READ},
+            "resolve_many": {ResourceOperation.ENUMERATE},
+        },
+    }
+    for gateway, methods in expected.items():
+        declared = {
+            name: set(method.__persistence_operations__)
+            for name, method in vars(gateway).items()
+            if hasattr(method, "__persistence_operations__")
+        }
+        assert declared == methods
 
 
 @pytest.mark.parametrize("tenant_id", ["", "  ", None, 7])

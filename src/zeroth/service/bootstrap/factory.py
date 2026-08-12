@@ -216,8 +216,13 @@ async def bootstrap_service(
         run_repository=run_repository,
         max_failure_count=resolved_guardrail_config.max_failure_count,
     )
-    rate_limiter = TokenBucketRateLimiter(database)
-    quota_enforcer = QuotaEnforcer(database)
+    guardrail_scope = (
+        NullWorkspaceScopeContext.for_default_compatibility()
+        if deployment.tenant_id == "default"
+        else NullWorkspaceScopeContext(tenant_id=deployment.tenant_id)
+    )
+    rate_limiter = TokenBucketRateLimiter.scoped(database, guardrail_scope)
+    quota_enforcer = QuotaEnforcer.scoped(database, guardrail_scope)
     queue_gauge = QueueDepthGauge(
         run_repository=run_repository,
         deployment_ref=deployment.deployment_ref,

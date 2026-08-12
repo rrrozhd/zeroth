@@ -29,11 +29,18 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import httpx
 
 from zeroth.platform.secrets.provider import SecretResolutionError, normalize_secret_name
 from zeroth.platform.secrets.redaction import SecretRedactor
+from zeroth.platform.storage.scoped_resource import ScopedOperation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScopeDefinition,
+    persistence_operation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -470,4 +477,49 @@ class VaultSecretProvider:
             self._redactor = SecretRedactor(self._redaction_history)
 
 
-__all__ = ["VaultSecretProvider"]
+class TenantScopedVaultDriver:
+    """Bind a shared Vault provider to one tenant before exposing persistence."""
+
+    def __init__(self, provider: VaultSecretProvider, *, tenant_id: str) -> None:
+        if type(provider) is not VaultSecretProvider:
+            raise TypeError("provider must be a VaultSecretProvider")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("tenant_id must be non-empty")
+        self._provider = provider
+        self._tenant_id = tenant_id
+        self._resource_definition = ResourceScopeDefinition(
+            resource_name="vault.secrets",
+            table_name="vault_secrets",
+            operations=frozenset({ResourceOperation.READ, ResourceOperation.ENUMERATE}),
+        )
+        self._operations = MappingProxyType(
+            {
+                ResourceOperation.READ: self.resolve,
+                ResourceOperation.ENUMERATE: self.resolve_many,
+            }
+        )
+
+    @property
+    def resource_definition(self) -> ResourceScopeDefinition:
+        """Return the immutable logical-resource contract."""
+        return self._resource_definition
+
+    @property
+    def operations(self) -> MappingProxyType[ResourceOperation, ScopedOperation]:
+        """Return immutable canonical operations bound to this tenant scope."""
+        return self._operations
+
+    @persistence_operation(ResourceOperation.READ)
+    async def resolve(self, logical_name: str) -> str | None:
+        """Resolve one logical secret through the bound production provider."""
+        return await self._provider.resolve_secret_async(logical_name, tenant_id=self._tenant_id)
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def resolve_many(self, logical_names: list[str]) -> dict[str, str]:
+        """Resolve several logical secrets within the bound tenant."""
+        return {
+            name: value for name in logical_names if (value := await self.resolve(name)) is not None
+        }
+
+
+__all__ = ["TenantScopedVaultDriver", "VaultSecretProvider"]

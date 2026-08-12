@@ -18,6 +18,7 @@ from zeroth.platform.storage.scoping import (
     ResourceScopeRegistry,
     ScopeContext,
     TenantWideScopeContext,
+    persistence_operation,
 )
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -119,6 +120,12 @@ _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
+    "quota_counters": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
+    "rate_limit_buckets": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
     "retention_audit_log": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
     ),
@@ -202,13 +209,8 @@ _TASK9_RESOURCE_OPERATIONS = {
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
     ),
 }
-SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
-    {
-        "quota_counters",
-        "rate_limit_buckets",
-    }
-)
-"""Tenant resources awaiting their direct ownership migrations in Tasks 7-9."""
+SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset()
+"""Tenant resources awaiting a direct ownership migration."""
 
 SERVICE_SCOPE_DEFINITIONS = tuple(
     ResourceScopeDefinition(
@@ -411,6 +413,7 @@ class _StructuredTable:
                     params.append(value)
         return predicates, params
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def select(
         self,
         *,
@@ -464,6 +467,7 @@ class _StructuredTable:
         async with self.__database.transaction() as connection:
             return await connection.fetch_all(sql, tuple(params))
 
+    @persistence_operation(ResourceOperation.READ)
     async def select_one(
         self,
         *,
@@ -485,6 +489,7 @@ class _StructuredTable:
         async with self.__database.transaction() as connection:
             return await connection.fetch_one(sql, tuple(params))
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def insert(self, values: dict[str, Any]) -> None:
         """Insert a row after filling and validating its ownership columns."""
         definition = self._validate_operation(
@@ -501,6 +506,7 @@ class _StructuredTable:
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, tuple(rendered.values()))
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def insert_if_absent(
         self,
         values: dict[str, Any],
@@ -528,6 +534,7 @@ class _StructuredTable:
             row = await connection.fetch_one(sql, tuple(rendered.values()))
         return row is not None
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update rows selected by caller predicates plus the bound scope."""
         definition = self._validate_operation(
@@ -544,6 +551,7 @@ class _StructuredTable:
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, (*rendered.values(), *where_params))
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, *, where: dict[str, Any]) -> None:
         """Delete rows selected by caller predicates plus the bound scope."""
         definition = self._validate_operation(
@@ -621,6 +629,7 @@ class BoundStructuredTable:
             params.extend(values)
         return predicates, params
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def select(
         self,
         *,
@@ -666,6 +675,7 @@ class BoundStructuredTable:
             params.extend((limit, offset))
         return await self.__connection.fetch_all(sql, tuple(params))
 
+    @persistence_operation(ResourceOperation.READ)
     async def select_one(
         self,
         *,
@@ -687,6 +697,7 @@ class BoundStructuredTable:
             sql += " FOR UPDATE"
         return await self.__connection.fetch_one(sql, tuple(params))
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def insert(self, values: dict[str, Any]) -> None:
         """Insert a scoped row inside this transaction."""
         definition = self._definition(ResourceOperation.CREATE)
@@ -699,6 +710,7 @@ class BoundStructuredTable:
         )
         await self.__connection.execute(sql, tuple(rendered.values()))
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def insert_if_absent(
         self,
         values: dict[str, Any],
@@ -722,6 +734,7 @@ class BoundStructuredTable:
         row = await self.__connection.fetch_one(sql, tuple(rendered.values()))
         return row is not None
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def upsert(
         self,
         values: dict[str, Any],
@@ -766,6 +779,7 @@ class BoundStructuredTable:
         row = await self.__connection.fetch_one(sql, tuple(params))
         return row is not None
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update scoped rows inside this transaction."""
         definition = self._definition(ResourceOperation.UPDATE)
@@ -780,6 +794,7 @@ class BoundStructuredTable:
             (*rendered.values(), *where_params),
         )
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def update_if_matches(
         self,
         values: dict[str, Any],
@@ -809,6 +824,7 @@ class BoundStructuredTable:
         )
         return row is not None
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def increment_and_get(
         self,
         column: str,
@@ -832,6 +848,7 @@ class BoundStructuredTable:
         )
         return None if row is None else int(row[identifier])
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, *, where: dict[str, Any]) -> None:
         """Delete scoped rows inside this transaction."""
         definition = self._definition(ResourceOperation.DELETE)

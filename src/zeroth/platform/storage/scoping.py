@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar, final
+from typing import Any, ClassVar, TypeVar, final
 
 _DEFAULT_TENANT_ID = "default"
 _RESOURCE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -28,6 +28,30 @@ class ResourceOperation(StrEnum):
     ENUMERATE = "enumerate"
     UPDATE = "update"
     DELETE = "delete"
+
+
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+
+
+def persistence_operation(
+    *operations: ResourceOperation,
+) -> Callable[[_CallableT], _CallableT]:
+    """Attach immutable, explicit persistence semantics to a public method."""
+    if not operations:
+        raise ValueError("persistence operations must be non-empty")
+    if any(type(operation) is not ResourceOperation for operation in operations):
+        raise TypeError("persistence operations must contain ResourceOperation members")
+    declared = frozenset(operations)
+
+    def decorate(method: _CallableT) -> _CallableT:
+        if not callable(method):
+            raise TypeError("persistence_operation can decorate only callables")
+        if hasattr(method, "__persistence_operations__"):
+            raise ValueError("persistence operations are already declared")
+        method.__persistence_operations__ = declared  # type: ignore[attr-defined]
+        return method
+
+    return decorate
 
 
 def _require_non_empty_string(value: object, field_name: str) -> None:

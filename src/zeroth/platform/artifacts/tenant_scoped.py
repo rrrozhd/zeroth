@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any
 
 from zeroth.platform.artifacts.errors import (
@@ -21,6 +22,12 @@ from zeroth.platform.artifacts.models import (
     frame_artifact_key as _frame_artifact_key,
 )
 from zeroth.platform.artifacts.store import ArtifactStore
+from zeroth.platform.storage.scoped_resource import ScopedOperation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScopeDefinition,
+    persistence_operation,
+)
 
 _SCOPE_DOMAIN = b"zeroth-artifact-scope-v1\0"
 
@@ -71,6 +78,36 @@ class TenantScopedArtifactStore:
         self._backend = backend
         self._scope_digest = hashlib.sha256(_SCOPE_DOMAIN + canonical).hexdigest()
         self._object_root = f"scopes/v1/{self._scope_digest}/objects/v1"
+        self._resource_definition = ResourceScopeDefinition(
+            resource_name="artifact.objects",
+            table_name="artifact_objects",
+            operations=frozenset(
+                {
+                    ResourceOperation.CREATE,
+                    ResourceOperation.READ,
+                    ResourceOperation.UPDATE,
+                    ResourceOperation.DELETE,
+                }
+            ),
+        )
+        self._operations = MappingProxyType(
+            {
+                ResourceOperation.CREATE: self.store,
+                ResourceOperation.READ: self.retrieve,
+                ResourceOperation.UPDATE: self.refresh_ttl,
+                ResourceOperation.DELETE: self.delete,
+            }
+        )
+
+    @property
+    def resource_definition(self) -> ResourceScopeDefinition:
+        """Return the immutable logical-resource contract."""
+        return self._resource_definition
+
+    @property
+    def operations(self) -> MappingProxyType[ResourceOperation, ScopedOperation]:
+        """Return immutable canonical operations bound to this tenant scope."""
+        return self._operations
 
     @property
     def scope_digest(self) -> str:
@@ -111,6 +148,7 @@ class TenantScopedArtifactStore:
         digest = hashlib.sha256(logical_id.encode("utf-8")).hexdigest()
         return f"scope-v1-{self._scope_digest}-receipt-{digest}"
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def store(
         self,
         key: str,
@@ -122,6 +160,7 @@ class TenantScopedArtifactStore:
         reference = await self._backend.store(self._object_key(key), data, content_type, ttl=ttl)
         return reference.model_copy(update={"key": key})
 
+    @persistence_operation(ResourceOperation.READ)
     async def retrieve(self, key: str) -> bytes:
         """Retrieve an artifact only from this tenant scope."""
         try:
@@ -129,6 +168,7 @@ class TenantScopedArtifactStore:
         except ArtifactNotFoundError:
             raise ArtifactNotFoundError(f"Artifact not found: {key}") from None
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, key: str, *, idempotency_key: str) -> bool:
         """Delete a scoped artifact with a scope-bound receipt."""
         return await self._backend.delete(
@@ -136,6 +176,7 @@ class TenantScopedArtifactStore:
             idempotency_key=self._receipt_id(idempotency_key),
         )
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def refresh_ttl(self, key: str, ttl: int) -> bool:
         """Refresh a scoped artifact's time-to-live."""
         try:
@@ -143,10 +184,12 @@ class TenantScopedArtifactStore:
         except ArtifactTTLError:
             raise ArtifactTTLError(f"Cannot refresh TTL for missing artifact: {key}") from None
 
+    @persistence_operation(ResourceOperation.READ)
     async def exists(self, key: str) -> bool:
         """Return whether a logical artifact exists in this scope."""
         return await self._backend.exists(self._object_key(key))
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def cleanup_run(self, run_id: str, *, idempotency_key: str) -> int:
         """Remove artifacts owned by exactly one scoped logical run."""
         return await self._backend.cleanup_run(
