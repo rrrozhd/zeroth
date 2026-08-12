@@ -613,7 +613,14 @@ def _must_alias_events(
         left: dict[str, _AliasIdentity], right: dict[str, _AliasIdentity]
     ) -> dict[str, _AliasIdentity]:
         return {
-            name: left.get(name) if left.get(name) == right.get(name) else None
+            name: (
+                _AUDIT_REPOSITORY_CLASS
+                if potential_import_aliases
+                and _AUDIT_REPOSITORY_CLASS in {left.get(name), right.get(name)}
+                else left.get(name)
+                if left.get(name) == right.get(name)
+                else None
+            )
             for name in left.keys() | right.keys()
         }
 
@@ -809,15 +816,9 @@ def _visible_annotation_repository_names(
         for name in candidate_names - shadowed_names:
             visible.discard(name)
             visible_events = [
-                (event, identity)
-                for event, identity in events_by_name.get(name, [])
-                if event < position
+                identity for event, identity in events_by_name.get(name, []) if event < position
             ]
-            last_event = visible_events[-1][0] if visible_events else None
-            if any(
-                event == last_event and identity == _AUDIT_REPOSITORY_CLASS
-                for event, identity in visible_events
-            ):
+            if visible_events and visible_events[-1] == _AUDIT_REPOSITORY_CLASS:
                 visible.add(name)
             shadowed_names.add(name)
     return visible
@@ -840,9 +841,15 @@ def _visible_potential_annotation_repository_names(
         for name in candidate_names - shadowed_names:
             visible.discard(name)
             visible_events = [
-                identity for event, identity in events_by_name.get(name, []) if event < position
+                (event, identity)
+                for event, identity in events_by_name.get(name, [])
+                if event < position
             ]
-            if visible_events and visible_events[-1] == _AUDIT_REPOSITORY_CLASS:
+            last_event = visible_events[-1][0] if visible_events else None
+            if any(
+                event == last_event and identity == _AUDIT_REPOSITORY_CLASS
+                for event, identity in visible_events
+            ):
                 visible.add(name)
             shadowed_names.add(name)
     return visible
@@ -3097,6 +3104,54 @@ def test_public_call_inventory_invalidates_rebound_unresolved_repository_alias(
     )
     module.write_text(
         prefix + "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "join",
+    [
+        "    Alias = AR if cond else OtherRepository\n",
+        "    if cond:\n        Alias = AR\n    else:\n        Alias = OtherRepository\n",
+        "    try:\n        Alias = AR\n    except Exception:\n        Alias = OtherRepository\n",
+    ],
+    ids=["conditional-expression", "if-else", "try-except"],
+)
+def test_public_call_inventory_reports_unresolved_repository_alias_join(
+    tmp_path: Path, join: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from my_adapter import AuditRepository as AR\n"
+        "async def use(candidate, record, cond):\n"
+        f"{join}"
+        "    repository: Alias = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_clears_joined_unresolved_repository_alias_rebinding(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from my_adapter import AuditRepository as AR\n"
+        "async def use(candidate, record, cond):\n"
+        "    Alias = AR if cond else OtherRepository\n"
+        "    Alias = OtherRepository\n"
+        "    repository: Alias = candidate\n"
+        "    await repository.write(record)\n",
         encoding="utf-8",
     )
 
