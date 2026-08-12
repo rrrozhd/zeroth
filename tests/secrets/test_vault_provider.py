@@ -86,6 +86,64 @@ def test_resolve_is_cached_within_ttl() -> None:
     assert path  # path documented for clarity
 
 
+def test_redactor_preserves_same_name_secret_identity_across_tenants() -> None:
+    values = {
+        "/v1/secret/data/tenants/tenant-a/shared_token": "tenant-a-secret",
+        "/v1/secret/data/tenants/tenant-b/shared_token": "tenant-b-secret",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"data": {"value": values[request.url.path]}, "metadata": {}}},
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert provider.resolve_secret("shared.token", tenant_id="tenant-a") == "tenant-a-secret"
+    assert provider.resolve_secret("shared.token", tenant_id="tenant-b") == "tenant-b-secret"
+    assert provider._redactor_known() == {
+        ("tenant-a", "shared.token"): "tenant-a-secret",
+        ("tenant-b", "shared.token"): "tenant-b-secret",
+    }
+
+    redacted = provider._redactor.redact("tenant-a-secret tenant-b-secret")
+    assert redacted == (
+        "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
+    )
+
+
+@pytest.mark.asyncio
+async def test_warm_preserves_same_name_secret_identity_across_tenants() -> None:
+    values = {
+        "/v1/secret/data/tenants/tenant-a/shared_token": "tenant-a-secret",
+        "/v1/secret/data/tenants/tenant-b/shared_token": "tenant-b-secret",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"data": {"value": values[request.url.path]}, "metadata": {}}},
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        async_transport=httpx.MockTransport(handler),
+    )
+
+    await provider.warm([("tenant-a", "shared.token"), ("tenant-b", "shared.token")])
+
+    assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
+        "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
+    )
+    await provider.aclose()
+
+
 def test_resolve_never_logs_secret_value(caplog: pytest.LogCaptureFixture) -> None:
     # Force an error surface: transport raises so the redacted warning path runs.
     def handler(request: httpx.Request) -> httpx.Response:
@@ -218,9 +276,7 @@ def test_approle_token_reauth_on_expiry_retries_and_refreshes() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/auth/approle/login"):
             state["logins"] += 1
-            return httpx.Response(
-                200, json={"auth": {"client_token": f"token-{state['logins']}"}}
-            )
+            return httpx.Response(200, json={"auth": {"client_token": f"token-{state['logins']}"}})
         state["secret_gets"] += 1
         token = request.headers.get("X-Vault-Token")
         if state["secret_gets"] == 1:
