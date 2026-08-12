@@ -68,18 +68,6 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     unknown_key = generate_artifact_key("unknown-run", "node")
     with pytest.raises(ArtifactNotFoundError) as unknown_read:
         await foreign_store.retrieve(unknown_key)
-    foreign_exists = await foreign_store.exists(key)
-    unknown_exists = await foreign_store.exists(unknown_key)
-    # ArtifactStore has no non-destructive list API. Its run cleanup performs
-    # scope-local enumeration first; tenant-b owns no matching artifacts, so
-    # these zero-result attempts safely exercise that observable.
-    foreign_listed = await foreign_store.cleanup_run(
-        "observable-run", idempotency_key="observable-foreign-list"
-    )
-    unknown_listed = await foreign_store.cleanup_run(
-        "unknown-run", idempotency_key="observable-unknown-list"
-    )
-    assert await owner_store.exists(key)
     await service.artifact_store.store(key, result.stdout.encode(), "text/plain")
 
     repository = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
@@ -113,78 +101,107 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     assert foreign_api_read.status_code == 404
     assert unknown_api_read.status_code == 404
 
-    def direct_miss_evidence(error: ArtifactNotFoundError, requested_key: str) -> dict[str, object]:
+    def evidence(
+        operation: str,
+        *,
+        trace: list[str],
+        data: bytes | None,
+        metadata: dict[str, object],
+        errors: list[object],
+        status: str | int,
+        headers: dict[str, str],
+    ) -> dict[str, object]:
         return {
-            "bytes": None,
-            "metadata": {"exists": False, "requested-key": requested_key},
-            "error": {
-                "type": type(error).__name__,
-                "message": str(error),
-            },
-            "status": "not-found",
-            "headers": {},
+            "operation": operation,
+            "trace": trace,
+            "bytes": data,
+            "metadata": metadata,
+            "errors": errors,
+            "status": status,
+            "headers": headers,
         }
 
-    def api_evidence(response, requested_key: str) -> dict[str, object]:  # noqa: ANN001
+    def direct_miss_evidence(
+        operation: str, error: ArtifactNotFoundError, requested_key: str
+    ) -> dict[str, object]:
+        return evidence(
+            operation,
+            trace=["retrieve", "not-found"],
+            data=None,
+            metadata={"requested-key": requested_key},
+            errors=[{"type": type(error).__name__, "message": str(error)}],
+            status="not-found",
+            headers={},
+        )
+
+    async def list_attempt(
+        operation: str, store: TenantScopedArtifactStore, run_id: str
+    ) -> dict[str, object]:
+        try:
+            await store.list(run_id)  # type: ignore[attr-defined]
+        except AttributeError as error:
+            return evidence(
+                operation,
+                trace=["list", "unsupported"],
+                data=None,
+                metadata={"requested-run": run_id},
+                errors=[{"type": type(error).__name__, "message": "list unsupported"}],
+                status="unsupported",
+                headers={},
+            )
+        raise AssertionError("artifact store unexpectedly acquired a list API")
+
+    def api_evidence(operation: str, response, requested_key: str) -> dict[str, object]:  # noqa: ANN001
         headers = {
             name: value
             for name, value in response.headers.items()
             if name.lower() != "x-correlation-id"
         }
-        return {
-            "bytes": response.content,
-            "metadata": {
+        return evidence(
+            operation,
+            trace=["api", "retrieve", str(response.status_code)],
+            data=response.content,
+            metadata={
                 "url": str(response.request.url).replace(requested_key, "<requested-key>"),
                 "correlation-id-present": "x-correlation-id" in response.headers,
             },
-            "error": None if response.is_success else response.json(),
-            "status": response.status_code,
-            "headers": headers,
-        }
+            errors=[] if response.is_success else [response.json()],
+            status=response.status_code,
+            headers=headers,
+        )
 
     artifact_evidence = {
-        "operation-trace": [
-            "tenant-a:store",
-            "tenant-a:retrieve",
-            "tenant-b:retrieve-owner-key",
-            "tenant-b:exists-owner-key",
-            "tenant-b:enumerate-via-cleanup_run:owner-run",
-            "tenant-b:retrieve-unknown-key",
-            "tenant-b:exists-unknown-key",
-            "tenant-b:enumerate-via-cleanup_run:unknown-run",
-            "api:tenant-a:retrieve-owner-key",
-            "api:tenant-b:retrieve-owner-key",
-            "api:tenant-b:retrieve-unknown-key",
-        ],
-        "owner-retrieval": {
-            "bytes": owner_artifact,
-            "metadata": artifact_ref.model_dump(mode="json"),
-            "error": None,
-            "status": "retrieved",
-            "headers": {},
-        },
-        "foreign-retrieval": direct_miss_evidence(foreign_read.value, key),
-        "unknown-retrieval": direct_miss_evidence(unknown_read.value, unknown_key),
-        "foreign-list": {
-            "bytes": None,
-            "metadata": {"count": foreign_listed},
-            "error": None,
-            "status": "empty",
-            "headers": {},
-        },
-        "unknown-list": {
-            "bytes": None,
-            "metadata": {"count": unknown_listed},
-            "error": None,
-            "status": "empty",
-            "headers": {},
-        },
-        "owner-api-retrieval": api_evidence(owner_api_read, key),
-        "foreign-api-retrieval": api_evidence(foreign_api_read, key),
-        "unknown-api-retrieval": api_evidence(unknown_api_read, unknown_key),
+        "owner-write": evidence(
+            "owner-write",
+            trace=["tenant-a", "store", "stored"],
+            data=None,
+            metadata=artifact_ref.model_dump(mode="json"),
+            errors=[],
+            status="stored",
+            headers={},
+        ),
+        "owner-retrieval": evidence(
+            "owner-retrieval",
+            trace=["tenant-a", "retrieve", "retrieved"],
+            data=owner_artifact,
+            metadata={"requested-key": key},
+            errors=[],
+            status="retrieved",
+            headers={},
+        ),
+        "owner-list": await list_attempt("owner-list", owner_store, "observable-run"),
+        "foreign-retrieval": direct_miss_evidence("foreign-retrieval", foreign_read.value, key),
+        "foreign-list": await list_attempt("foreign-list", foreign_store, "observable-run"),
+        "unknown-retrieval": direct_miss_evidence(
+            "unknown-retrieval", unknown_read.value, unknown_key
+        ),
+        "unknown-list": await list_attempt("unknown-list", foreign_store, "unknown-run"),
+        "owner-api-retrieval": api_evidence("owner-api-retrieval", owner_api_read, key),
+        "foreign-api-retrieval": api_evidence("foreign-api-retrieval", foreign_api_read, key),
+        "unknown-api-retrieval": api_evidence(
+            "unknown-api-retrieval", unknown_api_read, unknown_key
+        ),
     }
-    artifact_evidence["foreign-retrieval"]["metadata"]["exists"] = foreign_exists
-    artifact_evidence["unknown-retrieval"]["metadata"]["exists"] = unknown_exists
 
     return {
         "workload-environment": result.environment,
@@ -236,33 +253,46 @@ async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path
     assert isinstance(artifacts, dict)
     assert artifacts != captured["logs"]["stdout"]
     assert set(artifacts) == {
-        "operation-trace",
+        "owner-write",
         "owner-retrieval",
+        "owner-list",
         "foreign-retrieval",
-        "unknown-retrieval",
         "foreign-list",
+        "unknown-retrieval",
         "unknown-list",
         "owner-api-retrieval",
         "foreign-api-retrieval",
         "unknown-api-retrieval",
     }
-    evidence_fields = {"bytes", "metadata", "error", "status", "headers"}
-    for operation in set(artifacts) - {"operation-trace"}:
+    evidence_fields = {
+        "operation",
+        "trace",
+        "bytes",
+        "metadata",
+        "errors",
+        "status",
+        "headers",
+    }
+    for operation in artifacts:
         assert set(artifacts[operation]) == evidence_fields
+        assert artifacts[operation]["operation"] == operation
     foreign_retrieval = artifacts["foreign-retrieval"]
     unknown_retrieval = artifacts["unknown-retrieval"]
-    for field in evidence_fields - {"metadata", "error"}:
+    for field in evidence_fields - {"operation", "metadata", "errors", "trace"}:
         assert foreign_retrieval[field] == unknown_retrieval[field]
     assert foreign_retrieval["metadata"].keys() == unknown_retrieval["metadata"].keys()
-    assert foreign_retrieval["metadata"]["exists"] == unknown_retrieval["metadata"]["exists"]
-    assert foreign_retrieval["error"]["type"] == unknown_retrieval["error"]["type"]
-    assert foreign_retrieval["error"]["message"].replace(
+    assert foreign_retrieval["errors"][0]["type"] == unknown_retrieval["errors"][0]["type"]
+    assert foreign_retrieval["errors"][0]["message"].replace(
         foreign_retrieval["metadata"]["requested-key"], "<requested-key>"
-    ) == unknown_retrieval["error"]["message"].replace(
+    ) == unknown_retrieval["errors"][0]["message"].replace(
         unknown_retrieval["metadata"]["requested-key"], "<requested-key>"
     )
-    assert artifacts["foreign-list"] == artifacts["unknown-list"]
-    assert artifacts["foreign-api-retrieval"] == artifacts["unknown-api-retrieval"]
+    for field in evidence_fields - {"operation", "metadata"}:
+        assert artifacts["foreign-list"][field] == artifacts["unknown-list"][field]
+    for field in evidence_fields - {"operation"}:
+        assert (
+            artifacts["foreign-api-retrieval"][field] == artifacts["unknown-api-retrieval"][field]
+        )
     assert artifacts["owner-retrieval"]["bytes"] == artifacts["owner-api-retrieval"]["bytes"]
     assert CredentialLeakScanner([CANARY]).scan(captured["artifacts"], surface="artifacts") == []
 
