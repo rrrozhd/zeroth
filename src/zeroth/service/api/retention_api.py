@@ -195,7 +195,6 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         if body.run_id is not None:
             await _require_run_tenant(request, bootstrap, body.run_id)
         hold = await bootstrap.legal_hold_repository.place(
-            principal.tenant_id,
             run_id=body.run_id,
             reason=body.reason,
             placed_by=principal.subject,
@@ -277,7 +276,7 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         """Erase every erasable run for a tenant, skipping runs under legal hold."""
         from datetime import UTC, datetime
 
-        holds = await bootstrap.legal_hold_repository.active_holds_for_tenant(tenant_id)
+        holds = await bootstrap.legal_hold_repository.active_holds_for_tenant()
         if holds.tenant_wide:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

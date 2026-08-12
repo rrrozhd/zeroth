@@ -8,6 +8,7 @@ from zeroth.governance.retention.models import RetentionPolicy
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
+    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ScopedTable,
     TenantWideScopeContext,
@@ -30,7 +31,9 @@ class RetentionPolicyRepository:
     def __init__(
         self,
         database: AsyncDatabase,
-        scope_context: NullWorkspaceScopeContext | TenantWideScopeContext,
+        scope_context: (
+            NullWorkspaceScopeContext | TenantWideScopeContext | CrossTenantMaintenanceScopeContext
+        ),
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> None:
@@ -41,6 +44,10 @@ class RetentionPolicyRepository:
             )
         elif type(scope_context) is TenantWideScopeContext:
             self._policies = ScopedTable.for_privileged_tenant_wide(
+                database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
+            )
+        elif type(scope_context) is CrossTenantMaintenanceScopeContext:
+            self._policies = ScopedTable.for_cross_tenant_maintenance(
                 database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
             )
         else:
@@ -69,9 +76,9 @@ class RetentionPolicyRepository:
 
     @classmethod
     def for_privileged_tenant_maintenance(
-        cls, database: AsyncDatabase, scope_context: TenantWideScopeContext
+        cls, database: AsyncDatabase
     ) -> RetentionPolicyRepository:
-        return cls(database, scope_context)
+        return cls(database, CrossTenantMaintenanceScopeContext.for_scheduled_maintenance())
 
     @property
     def tenant_id(self) -> str:
@@ -132,7 +139,7 @@ class RetentionPolicyRepository:
 
     async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
         """Return every enabled policy (drives the purge worker's sweep)."""
-        if type(self._scope_context) is not TenantWideScopeContext:
+        if type(self._scope_context) is not CrossTenantMaintenanceScopeContext:
             raise PermissionError("tenant-wide maintenance scope required")
         async with self._policies.transaction() as policies:
             rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))

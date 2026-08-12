@@ -8,18 +8,18 @@ from dataclasses import dataclass
 
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
-    AsyncConnection,
     AsyncDatabase,
     NullWorkspaceScopeContext,
     ScopedTable,
 )
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 
 
 @dataclass(frozen=True, slots=True)
 class RetentionTransaction:
     """A database transaction whose retention tenant cannot be reassigned."""
 
-    connection: AsyncConnection
+    connection: BoundStructuredTable
     tenant_id: str
 
 
@@ -52,7 +52,6 @@ class RetentionCoordinator:
             row = await coordination.select_one(where={}, for_update=True)
             if row is None:  # pragma: no cover - INSERT + SELECT is invariant
                 raise RuntimeError("failed to initialize retention lock")
-            connection = coordination._BoundStructuredTable__connection  # noqa: SLF001
             yield RetentionTransaction(
-                connection=connection, tenant_id=self._scope_context.tenant_id
+                connection=coordination, tenant_id=self._scope_context.tenant_id
             )
