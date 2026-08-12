@@ -2,25 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import pkgutil
 from collections.abc import Iterable
-from types import ModuleType
 
-import zeroth.contracts.graph as contracts_graph
-import zeroth.contracts.registry as contracts_registry
-import zeroth.governance.approvals as governance_approvals
-import zeroth.governance.attestations as governance_attestations
-import zeroth.governance.audit as governance_audit
-import zeroth.governance.decisions as governance_decisions
-import zeroth.governance.guardrails as governance_guardrails
-import zeroth.governance.retention as governance_retention
-import zeroth.integrations.memory as integrations_memory
-import zeroth.integrations.persistence.runs as persistence_runs
-import zeroth.platform.dispatch as platform_dispatch
-import zeroth.service.deployments as service_deployments
-import zeroth.service.langgraph_gateway as langgraph_gateway
-import zeroth.service.webhooks as service_webhooks
+import zeroth
 from zeroth.platform.storage.scoping import (
     PersistenceProbe,
     PersistenceSurface,
@@ -28,38 +15,33 @@ from zeroth.platform.storage.scoping import (
     discover_persistence_surfaces,
 )
 
-_PERSISTENCE_ROOTS: tuple[ModuleType, ...] = (
-    contracts_graph,
-    contracts_registry,
-    governance_approvals,
-    governance_attestations,
-    governance_audit,
-    governance_decisions,
-    governance_guardrails,
-    governance_retention,
-    integrations_memory,
-    persistence_runs,
-    platform_dispatch,
-    service_deployments,
-    langgraph_gateway,
-    service_webhooks,
-)
-
 
 def _import_persistence_packages() -> None:
-    for package in _PERSISTENCE_ROOTS:
-        paths = getattr(package, "__path__", None)
-        if paths is None:
-            continue
-        module_names = sorted(
-            item.name for item in pkgutil.walk_packages(paths, prefix=f"{package.__name__}.")
-        )
-        for module_name in module_names:
-            importlib.import_module(module_name)
+    modules = sorted(
+        pkgutil.walk_packages(zeroth.__path__, prefix="zeroth."),
+        key=lambda item: item.name,
+    )
+    for module in modules:
+        spec = module.module_finder.find_spec(module.name)
+        loader = None if spec is None else spec.loader
+        get_source = getattr(loader, "get_source", None)
+        source = get_source(module.name) if get_source is not None else None
+        if source is not None and "persistence_surface(" in source:
+            package_name = module.name.rpartition(".")[0]
+            dependencies = sorted(
+                node.module
+                for node in ast.walk(ast.parse(source))
+                if isinstance(node, ast.ImportFrom)
+                and node.module is not None
+                and node.module.startswith(f"{package_name}.")
+            )
+            for dependency in dependencies:
+                importlib.import_module(dependency)
+            importlib.import_module(module.name)
 
 
 def load_service_persistence_surfaces() -> tuple[PersistenceSurface, ...]:
-    """Import scoped persistence roots and discover decorated repositories."""
+    """Import decorated repositories beneath ``zeroth`` and discover their surfaces."""
     _import_persistence_packages()
     return tuple(
         surface
