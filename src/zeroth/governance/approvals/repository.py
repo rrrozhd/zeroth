@@ -12,7 +12,6 @@ from zeroth.governance.approvals.models import ApprovalRecord, ApprovalStatus
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
-    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ResourceOperation,
     ScopeContext,
@@ -40,6 +39,23 @@ class ApprovalRepository:
 
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
+        self._sla_scope: ScopeContext | NullWorkspaceScopeContext | None = None
+        self._sla_deployment_ref: str | None = None
+
+    @classmethod
+    def scoped_for_deployment(
+        cls,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext,
+        deployment_ref: str,
+    ) -> ApprovalRepository:
+        """Bind scheduled SLA reads to one deployment owner."""
+        if type(scope_context) not in {ScopeContext, NullWorkspaceScopeContext}:
+            raise TypeError("scope_context must be a trusted deployment scope")
+        repository = cls(database)
+        repository._sla_scope = scope_context
+        repository._sla_deployment_ref = deployment_ref
+        return repository
 
     def _approvals(
         self, tenant_id: str | None, workspace_id: str | None | object = _UNSCOPED
@@ -70,9 +86,7 @@ class ApprovalRepository:
                 else ScopeContext(tenant_id=tenant, workspace_id=str(workspace_id))
             )
         )
-        return ScopedTable(
-            self._database, SERVICE_SCOPE_REGISTRY, "service.approvals", context
-        )
+        return ScopedTable(self._database, SERVICE_SCOPE_REGISTRY, "service.approvals", context)
 
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
@@ -242,26 +256,22 @@ class ApprovalRepository:
             for row in rows
         ]
 
-
-
-@persistence_surface("service.approvals")
-class OverdueApprovalMaintenanceReader:
-    """Read-only scheduled-maintenance fanout over overdue approvals."""
-
-    def __init__(self, database: AsyncDatabase) -> None:
-        self._approvals = ScopedTable.for_cross_tenant_maintenance(
-            database,
-            SERVICE_SCOPE_REGISTRY,
-            "service.approvals",
-            CrossTenantMaintenanceScopeContext.for_scheduled_maintenance(),
-        )
-
     @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_overdue(self) -> list[ApprovalRecord]:
-        """Return pending approvals whose SLA deadline has elapsed."""
-        async with self._approvals.transaction() as approvals:
+        """Return overdue approvals for this repository's deployment owner."""
+        if self._sla_scope is None or self._sla_deployment_ref is None:
+            raise RuntimeError("SLA reads require a deployment-bound approval repository")
+        async with ScopedTable(
+            self._database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.approvals",
+            self._sla_scope,
+        ).transaction() as approvals:
             rows = await approvals.select(
-                where={"status": ApprovalStatus.PENDING.value},
+                where={
+                    "status": ApprovalStatus.PENDING.value,
+                    "deployment_ref": self._sla_deployment_ref,
+                },
                 where_not_null=("sla_deadline",),
                 where_lt={"sla_deadline": datetime.now(UTC).isoformat()},
                 columns=("record_json",),

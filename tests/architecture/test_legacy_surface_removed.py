@@ -64,17 +64,13 @@ def test_the_retired_trees_are_absent_from_the_source_checkout() -> None:
         assert not (REPO_ROOT / tree).exists(), f"{tree} still exists"
 
 
-def test_cross_tenant_maintenance_authority_is_not_shipped_for_retention() -> None:
+def test_cross_tenant_maintenance_authority_is_not_shipped() -> None:
     result = _cold(
-        "import importlib.util\n"
-        "from zeroth.governance.retention.policy_repository import "
-        "RetentionPolicyRepository\n"
-        "assert not hasattr(RetentionPolicyRepository, "
-        "'for_privileged_tenant_maintenance')\n"
-        "assert not hasattr(RetentionPolicyRepository, "
-        "'list_all_enabled_for_maintenance')\n"
-        "assert importlib.util.find_spec("
-        "'zeroth.governance.retention.workspace_reader') is None\n"
+        "import zeroth.platform.storage as storage\n"
+        "assert not hasattr(storage, 'CrossTenantMaintenanceScopeContext')\n"
+        "assert not hasattr(storage.ResourceScopeRegistry, "
+        "'validate_cross_tenant_maintenance_binding')\n"
+        "assert not hasattr(storage.ScopedTable, 'for_cross_tenant_maintenance')\n"
     )
 
     assert result.returncode == 0, result.stderr
