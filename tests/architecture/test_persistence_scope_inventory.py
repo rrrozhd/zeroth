@@ -7,6 +7,7 @@ import importlib
 import inspect as python_inspect
 import os
 import pkgutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,24 +44,33 @@ _GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_role
 _AUDIT_REPOSITORY_CLASS = ("zeroth", "governance", "audit", "AuditRepository")
 _AUDIT_REPOSITORY_MODULE = _AUDIT_REPOSITORY_CLASS[:-1]
 _AUDIT_REPOSITORY_IMPLEMENTATION_MODULE = (*_AUDIT_REPOSITORY_MODULE, "repository")
-_AUDIT_REPOSITORY_OPERATION_NAMES = frozenset(
-    {
-        "configure_capture",
-        "crypto_erase",
-        "crypto_erase_in_transaction",
-        "get",
-        "list",
-        "list_by_deployment",
-        "list_by_graph_version",
-        "list_by_node",
-        "list_by_run",
-        "list_by_run_in_transaction",
-        "list_by_thread",
-        "list_erasable",
-        "list_erasable_in_transaction",
-        "write",
-        "write_many",
+_AUDIT_REPOSITORY_NON_PERSISTENCE_METHODS = frozenset({"configure_capture"})
+
+
+def _repository_public_instance_methods(
+    repository_type: type[object], explicit_non_persistence: frozenset[str]
+) -> frozenset[str]:
+    public_methods = {
+        name
+        for name, method in python_inspect.getmembers(repository_type, python_inspect.isfunction)
+        if not name.startswith("_")
     }
+    persistence_methods = {
+        name
+        for name in public_methods
+        if getattr(getattr(repository_type, name), "__persistence_operations__", None)
+    }
+    unclassified = public_methods - persistence_methods
+    assert unclassified == explicit_non_persistence, (
+        "public repository methods must have persistence metadata or an exact explicit "
+        f"non-persistence exclusion: unclassified={sorted(unclassified)}, "
+        f"excluded={sorted(explicit_non_persistence)}"
+    )
+    return frozenset(public_methods)
+
+
+_AUDIT_REPOSITORY_OPERATION_NAMES = _repository_public_instance_methods(
+    AuditRepository, _AUDIT_REPOSITORY_NON_PERSISTENCE_METHODS
 )
 _AUDIT_REPOSITORY_TYPED_COLLABORATORS = {
     ("zeroth.governance.audit.delivery_state", "AuditRecordWriter"): frozenset({"write"}),
@@ -1377,22 +1387,23 @@ def _audit_repository_public_call_provenance(
             if relative_path == "src/zeroth/governance/audit/repository.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            nodes = tuple(ast.walk(tree))
             parents = _ast_parents(tree)
             local_names = {
                 owner: _provenance_scope_local_names(owner, parents)
-                for owner in ast.walk(tree)
+                for owner in nodes
                 if isinstance(owner, _PROVENANCE_SCOPE_NODES)
             }
             competing_names = {
                 owner: _function_competing_binding_names(owner, parents)
-                for owner in ast.walk(tree)
+                for owner in nodes
                 if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
             }
             reassigned_paths: set[
                 tuple[ast.FunctionDef | ast.AsyncFunctionDef | None, tuple[str, ...]]
             ] = set()
             declared_reassigned_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
-            for node in ast.walk(tree):
+            for node in nodes:
                 for target in _binding_targets(node):
                     path_value = _dotted_ast_path(target)
                     if path_value is not None and len(path_value) > 1:
@@ -1412,7 +1423,7 @@ def _audit_repository_public_call_provenance(
             potential_imported_repository_names: set[str] = set()
             collaborator_names: dict[str, frozenset[str]] = {}
             module_names: dict[str, tuple[str, ...]] = {}
-            for imported in ast.walk(tree):
+            for imported in nodes:
                 if _enclosing_function(imported, parents) is not None:
                     if isinstance(imported, ast.ImportFrom) and imported.module in {
                         "zeroth.governance.audit",
@@ -1463,7 +1474,7 @@ def _audit_repository_public_call_provenance(
             changed = True
             while changed:
                 changed = False
-                for assigned in ast.walk(tree):
+                for assigned in nodes:
                     if (
                         _enclosing_function(assigned, parents) is not None
                         or _enclosing_class(assigned, parents) is not None
@@ -1502,7 +1513,7 @@ def _audit_repository_public_call_provenance(
             changed = True
             while changed:
                 changed = False
-                for alias in ast.walk(tree):
+                for alias in nodes:
                     if not isinstance(alias, ast.TypeAlias):
                         continue
                     class_owner = _enclosing_class(alias, parents)
@@ -1528,7 +1539,7 @@ def _audit_repository_public_call_provenance(
                         ] = binding
                         changed = True
             class_potential_alias_names: dict[ast.ClassDef, set[str]] = {}
-            for alias in ast.walk(tree):
+            for alias in nodes:
                 if not isinstance(alias, ast.TypeAlias):
                     continue
                 class_owner = _enclosing_class(alias, parents)
@@ -1581,7 +1592,7 @@ def _audit_repository_public_call_provenance(
                         module_names.pop(
                             ".".join((*_lexical_owner_path(class_owner, parents), name)), None
                         )
-            for node in ast.walk(tree):
+            for node in nodes:
                 if isinstance(node, ast.Assign):
                     targets = node.targets
                     value = node.value
@@ -1638,7 +1649,7 @@ def _audit_repository_public_call_provenance(
 
             module_alias_events = _must_alias_events(tree, repository_names, module_names)
             potential_type_alias_names: set[str] = set()
-            for alias in ast.walk(tree):
+            for alias in nodes:
                 if (
                     not isinstance(alias, ast.TypeAlias)
                     or _enclosing_function(alias, parents) is not None
@@ -1666,7 +1677,7 @@ def _audit_repository_public_call_provenance(
                 ):
                     potential_type_alias_names.add(alias.name.id)
             module_binding_counts: dict[str, int] = {}
-            for assigned in ast.walk(tree):
+            for assigned in nodes:
                 if (
                     _enclosing_function(assigned, parents) is not None
                     or _enclosing_class(assigned, parents) is not None
@@ -1693,7 +1704,7 @@ def _audit_repository_public_call_provenance(
             changed = True
             while changed:
                 changed = False
-                for assigned in ast.walk(tree):
+                for assigned in nodes:
                     owner = _enclosing_function(assigned, parents)
                     if owner is None:
                         continue
@@ -3883,7 +3894,7 @@ def _audit_repository_public_call_provenance(
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
             class_identities: set[tuple[str, ...]] = set()
-            for node in ast.walk(tree):
+            for node in nodes:
                 if not isinstance(node, ast.ClassDef):
                     continue
                 class_identity = _lexical_owner_path(node, parents)
@@ -3925,7 +3936,7 @@ def _audit_repository_public_call_provenance(
             compound_body_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
             reviewed_edge_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
             reviewed_edges = _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES.get(relative_path, {})
-            for owner in ast.walk(tree):
+            for owner in nodes:
                 if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 owner_path = _lexical_owner_path(owner, parents)
@@ -3933,7 +3944,7 @@ def _audit_repository_public_call_provenance(
                     if owner_path == reviewed_owner_path:
                         bound_paths[(owner, receiver)] = operations
                         reviewed_edge_paths.add((owner, receiver))
-            for node in ast.walk(tree):
+            for node in nodes:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     visible_repository_names = _visible_annotation_repository_names(
                         node,
@@ -4040,10 +4051,16 @@ def _audit_repository_public_call_provenance(
                                 potential_paths.add(
                                     (_provenance_scope(node, target, parents), (*target, attribute))
                                 )
+            assignment_nodes = tuple(
+                node
+                for node in nodes
+                if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr, ast.TypeAlias))
+            )
+            propagation_nodes = (*assignment_nodes, *reversed(assignment_nodes))
             changed = True
             while changed:
                 changed = False
-                for node in ast.walk(tree):
+                for node in propagation_nodes:
                     for target_node, value in _assignment_bindings(node):
                         target = _dotted_ast_path(target_node)
                         if target is None:
@@ -4208,7 +4225,7 @@ def _audit_repository_public_call_provenance(
                     continue
 
             invalidated_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
-            for node in ast.walk(tree):
+            for node in nodes:
                 if isinstance(node, ast.Assign) and len(node.targets) == 1:
                     target_node = node.targets[0]
                     value = node.value
@@ -4261,14 +4278,14 @@ def _audit_repository_public_call_provenance(
 
             suspicious_receivers: set[tuple[ast.AST | None, tuple[str, ...]]] = {
                 (_provenance_scope(node, dotted, parents), dotted)
-                for node in ast.walk(tree)
+                for node in nodes
                 if (dotted := _dotted_ast_path(node)) is not None
                 and dotted[-1] == "audit_repository"
             }
             changed = True
             while changed:
                 changed = False
-                for node in ast.walk(tree):
+                for node in nodes:
                     if isinstance(node, ast.Assign) and len(node.targets) == 1:
                         target_node = node.targets[0]
                         value = node.value
@@ -4291,7 +4308,7 @@ def _audit_repository_public_call_provenance(
                         suspicious_receivers.add(target_key)
                         changed = True
             provenance_receiver_paths = {receiver for _scope, receiver in bound_paths}
-            for node in ast.walk(tree):
+            for node in nodes:
                 if (
                     not isinstance(node, ast.Call)
                     or not isinstance(node.func, ast.Attribute)
@@ -4360,18 +4377,17 @@ def _unreviewed_audit_repository_public_calls(root: Path) -> frozenset[str]:
 
 def _audit_repository_public_call_inventories(
     root: Path,
-) -> tuple[frozenset[str], frozenset[str]]:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Derive reviewed and unreviewed inventories from one production-tree scan."""
     reviewed, potential = _audit_repository_public_call_provenance(root)
-    reviewed_inventory = frozenset(call for call, _receiver, _line, _column in reviewed)
-    unreviewed_inventory = frozenset(
+    reviewed_inventory = tuple(sorted(call for call, _receiver, _line, _column in reviewed))
+    unreviewed_inventory = tuple(sorted(
         call for call, _receiver, _line, _column in potential - reviewed
-    )
+    ))
     return reviewed_inventory, unreviewed_inventory
 
 
-_AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
-    {
+_AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
         "examples/04_native_tool.py::main::list_by_run",
         "examples/21_policy_block.py::main::list_by_run",
         "examples/24_audit_query.py::main::list",
@@ -4386,10 +4402,6 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
         "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run_in_transaction",
         "src/zeroth/governance/retention/erasure_service.py::purge_audits::crypto_erase_in_transaction",
         "src/zeroth/governance/retention/erasure_service.py::purge_audits::list_erasable_in_transaction",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::crypto_erase",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::list",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_branch_execution::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_execution::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
@@ -4408,8 +4420,147 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
         "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
         "src/zeroth/service/api/rightsizing_api.py::rightsizing_opportunities::list",
         "src/zeroth/service/api/rightsizing_api.py::run_rightsizing_experiment::list",
-    }
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::crypto_erase",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::list",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
 )
+
+
+def test_audit_repository_operation_universe_is_derived_and_fail_closed() -> None:
+    class SyntheticRepository:
+        async def write(self) -> None:
+            pass
+
+    SyntheticRepository.write.__persistence_operations__ = frozenset(  # type: ignore[attr-defined]
+        {ResourceOperation.CREATE}
+    )
+
+    assert _repository_public_instance_methods(SyntheticRepository, frozenset()) == frozenset(
+        {"write"}
+    )
+
+    class ExpandedRepository(SyntheticRepository):
+        async def newly_public(self) -> None:
+            pass
+
+    with pytest.raises(AssertionError, match="newly_public"):
+        _repository_public_instance_methods(ExpandedRepository, frozenset())
+
+
+def test_audit_repository_non_persistence_exclusions_are_exact() -> None:
+    class SyntheticRepository:
+        def configure(self) -> None:
+            pass
+
+    assert _repository_public_instance_methods(
+        SyntheticRepository, frozenset({"configure"})
+    ) == frozenset({"configure"})
+    with pytest.raises(AssertionError, match="missing"):
+        _repository_public_instance_methods(
+            SyntheticRepository, frozenset({"configure", "missing"})
+        )
+
+
+def test_public_call_pinned_inventory_preserves_same_method_multiplicity(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, first, second):\n"
+        "    await repository.write(first)\n"
+        "    await repository.write(second)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventories(tmp_path) == (
+        (
+            "apps/candidate.py::use::write",
+            "apps/candidate.py::use::write",
+        ),
+        (),
+    )
+
+
+def test_public_call_scan_reuses_one_materialized_module_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    repository_0 = AuditRepository.scoped(db, scope)\n"
+        + "".join(
+            f"    repository_{index} = repository_{index - 1}\n" for index in range(1, 21)
+        )
+        + "    await repository_20.write(record)\n",
+        encoding="utf-8",
+    )
+    original_walk = ast.walk
+    module_walks = 0
+
+    def counted_walk(node: ast.AST):
+        nonlocal module_walks
+        if isinstance(node, ast.Module):
+            module_walks += 1
+        return original_walk(node)
+
+    monkeypatch.setattr(ast, "walk", counted_walk)
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert module_walks <= 8
+
+
+def test_public_call_reverse_alias_propagation_scales_near_linearly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_assignment_bindings = _assignment_bindings
+    binding_visits = 0
+
+    def counted_assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
+        nonlocal binding_visits
+        binding_visits += 1
+        return original_assignment_bindings(node)
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_assignment_bindings", counted_assignment_bindings
+    )
+
+    def scan(size: int) -> int:
+        nonlocal binding_visits
+        root = tmp_path / str(size)
+        module = root / "apps" / "candidate.py"
+        module.parent.mkdir(parents=True)
+        module.write_text(
+            "from zeroth.governance.audit import AuditRepository\n"
+            "async def use(record):\n"
+            + "".join(
+                f"    repository_{index} = repository_{index - 1}\n"
+                for index in range(size, 0, -1)
+            )
+            + "    repository_0 = AuditRepository.scoped(db, scope)\n"
+            + f"    await repository_{size}.write(record)\n",
+            encoding="utf-8",
+        )
+        before = binding_visits
+        assert _audit_repository_public_call_inventory(root) == frozenset(
+            {"apps/candidate.py::use::write"}
+        )
+        return binding_visits - before
+
+    small_visits = scan(40)
+    large_visits = scan(80)
+
+    assert large_visits <= small_visits * 3
 
 
 def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() -> None:
@@ -4424,7 +4575,7 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
     )
     reviewed, unreviewed = _audit_repository_public_call_inventories(root)
     assert reviewed == _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY
-    assert unreviewed == frozenset()
+    assert unreviewed == ()
 
 
 def test_public_call_inventory_tracks_scoped_factory_and_instance_aliases(tmp_path: Path) -> None:
