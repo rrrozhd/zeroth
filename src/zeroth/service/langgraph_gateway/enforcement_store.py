@@ -77,6 +77,11 @@ class LangGraphEnforcementRepository:
     def for_default_compatibility(cls, database: AsyncDatabase) -> LangGraphEnforcementRepository:
         return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
 
+    @property
+    def scope_context(self) -> ScopeContext | NullWorkspaceScopeContext:
+        """Trusted tenant scope structurally bound to every repository query."""
+        return self._scope_context
+
     def _validate_tenant(self, tenant_id: object) -> None:
         if tenant_id != self._scope_context.tenant_id:
             raise ValueError("tenant_id does not match bound scope")
@@ -270,6 +275,8 @@ class StoredCapabilityEvidenceProvider:
         tenant_id: str,
         deployment_ref: str,
     ) -> None:
+        if repository.scope_context.tenant_id != tenant_id:
+            raise ValueError("tenant_id does not match repository scope")
         self._repository = repository
         self._signer = signer
         self._tenant_id = tenant_id
@@ -311,6 +318,8 @@ class StoredCapabilityEvidenceProvider:
             valid = (
                 self._signer.verify(_canonical(payload), signature, row["signing_key_id"]) is True
                 and payload.get(identity) == expected
+                and payload.get("tenant_id") == self._tenant_id
+                and payload.get("deployment_ref") == self._deployment_ref
             )
         except Exception:
             valid = False

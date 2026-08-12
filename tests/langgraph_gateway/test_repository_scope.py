@@ -1,10 +1,31 @@
 from __future__ import annotations
 
+import base64
 import inspect
+from typing import Any
 
+import pytest
+
+from zeroth.integrations.langgraph.enforcement_protocol import _canonical
+from zeroth.platform.signing import EnvHmacSigner
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage.json import to_json_value
 from zeroth.service.langgraph_gateway import enforcement as _enforcement  # noqa: F401
-from zeroth.service.langgraph_gateway.enforcement_store import LangGraphEnforcementRepository
+from zeroth.service.langgraph_gateway.enforcement_store import (
+    LangGraphEnforcementRepository,
+    StoredCapabilityEvidenceProvider,
+)
+
+
+class _AttestationRows:
+    def __init__(self, row: dict[str, Any]) -> None:
+        self.scope_context = NullWorkspaceScopeContext(tenant_id="tenant-a")
+        self._row = row
+
+    async def get_attestation_by_run_id(
+        self, deployment_ref: str, governance_run_id: str
+    ) -> dict[str, Any]:
+        return self._row
 
 
 def test_langgraph_repository_constructor_requires_scope_context() -> None:
@@ -37,3 +58,60 @@ async def test_foreign_langgraph_attestation_matches_unknown_scope(async_databas
 
     assert await foreign.get_attestation_by_run_id("deployment-a", "shared-run") is None
     assert await foreign.get_attestation_by_run_id("deployment-a", "unknown-run") is None
+
+
+def test_evidence_provider_rejects_repository_bound_to_another_tenant(async_database) -> None:
+    repository = LangGraphEnforcementRepository(
+        async_database, NullWorkspaceScopeContext(tenant_id="tenant-b")
+    )
+    signer = EnvHmacSigner(key_id="test", keys={"test": b"test-key"})
+
+    with pytest.raises(ValueError, match="tenant_id does not match repository scope"):
+        StoredCapabilityEvidenceProvider(
+            repository,
+            signer,
+            tenant_id="tenant-a",
+            deployment_ref="deployment-a",
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload_override", "case"),
+    [
+        ({"tenant_id": "tenant-b"}, "foreign tenant"),
+        ({"deployment_ref": "deployment-b"}, "foreign deployment"),
+    ],
+)
+async def test_evidence_provider_rejects_signed_foreign_scope(
+    payload_override: dict[str, str], case: str
+) -> None:
+    payload = {
+        "tenant_id": "tenant-a",
+        "deployment_ref": "deployment-a",
+        "run_id": "run-a",
+        "correlation_id": "correlation-a",
+        "governance_level": "enforced",
+        "observed_at": "2026-08-12T00:00:00+00:00",
+        "graph_version": "graph:v1",
+        "adapter_version": "adapter:v1",
+        "inventory_fingerprint": "fingerprint",
+        "tool_manifest_complete": True,
+    }
+    payload.update(payload_override)
+    signer = EnvHmacSigner(key_id="test", keys={"test": b"test-key"})
+    row = {
+        "payload_json": to_json_value(payload),
+        "signature": base64.b64encode(signer.sign(_canonical(payload))).decode("ascii"),
+        "signing_key_id": signer.key_id(),
+    }
+    provider = StoredCapabilityEvidenceProvider(
+        _AttestationRows(row),  # type: ignore[arg-type]
+        signer,
+        tenant_id="tenant-a",
+        deployment_ref="deployment-a",
+    )
+
+    evidence = await provider.evidence_for_governance_run("run-a")
+
+    assert evidence is not None, case
+    assert evidence.signature_valid is False, case
