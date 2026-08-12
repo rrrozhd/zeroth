@@ -372,7 +372,9 @@ class _StructuredTable:
         create: bool,
         definition: ResourceScopeDefinition,
     ) -> dict[str, Any]:
-        if not isinstance(values, dict) or not values:
+        if not isinstance(values, dict):
+            raise TypeError("values must be a dict")
+        if not values and not create:
             raise ValueError("values must be a non-empty dict")
         rendered = {_identifier(key): value for key, value in values.items()}
         scope_items = dict(self._scope_items(definition))
@@ -490,8 +492,8 @@ class _StructuredTable:
             return await connection.fetch_one(sql, tuple(params))
 
     @persistence_operation(ResourceOperation.CREATE)
-    async def insert(self, values: dict[str, Any]) -> None:
-        """Insert a row after filling and validating its ownership columns."""
+    async def insert(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Insert and return the complete physical row, including generated values."""
         definition = self._validate_operation(
             ResourceOperation.CREATE,
             self._canonical_definition(),
@@ -501,10 +503,15 @@ class _StructuredTable:
         columns = tuple(rendered)
         sql = (
             f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
-            f"({', '.join('?' for _ in columns)})"
+            f"({', '.join('?' for _ in columns)}) RETURNING *"
+            if columns
+            else f"INSERT INTO {table_name} DEFAULT VALUES RETURNING *"
         )
         async with self.__database.transaction(write_lock=True) as connection:
-            await connection.execute(sql, tuple(rendered.values()))
+            row = await connection.fetch_one(sql, tuple(rendered.values()))
+        if row is None:
+            raise RuntimeError("insert did not return the created row")
+        return row
 
     @persistence_operation(ResourceOperation.CREATE)
     async def insert_if_absent(
@@ -698,17 +705,22 @@ class BoundStructuredTable:
         return await self.__connection.fetch_one(sql, tuple(params))
 
     @persistence_operation(ResourceOperation.CREATE)
-    async def insert(self, values: dict[str, Any]) -> None:
-        """Insert a scoped row inside this transaction."""
+    async def insert(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Insert and return a complete scoped row inside this transaction."""
         definition = self._definition(ResourceOperation.CREATE)
         table_name = _definition_table_name(definition)
         rendered = self.__table._validate_values(values, create=True, definition=definition)
         columns = tuple(rendered)
         sql = (
             f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
-            f"({', '.join('?' for _ in columns)})"
+            f"({', '.join('?' for _ in columns)}) RETURNING *"
+            if columns
+            else f"INSERT INTO {table_name} DEFAULT VALUES RETURNING *"
         )
-        await self.__connection.execute(sql, tuple(rendered.values()))
+        row = await self.__connection.fetch_one(sql, tuple(rendered.values()))
+        if row is None:
+            raise RuntimeError("insert did not return the created row")
+        return row
 
     @persistence_operation(ResourceOperation.CREATE)
     async def insert_if_absent(

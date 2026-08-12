@@ -269,12 +269,7 @@ async def seed_scoped_resource(
         ):
             continue
         values[column.name] = _column_value(column, token)
-    await ScopedTable(database, registry, resource_name, context).insert(values)
-    values["tenant_id"] = context.tenant_id
-    if definition.workspace_scoped:
-        assert isinstance(context, ScopeContext)
-        values["workspace_id"] = context.workspace_id
-        values["workspace_scope"] = f"value:{context.workspace_id}"
+    values.update(await ScopedTable(database, registry, resource_name, context).insert(values))
     return values
 
 
