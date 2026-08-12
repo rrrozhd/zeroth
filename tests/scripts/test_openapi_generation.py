@@ -37,6 +37,33 @@ def _load_hooks() -> ModuleType:
     return module
 
 
+#: ``on_post_page`` imports ``mkdocs.utils.get_relative_url`` inside the function
+#: body, so exactly the tests that drive the URL-substitution path need MkDocs
+#: installed -- ``active_spec_urls`` and ``on_pre_build`` do not, and are left
+#: unmarked so the wheel-venv gate keeps covering them.
+#:
+#: MkDocs is a ``[docs]`` extra, absent from a wheel-only venv by design. The two
+#: wheel jobs deselect this marker; ``tests/release_gates/test_marker_integrity.py``
+#: is what stops the marker from becoming a place to hide a test.
+needs_mkdocs = pytest.mark.dev_toolchain
+
+
+@needs_mkdocs
+def test_the_docs_gate_environment_really_has_mkdocs() -> None:
+    """Where the docs build and the source gate run, MkDocs must be importable.
+
+    The mirror of ``test_the_lint_gate_environment_really_has_ruff``: without it,
+    a marker that exists to name an absent tool could equally well hide the tool
+    going missing from the job that is supposed to have it. Marked, so it is the
+    wheel venv's *deselection* that excuses it there and nothing else.
+    """
+    assert importlib.util.find_spec("mkdocs") is not None, (
+        "mkdocs is not importable, so every hook test would be deselected rather "
+        "than run. If this is the wheel-venv job it is deselected by design; if it "
+        "is the source gate or the docs build, the [docs] extra was not installed."
+    )
+
+
 def _viewer_page(config: str, prose: str = "") -> str:
     """A page fragment shaped like the real one: prose plus the viewer's inline script."""
     return f"<p>{prose}</p><script>window.ui = SwaggerUIBundle({{{config}}});</script>"
@@ -119,6 +146,7 @@ def test_docs_hook_leaves_an_already_current_asset_untouched(tmp_path: Path) -> 
         ("reference/http-api.html", "../assets/openapi/zeroth-core-openapi.json"),
     ],
 )
+@needs_mkdocs
 def test_docs_hook_substitutes_the_spec_url_for_both_url_modes(page_url, expected) -> None:
     """ZER-20: the build writes the viewer's URL, so it is right in both URL modes.
 
@@ -133,6 +161,7 @@ def test_docs_hook_substitutes_the_spec_url_for_both_url_modes(page_url, expecte
     assert hooks.active_spec_urls(output) == [expected]
 
 
+@needs_mkdocs
 def test_docs_hook_fails_the_build_when_the_spec_page_loses_its_token() -> None:
     """A hand-edited URL must abort the build, not ship a viewer that silently 404s."""
     hooks = _load_hooks()
@@ -156,6 +185,7 @@ def test_docs_hook_fails_the_build_when_the_spec_page_loses_its_token() -> None:
         'deepLinking: true, url: "@@ZEROTH_OPENAPI_SPEC_URL@@", layout: "BaseLayout",',
     ],
 )
+@needs_mkdocs
 def test_docs_hook_accepts_the_spellings_a_contributor_may_write(legitimate) -> None:
     """A guard that rejects valid edits gets deleted by the next contributor."""
     hooks = _load_hooks()
@@ -163,6 +193,7 @@ def test_docs_hook_accepts_the_spellings_a_contributor_may_write(legitimate) -> 
     assert "../../assets/openapi/zeroth-core-openapi.json" in output
 
 
+@needs_mkdocs
 def test_docs_hook_is_not_confused_by_apostrophes_in_prose() -> None:
     """Scanning is scoped to the script, so an apostrophe cannot open a JS string.
 
@@ -188,6 +219,7 @@ def test_docs_hook_is_not_confused_by_apostrophes_in_prose() -> None:
         '"spec_url": "@@ZEROTH_OPENAPI_SPEC_URL@@",',
     ],
 )
+@needs_mkdocs
 def test_docs_hook_rejects_a_token_that_is_present_but_not_bound(broken) -> None:
     """Substituting the token is not the same as wiring the viewer.
 
@@ -209,6 +241,7 @@ def test_docs_hook_rejects_a_token_that_is_present_but_not_bound(broken) -> None
         "window.ui = SwaggerUIBundle({URL});</script>",
     ],
 )
+@needs_mkdocs
 def test_docs_hook_tolerates_reformatting_around_the_viewer_call(formatting) -> None:
     """Recognition must not hinge on exact text, or valid reformatting breaks the build.
 
@@ -222,6 +255,7 @@ def test_docs_hook_tolerates_reformatting_around_the_viewer_call(formatting) -> 
     assert hooks.active_spec_urls(output) == ["../../assets/openapi/zeroth-core-openapi.json"]
 
 
+@needs_mkdocs
 def test_docs_hook_requires_the_viewer_call_itself() -> None:
     """A page whose viewer call is gone has no configuration to be correct."""
     hooks = _load_hooks()
@@ -239,6 +273,7 @@ def test_docs_hook_comment_stripping_keeps_url_literals_intact() -> None:
     assert hooks.active_spec_urls(page) == ["https://example.com/a.json"]
 
 
+@needs_mkdocs
 def test_docs_hook_leaves_other_pages_alone() -> None:
     """Only the viewer page is required to carry the token."""
     hooks = _load_hooks()

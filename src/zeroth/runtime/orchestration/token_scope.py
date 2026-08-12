@@ -232,8 +232,3 @@ def propagate_tag(source_tag: TokenTag, edge: Edge, scopes: GraphScopes) -> Toke
         else:
             new_map[header] = 0
     return tuple(sorted(new_map.items()))
-
-
-def nodes_in_any_loop(scopes: GraphScopes) -> frozenset[str]:
-    """All nodes that sit inside at least one loop body."""
-    return frozenset(scopes.enclosing.keys())

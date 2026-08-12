@@ -154,6 +154,32 @@ async def test_health_endpoint_returns_success(sqlite_db) -> None:
         "deployment_version": deployment.version,
         "graph_version_ref": deployment.graph_version_ref,
     }
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+async def test_unhandled_500_response_keeps_security_headers(sqlite_db) -> None:
+    deployment = await _deploy_test_graph(sqlite_db, "graph-unhandled-error")
+    app = await bootstrap_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        auth_config=default_service_auth_config(),
+    )
+
+    @app.get("/test/unhandled-error", name="get_workflow")
+    async def unhandled_error() -> None:
+        raise RuntimeError("unhandled test failure")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/test/unhandled-error", headers=operator_headers())
+
+    assert response.status_code == 500
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
 
 
 async def test_lifespan_closes_secret_provider_exactly_once(sqlite_db) -> None:

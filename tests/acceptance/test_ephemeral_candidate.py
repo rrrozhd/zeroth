@@ -242,10 +242,21 @@ async def test_a_withdrawn_candidate_stops_answering(candidate: EphemeralCandida
 AGENT_SERVER_SCENARIOS: frozenset[str] = frozenset()
 
 
+@pytest.mark.dev_toolchain
 async def test_the_product_contract_runs_against_the_ephemeral_candidate(
     governed_candidate: EphemeralCandidate, tmp_path: Path
 ) -> None:
     """Run the shipped contract, and pin exactly which scenarios this leg proves.
+
+    Marked ``dev_toolchain``: ``governed_candidate`` boots the real ``langgraph_api``
+    Agent Server, and that package is a ``gateway-conformance`` dev-group pin, absent
+    from a venv built from the wheel by design. Measured in a reproduction of the
+    package gate -- it was the single remaining error there, reported as "the Agent
+    Server exited before serving", which named the symptom. ZER-35 landed this file
+    after nightly 31469899049 ran, so no gate has recorded it yet.
+
+    The other five tests in this module do not boot the Agent Server and stay
+    unmarked, so the wheel gate keeps them.
 
     Asserting only the overall status would let this pass while silently losing
     coverage. The partition below is exact, so any failing scenario — or one that

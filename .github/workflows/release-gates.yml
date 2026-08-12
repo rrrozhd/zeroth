@@ -168,6 +168,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # On the runner, not in the wheel venv. tests/architecture/test_wheel_packaging.py
+      # shells out to `uv build` to inspect what the distribution actually ships --
+      # the most on-topic check this gate has -- and errored with
+      # `FileNotFoundError: uv` on every nightly because this was the one gate job
+      # that did not install it. The venv below stays wheel-only.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -206,7 +214,17 @@ jobs:
           python -c "import zeroth.runtime; print(zeroth.runtime.__path__)"; SMOKE=$?
           if [ "${INSTALL}" -ne 0 ]; then SMOKE=1; fi
           pip install "${WHEEL}[memory-pg,memory-chroma,memory-es,dispatch,sandbox]"; EXTRAS=$?
-          pytest tests/ -q -m "not live" \
+          # `-m` on the command line REPLACES pyproject's addopts expression, it
+          # does not add to it. `-m "not live"` therefore re-selected the
+          # langgraph_conformance and deployed_acceptance markers the project
+          # deselects by default: 84 of this job's 96 errors were Agent Server
+          # startup failures for a server the wheel venv has no reason to run.
+          # Every marker the default excludes is repeated here, plus the
+          # dev_toolchain marker for tools a wheel venv omits by design.
+          # tests/release_gates/test_marker_integrity.py executes this expression
+          # and asserts it admits nothing the project default excludes.
+          pytest tests/ -q \
+            -m "not live and not langgraph_conformance and not deployed_acceptance and not dev_toolchain" \
             --junitxml=release/evidence/package-junit.xml; TESTS=$?
           deactivate
           set -e

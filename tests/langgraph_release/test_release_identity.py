@@ -38,13 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 #: **This record may only shrink.** An entry clears when the evidence set is
 #: regenerated for the current version: re-run the benchmark, rebuild the image,
 #: re-derive the SBOM, then delete the line.
-STALE_EVIDENCE_RELEASES = {
-    "0.17.0.4": (
-        "benchmark-evidence.json, compatibility.json and the image inventory were "
-        "measured against 0.17.0.4; regenerating them is a release operation, not "
-        "an edit."
-    ),
-}
+STALE_EVIDENCE_RELEASES: dict[str, str] = {}
 
 
 def _package_version() -> str:
@@ -53,9 +47,9 @@ def _package_version() -> str:
 
 
 def _evidence_release() -> str:
-    return json.loads(
-        (ROOT / "release/langgraph/compatibility.json").read_text(encoding="utf-8")
-    )["release"]
+    return json.loads((ROOT / "release/langgraph/compatibility.json").read_text(encoding="utf-8"))[
+        "release"
+    ]
 
 
 def _dockerfile_label() -> str:
@@ -152,9 +146,7 @@ def test_the_stale_derivation_empties_once_the_versions_agree(
 
 def test_the_live_derivation_uses_the_same_rule() -> None:
     """The helper the record is checked against is the function tested above."""
-    assert observed_stale_releases() == stale_releases(
-        _evidence_release(), _package_version()
-    )
+    assert observed_stale_releases() == stale_releases(_evidence_release(), _package_version())
 
 
 def test_the_drift_detector_sees_a_moved_label() -> None:

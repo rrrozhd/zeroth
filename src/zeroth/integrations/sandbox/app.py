@@ -73,7 +73,9 @@ async def get_status(execution_id: str) -> SidecarStatusResponse:
 )
 async def cancel(execution_id: str) -> dict[str, str]:
     """Cancel a running execution."""
-    await executor.cancel(execution_id)
+    found = await executor.cancel(execution_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Execution not found")
     return {"status": "cancelled"}
 
 

@@ -121,6 +121,24 @@ def _free_port() -> int:
     return port
 
 
+def _last_error_line(errors: Path, interpreter: str) -> str:
+    """Why a child process died, in one line, for a message that has to name a cause.
+
+    A Python traceback ends with the exception, so the last non-empty line is the
+    part worth reporting. Falls back to naming the interpreter that was used --
+    a missing dependency is a property of *that* environment, and knowing which
+    one it was is the whole diagnosis when the same tree runs under two.
+    """
+    try:
+        lines = [line.strip() for line in errors.read_text(errors="replace").splitlines()]
+    except OSError:  # pragma: no cover - the workdir was cleaned up under us
+        lines = []
+    reported = [line for line in lines if line]
+    if not reported:
+        return f"it wrote nothing to stderr (interpreter: {interpreter})"
+    return f"{reported[-1]} (interpreter: {interpreter})"
+
+
 class CandidateError(RuntimeError):
     """The ephemeral candidate did not reach a usable serving state."""
 
@@ -265,18 +283,27 @@ class EphemeralCandidate:
         # Its own cwd: the server writes state beside itself, and the repository root
         # has a residue tripwire that treats stray files as cross-test contamination.
         workdir = tempfile.mkdtemp(prefix="zeroth-agent-server-")
-        self._agent_server = subprocess.Popen(
-            [sys.executable, "-c", script],
-            cwd=workdir,
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # stderr to a file rather than DEVNULL. Discarded, the most common failure --
+        # `langgraph_api` absent, because it is a `gateway-conformance` dev-group pin
+        # and not in a venv built from the wheel -- surfaced as "the Agent Server
+        # exited before serving", which names the symptom and hides the cause.
+        errors = Path(workdir) / "agent-server.stderr"
+        with errors.open("wb") as stream:
+            self._agent_server = subprocess.Popen(
+                [sys.executable, "-c", script],
+                cwd=workdir,
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=stream,
+            )
         self.agent_server_url = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + _AGENT_SERVER_DEADLINE_SECONDS
         while True:
             if self._agent_server.poll() is not None:
-                raise CandidateError("the Agent Server exited before serving")
+                raise CandidateError(
+                    "the Agent Server exited before serving: "
+                    + _last_error_line(errors, sys.executable)
+                )
             if time.monotonic() >= deadline:
                 raise CandidateError(
                     f"Agent Server did not answer /ok within {_AGENT_SERVER_DEADLINE_SECONDS:g}s"

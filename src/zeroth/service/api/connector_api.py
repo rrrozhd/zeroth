@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.memory.runtime_configs import apply_config
+from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import Permission, require_permission
 
 _REF_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
@@ -329,6 +330,9 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
             detail = f"probe timed out after {_PROBE_TIMEOUT_SECONDS:g}s"
         except Exception as exc:  # noqa: BLE001 - surface as ok=false, never 500
             ok = False
-            detail = f"{type(exc).__name__}: {exc}"
+            # A02-8: a memory-backend driver's message names the host, port, and
+            # often the DSN it was constructed from. The operator needs to know
+            # WHY the probe failed, not the connection string it failed against.
+            detail = safe_error_detail(exc, context="connector probe")
         latency_ms = (time.perf_counter() - start) * 1000.0
         return ConnectorTestResponse(ok=ok, detail=detail, latency_ms=round(latency_ms, 2))
