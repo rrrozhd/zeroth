@@ -20,7 +20,9 @@ class SecretRedactor:
         """Recursively redact strings, dicts, and lists that contain known secrets."""
         if isinstance(value, str):
             redacted = value
-            for ref, secret in self._known_secrets.items():
+            for ref, secret in sorted(
+                self._known_secrets.items(), key=lambda item: len(item[1]), reverse=True
+            ):
                 redacted = redacted.replace(secret, f"[REDACTED:{ref}]")
             return redacted
         if isinstance(value, Mapping):

@@ -277,7 +277,8 @@ class VaultSecretProvider:
             self._cache[(tenant, logical_name)] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
-        self._redactor = SecretRedactor(self._redactor_known())
+            if value is not None:
+                self._redactor = SecretRedactor(self._redactor_known())
 
     # ------------------------------------------------------------------
     # Internal fetch helpers

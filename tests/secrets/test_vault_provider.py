@@ -86,10 +86,13 @@ def test_resolve_is_cached_within_ttl() -> None:
     assert path  # path documented for clarity
 
 
-def test_redactor_preserves_same_name_secret_identity_across_tenants() -> None:
+@pytest.mark.parametrize("resolution_order", [("tenant-a", "tenant-b"), ("tenant-b", "tenant-a")])
+def test_redactor_preserves_same_name_secret_identity_across_tenants(
+    resolution_order: tuple[str, str],
+) -> None:
     values = {
-        "/v1/secret/data/tenants/tenant-a/shared_token": "tenant-a-secret",
-        "/v1/secret/data/tenants/tenant-b/shared_token": "tenant-b-secret",
+        "/v1/secret/data/tenants/tenant-a/shared_token": "shared-prefix",
+        "/v1/secret/data/tenants/tenant-b/shared_token": "shared-prefix-suffix",
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -104,14 +107,20 @@ def test_redactor_preserves_same_name_secret_identity_across_tenants() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    assert provider.resolve_secret("shared.token", tenant_id="tenant-a") == "tenant-a-secret"
-    assert provider.resolve_secret("shared.token", tenant_id="tenant-b") == "tenant-b-secret"
+    for tenant in resolution_order:
+        assert (
+            provider.resolve_secret("shared.token", tenant_id=tenant)
+            == {
+                "tenant-a": "shared-prefix",
+                "tenant-b": "shared-prefix-suffix",
+            }[tenant]
+        )
     assert provider._redactor_known() == {
-        ("tenant-a", "shared.token"): "tenant-a-secret",
-        ("tenant-b", "shared.token"): "tenant-b-secret",
+        ("tenant-a", "shared.token"): "shared-prefix",
+        ("tenant-b", "shared.token"): "shared-prefix-suffix",
     }
 
-    redacted = provider._redactor.redact("tenant-a-secret tenant-b-secret")
+    redacted = provider._redactor.redact("shared-prefix shared-prefix-suffix")
     assert redacted == (
         "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
     )
@@ -141,6 +150,33 @@ async def test_warm_preserves_same_name_secret_identity_across_tenants() -> None
     assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
         "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
     )
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_warm_redacts_earlier_value_from_later_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, json={"data": {"data": {"value": "first-secret"}}})
+        raise RuntimeError("transport echoed first-secret")
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        async_transport=httpx.MockTransport(handler),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await provider.warm([("tenant-a", "first"), ("tenant-a", "second")])
+
+    assert "first-secret" not in caplog.text
+    assert "[REDACTED:('tenant-a', 'first')]" in caplog.text
     await provider.aclose()
 
 
