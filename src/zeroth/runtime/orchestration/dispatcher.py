@@ -136,6 +136,7 @@ async def dispatch_subgraph_node(
     output = child.final_output or {}
     if not isinstance(output, dict):
         output = {"result": output}
+    child_cost = rollup_run_cost(child)
     return SubgraphDispatchResult(
         output=output,
         audit={
@@ -143,6 +144,9 @@ async def dispatch_subgraph_node(
             "subgraph_graph_ref": node.subgraph.graph_ref,
             "subgraph_status": child.status.value,
             "subgraph_resumed": resumed,
+            "cost_usd": child_cost.cost_usd,
+            "estimated_cost_usd": child_cost.estimated_cost_usd,
+            "cost_measurement": child_cost.cost_measurement,
         },
     )
 

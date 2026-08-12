@@ -372,7 +372,7 @@ async def test_worker_persists_failed_parallel_resume_accounting(sqlite_db) -> N
     assert by_node.count(("completed-sibling", "completed", 0.2)) == 1
     assert by_node.count(("paused-prior", "completed", 0.05)) == 1
     assert by_node.count(("cancelled-sibling", "completed", 0.15)) == 1
-    assert by_node.count(("child-node", "rejected", 0.3)) == 1
+    assert by_node.count(("child-node", "failed", 0.3)) == 1
     assert by_node.count(("child-node", "cancelled", None)) == 1
     cost = rollup_run_cost(final)
     assert cost.cost_usd == pytest.approx(0.8)
