@@ -13,6 +13,7 @@ from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRe
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.dispatch import LeaseManager
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunStatus
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.service.bootstrap.migrations import run_migrations
@@ -51,7 +52,9 @@ async def test_sqlite_repository_reconstruction_preserves_scope_predicates(tmp_p
         await RunRepository(first).create(
             _run("owner-run", tenant_id="tenant-a", thread_id="owner-thread")
         )
-        await AuditRepository(first).write(_audit("owner-audit", "tenant-a"))
+        await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
+            _audit("owner-audit", "tenant-a")
+        )
         await MemoryConnectorConfigRepository(first).upsert(
             "owner-connector",
             "key_value",
@@ -65,7 +68,12 @@ async def test_sqlite_repository_reconstruction_preserves_scope_predicates(tmp_p
     try:
         assert await RunRepository(restarted).get("owner-run", tenant_id="tenant-b") is None
         assert await ThreadRepository(restarted).get("owner-thread", tenant_id="tenant-b") is None
-        assert await AuditRepository(restarted).list(AuditQuery(tenant_id="tenant-b")) == []
+        assert (
+            await AuditRepository.scoped(
+                restarted, NullWorkspaceScopeContext(tenant_id="tenant-b")
+            ).list(AuditQuery(tenant_id="tenant-b"))
+            == []
+        )
         assert (
             await MemoryConnectorConfigRepository(restarted).get(
                 "owner-connector", tenant_id="tenant-b"

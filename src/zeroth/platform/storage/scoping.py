@@ -75,6 +75,26 @@ class ScopeContext:
 
 @dataclass(frozen=True, slots=True)
 @final
+class NullWorkspaceScopeContext:
+    """A tenant identity explicitly bound to resources outside any workspace."""
+
+    tenant_id: str
+
+    def __post_init__(self) -> None:
+        _require_non_empty_string(self.tenant_id, "tenant_id")
+        if self.tenant_id == _DEFAULT_TENANT_ID:
+            raise ValueError("the reserved default tenant requires for_default_compatibility()")
+
+    @classmethod
+    def for_default_compatibility(cls) -> NullWorkspaceScopeContext:
+        """Build the reserved default tenant's null-workspace context."""
+        context = object.__new__(cls)
+        object.__setattr__(context, "tenant_id", _DEFAULT_TENANT_ID)
+        return context
+
+
+@dataclass(frozen=True, slots=True)
+@final
 class TenantWideScopeContext:
     """An explicit privileged context spanning all workspaces in one tenant."""
 
@@ -126,7 +146,7 @@ class ResourceScopeDefinition:
             raise ValueError("global resources cannot have pending direct ownership")
 
 
-type ScopeBinding = ScopeContext | TenantWideScopeContext | None
+type ScopeBinding = ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,7 +252,7 @@ class ResourceScopeRegistry:
             raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
         if context is None:
             raise ValueError("tenant-scoped resources require a tenant context")
-        if type(context) not in (ScopeContext, TenantWideScopeContext):
+        if type(context) not in (ScopeContext, NullWorkspaceScopeContext, TenantWideScopeContext):
             raise TypeError("context must be a recognized scope context")
         if definition.workspace_scoped and type(context) is TenantWideScopeContext:
             raise ValueError("workspace-scoped resources require a workspace context")

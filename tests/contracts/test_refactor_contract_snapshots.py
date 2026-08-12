@@ -268,6 +268,8 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
     await RunRepository(sqlite_db).create(run)
 
     audit = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="audit-contract",
         run_id=run.run_id,
         thread_id=run.thread_id,
@@ -280,7 +282,7 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
         started_at=_FIXED_TIME,
         completed_at=_FIXED_TIME,
     )
-    persisted_audit = await AuditRepository(sqlite_db).write(audit)
+    persisted_audit = await AuditRepository.for_default_compatibility(sqlite_db).write(audit)
     assert persisted_audit is not None
     # The durable write is the capture boundary, so what round-trips is exactly
     # what the capture policy produced -- not what the producer submitted. The

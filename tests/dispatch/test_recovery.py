@@ -24,7 +24,7 @@ def _make_approval_service(sqlite_db) -> ApprovalService:
     return ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
 
 

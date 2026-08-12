@@ -85,6 +85,8 @@ def test_node_audit_record_accepts_cost_fields():
     from zeroth.governance.audit.models import NodeAuditRecord
 
     record = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a1",
         run_id="r1",
         node_id="n1",
@@ -99,6 +101,8 @@ def test_node_audit_record_accepts_cost_fields():
 
     # Defaults should be None
     record2 = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a2",
         run_id="r2",
         node_id="n2",

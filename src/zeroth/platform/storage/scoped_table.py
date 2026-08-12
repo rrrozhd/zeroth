@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
 
-from zeroth.platform.storage.database import AsyncDatabase
+from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.scoping import (
+    NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
@@ -105,7 +108,6 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
 )
 SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
     {
-        "audit_chain_heads",
         "quota_counters",
         "rate_limit_buckets",
         "retention_cleanup_operations",
@@ -242,8 +244,22 @@ class _StructuredTable:
     def _scope_items(
         self,
         definition: ResourceScopeDefinition,
-    ) -> tuple[tuple[str, str], ...]:
+    ) -> tuple[tuple[str, str | None], ...]:
         return ()
+
+    def in_transaction(self, connection: AsyncConnection) -> BoundStructuredTable:
+        """Bind this table's structural rules to an existing transaction."""
+        return BoundStructuredTable(self, connection)
+
+    @asynccontextmanager
+    async def transaction(
+        self,
+        *,
+        write_lock: bool = False,
+    ) -> AsyncIterator[BoundStructuredTable]:
+        """Open a transaction whose statements remain bound to this table's scope."""
+        async with self.__database.transaction(write_lock=write_lock) as connection:
+            yield BoundStructuredTable(self, connection)
 
     def _validate_values(
         self,
@@ -278,13 +294,19 @@ class _StructuredTable:
         for column, value in (where or {}).items():
             identifier = _identifier(column)
             rendered = f"{qualifier}.{identifier}" if qualifier else identifier
-            predicates.append(f"{rendered} = ?")
-            params.append(value)
+            if value is None:
+                predicates.append(f"{rendered} IS NULL")
+            else:
+                predicates.append(f"{rendered} = ?")
+                params.append(value)
         if include_scope:
             for column, value in self._scope_items(definition):
                 rendered = f"{qualifier}.{column}" if qualifier else column
-                predicates.append(f"{rendered} = ?")
-                params.append(value)
+                if value is None:
+                    predicates.append(f"{rendered} IS NULL")
+                else:
+                    predicates.append(f"{rendered} = ?")
+                    params.append(value)
         return predicates, params
 
     async def select(
@@ -435,6 +457,158 @@ class _StructuredTable:
             await connection.execute(sql, tuple(params))
 
 
+class BoundStructuredTable:
+    """A structured table view that keeps several operations in one transaction."""
+
+    __slots__ = ("__connection", "__table")
+
+    def __init__(self, table: _StructuredTable, connection: AsyncConnection) -> None:
+        if not isinstance(table, _StructuredTable):
+            raise TypeError("table must be a structured table")
+        self.__table = table
+        self.__connection = connection
+
+    def bind(self, table: _StructuredTable) -> BoundStructuredTable:
+        """Bind another table to this same transaction after database validation."""
+        if not isinstance(table, _StructuredTable):
+            raise TypeError("table must be a structured table")
+        if (
+            self.__table._StructuredTable__database  # noqa: SLF001
+            is not table._StructuredTable__database  # noqa: SLF001
+        ):
+            raise ValueError("bound tables must use the same database")
+        return BoundStructuredTable(table, self.__connection)
+
+    def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
+        definition = self.__table._canonical_definition()
+        return self.__table._validate_operation(operation, definition)
+
+    def _where(
+        self,
+        definition: ResourceScopeDefinition,
+        where: dict[str, Any] | None,
+        *,
+        where_null: tuple[str, ...] = (),
+        where_not_null: tuple[str, ...] = (),
+        where_lt: dict[str, Any] | None = None,
+        where_not_in: dict[str, tuple[Any, ...]] | None = None,
+    ) -> tuple[list[str], list[Any]]:
+        predicates, params = self.__table._where(where, definition=definition)
+        for column in where_null:
+            predicates.append(f"{_identifier(column)} IS NULL")
+        for column in where_not_null:
+            predicates.append(f"{_identifier(column)} IS NOT NULL")
+        for column, value in (where_lt or {}).items():
+            predicates.append(f"{_identifier(column)} < ?")
+            params.append(value)
+        for column, values in (where_not_in or {}).items():
+            identifier = _identifier(column)
+            if not values:
+                continue
+            predicates.append(f"{identifier} NOT IN ({', '.join('?' for _ in values)})")
+            params.extend(values)
+        return predicates, params
+
+    async def select(
+        self,
+        *,
+        where: dict[str, Any] | None = None,
+        columns: tuple[str, ...] = ("*",),
+        where_null: tuple[str, ...] = (),
+        where_not_null: tuple[str, ...] = (),
+        where_lt: dict[str, Any] | None = None,
+        where_not_in: dict[str, tuple[Any, ...]] | None = None,
+        order_by: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        """Select rows using structured predicates inside this transaction."""
+        definition = self._definition(ResourceOperation.ENUMERATE)
+        table_name = _definition_table_name(definition)
+        predicates, params = self._where(
+            definition,
+            where,
+            where_null=where_null,
+            where_not_null=where_not_null,
+            where_lt=where_lt,
+            where_not_in=where_not_in,
+        )
+        sql = f"SELECT {_columns(columns)} FROM {table_name}"
+        if predicates:
+            sql += " WHERE " + " AND ".join(predicates)
+        if order_by:
+            sql += " ORDER BY " + ", ".join(_identifier(column) for column in order_by)
+        return await self.__connection.fetch_all(sql, tuple(params))
+
+    async def select_one(
+        self,
+        *,
+        where: dict[str, Any],
+        columns: tuple[str, ...] = ("*",),
+        for_update: bool = False,
+    ) -> dict[str, Any] | None:
+        """Select one scoped row, optionally acquiring a PostgreSQL row lock."""
+        definition = self._definition(ResourceOperation.READ)
+        table_name = _definition_table_name(definition)
+        predicates, params = self._where(definition, where)
+        sql = (
+            f"SELECT {_columns(columns)} FROM {table_name} WHERE "
+            + " AND ".join(predicates)
+            + " LIMIT 1"
+        )
+        database = self.__table._StructuredTable__database  # noqa: SLF001
+        if for_update and database.backend == "postgres":
+            sql += " FOR UPDATE"
+        return await self.__connection.fetch_one(sql, tuple(params))
+
+    async def insert(self, values: dict[str, Any]) -> None:
+        """Insert a scoped row inside this transaction."""
+        definition = self._definition(ResourceOperation.CREATE)
+        table_name = _definition_table_name(definition)
+        rendered = self.__table._validate_values(values, create=True, definition=definition)
+        columns = tuple(rendered)
+        sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
+            f"({', '.join('?' for _ in columns)})"
+        )
+        await self.__connection.execute(sql, tuple(rendered.values()))
+
+    async def insert_if_absent(
+        self,
+        values: dict[str, Any],
+        *,
+        conflict_columns: tuple[str, ...],
+    ) -> bool:
+        """Insert once under a structured conflict identity."""
+        definition = self._definition(ResourceOperation.CREATE)
+        table_name = _definition_table_name(definition)
+        rendered = self.__table._validate_values(values, create=True, definition=definition)
+        columns = tuple(rendered)
+        conflicts = tuple(_identifier(column) for column in conflict_columns)
+        if not conflicts or any(column not in rendered for column in conflicts):
+            raise ValueError("conflict_columns must be non-empty inserted columns")
+        sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
+            f"({', '.join('?' for _ in columns)}) "
+            f"ON CONFLICT ({', '.join(conflicts)}) DO NOTHING "
+            f"RETURNING {conflicts[0]}"
+        )
+        row = await self.__connection.fetch_one(sql, tuple(rendered.values()))
+        return row is not None
+
+    async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
+        """Update scoped rows inside this transaction."""
+        definition = self._definition(ResourceOperation.UPDATE)
+        table_name = _definition_table_name(definition)
+        if not where:
+            raise ValueError("update requires a non-empty where predicate")
+        rendered = self.__table._validate_values(values, create=False, definition=definition)
+        predicates, where_params = self._where(definition, where)
+        assignments = ", ".join(f"{column} = ?" for column in rendered)
+        await self.__connection.execute(
+            f"UPDATE {table_name} SET {assignments} WHERE " + " AND ".join(predicates),
+            (*rendered.values(), *where_params),
+        )
+
+
 class ScopedTable(_StructuredTable):
     """A structured tenant-scoped table bound to one trusted scope context."""
 
@@ -445,7 +619,7 @@ class ScopedTable(_StructuredTable):
         database: AsyncDatabase,
         registry: ResourceScopeRegistry,
         resource_name: str,
-        context: ScopeContext | TenantWideScopeContext,
+        context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
         *,
         _privileged_tenant_wide: bool = False,
     ) -> None:
@@ -462,7 +636,7 @@ class ScopedTable(_StructuredTable):
         self.__privileged_tenant_wide = _privileged_tenant_wide
 
     @property
-    def _context(self) -> ScopeContext | TenantWideScopeContext:
+    def _context(self) -> ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext:
         return self.__context
 
     @property
@@ -509,10 +683,12 @@ class ScopedTable(_StructuredTable):
     def _scope_items(
         self,
         definition: ResourceScopeDefinition,
-    ) -> tuple[tuple[str, str], ...]:
+    ) -> tuple[tuple[str, str | None], ...]:
         items = [("tenant_id", self._context.tenant_id)]
         if definition.workspace_scoped and type(self._context) is ScopeContext:
             items.append(("workspace_id", self._context.workspace_id))
+        elif definition.workspace_scoped and type(self._context) is NullWorkspaceScopeContext:
+            items.append(("workspace_id", None))
         return tuple(items)
 
     def _validate_join(self, other: ScopedTable) -> None:

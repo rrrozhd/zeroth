@@ -37,6 +37,7 @@ from zeroth.platform.storage.scoped_table import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoping import (
+    NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
@@ -60,6 +61,7 @@ __all__ = [
     "ECON_MIGRATION_SCOPE_DEFINITIONS",
     "GlobalTable",
     "Migration",
+    "NullWorkspaceScopeContext",
     "RedisConfig",
     "RedisDeploymentMode",
     "ResourceOperation",

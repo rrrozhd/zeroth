@@ -177,7 +177,7 @@ async def test_retrieval_audit_record_is_persisted_with_sources(sqlite_db) -> No
     orch = _orchestrator(
         _resolver(connector),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
     )
     graph = Graph(
         graph_id="g-rag-audit",
@@ -191,7 +191,7 @@ async def test_retrieval_audit_record_is_persisted_with_sources(sqlite_db) -> No
     run = await orch.run_graph(graph, {"question": "what is zeroth?"})
     assert run.status is RunStatus.COMPLETED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     retrieve_audits = [a for a in audits if a.node_id == "retrieve"]
     assert len(retrieve_audits) == 1
     sources = retrieve_audits[0].execution_metadata["retrieval"]["sources"]

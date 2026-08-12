@@ -409,10 +409,7 @@ async def test_commit_fenced_refuses_to_write_the_fence_columns(dual_database) -
     assert row["current_step"] != "x"
 
     # The legitimate write still works.
-    assert (
-        await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok")
-        is True
-    )
+    assert await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok") is True
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +498,7 @@ async def test_a_fencing_rejection_leaves_a_durable_audit_record(dual_database) 
     repo = RunRepository(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=60)
     orchestrator = _FencedWriteOrchestrator(repo)
-    orchestrator.audit_repository = AuditRepository(dual_database)
+    orchestrator.audit_repository = AuditRepository.for_default_compatibility(dual_database)
 
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -541,7 +538,7 @@ async def test_a_lease_loss_leaves_a_durable_audit_record(dual_database) -> None
     repo = RunRepository(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
-    orchestrator.audit_repository = AuditRepository(dual_database)
+    orchestrator.audit_repository = AuditRepository.for_default_compatibility(dual_database)
 
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,

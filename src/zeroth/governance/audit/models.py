@@ -150,7 +150,7 @@ class NodeAuditRecord(BaseModel):
     node_version: int = 1
     graph_version_ref: str
     deployment_ref: str
-    tenant_id: str = "default"
+    tenant_id: str
     workspace_id: str | None = None
     attempt: int = 1
     status: str

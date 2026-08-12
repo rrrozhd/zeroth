@@ -64,6 +64,12 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolGovernanceContext,
     ToolIdentity,
 )
+from zeroth.platform.storage import NullWorkspaceScopeContext
+
+
+def _audit_repository(database) -> AuditRepository:
+    return AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+
 
 THREADED = ToolGovernanceContext(
     tenant_id="tenant-a",
@@ -268,7 +274,7 @@ async def test_async_authorization_keeps_the_event_loop_live_and_invokes_once() 
 
 
 async def test_async_policy_timeout_delivers_the_outage_on_the_event_loop(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = _audit_repository(sqlite_db)
     audit = AuditDeliveryQueue(repository, base_delay_seconds=0, max_delay_seconds=0)
     downstream_calls = 0
 
@@ -674,7 +680,7 @@ async def test_each_recorded_verdict_survives_the_write_into_storage(
     # nothing: an unretained term still writes a record and still reports a
     # decision, with the field replaced by a digest/schema/count summary. Only
     # reading it back distinguishes the two.
-    repository = AuditRepository(sqlite_db)
+    repository = _audit_repository(sqlite_db)
     record = _submitted(verdict, **extra)
 
     await repository.write(record)
@@ -688,7 +694,7 @@ async def test_each_recorded_verdict_survives_the_write_into_storage(
 async def test_the_tool_reference_and_approval_id_survive_the_write_into_storage(
     sqlite_db,
 ) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = _audit_repository(sqlite_db)
     record = _submitted(APPROVE, interrupt=FakeInterrupt())
 
     await repository.write(record)

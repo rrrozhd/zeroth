@@ -12,6 +12,8 @@ from zeroth.platform.storage.json import to_json_value
 
 def _record(*, audit_id: str, run_id: str, node_id: str = "n1") -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id=run_id,
         node_id=node_id,
@@ -41,7 +43,7 @@ def test_digest_is_byte_identical_with_and_without_signing() -> None:
 
 async def test_chain_records_signed_and_verify_true(sqlite_db) -> None:
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"secret"})
-    repo = AuditRepository(sqlite_db, signer=signer)
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
     await repo.write(_record(audit_id="a1", run_id="run-signed"))
     await repo.write(_record(audit_id="a2", run_id="run-signed", node_id="n2"))
 
@@ -58,7 +60,7 @@ async def test_chain_records_signed_and_verify_true(sqlite_db) -> None:
 
 async def test_unsigned_chain_is_three_state_none(sqlite_db) -> None:
     """Legacy records (no signer) verify as signature_verified None, not green/red."""
-    repo = AuditRepository(sqlite_db)  # no signer -> unsigned-legacy
+    repo = AuditRepository.for_default_compatibility(sqlite_db)  # no signer -> unsigned-legacy
     await repo.write(_record(audit_id="a1", run_id="run-legacy"))
     await repo.write(_record(audit_id="a2", run_id="run-legacy", node_id="n2"))
 
@@ -75,7 +77,7 @@ async def test_tamper_and_recompute_digest_fails_signature_without_key(sqlite_db
     """Adversary edits a record AND recomputes its digest (defeating the digest
     axis) but cannot re-sign without the key -> the signature axis catches it."""
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"issuer-key"})
-    repo = AuditRepository(sqlite_db, signer=signer)
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
     await repo.write(_record(audit_id="a1", run_id="run-tamper"))
 
     stored = await repo.get("a1")
@@ -107,8 +109,10 @@ async def test_tamper_pii_leaving_commitments_and_signature_is_detected(sqlite_d
     mismatches (and the signature over the original digest breaks too).
     """
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"issuer-key"})
-    repo = AuditRepository(sqlite_db, signer=signer)
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
     original = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a1",
         run_id="run-pii",
         node_id="n1",
@@ -157,8 +161,10 @@ async def test_erased_record_carrying_pii_is_rejected(sqlite_db) -> None:
     yet still carries populated PII.
     """
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"issuer-key"})
-    repo = AuditRepository(sqlite_db, signer=signer)
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
     original = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a1",
         run_id="run-forge",
         node_id="n1",

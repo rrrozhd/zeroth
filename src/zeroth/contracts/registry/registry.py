@@ -30,6 +30,7 @@ from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
+    NullWorkspaceScopeContext,
     ScopeContext,
     ScopedTable,
     TenantWideScopeContext,
@@ -51,12 +52,12 @@ _ARTIFACT_REF_REQUIRED: dict[str, type] = {
 def contract_scope_context(
     tenant_id: str,
     workspace_id: str | None,
-) -> ScopeContext | TenantWideScopeContext:
+) -> ScopeContext | NullWorkspaceScopeContext:
     """Build the exact storage scope for a trusted contract owner."""
     if workspace_id is None:
         if tenant_id == "default":
-            return TenantWideScopeContext.for_default_compatibility()
-        return TenantWideScopeContext(tenant_id=tenant_id)
+            return NullWorkspaceScopeContext.for_default_compatibility()
+        return NullWorkspaceScopeContext(tenant_id=tenant_id)
     if tenant_id == "default":
         return ScopeContext.for_default_compatibility(workspace_id=workspace_id)
     return ScopeContext(tenant_id=tenant_id, workspace_id=workspace_id)
@@ -174,13 +175,13 @@ class ContractRegistry:
         Production tenant-aware paths use :meth:`scoped`; this constructor is
         retained as a compatibility wrapper for the published library surface.
         """
-        self._bind(database, TenantWideScopeContext.for_default_compatibility())
+        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
 
     @classmethod
     def scoped(
         cls,
         database: AsyncDatabase,
-        scope_context: ScopeContext | TenantWideScopeContext,
+        scope_context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
     ) -> ContractRegistry:
         """Build a registry bound to one exact trusted tenant scope."""
         if cls is not ContractRegistry:
@@ -192,17 +193,30 @@ class ContractRegistry:
     def _bind(
         self,
         database: AsyncDatabase,
-        scope_context: ScopeContext | TenantWideScopeContext,
+        scope_context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
     ) -> None:
-        if type(scope_context) not in (ScopeContext, TenantWideScopeContext):
+        if type(scope_context) not in (
+            ScopeContext,
+            NullWorkspaceScopeContext,
+            TenantWideScopeContext,
+        ):
             raise TypeError("scope_context must be an exact ScopeContext value")
         self._database = database
         self._scope_context = scope_context
-        self._contracts = ScopedTable(
-            database,
-            SERVICE_SCOPE_REGISTRY,
-            "service.contract_versions",
-            scope_context,
+        self._contracts = (
+            ScopedTable.for_privileged_tenant_wide(
+                database,
+                SERVICE_SCOPE_REGISTRY,
+                "service.contract_versions",
+                scope_context,
+            )
+            if type(scope_context) is TenantWideScopeContext
+            else ScopedTable(
+                database,
+                SERVICE_SCOPE_REGISTRY,
+                "service.contract_versions",
+                scope_context,
+            )
         )
         # Tenant identity is part of cache identity even though a registry is
         # itself fixed to one tenant.  This prevents a future shared-cache
@@ -218,7 +232,7 @@ class ContractRegistry:
 
     def for_scope(
         self,
-        scope_context: ScopeContext | TenantWideScopeContext,
+        scope_context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
     ) -> ContractRegistry:
         """Return a new registry over the same database bound to ``scope_context``."""
         return ContractRegistry.scoped(self._database, scope_context)

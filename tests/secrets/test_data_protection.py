@@ -84,7 +84,7 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     run_migrations(f"sqlite:///{db_path}")
     database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
 
-    audit_repository = AuditRepository(database)
+    audit_repository = AuditRepository.for_default_compatibility(database)
     run_repository = RunRepository(database)
     secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
     secret_resolver.resolve_environment_variables(
@@ -177,7 +177,7 @@ async def test_failure_error_and_message_are_redacted(tmp_path: Path) -> None:
     run_migrations(f"sqlite:///{db_path}")
     database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
 
-    audit_repository = AuditRepository(database)
+    audit_repository = AuditRepository.for_default_compatibility(database)
     run_repository = RunRepository(database)
     secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
     secret_resolver.resolve_environment_variables(

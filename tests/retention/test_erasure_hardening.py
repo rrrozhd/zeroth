@@ -70,7 +70,7 @@ class _TenantRecordingEconEraser:
 async def test_econ_cleanup_is_tenant_scoped_and_ignores_nested_untrusted_join_keys(env) -> None:
     eraser = _TenantRecordingEconEraser()
     service = RetentionErasureService(
-        audit_repository=env.audit_repo,
+        audit_repository=env.audit_repo_for("tenant-a"),
         run_repository=env.run_repo,
         policy_repository=env.policy_repo,
         legal_hold_repository=env.hold_repo,
@@ -98,7 +98,7 @@ async def test_econ_cleanup_is_tenant_scoped_and_ignores_nested_untrusted_join_k
             "validation_results": {"nested": {"join_key": "tenant-b-secret"}},
         }
     )
-    await env.audit_repo.write(record)
+    await env.audit_repo_for("tenant-a").write(record)
 
     await service.erase_run("run-econ-safe", "rte", tenant_id="tenant-a")
 

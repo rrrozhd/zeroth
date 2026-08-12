@@ -158,6 +158,8 @@ class TestAuditEvidenceArtifactIntegration:
         store.retrieve = AsyncMock(return_value=payload)
 
         audit = NodeAuditRecord(
+            tenant_id="default",
+            workspace_id=None,
             audit_id="test-1",
             run_id="run-1",
             thread_id="thread-1",
@@ -195,6 +197,8 @@ class TestAuditEvidenceArtifactIntegration:
         store = AsyncMock()
 
         audit = NodeAuditRecord(
+            tenant_id="default",
+            workspace_id=None,
             audit_id="test-1",
             run_id="run-1",
             thread_id="thread-1",
@@ -324,6 +328,8 @@ class TestFullLifecycleIntegration:
 
         # 5. Resolve in audit evidence
         audit = NodeAuditRecord(
+            tenant_id="default",
+            workspace_id=None,
             audit_id="audit-1",
             run_id="run-123",
             thread_id="thread-1",
