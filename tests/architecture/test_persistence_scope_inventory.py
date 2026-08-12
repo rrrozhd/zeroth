@@ -2748,6 +2748,9 @@ def _audit_repository_public_call_provenance(
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
                             if isinstance(statement, ast.AnnAssign):
+                                if statement.value is not None:
+                                    state = transfer_expression(statement.value, state)
+                                    bind_alias(statement.target, statement.value, position, state)
                                 if (
                                     not isinstance(
                                         scope, (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -2755,17 +2758,10 @@ def _audit_repository_public_call_provenance(
                                     and not annotations_postponed
                                 ):
                                     state = transfer_expression(statement.annotation, state)
-                                if statement.value is not None:
-                                    state = transfer_expression(statement.value, state)
                             else:
                                 state = transfer_expression(statement, state)
-                            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
-                                targets = (
-                                    statement.targets
-                                    if isinstance(statement, ast.Assign)
-                                    else (statement.target,)
-                                )
-                                for target in targets:
+                            if isinstance(statement, ast.Assign):
+                                for target in statement.targets:
                                     bind_alias(target, statement.value, position, state)
                             elif isinstance(statement, ast.ImportFrom):
                                 for alias in statement.names:
@@ -8867,6 +8863,20 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         ),
         (
             "",
+            "from builtins import TypeError as BuiltinTypeError\n"
+            "marker: (TypeError := ValueError) = (TypeError := BuiltinTypeError)\n",
+            "    pass\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\n"
+            "marker: (TypeError := BuiltinTypeError) = (TypeError := ValueError)\n",
+            "    pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
             "",
             "    class Local:\n"
             "        marker: (TypeError := ValueError)\n",
@@ -8879,6 +8889,8 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         "function-local-rhs",
         "module-eager",
         "module-postponed",
+        "module-rhs-then-annotation",
+        "module-rhs-then-annotation-reversed",
         "class-local-scope",
     ],
 )
