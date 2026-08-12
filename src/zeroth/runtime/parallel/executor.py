@@ -333,6 +333,16 @@ class ParallelExecutor:
                 if not task.done():
                     task.cancel()
             drained = await asyncio.gather(*tasks, return_exceptions=True)
+            pause_signals = [
+                result
+                for result in drained
+                if isinstance(result, BranchApprovalPauseSignal)
+            ]
+            if len(pause_signals) > 1:
+                raise MultipleBranchPauseError(
+                    f"{len(pause_signals)} branches paused for approval in a fail_fast "
+                    "fan-out; concurrent multi-branch approval pauses are not yet supported"
+                ) from pause
             # Partition: completed-before-pause vs cancelled in-flight.
             completed_before_pause: list[BranchResult] = []
             cancelled_by_pause: list[BranchContext] = []
@@ -340,9 +350,7 @@ class ParallelExecutor:
                 if ctx.branch_index == pause.branch_index:
                     continue  # the paused branch itself
                 if isinstance(result, BranchApprovalPauseSignal):
-                    # Rare: two branches paused; keep the first, treat
-                    # the other as cancelled for bookkeeping.
-                    cancelled_by_pause.append(ctx)
+                    continue
                 elif isinstance(result, BaseException):
                     # CancelledError or other -- treat as cancelled.
                     cancelled_by_pause.append(ctx)

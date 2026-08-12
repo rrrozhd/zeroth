@@ -100,6 +100,22 @@ def test_unpriced_model_has_no_alternatives():
     assert node.experiment_ready is False
 
 
+def test_neutral_spend_is_not_projected_as_named_model_savings():
+    report = spend_opportunities(
+        [_rec("agent", cost=0.10), _rec("agent", cost=0.50, model="")]
+    )
+
+    assert report.total_cost_usd == 0.60
+    [node] = report.nodes
+    assert node.incumbent_model == "gpt-4o"
+    assert node.runs == 1
+    assert node.total_cost_usd == 0.10
+    assert node.mean_cost_per_call_usd == 0.10
+    assert node.projected_savings_usd == round(
+        node.total_cost_usd * node.best_savings_pct / 100.0, 4
+    )
+
+
 def test_empty_audits_yield_guidance():
     report = spend_opportunities([])
     assert report.nodes == []
