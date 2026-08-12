@@ -2613,6 +2613,8 @@ def _audit_repository_public_call_provenance(
                             return bool(expression.keys)
                         return isinstance(expression, ast.Constant) and bool(expression.value)
 
+                    unknown_assignment_sequence = object()
+
                     def transfer_expression(
                         expression_node: ast.AST,
                         state: dict[str, type[BaseException] | None],
@@ -2760,10 +2762,25 @@ def _audit_repository_public_call_provenance(
                     ]:
                         if isinstance(expression_node, (ast.Tuple, ast.List)):
                             identities: list[object] = []
+                            has_unknown_sequence = False
                             for element in expression_node.elts:
+                                if isinstance(element, ast.Starred):
+                                    state, identity = transfer_assignment_value(
+                                        element.value, state
+                                    )
+                                    if isinstance(identity, tuple):
+                                        identities.extend(identity)
+                                    else:
+                                        has_unknown_sequence = True
+                                    continue
                                 state, identity = transfer_assignment_value(element, state)
                                 identities.append(identity)
-                            return state, tuple(identities)
+                            return (
+                                state,
+                                unknown_assignment_sequence
+                                if has_unknown_sequence
+                                else tuple(identities),
+                            )
                         if isinstance(expression_node, ast.NamedExpr):
                             state, identity = transfer_assignment_value(
                                 expression_node.value, state
@@ -9171,19 +9188,44 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
+            "    FirstError, SecondError = TypeError, *[ValueError]\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    FirstError, SecondError = *(TypeError,), ValueError\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    FirstError, (SecondError, ThirdError) = "
+            "*(TypeError,), *((ValueError, TypeError),)\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    FirstError, SecondError = "
+            "*((FirstError := ValueError),), *((FirstError := TypeError),)\n",
+            "FirstError",
+            frozenset(),
+        ),
+        (
+            "    FirstError, SecondError = TypeError, *candidate\n",
+            "SecondError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
             "    FirstError, SecondError = (TypeError,)\n",
             "FirstError",
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
-            "    FirstError, SecondError = "
-            "(FirstError := ValueError), (FirstError := TypeError)\n",
+            "    FirstError, SecondError = (FirstError := ValueError), (FirstError := TypeError)\n",
             "FirstError",
             frozenset(),
         ),
         (
-            "    FirstError, SecondError = "
-            "(FirstError := ValueError), (FirstError := TypeError)\n",
+            "    FirstError, SecondError = (FirstError := ValueError), (FirstError := TypeError)\n",
             "SecondError",
             frozenset({"apps/candidate.py::use::write"}),
         ),
@@ -9199,6 +9241,11 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
         "starred-list-capture",
         "starred-nested-capture",
         "starred-nested-capture-last",
+        "rhs-list-star",
+        "rhs-tuple-star",
+        "rhs-nested-stars",
+        "rhs-starred-walrus-order",
+        "rhs-dynamic-star",
         "length-mismatch",
         "rhs-side-effect-first",
         "rhs-side-effect-second",
