@@ -514,7 +514,7 @@ def test_025_downgrade_refuses_scope_collision_before_ddl(tmp_path: Path) -> Non
 
 
 @requires_docker
-def test_task9_scope_migration_runs_on_postgres(postgres_container) -> None:
+def test_task9_scope_migration_round_trips_on_postgres(postgres_container) -> None:
     admin_url = make_url(postgres_container.get_connection_url()).set(
         drivername="postgresql+psycopg"
     )
@@ -524,10 +524,82 @@ def test_task9_scope_migration_runs_on_postgres(postgres_container) -> None:
         connection.execute(text(f'CREATE DATABASE "{database_name}"'))
     database_url = admin_url.set(database=database_name).render_as_string(hide_password=False)
     try:
-        _assert_upgrade_and_collisions(database_url)
+        config = _config(database_url)
+        command.upgrade(config, "024")
         engine = create_engine(database_url)
         try:
-            _assert_cleanup_operation_constraints(engine)
+            expected_signature = _signature(engine)
+            _seed_024(engine)
+        finally:
+            engine.dispose()
+        command.upgrade(config, "025")
+        command.downgrade(config, "024")
+        engine = create_engine(database_url)
+        try:
+            assert _signature(engine) == expected_signature
+            with engine.begin() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT tenant_id FROM runs WHERE run_id='shared-run'")
+                    ).scalar_one()
+                    == "tenant-a"
+                )
+                connection.execute(
+                    text(
+                        "DELETE FROM retention_cleanup_state "
+                        "WHERE authorization_log_id='authorization-a'"
+                    )
+                )
+                assert (
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM retention_cleanup_operations "
+                            "WHERE authorization_log_id='authorization-a'"
+                        )
+                    ).scalar_one()
+                    == 0
+                )
+        finally:
+            engine.dispose()
+    finally:
+        admin_engine.dispose()
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP DATABASE "{database_name}" WITH (FORCE)'))
+        admin_engine.dispose()
+
+
+@requires_docker
+def test_task9_scope_migration_collision_refuses_postgres_downgrade(
+    postgres_container,
+) -> None:
+    admin_url = make_url(postgres_container.get_connection_url()).set(
+        drivername="postgresql+psycopg"
+    )
+    database_name = f"zeroth_task9_collision_{uuid4().hex}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with admin_engine.connect() as connection:
+        connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+    database_url = admin_url.set(database=database_name).render_as_string(hide_password=False)
+    try:
+        config = _config(database_url)
+        _assert_upgrade_and_collisions(database_url)
+        with pytest.raises(RuntimeError, match=r"runs\.run_id 'shared-run'.*multiple scopes"):
+            command.downgrade(config, "024")
+        engine = create_engine(database_url)
+        try:
+            assert inspect(engine).get_pk_constraint("runs")["constrained_columns"] == [
+                "tenant_id",
+                "workspace_scope",
+                "run_id",
+            ]
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM runs WHERE run_id='shared-run'")
+                    ).scalar_one()
+                    == 2
+                )
         finally:
             engine.dispose()
     finally:
