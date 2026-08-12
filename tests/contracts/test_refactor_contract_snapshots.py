@@ -291,14 +291,21 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
     # exact.
     expected = AuditCapturePolicy().apply(audit)
     hmac_value = re.compile(r'(?<="hmac_sha256": ")[0-9a-f]{64}(?=")')
+    hmac_schema_key = re.compile(
+        r'(?<=\[")[0-9a-f]{16}(?=", "(?:NoneType|bool|int|float|str|dict|list)"\])'
+    )
     excluded = {"chain_sequence", "digest_version", "pii_commitments", "record_digest"}
     persisted_json = json.dumps(
         persisted_audit.model_dump(mode="json", exclude=excluded), sort_keys=True
     )
     expected_json = json.dumps(expected.model_dump(mode="json", exclude=excluded), sort_keys=True)
-    assert hmac_value.sub("<policy-keyed>", persisted_json) == hmac_value.sub(
-        "<policy-keyed>", expected_json
+    normalized_persisted = hmac_schema_key.sub(
+        "<policy-keyed>", hmac_value.sub("<policy-keyed>", persisted_json)
     )
+    normalized_expected = hmac_schema_key.sub(
+        "<policy-keyed>", hmac_value.sub("<policy-keyed>", expected_json)
+    )
+    assert normalized_persisted == normalized_expected
     assert persisted_audit.input_snapshot == {}
     assert persisted_audit.chain_sequence == 1
     assert persisted_audit.digest_version == 3

@@ -14,6 +14,7 @@ from zeroth.econ.plane.costing.service import estimate_cost_for_period
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.statistics.service import (
     bootstrap_interval,
     build_confidence_breakdown,
@@ -25,6 +26,14 @@ from zeroth.econ.plane.statistics.service import (
 
 _DRIFT_WARNING = 0.15
 _DRIFT_CRITICAL = 0.3
+
+
+def _event_cost(event: ExecutionEvent) -> float:
+    return float(
+        (event.token_cost_usd or 0)
+        + (event.tool_cost_usd or 0)
+        + (event.compute_cost_usd or 0)
+    )
 
 
 def _drift_state(score: float) -> str:
@@ -136,7 +145,7 @@ def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, fl
         if arm not in arms:
             continue
         key = e.join_key or e.execution_id
-        arms[arm]["cost"] += float(e.token_cost_usd + e.tool_cost_usd + e.compute_cost_usd)
+        arms[arm]["cost"] += _event_cost(e)
         arms[arm]["value"] += outcome_values.get(key, 0.0)
     for arm in arms:
         arms[arm]["net"] = arms[arm]["value"] - arms[arm]["cost"]
@@ -175,8 +184,17 @@ def run_evaluation(db: Session, payload: EvaluationRunRequest) -> ValueEstimate:
         total_cost = float(cost_est.total_cost_estimate_usd)
         cost_quality = cost_est.data_quality
     else:
-        total_cost = float(sum((e.token_cost_usd + e.tool_cost_usd + e.compute_cost_usd) for e in executions))
-        cost_quality = "measured"
+        total_cost = sum(_event_cost(e) for e in executions)
+        states = {MeasurementState(e.cost_measurement) for e in executions}
+        cost_quality = (
+            "unmeasured"
+            if MeasurementState.UNMEASURED in states
+            else "mixed"
+            if len(states) > 1
+            else next(iter(states)).value
+            if states
+            else "unmeasured"
+        )
 
     method = str(valuation_config.get("valuation_method", "PROXY")) if settings.stat_value_engine else "PROXY"
     formula_id = str(valuation_config.get("proxy_formula_id", "default_proxy"))

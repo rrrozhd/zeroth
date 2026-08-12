@@ -17,6 +17,8 @@ from typing import Any, Protocol, runtime_checkable
 
 import litellm
 
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.context.errors import CompactionError
 from zeroth.runtime.context.models import (
     CompactionResult,
@@ -220,14 +222,12 @@ class ObservationMaskingStrategy:
                 single_msg = [{"role": "user", "content": content}]
                 token_count = litellm.token_counter(model=model_name, messages=single_msg)
                 placeholder = f"[output omitted -- {token_count} tokens]"
-                masked = dict(msg) if isinstance(msg, dict) else {}
-                masked["content"] = placeholder
-                masked["role"] = _get_role(msg) or "tool"
-                if _has_tool_call_id(msg):
-                    if isinstance(msg, dict):
-                        masked["tool_call_id"] = msg["tool_call_id"]
-                    else:
-                        masked["tool_call_id"] = msg.tool_call_id
+                if isinstance(msg, dict):
+                    masked = dict(msg)
+                    masked["content"] = placeholder
+                    masked["role"] = _get_role(msg) or "tool"
+                else:
+                    masked = msg.model_copy(update={"content": placeholder})
                 masked_middle.append(masked)
             else:
                 if settings.archive_originals:
@@ -340,4 +340,23 @@ class LLMSummarizationStrategy:
             tokens_after=tokens_after,
             strategy_name="llm_summarization",
             archived_messages=archived,
+            token_usage=(
+                response.token_usage if isinstance(response.token_usage, TokenUsage) else None
+            ),
+            cost_usd=response.cost_usd if isinstance(response.cost_usd, int | float) else None,
+            estimated_cost_usd=(
+                response.estimated_cost_usd
+                if isinstance(response.estimated_cost_usd, int | float)
+                else None
+            ),
+            cost_measurement=(
+                response.cost_measurement
+                if isinstance(response.cost_measurement, MeasurementState)
+                else None
+            ),
+            usage_measurement=(
+                response.usage_measurement
+                if isinstance(response.usage_measurement, MeasurementState)
+                else None
+            ),
         )

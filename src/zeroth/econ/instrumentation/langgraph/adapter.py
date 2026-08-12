@@ -17,9 +17,21 @@ class LangGraphTelemetryAdapter:
             capability_id=capability_id,
             implementation_id=implementation_id,
             model_version=str(payload.get("model_version", "unknown")),
-            token_cost_usd=Decimal(str(payload.get("token_cost_usd", "0"))),
-            tool_cost_usd=Decimal(str(payload.get("tool_cost_usd", "0"))),
-            compute_cost_usd=Decimal(str(payload.get("compute_cost_usd", "0"))),
+            token_cost_usd=(
+                Decimal(str(payload["token_cost_usd"]))
+                if "token_cost_usd" in payload
+                else None
+            ),
+            tool_cost_usd=(
+                Decimal(str(payload["tool_cost_usd"]))
+                if "tool_cost_usd" in payload
+                else None
+            ),
+            compute_cost_usd=(
+                Decimal(str(payload["compute_cost_usd"]))
+                if "compute_cost_usd" in payload
+                else None
+            ),
             latency_ms=int(payload.get("latency_ms", 0)),
             compute_time_ms=int(payload.get("compute_time_ms", 0)),
             metadata=payload.get("metadata", {}),

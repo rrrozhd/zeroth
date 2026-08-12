@@ -18,6 +18,7 @@ from langchain_litellm import ChatLiteLLM
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.secrets import SecretResolutionError, resolve_secret_async
 from zeroth.runtime.agents.models import ModelParams, PromptMessage
 from zeroth.runtime.agents.response_format import build_response_format
@@ -101,7 +102,51 @@ class ProviderResponse(BaseModel):
     token_usage: TokenUsage | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     cost_usd: float | None = None
+    estimated_cost_usd: float | None = None
+    cost_measurement: MeasurementState | None = None
+    usage_measurement: MeasurementState | None = None
     cost_event_id: str | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.cost_measurement is None:
+            self.cost_measurement = (
+                MeasurementState.MEASURED
+                if self.cost_usd is not None
+                else MeasurementState.ESTIMATED
+                if self.estimated_cost_usd is not None
+                else MeasurementState.UNMEASURED
+            )
+        if self.usage_measurement is None:
+            self.usage_measurement = (
+                MeasurementState.MEASURED
+                if self.token_usage is not None
+                else MeasurementState.UNMEASURED
+            )
+        if self.cost_measurement is MeasurementState.MEASURED and self.cost_usd is None:
+            raise ValueError("measured provider cost requires cost_usd")
+        if (
+            self.cost_measurement is MeasurementState.ESTIMATED
+            and self.estimated_cost_usd is None
+        ):
+            raise ValueError("estimated provider cost requires estimated_cost_usd")
+        if self.usage_measurement is MeasurementState.MEASURED and self.token_usage is None:
+            raise ValueError("measured provider usage requires token_usage")
+        if self.usage_measurement is MeasurementState.UNMEASURED and self.token_usage is not None:
+            raise ValueError("unmeasured provider usage must omit token_usage")
+
+
+ProviderResponse.__signature__ = inspect.signature(ProviderResponse).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(ProviderResponse).parameters.items()
+        if name
+        not in {
+            "estimated_cost_usd",
+            "cost_measurement",
+            "usage_measurement",
+        }
+    ]
+)
 
 
 class ProviderAdapter(Protocol):
@@ -362,11 +407,11 @@ class LiteLLMProviderAdapter:
         resp_meta = getattr(ai_message, "response_metadata", None)
         if resp_meta and isinstance(resp_meta, dict):
             token_usage_dict = resp_meta.get("token_usage", {})
-            if token_usage_dict:
+            if token_usage_dict and token_usage_dict.get("total_tokens") is not None:
                 return TokenUsage(
                     input_tokens=token_usage_dict.get("prompt_tokens", 0),
                     output_tokens=token_usage_dict.get("completion_tokens", 0),
-                    total_tokens=token_usage_dict.get("total_tokens", 0),
+                    total_tokens=token_usage_dict["total_tokens"],
                     model_name=model_name,
                 )
         return None

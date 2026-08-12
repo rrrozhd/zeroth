@@ -55,6 +55,16 @@ def _ensure_sqlite_compat() -> None:
 
         ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("execution_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
+        ensure_col(
+            "execution_events",
+            "cost_measurement",
+            "cost_measurement VARCHAR(16) DEFAULT 'unmeasured'",
+        )
+        ensure_col(
+            "execution_events",
+            "usage_measurement",
+            "usage_measurement VARCHAR(16) DEFAULT 'unmeasured'",
+        )
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")

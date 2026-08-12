@@ -52,7 +52,7 @@ def provider_request():
 async def test_adapter_enriches_response_with_cost(
     response_with_tokens, mock_regulus_client, cost_estimator, provider_request
 ):
-    """InstrumentedProviderAdapter returns ProviderResponse with cost_usd and cost_event_id."""
+    """InstrumentedProviderAdapter labels its local price as an estimate."""
     from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_with_tokens])
@@ -66,8 +66,9 @@ async def test_adapter_enriches_response_with_cost(
         deployment_ref="deploy-1",
     )
     result = await adapter.ainvoke(provider_request)
-    assert result.cost_usd is not None
-    assert result.cost_usd > 0
+    assert result.cost_usd is None
+    assert result.estimated_cost_usd is not None
+    assert result.estimated_cost_usd > 0
     assert result.cost_event_id is not None
     assert len(result.cost_event_id) > 0
 
@@ -93,7 +94,8 @@ async def test_adapter_without_regulus_stamps_cost_but_emits_no_event(
         deployment_ref="deploy-1",
     )
     result = await adapter.ainvoke(provider_request)
-    assert result.cost_usd is not None and result.cost_usd > 0
+    assert result.cost_usd is None
+    assert result.estimated_cost_usd is not None and result.estimated_cost_usd > 0
     assert result.cost_event_id is None  # no Regulus event to reference
 
 
@@ -131,10 +133,10 @@ async def test_adapter_calls_track_execution_with_correct_event(
     assert event.metadata["total_tokens"] == 150
 
 
-async def test_adapter_no_token_usage_defaults_to_zero(
+async def test_adapter_no_token_usage_stays_unmeasured(
     response_without_tokens, mock_regulus_client, cost_estimator, provider_request
 ):
-    """When inner adapter returns no token_usage, cost_usd defaults to 0.0."""
+    """Missing usage cannot be priced as a measured zero."""
     from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
 
     inner = DeterministicProviderAdapter([response_without_tokens])
@@ -148,15 +150,16 @@ async def test_adapter_no_token_usage_defaults_to_zero(
         deployment_ref="deploy-1",
     )
     result = await adapter.ainvoke(provider_request)
-    assert result.cost_usd == 0.0
+    assert result.cost_usd is None
+    assert result.estimated_cost_usd is None
     # Event should still be emitted
     mock_regulus_client.track_execution.assert_called_once()
 
 
-async def test_adapter_cost_estimator_error_defaults_to_zero(
+async def test_adapter_cost_estimator_error_stays_unmeasured(
     response_with_tokens, mock_regulus_client, provider_request
 ):
-    """When CostEstimator raises, cost_usd defaults to 0.0 and event is still emitted."""
+    """A failed estimator cannot fabricate a measured zero."""
     from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
 
     broken_estimator = MagicMock()
@@ -173,7 +176,8 @@ async def test_adapter_cost_estimator_error_defaults_to_zero(
         deployment_ref="deploy-1",
     )
     result = await adapter.ainvoke(provider_request)
-    assert result.cost_usd == 0.0
+    assert result.cost_usd is None
+    assert result.estimated_cost_usd is None
     mock_regulus_client.track_execution.assert_called_once()
 
 
@@ -214,14 +218,14 @@ async def test_runner_copies_cost_fields_to_audit_record(
 
     # Simulate what the runner would do: copy cost fields to a dict (audit record)
     record = {}
-    if result.cost_usd is not None:
-        record["cost_usd"] = result.cost_usd
+    if result.estimated_cost_usd is not None:
+        record["estimated_cost_usd"] = result.estimated_cost_usd
     if result.cost_event_id is not None:
         record["cost_event_id"] = result.cost_event_id
 
-    assert "cost_usd" in record
+    assert "estimated_cost_usd" in record
     assert "cost_event_id" in record
-    assert record["cost_usd"] > 0
+    assert record["estimated_cost_usd"] > 0
 
 
 async def test_cache_hit_attributes_zero_cost_and_emits_no_event(mock_regulus_client):
@@ -269,7 +273,8 @@ async def test_cache_hit_attributes_zero_cost_and_emits_no_event(mock_regulus_cl
     assert second.metadata.get("cache_hit") is True
 
     # Cold miss: real cost attributed and a Regulus event emitted.
-    assert first.cost_usd is not None and first.cost_usd > 0
+    assert first.cost_usd is None
+    assert first.estimated_cost_usd is not None and first.estimated_cost_usd > 0
     assert first.cost_event_id is not None
 
     # Cache hit: zero marginal cost, no new event, avoided spend recorded.

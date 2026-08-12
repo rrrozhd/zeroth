@@ -15,15 +15,16 @@ from zeroth.econ.instrumentation.integrations._capture import (
 from zeroth.econ.instrumentation.otel import maybe_span
 from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.instrumentation.client import resolve_join_key
 
 
-def _usage_tokens(response: Any) -> tuple[int, int, int]:
+def _usage_tokens(response: Any) -> tuple[int | None, int | None, int | None]:
     usage = getattr(response, "usage", None)
     if usage is None and isinstance(response, dict):
         usage = response.get("usage")
     if usage is None:
-        return 0, 0, 0
+        return None, None, None
 
     prompt = getattr(usage, "prompt_tokens", None)
     completion = getattr(usage, "completion_tokens", None)
@@ -33,9 +34,9 @@ def _usage_tokens(response: Any) -> tuple[int, int, int]:
         completion = usage.get("completion_tokens", completion)
         total = usage.get("total_tokens", total)
 
-    p = int(prompt or 0)
-    c = int(completion or 0)
-    t = int(total or (p + c))
+    p = int(prompt) if prompt is not None else None
+    c = int(completion) if completion is not None else None
+    t = int(total) if total is not None else p + c if p is not None and c is not None else None
     return p, c, t
 
 
@@ -78,6 +79,11 @@ def _build_event(
         model_version=model_name,
         latency_ms=elapsed_ms,
         compute_time_ms=elapsed_ms,
+        usage_measurement=(
+            MeasurementState.MEASURED
+            if metadata.get("total_tokens") is not None
+            else MeasurementState.UNMEASURED
+        ),
         metadata=enriched,
     )
 
@@ -133,7 +139,7 @@ def _wrap_sync_call(
                         "prompt_tokens": prompt,
                         "completion_tokens": completion,
                         "total_tokens": total,
-                        "usage_missing": total == 0,
+                        "usage_missing": total is None,
                         "cost_inputs": {
                             "prompt_tokens": prompt,
                             "completion_tokens": completion,
@@ -210,7 +216,7 @@ def _wrap_async_call(
                         "prompt_tokens": prompt,
                         "completion_tokens": completion,
                         "total_tokens": total,
-                        "usage_missing": total == 0,
+                        "usage_missing": total is None,
                         "cost_inputs": {
                             "prompt_tokens": prompt,
                             "completion_tokens": completion,
