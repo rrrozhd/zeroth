@@ -413,21 +413,55 @@ def test_task9_driver_completeness_rejects_one_removed_key() -> None:
     assert semantic_driver_for(*pair) is not None
 
 
+def _rhs_references_package_object(node: ast.AST, aliases: set[str]) -> bool:
+    if isinstance(node, ast.Attribute):
+        root = node
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        return isinstance(root, ast.Name) and root.id in aliases and node.attr != "__path__"
+    if isinstance(node, ast.Name):
+        return node.id in aliases
+    return any(
+        _rhs_references_package_object(child, aliases) for child in ast.iter_child_nodes(node)
+    )
+
+
+def _package_object_inventories(source: str) -> list[ast.Assign | ast.AnnAssign]:
+    tree = ast.parse(source)
+    package_aliases = {
+        alias.asname or alias.name.split(".")[0]
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "zeroth" or alias.name.startswith("zeroth.")
+    } | {"zeroth"}
+    return [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and node.value is not None
+        and _rhs_references_package_object(node.value, package_aliases)
+    ]
+
+
 def test_production_surface_discovery_has_no_manual_module_class_inventory() -> None:
     source = Path("src/zeroth/platform/storage/service_surfaces.py").read_text()
-    tree = ast.parse(source)
-    package_object_inventories = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-        and isinstance(node.value, (ast.Tuple, ast.List, ast.Set))
-        and any(isinstance(item, (ast.Name, ast.Attribute)) for item in node.value.elts)
-    ]
 
     assert "_SURFACES" not in source
     assert "_PERSISTENCE_ROOTS" not in source
     assert source.count('"zeroth.') == 1  # the authoritative package-walk prefix only
-    assert package_object_inventories == []
+    assert _package_object_inventories(source) == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "_DISCOVERY_DOMAINS = {'runtime': zeroth.runtime}",
+        "_DISCOVERY_DOMAINS = tuple([zeroth.runtime])",
+    ],
+)
+def test_package_object_inventory_audit_rejects_nested_mutations(mutation: str) -> None:
+    assert _package_object_inventories(mutation)
 
 
 def test_semantic_probe_discovery_has_no_resource_name_driver_dictionary() -> None:
