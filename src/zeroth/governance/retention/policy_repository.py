@@ -10,7 +10,6 @@ from zeroth.platform.storage import (
     AsyncDatabase,
     NullWorkspaceScopeContext,
     ScopedTable,
-    TenantWideScopeContext,
 )
 from zeroth.platform.storage.scoping import (
     ResourceOperation,
@@ -37,42 +36,13 @@ class RetentionPolicyRepository:
     def __init__(
         self,
         database: AsyncDatabase,
+        scope_context: NullWorkspaceScopeContext,
         *,
         default_policy: RetentionPolicy | None = None,
-    ) -> None:
-        self._bind(
-            database,
-            NullWorkspaceScopeContext.for_default_compatibility(),
-            default_policy=default_policy,
-        )
-
-    @classmethod
-    def scoped(
-        cls,
-        database: AsyncDatabase,
-        scope_context: NullWorkspaceScopeContext | TenantWideScopeContext,
-        *,
-        default_policy: RetentionPolicy | None = None,
-    ) -> RetentionPolicyRepository:
-        """Bind policy access to an explicit trusted tenant scope."""
-        repository = cls.__new__(cls)
-        repository._bind(database, scope_context, default_policy=default_policy)
-        return repository
-
-    def _bind(
-        self,
-        database: AsyncDatabase,
-        scope_context: NullWorkspaceScopeContext | TenantWideScopeContext,
-        *,
-        default_policy: RetentionPolicy | None,
     ) -> None:
         self._database = database
         if type(scope_context) is NullWorkspaceScopeContext:
             self._policies = ScopedTable(
-                database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
-            )
-        elif type(scope_context) is TenantWideScopeContext:
-            self._policies = ScopedTable.for_privileged_tenant_wide(
                 database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
             )
         else:
@@ -93,7 +63,11 @@ class RetentionPolicyRepository:
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> RetentionPolicyRepository:
-        return cls(database, default_policy=default_policy)
+        return cls(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            default_policy=default_policy,
+        )
 
     @property
     def tenant_id(self) -> str:
@@ -176,3 +150,24 @@ class RetentionPolicyRepository:
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
         )
+
+
+@persistence_surface("service.retention_policies")
+class EnabledPolicyMaintenanceReader:
+    """The complete read-only surface for scheduled cross-tenant policy discovery."""
+
+    def __init__(self, database: AsyncDatabase) -> None:
+        from zeroth.platform.storage import CrossTenantMaintenanceScopeContext
+
+        self._policies = ScopedTable.for_cross_tenant_maintenance(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.retention_policies",
+            CrossTenantMaintenanceScopeContext.for_scheduled_maintenance(),
+        )
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
+        async with self._policies.transaction() as policies:
+            rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))
+        return [RetentionPolicyRepository._row_to_policy(row) for row in rows]
