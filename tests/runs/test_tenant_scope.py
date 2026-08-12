@@ -6,6 +6,7 @@ import pytest
 
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 from zeroth.platform.storage import ScopeContext
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.runtime.runs import Run, Thread
 
 
@@ -91,3 +92,22 @@ async def test_foreign_thread_operations_match_unknown_scope(runs_db) -> None:
     assert await foreign.get("shared-thread") is None
     assert await foreign.get("unknown-thread") is None
     assert await foreign.list() == []
+
+
+async def test_pending_count_uses_scoped_aggregate(runs_db, monkeypatch) -> None:
+    repository = RunRepository(
+        runs_db, ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    )
+    calls: list[dict[str, object]] = []
+    original = BoundStructuredTable.count
+
+    async def recording_count(self, **kwargs):
+        calls.append(kwargs)
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(BoundStructuredTable, "count", recording_count)
+
+    assert await repository.count_pending("deployment-a") == 0
+    assert calls == [
+        {"where": {"status": "PENDING", "deployment_ref": "deployment-a"}}
+    ]

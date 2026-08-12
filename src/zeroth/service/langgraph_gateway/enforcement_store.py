@@ -118,8 +118,7 @@ class LangGraphEnforcementRepository:
     @persistence_operation(ResourceOperation.ENUMERATE)
     async def count_decisions(self) -> int:
         async with self._decisions.transaction() as decisions:
-            rows = await decisions.select(columns=("idempotency_key",))
-        return len(rows)
+            return await decisions.count(where={})
 
     @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def register_inventory(self, request: InventoryRegistrationV1) -> None:
@@ -246,7 +245,8 @@ class LangGraphEnforcementRepository:
         )
         async with self._attestations.transaction() as attestations:
             rows = await attestations.select(
-                where={"deployment_ref": deployment_ref, "correlation_id": correlation_id}
+                where={"deployment_ref": deployment_ref, "correlation_id": correlation_id},
+                limit=2,
             )
         return rows[0] if len(rows) == 1 else None
 

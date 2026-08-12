@@ -9,6 +9,7 @@ import pytest
 
 import zeroth.service.webhooks.repository as webhook_repository
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
@@ -81,6 +82,77 @@ async def test_repeated_dead_letter_transition_is_idempotent(
     rows = await repo.list_dead_letters()
     assert len(rows) == 1
     assert rows[0].delivery_id == delivery.delivery_id
+
+
+async def test_claim_pushes_eligibility_and_batch_limit_to_scoped_query(
+    async_database, make_subscription, make_delivery, monkeypatch
+) -> None:
+    from zeroth.service.webhooks.repository import WebhookRepository
+
+    repository = WebhookRepository.for_default_compatibility(async_database)
+    subscription = make_subscription()
+    await repository.create_subscription(subscription)
+    await repository.enqueue_delivery(
+        make_delivery(
+            subscription_id=subscription.subscription_id,
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=1),
+        )
+    )
+    calls: list[dict[str, object]] = []
+    original = BoundStructuredTable.select
+
+    async def recording_select(self, **kwargs):
+        calls.append(kwargs)
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(BoundStructuredTable, "select", recording_select)
+
+    assert await repository.claim_pending_delivery() is not None
+    assert calls[0]["where_in"] == {
+        "status": ("pending", "failed", "delivering")
+    }
+    assert calls[0]["order_by"] == ("next_attempt_at",)
+    assert calls[0]["limit"] == 16
+
+
+async def test_dead_letter_list_pushes_filters_order_and_limit_to_scoped_query(
+    async_database, make_subscription, make_delivery, monkeypatch
+) -> None:
+    from zeroth.service.webhooks.repository import WebhookRepository
+
+    repository = WebhookRepository.for_default_compatibility(async_database)
+    subscription = make_subscription()
+    await repository.create_subscription(subscription)
+    delivery = make_delivery(
+        subscription_id=subscription.subscription_id,
+        next_attempt_at=datetime.now(UTC) - timedelta(seconds=1),
+    )
+    await repository.enqueue_delivery(delivery)
+    claim = await repository.claim_pending_delivery()
+    assert claim is not None
+    await repository.dead_letter(delivery.delivery_id, claim.generation)
+    calls: list[dict[str, object]] = []
+    original = BoundStructuredTable.select
+
+    async def recording_select(self, **kwargs):
+        calls.append(kwargs)
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(BoundStructuredTable, "select", recording_select)
+
+    rows = await repository.list_dead_letters(
+        subscription_ids=[subscription.subscription_id], limit=1
+    )
+
+    assert len(rows) == 1
+    assert calls == [
+        {
+            "where": None,
+            "where_in": {"subscription_id": (subscription.subscription_id,)},
+            "order_by_desc": ("dead_lettered_at",),
+            "limit": 1,
+        }
+    ]
 
 
 @requires_docker

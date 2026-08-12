@@ -38,6 +38,8 @@ class _RecordingConnection:
 
     async def fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         self.calls.append(("fetch_one", sql, params))
+        if "COUNT(*)" in sql:
+            return {"row_count": 7}
         return {"run_id": "run-1"}
 
     async def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -869,6 +871,24 @@ async def test_bound_select_one_orders_latest_row_under_read_authorization() -> 
     _, sql, params = database.connection.calls[-1]
     assert sql.endswith("ORDER BY registered_at DESC LIMIT 1")
     assert params == ("dep-a", "tenant-a")
+
+
+@pytest.mark.asyncio
+async def test_bound_count_uses_scoped_aggregate_without_materializing_rows() -> None:
+    database = _RecordingDatabase()
+    table = _scoped_table(database)
+
+    async with table.transaction() as runs:
+        result = await runs.count(where={"status": "pending"})
+
+    assert result == 7
+    method, sql, params = database.connection.calls[-1]
+    assert method == "fetch_one"
+    assert sql == (
+        "SELECT COUNT(*) AS row_count FROM runs WHERE status = ? AND tenant_id = ? "
+        "AND workspace_id = ? AND workspace_scope = ?"
+    )
+    assert params == ("pending", "tenant-a", "workspace-a", "value:workspace-a")
 
 
 @pytest.mark.asyncio
