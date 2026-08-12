@@ -2814,7 +2814,7 @@ def _audit_repository_public_call_provenance(
                             )
                             return
                         if isinstance(target, ast.Starred):
-                            bind_assignment_value(target.value, None, position, state)
+                            bind_assignment_value(target.value, identity, position, state)
                             return
                         if not isinstance(target, (ast.Tuple, ast.List)):
                             return
@@ -2846,8 +2846,11 @@ def _audit_repository_public_call_provenance(
                             target.elts[:star_index], identity[:star_index], strict=True
                         ):
                             bind_assignment_value(element, element_identity, position, state)
-                        bind_assignment_value(target.elts[star_index], None, position, state)
                         suffix = len(target.elts) - star_index - 1
+                        captured = identity[star_index : -suffix if suffix else None]
+                        bind_assignment_value(
+                            target.elts[star_index], captured, position, state
+                        )
                         if suffix:
                             for element, element_identity in zip(
                                 target.elts[-suffix:], identity[-suffix:], strict=True
@@ -9146,6 +9149,28 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
+            "    Head, *(FirstError, SecondError) = None, TypeError, ValueError\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    Head, *[FirstError, SecondError] = None, TypeError, ValueError\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    Head, *(FirstError, [SecondError, ThirdError]) = "
+            "None, TypeError, [ValueError, TypeError]\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    Head, *(FirstError, [SecondError, ThirdError]) = "
+            "None, TypeError, [ValueError, TypeError]\n",
+            "ThirdError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
             "    FirstError, SecondError = (TypeError,)\n",
             "FirstError",
             frozenset({"apps/candidate.py::use::write"}),
@@ -9170,6 +9195,10 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
         "nested-third",
         "starred-static",
         "starred-unknown",
+        "starred-tuple-capture",
+        "starred-list-capture",
+        "starred-nested-capture",
+        "starred-nested-capture-last",
         "length-mismatch",
         "rhs-side-effect-first",
         "rhs-side-effect-second",
