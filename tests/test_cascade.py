@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall
 
@@ -87,6 +88,53 @@ async def test_blank_cheap_keeps_estimate_separate_from_measured_fallback() -> N
     assert out.estimated_cost_usd == 0.001
     assert out.cost_measurement is MeasurementState.ESTIMATED
     assert out.metadata["cascade"]["primary_estimated_cost_usd"] == 0.001
+
+
+async def test_blank_cheap_aggregates_both_attempts_token_usage() -> None:
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(
+                content=" ",
+                token_usage=TokenUsage(
+                    input_tokens=3, output_tokens=2, total_tokens=5, model_name="cheap"
+                ),
+            ),
+            "incumbent": ProviderResponse(
+                content="real answer",
+                token_usage=TokenUsage(
+                    input_tokens=7, output_tokens=4, total_tokens=11, model_name="incumbent"
+                ),
+            ),
+        }
+    )
+
+    out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert out.token_usage is not None
+    assert out.token_usage.input_tokens == 10
+    assert out.token_usage.output_tokens == 6
+    assert out.token_usage.total_tokens == 16
+    assert out.usage_measurement is MeasurementState.MEASURED
+
+
+async def test_blank_unmeasured_primary_keeps_known_usage_but_marks_it_incomplete() -> None:
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(content=" "),
+            "incumbent": ProviderResponse(
+                content="real answer",
+                token_usage=TokenUsage(
+                    input_tokens=7, output_tokens=4, total_tokens=11, model_name="incumbent"
+                ),
+            ),
+        }
+    )
+
+    out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert out.token_usage is not None
+    assert out.token_usage.total_tokens == 11
+    assert out.usage_measurement is MeasurementState.UNMEASURED
 
 
 async def test_cheap_error_escalates_with_zero_primary_cost():
