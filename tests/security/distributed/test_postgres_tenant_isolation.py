@@ -106,6 +106,26 @@ async def test_security_rc_postgres_contract_version_identity_is_tenant_local(
 
 @requires_docker
 @pytest.mark.security_rc
+async def test_security_rc_postgres_contract_registration_allocates_sequential_versions(
+    security_postgres,
+) -> None:
+    database, unique = security_postgres
+    name = f"contract://concurrent-{unique}"
+    scope = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    registries = [ContractRegistry.scoped(database, scope) for _ in range(8)]
+
+    records = await asyncio.gather(
+        *(registry.register_schema(name, {"type": "string"}) for registry in registries)
+    )
+
+    assert sorted(record.version for record in records) == list(range(1, 9))
+    assert [record.version for record in await registries[0].list_versions(name)] == list(
+        range(1, 9)
+    )
+
+
+@requires_docker
+@pytest.mark.security_rc
 async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
     repository = GraphRepository(database)

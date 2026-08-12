@@ -1268,6 +1268,8 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
         "examples/20_approval_gate.py::seed_and_build_app::default_compatibility",
         "examples/_common.py::bootstrap_examples_service::default_compatibility",
         "examples/service/seed_deployment.py::main::default_compatibility",
+        "apps/vendor_dd/entrypoint.py::contract_registry_for_deployment::scoped",
+        "apps/vendor_dd/seed.py::main::scoped",
         "src/zeroth/contracts/registry/registry.py::for_scope::scoped",
         "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
         "src/zeroth/service/bootstrap/factory.py::build_runners_for_deployment::scoped",
@@ -1328,7 +1330,13 @@ def _assigned_contract_registry_binding(
 
 def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
     inventory: set[str] = set()
-    for search_root in (root / "src", root / "examples"):
+    for search_root in (
+        root / "src",
+        root / "release",
+        root / "apps",
+        root / "examples",
+        root / "packaging" / "console" / "src",
+    ):
         for path in search_root.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             registry_names: set[str] = set()
@@ -1446,6 +1454,18 @@ def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
 def test_contract_registry_production_bindings_are_explicit_and_reviewed() -> None:
     root = Path(__file__).resolve().parents[2]
     assert _contract_registry_binding_inventory(root) == _CONTRACT_REGISTRY_BINDING_INVENTORY
+
+
+def test_contract_registry_inventory_scans_reference_apps(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "reference_app" / "entrypoint.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.contracts.registry import ContractRegistry\nContractRegistry(db)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AssertionError, match="production legacy ContractRegistry constructor"):
+        _contract_registry_binding_inventory(tmp_path)
 
 
 @pytest.mark.parametrize(

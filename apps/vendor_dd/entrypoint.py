@@ -58,7 +58,10 @@ from apps.vendor_dd.units import build_unit_registry  # noqa: E402
 from zeroth.contracts.governed import MemoryScope  # noqa: E402
 from zeroth.contracts.graph import Capability  # noqa: E402
 from zeroth.contracts.graph.serialization import deserialize_graph  # noqa: E402
-from zeroth.contracts.registry import ContractRegistry  # noqa: E402
+from zeroth.contracts.registry import (  # noqa: E402
+    ContractRegistry,
+    contract_scope_context,
+)
 from zeroth.governance.identity import ServiceRole  # noqa: E402
 from zeroth.governance.policy import (  # noqa: E402
     CapabilityRegistry,
@@ -68,7 +71,7 @@ from zeroth.governance.policy import (  # noqa: E402
 )
 from zeroth.integrations.execution import ExecutableUnitRunner  # noqa: E402
 from zeroth.platform.config import get_settings  # noqa: E402
-from zeroth.platform.storage import create_database  # noqa: E402
+from zeroth.platform.storage import AsyncDatabase, create_database  # noqa: E402
 from zeroth.runtime.agents.factory import build_agent_runners  # noqa: E402
 from zeroth.service.api.authentication import (  # noqa: E402
     ServiceAuthConfig,
@@ -76,12 +79,23 @@ from zeroth.service.api.authentication import (  # noqa: E402
 )
 from zeroth.service.app import create_app  # noqa: E402
 from zeroth.service.bootstrap import bootstrap_service  # noqa: E402
-from zeroth.service.deployments import SQLiteDeploymentRepository  # noqa: E402
+from zeroth.service.deployments import Deployment, SQLiteDeploymentRepository  # noqa: E402
 
 API_KEY = os.environ.get("VENDOR_DD_API_KEY", "vendor-dd-ops-key")
 TENANT_ID = os.environ.get("VENDOR_DD_TENANT", "tenant-acme")
 
 ALL_DEPLOYMENT_REFS = (MAIN_DEPLOYMENT_REF, DIMENSION_DEPLOYMENT_REF, CHAT_DEPLOYMENT_REF)
+
+
+def contract_registry_for_deployment(
+    database: AsyncDatabase,
+    deployment: Deployment,
+) -> ContractRegistry:
+    """Bind contract resolution to ownership persisted with a deployment."""
+    return ContractRegistry.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
 
 
 def build_policy_guard() -> PolicyGuard:
@@ -126,13 +140,13 @@ async def build_app_async():
     # deployed graph in this database (main + dimension child + chat), so the
     # subgraph executor finds its child runners in the same orchestrator.
     provider = select_provider()
-    contract_registry = ContractRegistry(database)
     deployment_repository = SQLiteDeploymentRepository(database)
     agent_runners = {}
     for ref in ALL_DEPLOYMENT_REFS:
         deployment = await deployment_repository.get(ref)
         if deployment is None:
             continue
+        contract_registry = contract_registry_for_deployment(database, deployment)
         graph = deserialize_graph(deployment.serialized_graph)
         agent_runners.update(await build_agent_runners(graph, contract_registry, provider=provider))
 
