@@ -18,6 +18,7 @@ from redis.asyncio import from_url as redis_from_url
 
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
+from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -88,7 +89,14 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
 
 
 async def check_database(db: AsyncDatabase) -> DependencyStatus:
-    """Check database connectivity by executing SELECT 1."""
+    """Check database connectivity by executing SELECT 1.
+
+    A02-4: the failure is reported as a category, never as the driver's own text.
+    ``/health/ready`` answers before authentication AND returns 200 even when a
+    dependency is down, so a driver message here -- which carries the DSN, host,
+    and port it was constructed from -- reaches an unauthenticated caller inside a
+    success response.
+    """
     start = time.monotonic()
     try:
         async with db.transaction() as conn:
@@ -97,7 +105,11 @@ async def check_database(db: AsyncDatabase) -> DependencyStatus:
         return DependencyStatus(status="ok", latency_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (time.monotonic() - start) * 1000
-        return DependencyStatus(status="error", latency_ms=elapsed_ms, detail=str(exc))
+        return DependencyStatus(
+            status="error",
+            latency_ms=elapsed_ms,
+            detail=safe_error_detail(exc, context="database"),
+        )
 
 
 async def check_redis(redis_url: str | None) -> DependencyStatus:
@@ -116,7 +128,11 @@ async def check_redis(redis_url: str | None) -> DependencyStatus:
             await client.aclose()
     except Exception as exc:
         elapsed_ms = (time.monotonic() - start) * 1000
-        return DependencyStatus(status="error", latency_ms=elapsed_ms, detail=str(exc))
+        return DependencyStatus(
+            status="error",
+            latency_ms=elapsed_ms,
+            detail=safe_error_detail(exc, context="redis"),
+        )
 
 
 async def check_regulus(base_url: str | None, timeout: float = 5.0) -> DependencyStatus:

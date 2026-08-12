@@ -63,6 +63,22 @@ async def test_list_admin_runs_returns_runs(sqlite_db) -> None:
     assert body["total"] >= 1
 
 
+async def test_list_admin_runs_rejects_out_of_bounds_limit(sqlite_db) -> None:
+    """A02-12: limit/offset declare bounds instead of accepting anything an int fits."""
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-admin-bounds", DEPLOYMENT + "-bounds"
+    )
+
+    with TestClient(app) as client:
+        too_high = client.get("/admin/runs?limit=1000000", headers=admin_headers())
+        zero = client.get("/admin/runs?limit=0", headers=admin_headers())
+        negative_offset = client.get("/admin/runs?offset=-1", headers=admin_headers())
+
+    assert too_high.status_code == 422
+    assert zero.status_code == 422
+    assert negative_offset.status_code == 422
+
+
 async def test_cancel_run_requires_admin_role(sqlite_db) -> None:
     service, app = await _make_service_and_app(
         sqlite_db,
