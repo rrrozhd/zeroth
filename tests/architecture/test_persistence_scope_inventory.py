@@ -3196,7 +3196,15 @@ def _audit_repository_public_call_provenance(
                 def known_raised_exception_classes(
                     block: list[ast.stmt], *, split_group: bool
                 ) -> tuple[type[BaseException], ...] | None:
-                    if len(block) != 1 or not isinstance(block[0], ast.Raise):
+                    if len(block) != 1:
+                        return None
+                    if isinstance(block[0], ast.Assert):
+                        if literal_truth(block[0].test) is False and (
+                            block[0].msg is None or is_provably_nonraising(block[0].msg)
+                        ):
+                            return (_BUILTIN_EXCEPTION_CLASSES["AssertionError"],)
+                        return None
+                    if not isinstance(block[0], ast.Raise):
                         return None
                     exception = block[0].exc
                     if not split_group:
@@ -9296,6 +9304,109 @@ def test_public_call_inventory_models_assert_message_aliases(
         "    except AssertionError:\n"
         "        pass\n"
         "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("setup", "assertion", "handlers", "expected"),
+    [
+        (
+            "",
+            "assert False",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False",
+            "    except (ValueError, KeyError):\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert True",
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert candidate",
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "from builtins import AssertionError as BuiltinAssertionError\n"
+            "AssertionError = ValueError\n",
+            "assert False",
+            "    except AssertionError:\n"
+            "        pass\n"
+            "    except BuiltinAssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "from builtins import AssertionError as AliasAssertionError\n",
+            "assert False",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AliasAssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+    ],
+    ids=[
+        "skips-unrelated-handler",
+        "skips-unrelated-tuple-handler",
+        "true-raises-none",
+        "unknown-remains-conservative",
+        "shadowed-assertion-error",
+        "imported-assertion-error-alias",
+    ],
+)
+def test_public_call_inventory_routes_deterministic_assertion_errors(
+    tmp_path: Path,
+    setup: str,
+    assertion: str,
+    handlers: str,
+    expected: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + setup
+        + "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        f"        {assertion}\n"
+        + handlers
+        + "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
         "        closure = None\n"
