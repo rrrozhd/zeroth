@@ -32,6 +32,7 @@ from zeroth.governance.retention.cleanup_manifest import (
 )
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunHistoryEntry, Thread, ThreadMemoryBinding
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap import run_migrations
@@ -345,24 +346,25 @@ async def test_persisted_cleanup_manifest_round_trip(sqlite_db) -> None:
         ),
         operations=[artifact_operation, econ_operation],
     )
-    log_repository = RetentionAuditLogRepository.for_default_compatibility(sqlite_db)
+    scope_context = NullWorkspaceScopeContext(tenant_id=tenant_id)
+    log_repository = RetentionAuditLogRepository(sqlite_db, scope_context)
+    cleanup_repository = CleanupStateRepository(sqlite_db, scope_context)
     authorization_log_id = await log_repository.record(
-        tenant_id=tenant_id,
         run_id=run_id,
         action="erasure_authorized",
         reason="manual",
         detail={"manifest": manifest.model_dump(mode="json")},
     )
     async with sqlite_db.transaction(write_lock=True) as connection:
-        await CleanupStateRepository.initialize_in_transaction(
+        await cleanup_repository.initialize_in_transaction(
             connection,
             authorization_log_id=authorization_log_id,
             manifest=manifest,
         )
-        state = await CleanupStateRepository.get_state_in_transaction(
+        state = await cleanup_repository.get_state_in_transaction(
             connection, authorization_log_id
         )
-        operations = await CleanupStateRepository.list_operations_in_transaction(
+        operations = await cleanup_repository.list_operations_in_transaction(
             connection, authorization_log_id
         )
 
