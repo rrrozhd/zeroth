@@ -35,6 +35,7 @@ SOURCE = ROOT / "src/zeroth"
 GOVERNED_MODULES = frozenset(
     {
         "integrations/http/client.py",
+        "integrations/http/factory.py",
         "integrations/memory/factory.py",
     }
 )
@@ -58,13 +59,7 @@ ALLOWED_DIRECT_CONSTRUCTION: frozenset[str] = frozenset(
         "platform/artifacts/store.py::RedisArtifactStore.__init__::aioredis.from_url",
         "platform/secrets/vault.py::VaultSecretProvider._make_async_client::httpx.AsyncClient",
         "platform/secrets/vault.py::VaultSecretProvider._make_client::httpx.Client",
-        "service/api/cost_api.py::register_cost_routes.get_deployment_cost::httpx.AsyncClient",
-        "service/api/cost_api.py::register_cost_routes.get_tenant_cost::httpx.AsyncClient",
-        "service/api/cost_api.py::register_cost_routes.set_tenant_budget::httpx.AsyncClient",
         "service/api/econ_dashboard_api.py::_dashboard_proxy::httpx.AsyncClient",
-        "service/api/health.py::check_redis::aioredis.from_url",
-        "service/api/health.py::check_regulus::httpx.AsyncClient",
-        "service/api/regulus_proxy_api.py::_forward::httpx.AsyncClient",
         "service/bootstrap/factory.py::bootstrap_scoped_service::aioredis.from_url",
         "service/bootstrap/factory.py::bootstrap_scoped_service::httpx.AsyncClient",
         "service/langgraph_gateway/transport.py::HTTPGatewayTransport.__init__::httpx.AsyncClient",

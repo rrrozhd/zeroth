@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-08-12
+
+### Added
+
+- A governed factory for outbound clients off the agent call path. It hands every caller one
+  shared `httpx.AsyncClient` per `(purpose, base_url, timeout, redirects, transport)`, with a
+  mandatory positive finite timeout — `None`, zero, negative, `inf` and `nan` are all refused
+  rather than silently meaning "no bound" — and explicit pool limits. The cache is anchored on
+  `app.state` and guarded by a lock with a double check, because a readiness probe is precisely
+  the endpoint that is hit concurrently. `ResilientHttpClient` remains the governed layer for
+  agent traffic and is untouched (ZER-48 / A02-16).
+
+### Fixed
+
+- The unauthenticated readiness probe no longer builds a dependency client per request. Its
+  Redis client came from `redis_from_url` with neither `socket_timeout` nor
+  `socket_connect_timeout` set — redis-py leaves both `None` — so an unauthenticated caller
+  could drive unbounded, unbounded-duration client creation. That client is now shared and
+  carries both socket bounds (ZER-48 / A02-5).
+- `cost_api`, `regulus_proxy_api` and `health` reuse pooled clients instead of paying a fresh
+  TCP and TLS handshake on every call (ZER-48 / A02-16).
+- Pooled outbound clients are released at shutdown. They are deliberately not closed when the
+  request that first asked for one returns, so the service lifespan is the only place they can
+  be, and a failure closing them is logged rather than allowed to mask the rest of teardown.
+
+### Changed
+
+- The transport-construction ratchet shrank from 20 recorded violations to 14 as those six call
+  sites moved onto the factory — the allowlist doing what it exists to do.
+
 ## [0.23.2] - 2026-08-12
 
 ### Fixed
