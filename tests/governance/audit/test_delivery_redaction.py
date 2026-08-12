@@ -361,7 +361,8 @@ async def test_timing_outcome_and_decision_metadata_survive_the_default_policy(
     # ``reviewer`` names whoever submitted the approval, so it is retained as a
     # stable digest rather than as their text -- correlatable, not readable.
     [reviewer] = [action.metadata["reviewer"] for action in stored.approval_actions]
-    assert reviewer["sha256"] == hashlib.sha256(b'"ops"').hexdigest()
+    assert len(reviewer["hmac_sha256"]) == 64
+    assert reviewer["hmac_sha256"] != hashlib.sha256(b'"ops"').hexdigest()
 
 
 async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained(
@@ -393,8 +394,11 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
         "execution_metadata",
         "error",
     }
-    assert len(dropped["input_snapshot"]["sha256"]) == 64
-    assert dropped["input_snapshot"]["sha256"] != dropped["output_snapshot"]["sha256"]
+    assert len(dropped["input_snapshot"]["hmac_sha256"]) == 64
+    assert (
+        dropped["input_snapshot"]["hmac_sha256"]
+        != dropped["output_snapshot"]["hmac_sha256"]
+    )
     assert dropped["input_snapshot"]["count"] == len(submitted.input_snapshot)
     # Key names are hashed, never printed: a credential used as a mapping key
     # would otherwise be persisted verbatim inside the schema of what was

@@ -38,9 +38,9 @@ from zeroth.governance.audit.models import AuditRedactionConfig
 from zeroth.governance.guardrails.content import PIIFilter
 from zeroth.platform.secrets.redaction import SecretRedactor
 
-# Exact-match keys, because the comparison against a key name is literal. This
-# set is a floor a caller may widen and cannot narrow; it is the complement to
-# the channel drop, not the mechanism the guarantee rests on.
+# These normalized key names are a floor a caller may widen and cannot narrow;
+# separator and case variants compare equivalently while output spelling stays
+# untouched.
 DEFAULT_REDACT_KEYS = frozenset(
     {
         "access_token",
@@ -58,6 +58,10 @@ DEFAULT_REDACT_KEYS = frozenset(
 
 # Only these patterns: PIIFilter's phone heuristic matches any ten-digit run.
 _PII_PATTERNS: tuple[str, ...] = ("email", "ssn", "credit_card")
+
+
+def _normalized_key(value: str) -> str:
+    return value.casefold().replace("-", "").replace("_", "")
 
 
 class RedactionChain:
@@ -79,14 +83,18 @@ class RedactionChain:
         known_secrets: Mapping[str, str] | None = None,
     ) -> None:
         config = AuditRedactionConfig() if redaction is None else redaction
-        self._redact_keys = DEFAULT_REDACT_KEYS | frozenset(config.redact_keys)
-        self._omit_paths = frozenset(tuple(path) for path in config.omit_paths)
+        self._redact_keys = frozenset(
+            _normalized_key(key) for key in DEFAULT_REDACT_KEYS | frozenset(config.redact_keys)
+        )
+        self._omit_paths = frozenset(
+            tuple(_normalized_key(part) for part in path) for path in config.omit_paths
+        )
         self._secrets = SecretRedactor(known_secrets)
         self._pii = PIIFilter(_PII_PATTERNS)
 
     def scrub(self, value: Any) -> Any:
         """Walk one payload, masking every string leaf and every mapping key in it."""
-        walked = self._walk(value, path=(), depth=0)
+        walked = self._walk(value, path=(), depth=0, ancestors=frozenset())
         return None if walked is _OMITTED else walked
 
     def scrub_key(self, key: Any) -> str:
@@ -101,13 +109,21 @@ class RedactionChain:
         filtered, _findings = self._pii.apply(masked)
         return filtered if type(filtered) is str else REDACTED
 
-    def _walk(self, value: Any, *, path: tuple[str, ...], depth: int) -> Any:
+    def _walk(
+        self,
+        value: Any,
+        *,
+        path: tuple[str, ...],
+        depth: int,
+        ancestors: frozenset[int],
+    ) -> Any:
         """Render one node of the payload, dispatching on its exact type.
 
         Args:
             value: The node to render.
             path: The mapping-key path to this node, for ``omit_paths``.
             depth: Current recursion depth, bounded by :data:`MAX_DEPTH`.
+            ancestors: Container identities on the active path, for cycle detection.
 
         Returns:
             A JSON-safe rendering, or :data:`_OMITTED` when a configured path
@@ -126,14 +142,29 @@ class RedactionChain:
         if value_type is str:
             return self._scrub_text(value)
         if isinstance(value, Mapping):
-            return self._walk_mapping(value, path=path, depth=depth)
+            if id(value) in ancestors:
+                return REDACTED
+            return self._walk_mapping(
+                value, path=path, depth=depth, ancestors=ancestors | {id(value)}
+            )
         if isinstance(value, list | tuple):
-            return self._walk_items(value, path=path, depth=depth)
+            if id(value) in ancestors:
+                return REDACTED
+            return self._walk_items(
+                value, path=path, depth=depth, ancestors=ancestors | {id(value)}
+            )
         if isinstance(value, set | frozenset):
             # Sets included -- a set is what the old chain walked past. Rendered
             # as a sorted list, because JSON has no set and iteration order over
             # one is not stable between processes.
-            return sorted(self._walk_items(value, path=path, depth=depth), key=_ordering)
+            if id(value) in ancestors:
+                return REDACTED
+            return sorted(
+                self._walk_items(
+                    value, path=path, depth=depth, ancestors=ancestors | {id(value)}
+                ),
+                key=_ordering,
+            )
         if isinstance(value, str):
             # A ``str`` subclass: take the underlying characters through ``str``'s
             # own implementation rather than the subclass's ``__str__``.
@@ -142,23 +173,39 @@ class RedactionChain:
             return f"<bytes:{len(value)}>"
         return f"<{type_name(value)}>"
 
-    def _walk_items(self, value: Any, *, path: tuple[str, ...], depth: int) -> list[Any]:
+    def _walk_items(
+        self,
+        value: Any,
+        *,
+        path: tuple[str, ...],
+        depth: int,
+        ancestors: frozenset[int],
+    ) -> list[Any]:
         """Render one sequence's items, dropping the ones an omission rule removes."""
-        items = [self._walk(item, path=path, depth=depth + 1) for item in value]
+        items = [
+            self._walk(item, path=path, depth=depth + 1, ancestors=ancestors) for item in value
+        ]
         return [item for item in items if item is not _OMITTED]
 
-    def _walk_mapping(self, value: Mapping[Any, Any], *, path: tuple[str, ...], depth: int) -> Any:
+    def _walk_mapping(
+        self,
+        value: Mapping[Any, Any],
+        *,
+        path: tuple[str, ...],
+        depth: int,
+        ancestors: frozenset[int],
+    ) -> Any:
         """Rebuild one mapping with masked keys, applying the key and path rules."""
         result: dict[str, Any] = {}
         for key, item in value.items():
             key_str = self.scrub_key(key)
-            child = (*path, key_str)
+            child = (*path, _normalized_key(key_str))
             if child in self._omit_paths:
                 continue
-            if key_str in self._redact_keys:
+            if _normalized_key(key_str) in self._redact_keys:
                 result[key_str] = REDACTED
                 continue
-            walked = self._walk(item, path=child, depth=depth + 1)
+            walked = self._walk(item, path=child, depth=depth + 1, ancestors=ancestors)
             if walked is not _OMITTED:
                 result[key_str] = walked
         return result

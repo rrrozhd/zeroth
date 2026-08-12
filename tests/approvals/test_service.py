@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -98,6 +99,100 @@ async def test_approval_service_creates_and_queries_pending_records(sqlite_db) -
         item.approval_id for item in await service.list_pending(deployment_ref=run.deployment_ref)
     ] == [record.approval_id]
     assert record.context_excerpt["secret"] == "***REDACTED***"
+
+
+async def test_approval_service_sanitizes_proposed_payload_before_persistence(sqlite_db) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    run = await RunRepository(sqlite_db).create(_run())
+
+    record = await service.create_pending(
+        run=run,
+        node=_node(),
+        input_payload={"Api-Key": "secret-value", "value": 2},
+    )
+    persisted = await repository.get(record.approval_id)
+
+    assert record.context_excerpt == {"Api-Key": "***REDACTED***", "value": 2}
+    assert record.proposed_payload == record.context_excerpt
+    assert persisted is not None
+    assert persisted.proposed_payload == record.context_excerpt
+
+
+async def test_resolved_approval_cannot_be_escalated(sqlite_db) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    run = await RunRepository(sqlite_db).create(_run())
+    pending = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    resolved = await service.resolve(
+        pending.approval_id,
+        decision=ApprovalDecision.APPROVE,
+        actor=ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY),
+    )
+
+    escalated = await service.escalate(pending.approval_id)
+
+    assert escalated == resolved
+    assert (await repository.get(pending.approval_id)) == resolved
+
+
+async def test_resolution_wins_escalation_read_write_race(sqlite_db, monkeypatch) -> None:
+    repository = ApprovalRepository(sqlite_db)
+    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    run = await RunRepository(sqlite_db).create(_run())
+    pending = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    service.notifier = AsyncMock()
+    original_resolve_pending = repository.resolve_pending
+    resolution_committed = asyncio.Event()
+
+    async def resolution_first(record):
+        if record.status is ApprovalStatus.ESCALATED:
+            await resolution_committed.wait()
+            return await original_resolve_pending(record)
+        resolved = await original_resolve_pending(record)
+        resolution_committed.set()
+        return resolved
+
+    monkeypatch.setattr(repository, "resolve_pending", resolution_first)
+    actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
+    escalated, resolved = await asyncio.gather(
+        service.escalate(pending.approval_id),
+        service.resolve(
+            pending.approval_id,
+            decision=ApprovalDecision.APPROVE,
+            actor=actor,
+        ),
+    )
+
+    assert escalated == resolved
+    assert resolved.status is ApprovalStatus.RESOLVED
+    assert await repository.get(pending.approval_id) == resolved
+    service.notifier.notify.assert_not_awaited()
+
+
+async def test_decision_audit_id_cannot_collide_with_runtime_recorder(sqlite_db) -> None:
+    audit_repository = AuditRepository(sqlite_db)
+    service = ApprovalService(
+        repository=ApprovalRepository(sqlite_db),
+        run_repository=RunRepository(sqlite_db),
+        audit_repository=audit_repository,
+    )
+    run = await RunRepository(sqlite_db).create(_run())
+    run.audit_refs = ["audit:existing"]
+    pending = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})
+    resolved = await service.resolve(
+        pending.approval_id,
+        decision=ApprovalDecision.REJECT,
+        actor=ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY),
+    )
+
+    await service._record_decision_audit(resolved, run, status="rejected", output_payload={})
+
+    [decision] = [
+        item for item in await audit_repository.list_by_run(run.run_id) if item.status == "rejected"
+    ]
+    assert decision.audit_id.startswith(f"{run.run_id}:approval-decision:")
+    assert decision.audit_id != f"{run.run_id}:audit:{len(run.audit_refs) + 1}"
 
 
 async def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
