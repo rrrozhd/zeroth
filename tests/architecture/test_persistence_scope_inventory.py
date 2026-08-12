@@ -1776,9 +1776,45 @@ def _audit_repository_public_call_provenance(
             potential_alias_events.update(class_alias_events)
             for owner, events in potential_alias_events.items():
                 statements = tree.body if owner is None else owner.body
+                potential_declaration_names: set[str] = set()
+                while True:
+                    prior_declaration_names = set(potential_declaration_names)
+                    for statement in statements:
+                        if not isinstance(statement, ast.TypeAlias):
+                            continue
+                        options = _assignment_value_options(statement.value)
+                        has_potential_evidence = any(
+                            _has_repository_annotation_evidence(
+                                option,
+                                repository_names | potential_declaration_names,
+                                module_names,
+                            )
+                            or _has_repository_annotation_evidence(
+                                option,
+                                potential_imported_repository_names | potential_declaration_names,
+                                {},
+                            )
+                            for option in options
+                        )
+                        is_definite_repository_alias = all(
+                            _resolved_receiver_annotation_repository_name(
+                                option, repository_names, module_names
+                            )
+                            == _AUDIT_REPOSITORY_CLASS
+                            for option in options
+                        )
+                        if has_potential_evidence and not is_definite_repository_alias:
+                            potential_declaration_names.add(statement.name.id)
+                    if potential_declaration_names == prior_declaration_names:
+                        break
                 potential_names: set[str] = set()
+                invalidated_names: set[str] = set()
                 for statement in statements:
                     if not isinstance(statement, ast.TypeAlias):
+                        for target in _binding_targets(statement):
+                            bound_names = _bound_names(target)
+                            invalidated_names.update(bound_names)
+                            potential_names.difference_update(bound_names)
                         continue
                     options = _assignment_value_options(statement.value)
                     has_potential_evidence = any(
@@ -1787,7 +1823,9 @@ def _audit_repository_public_call_provenance(
                         )
                         or _has_repository_annotation_evidence(
                             option,
-                            potential_imported_repository_names | potential_names,
+                            potential_imported_repository_names
+                            | potential_names
+                            | (potential_declaration_names - invalidated_names),
                             {},
                         )
                         for option in options
@@ -1801,6 +1839,7 @@ def _audit_repository_public_call_provenance(
                     )
                     if has_potential_evidence and not is_definite_repository_alias:
                         potential_names.add(statement.name.id)
+                        invalidated_names.discard(statement.name.id)
                         position = (statement.lineno, statement.col_offset)
                         events.setdefault(statement.name.id, []).extend(
                             ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
@@ -5130,6 +5169,79 @@ def test_public_call_inventory_reports_wrapped_potential_qualified_class_type_al
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "type Repo = Base\n"
+        "type Base = list[AuditRepository]\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        "async def use(candidate, record):\n"
+        "    type Repo = Base\n"
+        "    type Base = list[AuditRepository]\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        "class Holder:\n"
+        "    type Repo = Base\n"
+        "    type Base = list[AuditRepository]\n"
+        "    async def use(self, candidate: Repo, record):\n"
+        "        await candidate.write(record)\n",
+    ],
+    ids=["module", "function", "class"],
+)
+def test_public_call_inventory_propagates_forward_potential_type_aliases(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n" + definition,
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "type Base = list[AuditRepository]\n"
+        "Base = OtherRepository\n"
+        "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        "class Holder:\n"
+        "    type Base = list[AuditRepository]\n"
+        "    Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    async def use(self, candidate: Repo, record):\n"
+        "        await candidate.write(record)\n",
+    ],
+    ids=["module", "function", "class"],
+)
+def test_public_call_inventory_clears_rebound_potential_type_aliases(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n" + definition,
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 def test_public_call_inventory_treats_loop_target_as_a_local_shadow(tmp_path: Path) -> None:
