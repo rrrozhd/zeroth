@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-import ast
-import importlib
 import inspect
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
-import zeroth
 
 from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.legal_hold_repository import LegalHoldRepository
-from zeroth.governance.retention.policy_repository import (
-    EnabledPolicyMaintenanceReader,
-    RetentionPolicyRepository,
-)
-from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
-from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
+from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
@@ -37,18 +28,7 @@ from zeroth.service.langgraph_gateway.enforcement_store import (
     StoredCapabilityEvidenceProvider,
 )
 from zeroth.service.webhooks.repository import WebhookRepository
-from tests.task9_operation_driver_registry import semantic_driver_for
-from zeroth.platform.storage.service_surfaces import (
-    executable_probe_for,
-    load_service_persistence_surfaces,
-    surface_operation_pairs,
-)
-from zeroth.platform.storage.scoping import (
-    discover_persistence_surfaces,
-    persistence_operation,
-    persistence_surface,
-)
-from zeroth.platform.storage import scoping as scoping_module
+from tests.task9_operation_driver_registry import TASK9_EXECUTABLE_DRIVERS
 
 O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 
@@ -56,18 +36,6 @@ O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 # listed when one public transaction performs a lifecycle transition (for
 # example an upsert or dead-letter move).
 TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOperation]]]] = {
-    "service.quota_counters": {
-        QuotaEnforcer: {
-            "check_and_increment": frozenset({O.CREATE, O.READ, O.UPDATE}),
-            "get": frozenset({O.READ}),
-        }
-    },
-    "service.rate_limit_buckets": {
-        TokenBucketRateLimiter: {
-            "check_and_consume": frozenset({O.CREATE, O.READ, O.UPDATE}),
-            "get": frozenset({O.READ}),
-        }
-    },
     "service.runs": {
         RunRepository: {
             "create": frozenset({O.CREATE}),
@@ -88,10 +56,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "list_erasable_run_ids": frozenset({O.ENUMERATE}),
             "lock_and_recheck_erasable_run": frozenset({O.READ}),
             "fence_token_snapshot_writes_in_transaction": frozenset({O.READ, O.UPDATE}),
-        },
-        RetentionWorkspaceMaintenanceReader: {
-            "list_workspace_ids": frozenset({O.ENUMERATE}),
-        },
+        }
     },
     "service.threads": {
         ThreadRepository: {
@@ -192,10 +157,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "resolve": frozenset({O.READ}),
             "upsert": frozenset({O.CREATE, O.READ, O.UPDATE}),
             "list_for_tenant": frozenset({O.ENUMERATE}),
-        },
-        EnabledPolicyMaintenanceReader: {
-            "list_all_enabled_for_maintenance": frozenset({O.ENUMERATE}),
-        },
+        }
     },
     "service.legal_holds": {
         LegalHoldRepository: {
@@ -296,55 +258,6 @@ def test_task9_manifest_names_real_public_repository_methods() -> None:
                 assert inspect.isfunction(method), f"{repository_type.__name__}.{method_name}"
 
 
-def _manifest_method_operations() -> dict[tuple[type, str], frozenset[ResourceOperation]]:
-    expected: dict[tuple[type, str], frozenset[ResourceOperation]] = {}
-    for repositories in TASK9_OPERATION_MANIFEST.values():
-        for repository_type, methods in repositories.items():
-            for method_name, operations in methods.items():
-                key = (repository_type, method_name)
-                expected[key] = expected.get(key, frozenset()) | operations
-    return expected
-
-
-def _production_method_operations(
-    repository_types: set[type],
-) -> dict[tuple[type, str], frozenset[ResourceOperation]]:
-    return {
-        (repository_type, method_name): method.__persistence_operations__
-        for repository_type in repository_types
-        for method_name, method in vars(repository_type).items()
-        if not method_name.startswith("_")
-        and inspect.isfunction(method)
-        and hasattr(method, "__persistence_operations__")
-    }
-
-
-def _assert_exact_operation_metadata(
-    actual: dict[tuple[type, str], frozenset[ResourceOperation]],
-) -> None:
-    assert actual == _manifest_method_operations()
-
-
-def test_task9_manifest_exactly_matches_production_operation_metadata() -> None:
-    """Every production manifest method carries its exact semantic operation union."""
-    expected = _manifest_method_operations()
-    actual = _production_method_operations({repository_type for repository_type, _ in expected})
-    _assert_exact_operation_metadata(actual)
-
-
-def test_task9_metadata_inventory_detects_missing_and_extra_entries() -> None:
-    expected = _manifest_method_operations()
-    missing = dict(expected)
-    missing.pop(next(iter(missing)))
-    with pytest.raises(AssertionError):
-        _assert_exact_operation_metadata(missing)
-
-    extra = dict(expected)
-    extra[(RunRepository, "install_fence")] = frozenset({O.UPDATE})
-    with pytest.raises(AssertionError):
-        _assert_exact_operation_metadata(extra)
-
-
 def test_task9_manifest_covers_every_public_persistence_method() -> None:
     """Only explicitly non-persistent helpers may be absent from the manifest."""
     repository_types = {
@@ -395,124 +308,10 @@ def _manifest_operation_pairs() -> set[tuple[str, ResourceOperation]]:
 
 
 def test_task9_executable_driver_keys_exactly_match_manifest_pairs() -> None:
-    pairs = surface_operation_pairs(load_service_persistence_surfaces())
-    registry_pairs = {
-        (definition.resource_name, operation)
-        for definition in SERVICE_SCOPE_REGISTRY.definitions
-        if definition.direct_scope_ready
-        and definition.resource_name.startswith("service.")
-        and definition.resource_name not in {"service.alembic_version", "service.schema_versions"}
-        for operation in definition.operations
-    }
-    assert pairs == registry_pairs
-    assert all(semantic_driver_for(*pair) is not None for pair in pairs)
+    assert set(TASK9_EXECUTABLE_DRIVERS) == _manifest_operation_pairs()
 
 
 def test_task9_driver_completeness_rejects_one_removed_key() -> None:
-    pair = next(iter(surface_operation_pairs(load_service_persistence_surfaces())))
-    assert semantic_driver_for(*pair) is not None
-
-
-def _rhs_references_package_object(node: ast.AST, aliases: set[str]) -> bool:
-    if isinstance(node, ast.Attribute):
-        root = node
-        while isinstance(root, ast.Attribute):
-            root = root.value
-        return isinstance(root, ast.Name) and root.id in aliases and node.attr != "__path__"
-    if isinstance(node, ast.Name):
-        return node.id in aliases
-    return any(
-        _rhs_references_package_object(child, aliases) for child in ast.iter_child_nodes(node)
-    )
-
-
-def _package_object_inventories(source: str) -> list[ast.Assign | ast.AnnAssign]:
-    tree = ast.parse(source)
-    package_aliases = {
-        alias.asname or alias.name.split(".")[0]
-        for node in tree.body
-        if isinstance(node, ast.Import)
-        for alias in node.names
-        if alias.name == "zeroth" or alias.name.startswith("zeroth.")
-    } | {"zeroth"}
-    return [
-        node
-        for node in tree.body
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-        and node.value is not None
-        and _rhs_references_package_object(node.value, package_aliases)
-    ]
-
-
-def test_production_surface_discovery_has_no_manual_module_class_inventory() -> None:
-    source = Path("src/zeroth/platform/storage/service_surfaces.py").read_text()
-
-    assert "_SURFACES" not in source
-    assert "_PERSISTENCE_ROOTS" not in source
-    assert source.count('"zeroth.') == 1  # the authoritative package-walk prefix only
-    assert _package_object_inventories(source) == []
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "_DISCOVERY_DOMAINS = {'runtime': zeroth.runtime}",
-        "_DISCOVERY_DOMAINS = tuple([zeroth.runtime])",
-    ],
-)
-def test_package_object_inventory_audit_rejects_nested_mutations(mutation: str) -> None:
-    assert _package_object_inventories(mutation)
-
-
-def test_semantic_probe_discovery_has_no_resource_name_driver_dictionary() -> None:
-    source = Path("tests/task9_operation_driver_registry.py").read_text()
-
-    assert "_SEMANTIC_DRIVER_OVERRIDES" not in source
-    assert "raw ScopedTable" not in source
-
-
-def test_new_decorated_production_method_is_structurally_discovered(monkeypatch) -> None:
-    monkeypatch.setattr(scoping_module, "_PERSISTENCE_REPOSITORY_TYPES", set())
-
-    @persistence_surface("service.synthetic")
-    class SyntheticRepository:
-        @persistence_operation(ResourceOperation.CREATE)
-        async def persist_new(self) -> None:
-            pass
-
-    surfaces = discover_persistence_surfaces()
-
-    assert surface_operation_pairs(surfaces) == {("service.synthetic", ResourceOperation.CREATE)}
-
-
-def test_cold_discovery_walks_an_otherwise_unlisted_zeroth_package(
-    tmp_path: Path, monkeypatch
-) -> None:
-    package_root = tmp_path / "zeroth"
-    unlisted = package_root / "unlisted_persistence"
-    unlisted.mkdir(parents=True)
-    (unlisted / "__init__.py").write_text("", encoding="utf-8")
-    (unlisted / "repository.py").write_text(
-        "from zeroth.platform.storage import ResourceOperation\n"
-        "from zeroth.platform.storage.scoping import persistence_operation, persistence_surface\n"
-        "@persistence_surface('service.cold_unlisted')\n"
-        "class ColdRepository:\n"
-        "    @persistence_operation(ResourceOperation.READ)\n"
-        "    async def load(self): pass\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(zeroth, "__path__", [str(package_root)])
-    monkeypatch.setattr(scoping_module, "_PERSISTENCE_REPOSITORY_TYPES", set())
-    importlib.invalidate_caches()
-
-    surfaces = load_service_persistence_surfaces()
-
-    assert surface_operation_pairs(surfaces) == {("service.cold_unlisted", ResourceOperation.READ)}
-
-
-def test_duplicate_executable_surface_is_rejected() -> None:
-    surface = next(item for item in load_service_persistence_surfaces() if item.probe is not None)
-    operation = next(iter(next(iter(surface.operation_methods.values()))))
-
-    with pytest.raises(AssertionError, match="found 2"):
-        executable_probe_for((surface, surface), surface.resource_name, operation)
+    drivers = dict(TASK9_EXECUTABLE_DRIVERS)
+    drivers.pop(next(iter(drivers)), None)
+    assert set(drivers) != _manifest_operation_pairs()

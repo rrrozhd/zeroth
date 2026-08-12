@@ -71,14 +71,14 @@ if TYPE_CHECKING:
 @persistence_surface(
     "service.audit_chain_heads",
     probe=named_isolation_probe(
-        "zeroth.platform.storage.audit_isolation_probe:_drive_audit_chain_heads"
+        "zeroth.service.audit_isolation_probe:_drive_audit_chain_heads"
     ),
     non_persistence_public_methods=frozenset({"configure_capture"}),
     method_names=frozenset({"write", "write_many"}),
 )
 @persistence_surface(
     "service.node_audits",
-    probe=named_isolation_probe("zeroth.platform.storage.audit_isolation_probe:_drive_node_audits"),
+    probe=named_isolation_probe("zeroth.service.audit_isolation_probe:_drive_node_audits"),
     non_persistence_public_methods=frozenset({"configure_capture"}),
 )
 class AuditRepository:

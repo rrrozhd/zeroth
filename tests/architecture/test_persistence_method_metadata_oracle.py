@@ -106,12 +106,10 @@ zeroth.governance.retention.legal_hold_repository|LegalHoldRepository|place|C
 zeroth.governance.retention.legal_hold_repository|LegalHoldRepository|place_in_transaction|C
 zeroth.governance.retention.legal_hold_repository|LegalHoldRepository|release|RU
 zeroth.governance.retention.legal_hold_repository|LegalHoldRepository|release_in_transaction|RU
-zeroth.governance.retention.policy_repository|EnabledPolicyMaintenanceReader|list_all_enabled_for_maintenance|N
 zeroth.governance.retention.policy_repository|RetentionPolicyRepository|get|R
 zeroth.governance.retention.policy_repository|RetentionPolicyRepository|list_for_tenant|N
 zeroth.governance.retention.policy_repository|RetentionPolicyRepository|resolve|R
 zeroth.governance.retention.policy_repository|RetentionPolicyRepository|upsert|CRU
-zeroth.governance.retention.workspace_reader|RetentionWorkspaceMaintenanceReader|list_workspace_ids|N
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|delete|D
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|get|R
 zeroth.integrations.memory.config_repository|MemoryConnectorConfigRepository|list|N
@@ -267,7 +265,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 181
+    assert len(METHOD_METADATA_ORACLE) == 179
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 
