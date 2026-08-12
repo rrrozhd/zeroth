@@ -384,12 +384,19 @@ def _manifest_operation_pairs() -> set[tuple[str, ResourceOperation]]:
 
 
 def test_task9_executable_driver_keys_exactly_match_manifest_pairs() -> None:
-    assert (
-        surface_operation_pairs(load_service_persistence_surfaces()) == _manifest_operation_pairs()
-    )
-    assert all(semantic_driver_for(*pair) is not None for pair in _manifest_operation_pairs())
+    pairs = surface_operation_pairs(load_service_persistence_surfaces())
+    registry_pairs = {
+        (definition.resource_name, operation)
+        for definition in SERVICE_SCOPE_REGISTRY.definitions
+        if definition.direct_scope_ready
+        and definition.resource_name.startswith("service.")
+        and definition.resource_name not in {"service.alembic_version", "service.schema_versions"}
+        for operation in definition.operations
+    }
+    assert pairs == registry_pairs
+    assert all(semantic_driver_for(*pair) is not None for pair in pairs)
 
 
 def test_task9_driver_completeness_rejects_one_removed_key() -> None:
-    pair = next(iter(_manifest_operation_pairs()))
+    pair = next(iter(surface_operation_pairs(load_service_persistence_surfaces())))
     assert semantic_driver_for(*pair) is not None

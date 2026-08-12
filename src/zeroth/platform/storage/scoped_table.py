@@ -120,6 +120,54 @@ _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
+    "approvals": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "audit_chain_heads": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
+    "contract_versions": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.DELETE,
+        }
+    ),
+    "decision_records": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "deployment_versions": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "enforcement_heartbeats": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "graph_versions": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "memory_connector_configs": frozenset(ResourceOperation),
+    "node_audits": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "run_attestations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "tool_inventory_registrations": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "quota_counters": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
     ),

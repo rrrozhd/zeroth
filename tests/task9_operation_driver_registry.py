@@ -13,8 +13,30 @@ from functools import partial
 from types import MappingProxyType
 
 import pytest
+from pydantic import BaseModel
 
-from zeroth.contracts.graph import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph import Graph, TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.contracts.registry.errors import ContractNotFoundError
+from zeroth.contracts.registry.registry import ContractRegistry
+from zeroth.governance.approvals.models import ApprovalRecord, ApprovalStatus
+from zeroth.governance.approvals.repository import ApprovalRepository
+from zeroth.governance.attestations.heartbeat import Heartbeat, HeartbeatRepository
+from zeroth.governance.attestations.payload import RunAttestationPayload, SignedRunAttestation
+from zeroth.governance.attestations.store import (
+    InventoryRegistration,
+    InventoryRegistrationRepository,
+    RunAttestationRepository,
+)
+from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.governance.audit.repository import AuditRepository
+from zeroth.governance.decisions.repository import DecisionRepository
+from zeroth.governance.decisions.request import (
+    DecisionKind,
+    DecisionRequest,
+    DecisionVerdict,
+    NormalizedAction,
+)
 from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.cleanup_manifest import (
     CleanupManifest,
@@ -33,6 +55,7 @@ from zeroth.governance.retention.policy_repository import (
 from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
+from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
@@ -53,6 +76,8 @@ from zeroth.service.langgraph_gateway.enforcement import (
     inventory_fingerprint,
 )
 from zeroth.service.langgraph_gateway.enforcement_store import LangGraphEnforcementRepository
+from zeroth.service.deployments.models import Deployment
+from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDelivery,
@@ -909,9 +934,319 @@ async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOper
         assert (await owner.get("driver-key"))["value"] == 1
 
 
+class _DriverContract(BaseModel):
+    value: str
+
+
+async def _drive_contract_versions(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    owner = ContractRegistry.scoped(database, _scope("driver-owner"))
+    foreign = ContractRegistry.scoped(database, _scope("driver-foreign"))
+    await owner.register(_DriverContract, name="driver-contract", version=1)
+    if operation is O.CREATE:
+        await foreign.register(_DriverContract, name="driver-contract", version=1)
+        assert (await owner.get("driver-contract", 1)).name == "driver-contract"
+    elif operation is O.READ:
+        with pytest.raises(ContractNotFoundError):
+            await foreign.get("driver-contract", 1)
+        with pytest.raises(ContractNotFoundError):
+            await foreign.get("unknown-contract", 1)
+    elif operation is O.ENUMERATE:
+        assert await foreign.list_names() == []
+        assert await owner.list_names() == ["driver-contract"]
+    else:
+        await foreign.delete("driver-contract", 1)
+        await foreign.delete("unknown-contract", 1)
+        assert (await owner.get("driver-contract", 1)).name == "driver-contract"
+
+
+def _approval(tenant: str, approval_id: str = "driver-approval") -> ApprovalRecord:
+    return ApprovalRecord(
+        approval_id=approval_id,
+        run_id="driver-run",
+        node_id="driver-node",
+        graph_version_ref="driver-graph",
+        deployment_ref="driver-deployment",
+        tenant_id=tenant,
+        summary="driver",
+        rationale="driver",
+    )
+
+
+async def _drive_approvals(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = ApprovalRepository(database)
+    owner = _approval("driver-owner")
+    await repository.write(owner)
+    if operation is O.CREATE:
+        await repository.write(_approval("driver-foreign", "driver-foreign-approval"))
+    elif operation is O.READ:
+        assert await repository.get(owner.approval_id, tenant_id="driver-foreign") is None
+        assert await repository.get("unknown-approval", tenant_id="driver-foreign") is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list(tenant_id="driver-foreign") == []
+    else:
+        foreign_update = owner.model_copy(
+            update={"tenant_id": "driver-foreign", "status": ApprovalStatus.RESOLVED}
+        )
+        assert await repository.resolve_pending(foreign_update) is None
+    assert (await repository.get(owner.approval_id, tenant_id="driver-owner")).tenant_id == (
+        "driver-owner"
+    )
+
+
+def _audit(tenant: str, audit_id: str = "driver-audit") -> NodeAuditRecord:
+    return NodeAuditRecord(
+        audit_id=audit_id,
+        run_id="driver-run",
+        node_id="driver-node",
+        graph_version_ref="driver-graph",
+        deployment_ref="driver-deployment",
+        tenant_id=tenant,
+        status="completed",
+    )
+
+
+async def _drive_audit_resource(
+    database: AsyncDatabase, operation: ResourceOperation, *, chain: bool
+) -> None:
+    owner = AuditRepository.scoped(database, _scope("driver-owner"))
+    foreign = AuditRepository.scoped(database, _scope("driver-foreign"))
+    await owner.write(_audit("driver-owner"))
+    if chain or operation is O.CREATE:
+        await foreign.write(_audit("driver-foreign", "driver-foreign-audit"))
+        if chain and operation is O.UPDATE:
+            await foreign.write(_audit("driver-foreign", "driver-foreign-audit-2"))
+    elif operation is O.READ:
+        assert await foreign.get("driver-audit") is None
+        assert await foreign.get("unknown-audit") is None
+    elif operation is O.ENUMERATE:
+        assert await foreign.list() == []
+    else:
+        assert await foreign.crypto_erase("driver-audit", reason="foreign") is None
+    assert await owner.get("driver-audit") is not None
+
+
+async def _drive_audit_chain_heads(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    await _drive_audit_resource(database, operation, chain=True)
+
+
+async def _drive_node_audits(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    await _drive_audit_resource(database, operation, chain=False)
+
+
+def _decision_request(tenant: str) -> DecisionRequest:
+    return DecisionRequest(
+        tenant_id=tenant,
+        principal_id="driver-principal",
+        deployment_ref="driver-deployment",
+        action=NormalizedAction(
+            name="driver-tool", fingerprint="driver-fingerprint", arguments_digest="driver-args"
+        ),
+        idempotency_key="driver-key",
+    )
+
+
+async def _drive_decision_records(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = DecisionRepository(database)
+    request = _decision_request("driver-owner")
+    await repository.record(
+        request,
+        digest="driver-digest",
+        verdict=DecisionVerdict(
+            kind=DecisionKind.ALLOW, reason_code="driver", policy_version="driver-policy"
+        ),
+    )
+    if operation is O.CREATE:
+        await repository.record(
+            _decision_request("driver-foreign"),
+            digest="driver-digest",
+            verdict=DecisionVerdict(
+                kind=DecisionKind.DENY, reason_code="driver", policy_version="driver-policy"
+            ),
+        )
+    else:
+        assert await repository.find_by_idempotency_key("driver-foreign", "driver-key") is None
+        assert await repository.find_by_idempotency_key("driver-foreign", "unknown-key") is None
+    assert await repository.find_by_idempotency_key("driver-owner", "driver-key") is not None
+
+
+def _deployment(tenant: str, *, version: int = 1, ref: str = "driver-deployment") -> Deployment:
+    return Deployment(
+        deployment_id=f"{tenant}-{version}",
+        deployment_ref=ref,
+        version=version,
+        graph_id="driver-graph",
+        graph_version=1,
+        graph_version_ref="driver-graph@1",
+        serialized_graph="{}",
+        tenant_id=tenant,
+    )
+
+
+async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = SQLiteDeploymentRepository(database)
+    await repository.create(_deployment("driver-owner"), tenant_id="driver-owner")
+    if operation is O.CREATE:
+        await repository.create(
+            _deployment("driver-foreign", ref="driver-foreign-deployment"),
+            tenant_id="driver-foreign",
+        )
+    elif operation is O.READ:
+        assert await repository.get("driver-deployment", tenant_id="driver-foreign") is None
+        assert await repository.get("unknown-deployment", tenant_id="driver-foreign") is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list(tenant_id="driver-foreign") == []
+    else:
+        await repository.create(
+            _deployment("driver-foreign", ref="driver-foreign-deployment"),
+            tenant_id="driver-foreign",
+        )
+        await repository.create(
+            _deployment("driver-foreign", version=2, ref="driver-foreign-deployment"),
+            tenant_id="driver-foreign",
+        )
+    assert await repository.get("driver-deployment", tenant_id="driver-owner") is not None
+
+
+async def _drive_heartbeats(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = HeartbeatRepository(database)
+    await repository.record(
+        Heartbeat(
+            tenant_id="driver-owner",
+            deployment_ref="driver-deployment",
+            reported_level="observed",
+        )
+    )
+    if operation is O.CREATE:
+        await repository.record(
+            Heartbeat(
+                tenant_id="driver-foreign",
+                deployment_ref="driver-deployment",
+                reported_level="unknown",
+            )
+        )
+    else:
+        assert await repository.latest_for_deployment("driver-foreign", "driver-deployment") is None
+        assert (
+            await repository.latest_for_deployment("driver-foreign", "unknown-deployment") is None
+        )
+    assert await repository.latest_for_deployment("driver-owner", "driver-deployment") is not None
+
+
+def _graph(tenant: str, graph_id: str = "driver-graph") -> Graph:
+    return Graph(graph_id=graph_id, name="driver", tenant_id=tenant)
+
+
+async def _drive_graph_versions(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = GraphRepository(database)
+    await repository.create(_graph("driver-owner"), tenant_id="driver-owner")
+    if operation is O.CREATE:
+        await repository.create(
+            _graph("driver-foreign", "driver-foreign-graph"), tenant_id="driver-foreign"
+        )
+    elif operation is O.READ:
+        assert await repository.get("driver-graph", tenant_id="driver-foreign") is None
+        assert await repository.get("unknown-graph", tenant_id="driver-foreign") is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list(tenant_id="driver-foreign") == []
+    else:
+        foreign_graph = _graph("driver-foreign", "driver-foreign-graph")
+        await repository.create(foreign_graph, tenant_id="driver-foreign")
+        await repository.save(
+            foreign_graph.model_copy(update={"name": "driver-updated"}),
+            tenant_id="driver-foreign",
+        )
+    assert await repository.get("driver-graph", tenant_id="driver-owner") is not None
+
+
+async def _drive_memory_configs(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = MemoryConnectorConfigRepository(database)
+    await repository.upsert("driver-owner-ref", "memory", {}, tenant_id="driver-owner")
+    if operation is O.CREATE:
+        await repository.upsert("driver-foreign-ref", "memory", {}, tenant_id="driver-foreign")
+    elif operation is O.READ:
+        assert await repository.get("driver-owner-ref", tenant_id="driver-foreign") is None
+        assert await repository.get("unknown-ref", tenant_id="driver-foreign") is None
+    elif operation is O.ENUMERATE:
+        assert await repository.list(tenant_id="driver-foreign") == []
+    elif operation is O.UPDATE:
+        await repository.upsert("driver-foreign-ref", "memory", {}, tenant_id="driver-foreign")
+        await repository.upsert(
+            "driver-foreign-ref", "memory", {"foreign": True}, tenant_id="driver-foreign"
+        )
+    else:
+        assert not await repository.delete("driver-owner-ref", tenant_id="driver-foreign")
+        assert not await repository.delete("unknown-ref", tenant_id="driver-foreign")
+    assert await repository.get("driver-owner-ref", tenant_id="driver-owner") is not None
+
+
+def _signed_attestation(tenant: str) -> SignedRunAttestation:
+    now = datetime.now(UTC)
+    return SignedRunAttestation(
+        payload=RunAttestationPayload(
+            correlation_id="driver-correlation",
+            tenant_id=tenant,
+            deployment_ref="driver-deployment",
+            graph_version="driver-graph",
+            adapter_version="driver-adapter",
+            inventory_fingerprint="driver-fingerprint",
+            inventory_coverage="complete",
+            tool_count=0,
+            claimed_level="observed",
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+        ),
+        digest=f"driver-{tenant}",
+    )
+
+
+async def _drive_run_attestations(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = RunAttestationRepository(database)
+    await repository.record(_signed_attestation("driver-owner"))
+    if operation is O.CREATE:
+        await repository.record(_signed_attestation("driver-foreign"))
+    else:
+        assert await repository.find_by_correlation("driver-foreign", "driver-correlation") is None
+        assert await repository.find_by_correlation("driver-foreign", "unknown-correlation") is None
+    assert await repository.find_by_correlation("driver-owner", "driver-correlation") is not None
+
+
+def _inventory_registration(tenant: str) -> InventoryRegistration:
+    return InventoryRegistration(
+        tenant_id=tenant,
+        deployment_ref="driver-deployment",
+        graph_version="driver-graph",
+        adapter_version="driver-adapter",
+        coverage="complete",
+    )
+
+
+async def _drive_tool_inventories(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    repository = InventoryRegistrationRepository(database)
+    await repository.register(_inventory_registration("driver-owner"))
+    if operation is O.CREATE:
+        await repository.register(_inventory_registration("driver-foreign"))
+    else:
+        assert await repository.latest_for_deployment("driver-foreign", "driver-deployment") is None
+        assert (
+            await repository.latest_for_deployment("driver-foreign", "unknown-deployment") is None
+        )
+    assert await repository.latest_for_deployment("driver-owner", "driver-deployment") is not None
+
+
 _SEMANTIC_DRIVER_OVERRIDES: dict[
     str, Callable[[AsyncDatabase, ResourceOperation], Awaitable[None]]
 ] = {
+    "service.approvals": _drive_approvals,
+    "service.audit_chain_heads": _drive_audit_chain_heads,
+    "service.contract_versions": _drive_contract_versions,
+    "service.decision_records": _drive_decision_records,
+    "service.deployment_versions": _drive_deployments,
+    "service.enforcement_heartbeats": _drive_heartbeats,
+    "service.graph_versions": _drive_graph_versions,
+    "service.memory_connector_configs": _drive_memory_configs,
+    "service.node_audits": _drive_node_audits,
+    "service.run_attestations": _drive_run_attestations,
+    "service.tool_inventory_registrations": _drive_tool_inventories,
     "service.quota_counters": _drive_quota_counters,
     "service.rate_limit_buckets": _drive_rate_limit_buckets,
     "service.runs": _drive_runs,

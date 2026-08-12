@@ -469,11 +469,8 @@ def test_production_repository_surfaces_match_registry_and_public_metadata() -> 
     for surface in SERVICE_SURFACES:
         definition = SERVICE_SCOPE_REGISTRY.definition_for_resource(surface.resource_name)
         validate_persistence_surface(surface, definition)
-    repository_resources = {surface.resource_name for surface in SERVICE_SURFACES}
     assert {
-        (case.definition.resource_name, case.operation)
-        for case in SERVICE_CASES
-        if case.definition.resource_name in repository_resources
+        (case.definition.resource_name, case.operation) for case in SERVICE_CASES
     } == SERVICE_REPOSITORY_PAIRS
 
 

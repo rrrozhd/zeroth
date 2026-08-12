@@ -19,6 +19,72 @@ _O["n"] = ResourceOperation.ENUMERATE
 # cross product and semantic test executors are located by convention.
 _SURFACES = (
     (
+        "service.approvals",
+        "zeroth.governance.approvals.repository",
+        "ApprovalRepository",
+        "write=cru,get=r,resolve_pending=ru,list_pending=n,list=n,list_overdue=n",
+    ),
+    (
+        "service.audit_chain_heads",
+        "zeroth.governance.audit.repository",
+        "AuditRepository",
+        "write=cru,write_many=cru",
+    ),
+    (
+        "service.contract_versions",
+        "zeroth.contracts.registry.registry",
+        "ContractRegistry",
+        "register=cr,register_schema=cr,register_tool=cr,get=r,resolve=r,resolve_model_type=r,list_versions=n,list_names=n,latest_version=r,delete=d",
+    ),
+    (
+        "service.decision_records",
+        "zeroth.governance.decisions.repository",
+        "DecisionRepository",
+        "find_by_idempotency_key=r,find_replay=r,record=cr",
+    ),
+    (
+        "service.deployment_versions",
+        "zeroth.service.deployments.repository",
+        "SQLiteDeploymentRepository",
+        "create=cru,get=r,list=n,next_version=r",
+    ),
+    (
+        "service.enforcement_heartbeats",
+        "zeroth.governance.attestations.heartbeat",
+        "HeartbeatRepository",
+        "record=c,latest_for_deployment=r",
+    ),
+    (
+        "service.graph_versions",
+        "zeroth.contracts.graph.repository",
+        "GraphRepository",
+        "save=cru,create=cr,get=r,list=n,list_versions=n,publish=ru,archive=ru,clone_published_to_draft=cru,update_status=ru,get_latest_version=r,diff=r",
+    ),
+    (
+        "service.memory_connector_configs",
+        "zeroth.integrations.memory.config_repository",
+        "MemoryConnectorConfigRepository",
+        "upsert=cru,get=r,list=n,delete=d",
+    ),
+    (
+        "service.node_audits",
+        "zeroth.governance.audit.repository",
+        "AuditRepository",
+        "write=cr,get=r,list=n,list_by_run=n,list_by_run_in_transaction=n,list_by_thread=n,list_by_node=n,list_by_graph_version=n,list_by_deployment=n,write_many=cr,crypto_erase=ru,crypto_erase_in_transaction=ru,list_erasable=n,list_erasable_in_transaction=n",
+    ),
+    (
+        "service.run_attestations",
+        "zeroth.governance.attestations.store",
+        "RunAttestationRepository",
+        "record=cr,find_by_correlation=r,find_for_deployment=r",
+    ),
+    (
+        "service.tool_inventory_registrations",
+        "zeroth.governance.attestations.store",
+        "InventoryRegistrationRepository",
+        "register=c,latest_for_deployment=r",
+    ),
+    (
         "service.quota_counters",
         "zeroth.governance.guardrails.rate_limit",
         "QuotaEnforcer",
@@ -171,6 +237,8 @@ _SURFACES = (
 )
 
 NON_PERSISTENCE_PUBLIC_METHODS = {
+    "AuditRepository": frozenset({"configure_capture"}),
+    "ContractRegistry": frozenset({"for_scope", "bind_step"}),
     "RunRepository": frozenset({"install_fence", "clear_fence"}),
     "CheckpointRowStore": frozenset({"encrypt_state_json", "decrypt_state_json"}),
 }
