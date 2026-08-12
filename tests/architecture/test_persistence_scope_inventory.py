@@ -2500,6 +2500,10 @@ def _audit_repository_public_call_provenance(
                         for child in ast.iter_child_nodes(expression)
                     )
 
+                def expression_is_provably_nonraising(expression: ast.AST) -> bool:
+                    """Use bounded expression transfer safety for assert messages."""
+                    return not expression_may_raise(expression, set())
+
                 def class_body_may_raise(
                     block: list[ast.stmt], outer_bound_names: set[str]
                 ) -> bool:
@@ -3200,7 +3204,8 @@ def _audit_repository_public_call_provenance(
                         return None
                     if isinstance(block[0], ast.Assert):
                         if literal_truth(block[0].test) is False and (
-                            block[0].msg is None or is_provably_nonraising(block[0].msg)
+                            block[0].msg is None
+                            or expression_is_provably_nonraising(block[0].msg)
                         ):
                             return (_BUILTIN_EXCEPTION_CLASSES["AssertionError"],)
                         return None
@@ -9349,6 +9354,51 @@ def test_public_call_inventory_models_assert_message_aliases(
         ),
         (
             "",
+            "assert False, (TypeError := ValueError)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, (1, 2)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            'assert False, f"safe"',
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, candidate",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert False, candidate()",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
             "assert True",
             "    except AssertionError:\n"
             "        closure = None\n",
@@ -9384,6 +9434,11 @@ def test_public_call_inventory_models_assert_message_aliases(
     ids=[
         "skips-unrelated-handler",
         "skips-unrelated-tuple-handler",
+        "walrus-message-routes-after-side-effect",
+        "constant-tuple-message-is-safe",
+        "constant-f-string-message-is-safe",
+        "unknown-message-remains-conservative",
+        "raising-message-remains-conservative",
         "true-raises-none",
         "unknown-remains-conservative",
         "shadowed-assertion-error",
