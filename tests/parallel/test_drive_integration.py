@@ -442,7 +442,7 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
 
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     orchestrator = _make_orchestrator(
         {"source": source_runner, "sink": sink_runner},
         sqlite_db,

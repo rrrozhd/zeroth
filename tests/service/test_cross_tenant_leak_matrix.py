@@ -28,6 +28,7 @@ from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
 from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
 from zeroth.integrations.memory.models import ConnectorManifest
@@ -123,9 +124,10 @@ def _assert_masked(foreign, unknown) -> None:
 @pytest.mark.asyncio
 async def test_workflow_read_foreign_matches_unknown(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+    ):
         graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
         _assert_masked(
             foreign.get(f"/api/studio/v1/workflows/{graph_id}"),
@@ -136,9 +138,10 @@ async def test_workflow_read_foreign_matches_unknown(sqlite_db) -> None:
 @pytest.mark.asyncio
 async def test_workflow_write_foreign_matches_unknown(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+    ):
         graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
         _assert_masked(
             foreign.post(f"/api/studio/v1/workflows/{graph_id}/publish"),
@@ -149,21 +152,25 @@ async def test_workflow_write_foreign_matches_unknown(sqlite_db) -> None:
 @pytest.mark.asyncio
 async def test_workflow_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign, TestClient(_studio_app(repo, "tenant-unknown")) as unknown:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+        TestClient(_studio_app(repo, "tenant-unknown")) as unknown,
+    ):
         owner.post("/api/studio/v1/workflows", json={"name": "private"})
-        assert foreign.get("/api/studio/v1/workflows").json() == unknown.get(
-            "/api/studio/v1/workflows"
-        ).json()
+        assert (
+            foreign.get("/api/studio/v1/workflows").json()
+            == unknown.get("/api/studio/v1/workflows").json()
+        )
 
 
 @pytest.mark.asyncio
 async def test_workflow_delete_foreign_matches_unknown(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+    ):
         graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
         _assert_masked(
             foreign.delete(f"/api/studio/v1/workflows/{graph_id}"),
@@ -255,9 +262,7 @@ async def _seed_scoped_deployment(sqlite_db, deployment_ref: str = "dep-split"):
         workspace_id="workspace-a",
     )
     repository = SQLiteDeploymentRepository(sqlite_db)
-    owner = await repository.get(
-        deployment_ref, tenant_id="tenant-a", workspace_id="workspace-a"
-    )
+    owner = await repository.get(deployment_ref, tenant_id="tenant-a", workspace_id="workspace-a")
     assert owner is not None
     return repository, owner
 
@@ -265,9 +270,7 @@ async def _seed_scoped_deployment(sqlite_db, deployment_ref: str = "dep-split"):
 @pytest.mark.asyncio
 async def test_deployment_read_foreign_matches_unknown(sqlite_db) -> None:
     repository, _ = await _seed_scoped_deployment(sqlite_db)
-    foreign = await repository.get(
-        "dep-split", tenant_id="tenant-b", workspace_id="workspace-b"
-    )
+    foreign = await repository.get("dep-split", tenant_id="tenant-b", workspace_id="workspace-b")
     unknown = await repository.get(
         "unknown-deployment", tenant_id="tenant-b", workspace_id="workspace-b"
     )
@@ -295,9 +298,9 @@ async def test_deployment_create_collision_preserves_owner(sqlite_db) -> None:
     )
     with pytest.raises(KeyError):
         await repository.create(collision, tenant_id="tenant-b", workspace_id="workspace-b")
-    assert await repository.get(
-        "dep-split", tenant_id="tenant-a", workspace_id="workspace-a"
-    ) == owner
+    assert (
+        await repository.get("dep-split", tenant_id="tenant-a", workspace_id="workspace-a") == owner
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -321,13 +324,14 @@ def _audit(audit_id: str, tenant_id: str) -> NodeAuditRecord:
 
 @pytest.mark.asyncio
 async def test_audit_query_is_tenant_scoped(sqlite_db) -> None:
-    repo = AuditRepository(sqlite_db)
-    await repo.write(_audit("a1", "tenant-a"))
-    await repo.write(_audit("b1", "tenant-b"))
+    repo_a = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    repo_b = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+    await repo_a.write(_audit("a1", "tenant-a"))
+    await repo_b.write(_audit("b1", "tenant-b"))
 
-    a_records = await repo.list(AuditQuery(tenant_id="tenant-a"))
+    a_records = await repo_a.list(AuditQuery(tenant_id="tenant-a"))
     assert {r.audit_id for r in a_records} == {"a1"}
-    b_records = await repo.list(AuditQuery(tenant_id="tenant-b"))
+    b_records = await repo_b.list(AuditQuery(tenant_id="tenant-b"))
     assert {r.audit_id for r in b_records} == {"b1"}
 
 
@@ -356,9 +360,11 @@ async def test_connector_config_repository_is_tenant_scoped(sqlite_db) -> None:
 async def test_connector_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
     repository = MemoryConnectorConfigRepository(sqlite_db)
     await repository.upsert("private-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
-    assert await repository.list(tenant_id="tenant-b") == await repository.list(
-        tenant_id="tenant-unknown"
-    ) == []
+    assert (
+        await repository.list(tenant_id="tenant-b")
+        == await repository.list(tenant_id="tenant-unknown")
+        == []
+    )
 
 
 @pytest.mark.asyncio

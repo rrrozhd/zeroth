@@ -204,7 +204,9 @@ def _two_agent_graph() -> Graph:
 def _orchestrator(sqlite_db, journal: _Journal, **overrides: Any) -> RuntimeOrchestrator:
     kwargs: dict[str, Any] = {
         "run_repository": _RecordingRunRepository(RunRepository(sqlite_db), journal),
-        "audit_repository": _RecordingAuditRepository(AuditRepository(sqlite_db), journal),
+        "audit_repository": _RecordingAuditRepository(
+            AuditRepository.for_default_compatibility(sqlite_db), journal
+        ),
         "agent_runners": {
             "first": _passthrough_runner("first"),
             "second": _passthrough_runner("second"),
@@ -274,7 +276,7 @@ async def test_audit_refs_and_history_are_appended_in_dispatch_order(sqlite_db) 
     assert [entry.audit_ref for entry in run.execution_history] == ["audit:1", "audit:2"]
     assert run.completed_steps == ["first", "second"]
     # Stored audit ids are namespaced by run so append-only storage stays unique.
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert [audit.audit_id for audit in audits] == [
         f"{run.run_id}:audit:1",
         f"{run.run_id}:audit:2",
@@ -321,7 +323,9 @@ async def test_node_failure_writes_failed_audit_before_failing_the_run(sqlite_db
 async def test_failure_audit_payload_carries_error_type_and_run_attribution(sqlite_db) -> None:
     """The failure audit record's exact field set is part of the contract."""
     journal = _Journal()
-    audit_proxy = _RecordingAuditRepository(AuditRepository(sqlite_db), journal)
+    audit_proxy = _RecordingAuditRepository(
+        AuditRepository.for_default_compatibility(sqlite_db), journal
+    )
     orchestrator = _orchestrator(
         sqlite_db,
         journal,
@@ -362,7 +366,9 @@ async def test_error_carrying_an_audit_record_is_audited_as_rejected(sqlite_db) 
     status is ``rejected``. Bare errors take the ``{"reason_code": ...}`` branch.
     """
     journal = _Journal()
-    audit_proxy = _RecordingAuditRepository(AuditRepository(sqlite_db), journal)
+    audit_proxy = _RecordingAuditRepository(
+        AuditRepository.for_default_compatibility(sqlite_db), journal
+    )
     blocked_runner = AgentRunner(
         AgentConfig(
             name="first",
@@ -461,7 +467,7 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     graph = Graph(
         graph_id="graph-char",
@@ -675,7 +681,9 @@ async def test_fan_out_records_branch_audits_before_the_source_node_audit(sqlite
         nodes=[source, sink],
         edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
-    audit_proxy = _RecordingAuditRepository(AuditRepository(sqlite_db), journal)
+    audit_proxy = _RecordingAuditRepository(
+        AuditRepository.for_default_compatibility(sqlite_db), journal
+    )
     orchestrator = _orchestrator(
         sqlite_db,
         journal,

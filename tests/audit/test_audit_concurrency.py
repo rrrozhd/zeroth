@@ -15,6 +15,8 @@ from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
 def _record(*, audit_id: str, run_id: str, started_at: datetime) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id=run_id,
         thread_id="thread-audit-concurrency",
@@ -67,7 +69,7 @@ async def _insert_null_sequence_tail(
 
 
 async def test_mixed_rolling_writer_chain_recovers_linked_tail(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     run_id = "run:mixed-rolling-writers"
     timestamp = datetime(2026, 7, 12, tzinfo=UTC)
 
@@ -139,10 +141,10 @@ async def test_sequenced_run_query_uses_index_without_temp_sort(sqlite_db) -> No
     assert hasattr(audit_coordination, "SEQUENCED_RUN_ROWS_SQL")
     sql = audit_coordination.SEQUENCED_RUN_ROWS_SQL
     async with sqlite_db.transaction() as connection:
-        plan = await connection.fetch_all(f"EXPLAIN QUERY PLAN {sql}", ("run:indexed",))
+        plan = await connection.fetch_all(f"EXPLAIN QUERY PLAN {sql}", ("default", "run:indexed"))
 
     details = " ".join(str(row["detail"]) for row in plan).upper()
-    assert "UQ_NODE_AUDITS_RUN_CHAIN_SEQUENCE" in details
+    assert "UQ_NODE_AUDITS_TENANT_RUN_CHAIN_SEQUENCE" in details
     assert "TEMP B-TREE" not in details
 
 
@@ -174,8 +176,8 @@ def test_ambiguous_mixed_chain_has_deterministic_fallback_and_strict_error() -> 
 
 
 async def test_two_repositories_allocate_one_linear_sequence(sqlite_db) -> None:
-    repository_a = AuditRepository(sqlite_db)
-    repository_b = AuditRepository(sqlite_db)
+    repository_a = AuditRepository.for_default_compatibility(sqlite_db)
+    repository_b = AuditRepository.for_default_compatibility(sqlite_db)
     run_id = "run:coordinated"
     timestamp = datetime(2026, 7, 12, tzinfo=UTC)
     records = [
@@ -213,7 +215,7 @@ async def test_two_repositories_allocate_one_linear_sequence(sqlite_db) -> None:
 
 
 async def test_duplicate_id_rolls_back_head_before_next_valid_append(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     run_id = "run:rollback"
     timestamp = datetime(2026, 7, 12, tzinfo=UTC)
     first = await repository.write(
@@ -254,7 +256,7 @@ async def test_duplicate_id_rolls_back_head_before_next_valid_append(sqlite_db) 
 
 
 async def test_hydration_uses_dedicated_sequence_and_null_legacy_fallback(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     run_id = "run:hydration"
     timestamp = datetime(2026, 7, 12, tzinfo=UTC)
     persisted = await repository.write(
@@ -359,7 +361,7 @@ async def test_deployment_verifier_sorts_each_run_by_chain_sequence() -> None:
 @pytest.mark.postgres
 @requires_docker
 async def test_postgres_recovers_null_tail_from_rolling_writer(postgres_database) -> None:
-    repository = AuditRepository(postgres_database)
+    repository = AuditRepository.for_default_compatibility(postgres_database)
     run_id = "run:postgres-mixed-rolling"
     timestamp = datetime(2026, 7, 12, tzinfo=UTC)
     try:
@@ -406,8 +408,8 @@ async def test_two_postgres_pools_allocate_one_linear_sequence(
     dsn = url.replace("postgresql+psycopg2://", "postgresql://")
     peer_database = await AsyncPostgresDatabase.create(dsn, min_size=1, max_size=2)
     try:
-        repository_a = AuditRepository(postgres_database)
-        repository_b = AuditRepository(peer_database)
+        repository_a = AuditRepository.for_default_compatibility(postgres_database)
+        repository_b = AuditRepository.for_default_compatibility(peer_database)
         run_id = "run:postgres-coordinated"
         timestamp = datetime(2026, 7, 12, tzinfo=UTC)
         await asyncio.gather(

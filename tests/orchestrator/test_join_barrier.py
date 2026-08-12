@@ -473,7 +473,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orch = _orchestrator(
         {
@@ -484,7 +484,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
         },
         sqlite_db,
         approval_service=approval_service,
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
 
     paused = await orch.run_graph(graph, {"value": 1})

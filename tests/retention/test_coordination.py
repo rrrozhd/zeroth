@@ -260,7 +260,7 @@ async def test_erasure_and_hold_placement_serialize_on_tenant_lock(env) -> None:
     locked = asyncio.Event()
     release = asyncio.Event()
     service = _PausedErasureService(
-        audit_repository=AuditRepository(env.database, signer=env.signer),
+        audit_repository=env.audit_repo_for("tenant-race"),
         run_repository=RunRepository(env.database),
         policy_repository=RetentionPolicyRepository(env.database),
         legal_hold_repository=LegalHoldRepository(env.database),
@@ -286,7 +286,7 @@ async def test_erasure_and_hold_placement_serialize_on_tenant_lock(env) -> None:
 
         assert result.audits_erased == 1
         assert hold.run_id == "run-race"
-        records = await env.audit_repo.list_by_run("run-race")
+        records = await env.audit_repo_for("tenant-race").list_by_run("run-race")
         assert records[0].erased is True
     finally:
         release.set()

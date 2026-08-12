@@ -75,7 +75,7 @@ async def test_node_audit_records_a_real_duration(sqlite_db) -> None:
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         run_repository=RunRepository(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
@@ -84,7 +84,7 @@ async def test_node_audit_records_a_real_duration(sqlite_db) -> None:
     run = await orchestrator.run_graph(graph, {"value": 1})
     assert run.status is RunStatus.COMPLETED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     record = audits[0]
     duration = (record.completed_at - record.started_at).total_seconds()

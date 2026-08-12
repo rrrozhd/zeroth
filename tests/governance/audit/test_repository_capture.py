@@ -50,7 +50,8 @@ def _record(audit_id: str = "audit-1", **overrides: Any) -> NodeAuditRecord:
         "node_id": "node-1",
         "graph_version_ref": "graph:v1",
         "deployment_ref": "deployment-1",
-        "tenant_id": "tenant-a",
+        "tenant_id": "default",
+        "workspace_id": None,
         "status": "completed",
     }
     fields.update(overrides)
@@ -61,7 +62,7 @@ async def test_a_direct_write_is_captured_even_though_no_delivery_stage_was_invo
     sqlite_db: Any,
 ) -> None:
     # The probe: the runtime holds the repository and writes prompts through it.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
 
     await repository.write(
         _record(
@@ -85,7 +86,7 @@ async def test_no_record_reaches_storage_without_having_been_captured(sqlite_db:
     # object"); it moved here when capture collapsed to one point. Drive the
     # durable write directly with a content-bearing, secret-bearing record: the
     # object the producer holds is untouched, and the row is not it.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     submitted = _record(
         input_snapshot={"prompt": SECRET},
         output_snapshot={"answer": {"nested": [ROOT_KEY]}},
@@ -110,7 +111,7 @@ async def test_no_record_reaches_storage_without_having_been_captured(sqlite_db:
 
 async def test_the_captured_row_still_records_what_it_dropped(sqlite_db: Any) -> None:
     # R4's retention half: the write is content-free, not evidence-free.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
 
     await repository.write(_record(input_snapshot={"prompt": SECRET}))
 
@@ -130,7 +131,7 @@ async def test_a_capture_marker_already_on_the_record_does_not_prevent_capture(
     # retained" is one dict literal away for anyone who has read the module.
     # ``write`` must not read it -- it must capture regardless -- or the live
     # secret sitting beside the marker goes to storage verbatim.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     forged = _record(
         input_snapshot={"prompt": SECRET},
         output_snapshot={"answer": ROOT_KEY},
@@ -165,7 +166,7 @@ async def test_content_is_retained_only_when_this_repository_was_configured_for_
 ) -> None:
     # Classification is the durable sink's, taken from its wiring -- not read
     # off the record, and not inherited from whatever ran upstream.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     repository.configure_capture(_ContentClassifier())
 
     await repository.write(_record(input_snapshot={"prompt": "hello"}))
@@ -180,7 +181,7 @@ async def test_a_seeded_secret_used_as_a_snapshot_key_is_not_persisted(
 ) -> None:
     # R5 against the durable write: an AWS-style key is a perfectly well-formed
     # identifier, so gating mapping keys on "looks like a name" persisted it.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
 
     await repository.write(_record(input_snapshot={ROOT_KEY: "value"}))
 
@@ -193,7 +194,7 @@ async def test_the_digest_chain_verifies_over_captured_records(sqlite_db: Any) -
     # Capture runs before the digest is computed, so the stored bytes and the
     # digest are taken from the same object; the chain a reader recomputes from
     # ``record_json`` is the chain that was written.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     for index in range(4):
         await repository.write(
             _record(f"audit-{index}", input_snapshot={"prompt": f"{SECRET}-{index}"})
@@ -206,7 +207,7 @@ async def test_the_digest_chain_verifies_over_captured_records(sqlite_db: Any) -
 
 
 async def test_write_many_is_captured_the_same_way_write_is(sqlite_db: Any) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
 
     await repository.write_many(
         [
@@ -224,7 +225,7 @@ async def test_the_capture_classifier_is_wiring_and_cannot_be_swapped_twice(
     sqlite_db: Any,
 ) -> None:
     # A posture that can be changed while the process runs is not a posture.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     repository.configure_capture(_ContentClassifier())
 
     try:

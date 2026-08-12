@@ -28,7 +28,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
-from zeroth.platform.storage.scoping import ScopeContext
+from zeroth.platform.storage.scoping import NullWorkspaceScopeContext, ScopeContext
 from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap.migrations import run_migrations
 
@@ -152,11 +152,12 @@ async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> No
 @pytest.mark.security_rc
 async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
-    repository = AuditRepository(database)
-    await repository.write(_audit(f"a-{unique}", tenant_id="tenant-a"))
-    await repository.write(_audit(f"b-{unique}", tenant_id="tenant-b"))
+    repository_a = AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    repository_b = AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+    await repository_a.write(_audit(f"a-{unique}", tenant_id="tenant-a"))
+    await repository_b.write(_audit(f"b-{unique}", tenant_id="tenant-b"))
     assert {
-        record.audit_id for record in await repository.list(AuditQuery(tenant_id="tenant-a"))
+        record.audit_id for record in await repository_a.list(AuditQuery(tenant_id="tenant-a"))
     } == {f"a-{unique}"}
 
 
@@ -190,7 +191,9 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
             build_graph().model_copy(update={"graph_id": graph_id}), tenant_id="tenant-a"
         )
         await RunRepository(first).create(_run(run_id, tenant_id="tenant-a", suffix=unique))
-        await AuditRepository(first).write(_audit(f"restart-{unique}", tenant_id="tenant-a"))
+        await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
+            _audit(f"restart-{unique}", tenant_id="tenant-a")
+        )
     finally:
         await first.close()
 
@@ -200,10 +203,14 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         assert await RunRepository(restarted).get(run_id, tenant_id="tenant-b") is None
         foreign_ids = {
             record.audit_id
-            for record in await AuditRepository(restarted).list(AuditQuery(tenant_id="tenant-b"))
+            for record in await AuditRepository.scoped(
+                restarted, NullWorkspaceScopeContext(tenant_id="tenant-b")
+            ).list(AuditQuery(tenant_id="tenant-b"))
         }
         assert f"restart-{unique}" not in foreign_ids
-        owner = await AuditRepository(restarted).get(f"restart-{unique}", tenant_id="tenant-a")
+        owner = await AuditRepository.scoped(
+            restarted, NullWorkspaceScopeContext(tenant_id="tenant-a")
+        ).get(f"restart-{unique}")
         assert owner is not None
     finally:
         await restarted.close()
@@ -245,12 +252,13 @@ async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) ->
 def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_container) -> None:
     database_url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
     config = _migration_config(database_url)
-    command.upgrade(config, "022")
     engine = create_engine(database_url)
     with engine.begin() as connection:
+        connection.execute(text("TRUNCATE TABLE contract_versions"))
         connection.execute(text("TRUNCATE TABLE run_checkpoints"))
     engine.dispose()
-    command.downgrade(config, "021")
+    command.downgrade(config, "base")
+    command.upgrade(config, "021")
     unique = uuid4().hex
     thread_id = f"migration-thread-{unique}"
     checkpoint_id = f"migration-checkpoint-{unique}"
@@ -296,6 +304,7 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
         assert owner == ("tenant-a", "null")
     finally:
         engine.dispose()
+        command.upgrade(config, "head")
 
 
 @requires_docker

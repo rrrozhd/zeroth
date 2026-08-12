@@ -21,6 +21,8 @@ def _record(
     started_at: datetime | None = None,
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id=run_id,
         thread_id=thread_id,

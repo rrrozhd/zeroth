@@ -11,7 +11,9 @@ from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, Servi
 from zeroth.service.api.rightsizing_api import register_rightsizing_routes
 
 
-def _make_app(*, roles: list[ServiceRole] | None = None, bootstrap: object | None = None) -> FastAPI:
+def _make_app(
+    *, roles: list[ServiceRole] | None = None, bootstrap: object | None = None
+) -> FastAPI:
     """Minimal app with right-sizing routes and an injected principal (defaults ADMIN)."""
     app = FastAPI()
     if bootstrap is not None:
@@ -43,7 +45,9 @@ def _bootstrap_with_audits(records: list | None = None, runs: list | None = None
         return list(runs or [])
 
     return SimpleNamespace(
-        deployment=SimpleNamespace(deployment_ref="default", tenant_id="default", workspace_id=None),
+        deployment=SimpleNamespace(
+            deployment_ref="default", tenant_id="default", workspace_id=None
+        ),
         audit_repository=SimpleNamespace(list=_list),
         run_repository=SimpleNamespace(list_runs=_list_runs),
     )
@@ -171,6 +175,8 @@ def test_opportunities_ranks_spending_nodes() -> None:
 
     def _rec(node_id: str, cost: float) -> NodeAuditRecord:
         return NodeAuditRecord(
+            tenant_id="default",
+            workspace_id=None,
             audit_id=f"{node_id}-{cost}",
             run_id="r",
             node_id=node_id,

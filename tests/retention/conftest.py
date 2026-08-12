@@ -27,6 +27,7 @@ from zeroth.governance.retention import (
 from zeroth.platform.artifacts.models import artifact_key_owner
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 
 
@@ -167,6 +168,33 @@ class RetentionEnv:
     service: RetentionErasureService
     econ_eraser: object | None = None
     run_ids: list[str] = field(default_factory=list)
+    _audit_repos: dict[str, AuditRepository] = field(default_factory=dict)
+
+    def audit_repo_for(self, tenant_id: str) -> AuditRepository:
+        """Return the fixture repository bound to exactly one tenant/null workspace."""
+        if tenant_id == "default":
+            return self.audit_repo
+        if tenant_id not in self._audit_repos:
+            self._audit_repos[tenant_id] = content_capture(
+                AuditRepository.scoped(
+                    self.database,
+                    NullWorkspaceScopeContext(tenant_id=tenant_id),
+                    signer=self.signer,
+                )
+            )
+        return self._audit_repos[tenant_id]
+
+    def service_for(self, tenant_id: str) -> RetentionErasureService:
+        """Build a retention service whose audit collaborator has the same owner."""
+        return RetentionErasureService(
+            audit_repository=self.audit_repo_for(tenant_id),
+            run_repository=self.run_repo,
+            policy_repository=self.policy_repo,
+            legal_hold_repository=self.hold_repo,
+            log_repository=self.log_repo,
+            artifact_store=self.artifact_store,
+            econ_eraser=self.econ_eraser,
+        )
 
     async def seed_run(
         self,
@@ -223,7 +251,7 @@ class RetentionEnv:
         if artifact_key is not None:
             self.artifact_store.blobs[artifact_key] = b"pii"
         for i in range(n_audits):
-            await self.audit_repo.write(
+            await self.audit_repo_for(tenant_id).write(
                 make_audit_record(
                     audit_id=f"{run_id}-a{i}",
                     run_id=run_id,
@@ -251,7 +279,7 @@ def _build_env(database) -> RetentionEnv:
     # opt-in is a classifier installed on the repository -- the one replaceable
     # part of the capture boundary -- never a marker on a seeded record: a
     # record cannot be allowed to authorize its own capture posture.
-    audit_repo = content_capture(AuditRepository(database, signer=signer))
+    audit_repo = content_capture(AuditRepository.for_default_compatibility(database, signer=signer))
     run_repo = RunRepository(database)
     policy_repo = RetentionPolicyRepository(database)
     hold_repo = LegalHoldRepository(database)

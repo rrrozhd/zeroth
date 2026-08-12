@@ -2831,7 +2831,6 @@
             ]
           },
           "tenant_id": {
-            "default": "default",
             "type": "string"
           },
           "thread_id": {
@@ -2881,6 +2880,7 @@
           "node_id",
           "graph_version_ref",
           "deployment_ref",
+          "tenant_id",
           "status"
         ],
         "type": "object"
