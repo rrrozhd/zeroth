@@ -552,6 +552,9 @@ class GraphDriver:
                         "subgraph_graph_ref": graph_ref,
                         "subgraph_status": child_run.status.value,
                         "subgraph_resumed": True,
+                        "cost_usd": child_run.metadata.get("total_cost_usd"),
+                        "estimated_cost_usd": child_run.metadata.get("total_estimated_cost_usd"),
+                        "cost_measurement": child_run.metadata.get("cost_measurement"),
                     }
 
                     # Continue normal post-node flow.
@@ -635,6 +638,9 @@ class GraphDriver:
                     "subgraph_graph_ref": node.subgraph.graph_ref,
                     "subgraph_status": child_run.status.value,
                     "subgraph_depth": child_run.metadata.get("subgraph_depth", 0),
+                    "cost_usd": child_run.metadata.get("total_cost_usd"),
+                    "estimated_cost_usd": child_run.metadata.get("total_estimated_cost_usd"),
+                    "cost_measurement": child_run.metadata.get("cost_measurement"),
                 }
 
                 # Record history and plan next nodes (same post-node flow as normal nodes).

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.5] - 2026-08-12
+
+- Preserve failed-run, compaction, cascade, subgraph, and fan-out cost provenance through runtime composition.
+
 ## [0.23.0.4] - 2026-08-12
 
 ### Fixed

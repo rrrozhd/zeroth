@@ -343,6 +343,45 @@ async def test_fan_out_fail_fast(sqlite_db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) -> None:
+    source_runner = _make_agent_runner(
+        output_model=ItemsOutput,
+        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}]}),
+    )
+    sink_runner = _make_agent_runner(
+        input_model=BranchItemInput,
+        output_model=ProcessedOutput,
+        handler=lambda req: ProviderResponse(
+            content={"result": "not-an-integer"},
+            estimated_cost_usd=0.25,
+            cost_measurement=MeasurementState.ESTIMATED,
+        ),
+    )
+    graph = _make_graph(
+        [
+            _make_agent_node(
+                "source",
+                parallel_config=ParallelConfig(split_path="items", fail_mode="fail_fast"),
+            ),
+            _make_agent_node("sink"),
+        ],
+        [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
+    )
+
+    run = await _make_orchestrator(
+        {"source": source_runner, "sink": sink_runner}, sqlite_db
+    ).run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.FAILED
+    failed = [entry for entry in run.execution_history if entry.status == "rejected"]
+    assert len(failed) == 1, [
+        (entry.node_id, entry.status, entry.estimated_cost_usd) for entry in run.execution_history
+    ]
+    assert failed[0].estimated_cost_usd == 0.25
+    assert failed[0].cost_measurement is MeasurementState.ESTIMATED
+
+
+@pytest.mark.asyncio
 async def test_parallel_config_none_no_effect(sqlite_db) -> None:
     """Explicit parallel_config=None behaves identically to no parallel_config."""
     source_runner = _make_agent_runner(
@@ -439,9 +478,7 @@ async def test_fan_out_promotes_branch_cost_measurement(sqlite_db) -> None:
     )
     graph = _make_graph(
         [
-            _make_agent_node(
-                "source", parallel_config=ParallelConfig(split_path="items")
-            ),
+            _make_agent_node("source", parallel_config=ParallelConfig(split_path="items")),
             _make_agent_node("sink"),
         ],
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
@@ -456,16 +493,12 @@ async def test_fan_out_promotes_branch_cost_measurement(sqlite_db) -> None:
 
     sink_entries = [entry for entry in run.execution_history if entry.node_id == "sink"]
     assert [entry.estimated_cost_usd for entry in sink_entries] == [0.25, 0.25]
-    assert all(
-        entry.cost_measurement is MeasurementState.ESTIMATED for entry in sink_entries
-    )
+    assert all(entry.cost_measurement is MeasurementState.ESTIMATED for entry in sink_entries)
     sink_audits = [
         record for record in await audit_repo.list_by_run(run.run_id) if record.node_id == "sink"
     ]
     assert [record.estimated_cost_usd for record in sink_audits] == [0.25, 0.25]
-    assert all(
-        record.cost_measurement is MeasurementState.ESTIMATED for record in sink_audits
-    )
+    assert all(record.cost_measurement is MeasurementState.ESTIMATED for record in sink_audits)
     assert sum_run_cost(run) == pytest.approx(0.5)
 
 

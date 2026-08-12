@@ -102,6 +102,14 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "token_usage",
         "usage_measurement",
     ),
+    "zeroth.runtime.parallel.models:BranchResult": (
+        "cost_measurement",
+        "estimated_cost_usd",
+    ),
+    "zeroth.runtime.parallel.models:FanInResult": (
+        "cost_measurement",
+        "total_estimated_cost_usd",
+    ),
     "zeroth.runtime.runs.models:RunHistoryEntry": (
         "cost_measurement",
         "estimated_cost_usd",
