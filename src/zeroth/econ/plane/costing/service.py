@@ -65,11 +65,13 @@ def estimate_cost_for_period(
     measured_llm = 0.0
     measured_tool = 0.0
     measured_compute = 0.0
+    has_measured = False
     inferred_samples: list[float] = []
 
     for e in executions:
         state = MeasurementState(e.cost_measurement)
         if state is MeasurementState.MEASURED:
+            has_measured = True
             measured_llm += float(e.token_cost_usd or 0)
             measured_tool += float(e.tool_cost_usd or 0)
             measured_compute += float(e.compute_cost_usd or 0)
@@ -94,14 +96,14 @@ def estimate_cost_for_period(
     inferred_llm_mean, inferred_low, inferred_high = hierarchical_interval(inferred_samples, prior_mean=0.0)
     inferred_llm_total = sum(inferred_samples)
 
-    llm_total = measured_llm if measured_llm > 0 else inferred_llm_total
+    llm_total = measured_llm + inferred_llm_total
     tool_total = measured_tool
     infra_total = measured_compute
     overhead_total = (llm_total + tool_total + infra_total) * 0.05
     total = llm_total + tool_total + infra_total + overhead_total
 
     data_quality = "unmeasured"
-    if inferred_samples and measured_llm + measured_tool + measured_compute > 0:
+    if inferred_samples and has_measured:
         data_quality = "mixed"
     elif inferred_samples:
         data_quality = "inferred"
