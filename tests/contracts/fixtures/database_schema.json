@@ -99,6 +99,10 @@
     {
       "down_revision": "024",
       "revision": "025"
+    },
+    {
+      "down_revision": "025",
+      "revision": "026"
     }
   ],
   "tables": {
@@ -1806,13 +1810,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "counter_key",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "counter_key",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": "0",
           "hidden": 0,
           "name": "value",
@@ -1821,7 +1834,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "window_start",
@@ -1830,7 +1843,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": "86400",
           "hidden": 0,
           "name": "window_seconds",
@@ -1839,11 +1852,12 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE quota_counters ( counter_key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, window_seconds INTEGER NOT NULL DEFAULT 86400 )",
+      "constraint_definition": "CREATE TABLE quota_counters ( tenant_id TEXT NOT NULL, counter_key TEXT NOT NULL, value INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, window_seconds INTEGER NOT NULL DEFAULT 86400, PRIMARY KEY (tenant_id, counter_key))",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "counter_key"
           ],
           "name": "sqlite_autoindex_quota_counters_1",
@@ -1859,13 +1873,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "bucket_key",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "bucket_key",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": null,
           "hidden": 0,
           "name": "token_count",
@@ -1874,7 +1897,7 @@
           "type": "REAL"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "last_refill_at",
@@ -1883,7 +1906,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": "10.0",
           "hidden": 0,
           "name": "capacity",
@@ -1892,7 +1915,7 @@
           "type": "REAL"
         },
         {
-          "cid": 4,
+          "cid": 5,
           "default": "1.0",
           "hidden": 0,
           "name": "refill_rate",
@@ -1901,11 +1924,12 @@
           "type": "REAL"
         }
       ],
-      "constraint_definition": "CREATE TABLE rate_limit_buckets ( bucket_key TEXT PRIMARY KEY, token_count REAL NOT NULL, last_refill_at TEXT NOT NULL, capacity REAL NOT NULL DEFAULT 10.0, refill_rate REAL NOT NULL DEFAULT 1.0 )",
+      "constraint_definition": "CREATE TABLE rate_limit_buckets ( tenant_id TEXT NOT NULL, bucket_key TEXT NOT NULL, token_count REAL NOT NULL, last_refill_at TEXT NOT NULL, capacity REAL NOT NULL DEFAULT 10.0, refill_rate REAL NOT NULL DEFAULT 1.0, PRIMARY KEY (tenant_id, bucket_key))",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "bucket_key"
           ],
           "name": "sqlite_autoindex_rate_limit_buckets_1",

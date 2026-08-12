@@ -47,17 +47,12 @@ class TokenBucketRateLimiter:
     if so, deducts it.  Returns True on success, False when the bucket is empty.
     """
 
-    def __init__(
-        self,
-        database: AsyncDatabase,
-        scope_context: NullWorkspaceScopeContext | None = None,
-    ) -> None:
+    def __init__(self, database: AsyncDatabase) -> None:
+        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
+
+    def _bind(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
         self.database = database
-        self.scope_context = (
-            NullWorkspaceScopeContext.for_default_compatibility()
-            if scope_context is None
-            else scope_context
-        )
+        self.scope_context = scope_context
         self._buckets = ScopedTable(
             database, SERVICE_SCOPE_REGISTRY, "service.rate_limit_buckets", self.scope_context
         )
@@ -68,7 +63,9 @@ class TokenBucketRateLimiter:
     ) -> TokenBucketRateLimiter:
         if type(scope_context) is not NullWorkspaceScopeContext:
             raise TypeError("scope_context must be a NullWorkspaceScopeContext")
-        return cls(database, scope_context)
+        instance = cls.__new__(cls)
+        instance._bind(database, scope_context)
+        return instance
 
     @persistence_operation(ResourceOperation.READ)
     async def get(self, bucket_key: str) -> dict[str, object] | None:
@@ -156,17 +153,12 @@ class QuotaEnforcer:
     increments it.  Returns True when within quota, False when exceeded.
     """
 
-    def __init__(
-        self,
-        database: AsyncDatabase,
-        scope_context: NullWorkspaceScopeContext | None = None,
-    ) -> None:
+    def __init__(self, database: AsyncDatabase) -> None:
+        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
+
+    def _bind(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
         self.database = database
-        self.scope_context = (
-            NullWorkspaceScopeContext.for_default_compatibility()
-            if scope_context is None
-            else scope_context
-        )
+        self.scope_context = scope_context
         self._counters = ScopedTable(
             database, SERVICE_SCOPE_REGISTRY, "service.quota_counters", self.scope_context
         )
@@ -177,7 +169,9 @@ class QuotaEnforcer:
     ) -> QuotaEnforcer:
         if type(scope_context) is not NullWorkspaceScopeContext:
             raise TypeError("scope_context must be a NullWorkspaceScopeContext")
-        return cls(database, scope_context)
+        instance = cls.__new__(cls)
+        instance._bind(database, scope_context)
+        return instance
 
     @persistence_operation(ResourceOperation.READ)
     async def get(self, counter_key: str) -> dict[str, object] | None:
@@ -252,3 +246,11 @@ class QuotaEnforcer:
                 {"value": int(row["value"]) + 1}, where={"counter_key": counter_key}
             )
             return True
+
+
+# These two constructors predate postponed annotations and their immutable public
+# signatures therefore expose the real ``None`` singleton rather than the string
+# produced by ``from __future__ import annotations``. Preserve that exact surface
+# while keeping the module's annotations postponed everywhere else.
+TokenBucketRateLimiter.__init__.__annotations__["return"] = None
+QuotaEnforcer.__init__.__annotations__["return"] = None
