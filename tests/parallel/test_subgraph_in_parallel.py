@@ -585,6 +585,154 @@ class TestScenario1SubgraphInFanOutBranch:
         )
         assert len({entry.audit_ref for entry in resumed.execution_history}) == 3
 
+    @pytest.mark.asyncio
+    async def test_pause_resume_keeps_partial_branch_accounting_and_cancelled_unknown(
+        self,
+    ) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run
+        from zeroth.runtime.runs.costs import rollup_run_cost
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="source"),
+            parallel_config=ParallelConfig(split_path="items", fail_mode="fail_fast"),
+        )
+        paid = AgentNode(
+            node_id="paid",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="paid"),
+        )
+        paused = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-g",
+            name="parent-g",
+            version=1,
+            nodes=[source, paid, paused],
+            edges=[
+                Edge(edge_id="e1", source_node_id="source", target_node_id="paid"),
+                Edge(edge_id="e2", source_node_id="source", target_node_id="sub-step"),
+            ],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+
+        class _FakeResult:
+            def __init__(self, output_data: dict[str, Any], cost: float) -> None:
+                self.output_data = output_data
+                self.audit_record = {
+                    "cost_usd": cost,
+                    "cost_measurement": MeasurementState.MEASURED,
+                }
+
+        source_runner = AsyncMock()
+        source_runner.context_tracker = None
+        source_runner.run = AsyncMock(
+            return_value=_FakeResult({"items": [{"x": 1}, {"x": 2}]}, 0.1)
+        )
+        paid_runner = AsyncMock()
+        paid_runner.context_tracker = None
+        paid_runner.run = AsyncMock(
+            side_effect=lambda payload, **_: _FakeResult({"result": payload["x"] * 10}, 0.2)
+        )
+
+        sibling_entered = asyncio.Event()
+        never = asyncio.Event()
+
+        async def _execute(**kwargs: Any) -> Run:
+            index = kwargs["branch_context"].branch_index
+            if index == 0:
+                await sibling_entered.wait()
+                return Run(
+                    run_id="child-run-0",
+                    graph_version_ref="child-wf:v1",
+                    deployment_ref="child-wf",
+                    status=RunStatus.WAITING_APPROVAL,
+                )
+            sibling_entered.set()
+            await never.wait()
+            raise AssertionError("cancelled sibling resumed unexpectedly")
+
+        subgraph_executor = MagicMock(spec=SubgraphExecutor)
+        subgraph_executor.execute = AsyncMock(side_effect=_execute)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.get = AsyncMock(return_value=None)
+        repository.write_checkpoint = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner, "paid": paid_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=subgraph_executor,
+        )
+
+        waiting = await orchestrator.run_graph(graph, {})
+
+        assert waiting.status is RunStatus.WAITING_APPROVAL
+        pending = waiting.metadata["pending_parallel_subgraph"]
+        paused_context = pending["paused_branch"]["branch_context"]
+        [cancelled_context] = pending["cancelled_branches"]
+        assert paused_context["metadata"]["subgraph_input"] == {"result": 10}
+        assert cancelled_context["metadata"]["subgraph_input"] == {"result": 20}
+        assert len(paused_context["execution_history"]) == 1
+        assert len(cancelled_context["execution_history"]) == 1
+        assert len(paused_context["audit_refs"]) == 1
+        assert len(cancelled_context["audit_refs"]) == 1
+
+        subgraph_executor.resume = AsyncMock(
+            return_value=Run(
+                run_id="child-run-0",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": 0},
+                metadata={
+                    "total_cost_usd": 0.3,
+                    "cost_measurement": MeasurementState.MEASURED,
+                },
+            )
+        )
+        waiting.status = RunStatus.RUNNING
+        resumed = await orchestrator._drive(graph, waiting)
+
+        assert resumed.status is RunStatus.COMPLETED
+        assert len([e for e in resumed.execution_history if e.node_id == "paid"]) == 2
+        resumed_subgraph = [
+            e
+            for e in resumed.execution_history
+            if e.node_id == "sub-step" and e.status == "completed"
+        ]
+        cancelled_subgraph = [
+            e
+            for e in resumed.execution_history
+            if e.node_id == "sub-step" and e.status == "cancelled"
+        ]
+        assert len(resumed_subgraph) == 1
+        assert resumed_subgraph[0].input_snapshot == {"result": 10}
+        assert len(cancelled_subgraph) == 1
+        assert cancelled_subgraph[0].input_snapshot == {"result": 20}
+        assert cancelled_subgraph[0].cost_measurement is MeasurementState.UNMEASURED
+        refs = [entry.audit_ref for entry in resumed.execution_history if entry.audit_ref]
+        assert len(refs) == len(set(refs)) == 4
+        assert set(refs) == set(resumed.audit_refs)
+        cost = rollup_run_cost(resumed)
+        assert cost.cost_usd == pytest.approx(0.8)
+        assert cost.cost_measurement is MeasurementState.UNMEASURED
+        assert cost.total_usd is None
+
     async def test_nested_pause_on_resume_persists_waiting_approval(self, sqlite_db) -> None:
         """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch.
 
