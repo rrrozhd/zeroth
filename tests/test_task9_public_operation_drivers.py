@@ -49,15 +49,15 @@ async def test_webhook_foreign_delete_is_unknown_and_owner_survives(async_databa
 
 async def test_policy_enumeration_stays_within_bound_tenant(async_database) -> None:
     for tenant_id in ("driver-policy-a", "driver-policy-b"):
-        repository = RetentionPolicyRepository(
+        repository = RetentionPolicyRepository.scoped(
             async_database, NullWorkspaceScopeContext(tenant_id=tenant_id)
         )
         await repository.upsert(RetentionPolicy(tenant_id=tenant_id, enabled=True))
 
-    owner = RetentionPolicyRepository(
+    owner = RetentionPolicyRepository.scoped(
         async_database, NullWorkspaceScopeContext(tenant_id="driver-policy-a")
     )
-    foreign = RetentionPolicyRepository(
+    foreign = RetentionPolicyRepository.scoped(
         async_database, NullWorkspaceScopeContext(tenant_id="driver-policy-b")
     )
     assert [policy.tenant_id for policy in await owner.list_for_tenant()] == ["driver-policy-a"]
