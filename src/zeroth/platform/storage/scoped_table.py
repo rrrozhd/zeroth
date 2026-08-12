@@ -108,6 +108,90 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "token_engine_snapshots",
     }
 )
+_TASK9_RESOURCE_OPERATIONS = {
+    "retention_audit_log": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "retention_cleanup_operations": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "retention_cleanup_state": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "retention_coordination": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "retention_policies": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "legal_holds": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "run_checkpoints": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+            ResourceOperation.DELETE,
+        }
+    ),
+    "runs": frozenset(ResourceOperation),
+    "threads": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "token_engine_snapshots": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.UPDATE,
+            ResourceOperation.DELETE,
+        }
+    ),
+    "webhook_subscriptions": frozenset(ResourceOperation),
+    "webhook_deliveries": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "webhook_dead_letters": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "langgraph_decisions": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "langgraph_inventories": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
+    "langgraph_run_attestations": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+}
 SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
     {
         "quota_counters",
@@ -123,7 +207,7 @@ SERVICE_SCOPE_DEFINITIONS = tuple(
         table_name=table_name,
         workspace_scoped=table_name in _SERVICE_WORKSPACE_TABLES,
         direct_scope_ready=table_name not in SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES,
-        operations=frozenset(ResourceOperation),
+        operations=_TASK9_RESOURCE_OPERATIONS.get(table_name, frozenset(ResourceOperation)),
     )
     for table_name in _SERVICE_TABLES
 ) + (
