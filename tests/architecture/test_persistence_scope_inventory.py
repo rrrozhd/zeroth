@@ -609,6 +609,8 @@ def _must_alias_events(
     ) -> tuple[_AliasIdentity, ...]:
         if isinstance(value, ast.IfExp):
             return (*leaf_identities(value.body, state), *leaf_identities(value.orelse, state))
+        if isinstance(value, ast.NamedExpr):
+            return leaf_identities(value.value, state)
         return (resolve(value, state),)
 
     def join(
@@ -636,9 +638,7 @@ def _must_alias_events(
                 continue
             identity = resolve(value, pre_assignment_state)
             branch_identities = (
-                leaf_identities(value, pre_assignment_state)
-                if isinstance(value, ast.IfExp) and identity is None
-                else ()
+                leaf_identities(value, pre_assignment_state) if identity is None else ()
             )
             state[target.id] = identity
             if branch_identities:
@@ -2114,6 +2114,31 @@ def test_public_call_inventory_tracks_nested_walrus_factory_and_type_aliases(
         }
     )
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_reports_nested_walrus_conditional_factory_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    consume(alias := (factory := (AuditRepository.scoped if cond else other_factory)))\n"
+        "    first = factory(db, scope)\n"
+        "    second = alias(db, scope)\n"
+        "    await first.write(record)\n"
+        "    await second.list_by_run(record.run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::use::list_by_run",
+            "apps/candidate.py::use::write",
+        }
+    )
 
 
 def test_public_call_inventory_tracks_local_canonical_repository_import_alias(
