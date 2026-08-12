@@ -11,7 +11,7 @@ from tests.service.test_tenant_isolation import _headers, _scoped_auth_config
 from zeroth.governance.approvals.models import ApprovalRecord
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.runtime.runs import Run, RunStatus
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 
 
 async def _app(sqlite_db, suffix: str):
@@ -23,9 +23,11 @@ async def _app(sqlite_db, suffix: str):
         auth_config=auth,
         tenant_id="tenant-a",
     )
-    app = await bootstrap_app(
+    app = await bootstrap_scoped_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
         auth_config=auth,
     )
     app.state.bootstrap = service
