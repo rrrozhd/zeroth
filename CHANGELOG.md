@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.11.1] - 2026-08-12
+
+- Preserve absent provider token usage as unmeasured metadata instead of
+  inventing zero input, output, and total token counts.
+
 ## [0.23.0.11] - 2026-08-12
 
 - Preserve child-run costs across successful token dispatch and failed parallel

@@ -187,8 +187,11 @@ async def test_adapter_no_token_usage_stays_unmeasured(
     result = await adapter.ainvoke(provider_request)
     assert result.cost_usd is None
     assert result.estimated_cost_usd is None
-    # Event should still be emitted
-    mock_regulus_client.track_execution.assert_called_once()
+    event = mock_regulus_client.track_execution.call_args.args[0]
+    assert event.usage_measurement is MeasurementState.UNMEASURED
+    assert event.metadata["input_tokens"] is None
+    assert event.metadata["output_tokens"] is None
+    assert event.metadata["total_tokens"] is None
 
 
 async def test_adapter_cost_estimator_error_stays_unmeasured(
