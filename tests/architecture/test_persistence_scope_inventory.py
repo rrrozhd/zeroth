@@ -2603,10 +2603,40 @@ def _audit_repository_public_call_provenance(
                                 state,
                             )
                             return
-                        if isinstance(
-                            expression_node,
-                            (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
-                        ):
+                        if isinstance(expression_node, ast.BoolOp):
+                            for index, value in enumerate(expression_node.values):
+                                if index:
+                                    prior_truth = literal_truth(expression_node.values[index - 1])
+                                    if (
+                                        isinstance(expression_node.op, ast.And)
+                                        and prior_truth is False
+                                    ) or (
+                                        isinstance(expression_node.op, ast.Or)
+                                        and prior_truth is True
+                                    ):
+                                        break
+                                record_named_expressions(value, state)
+                            return
+                        if isinstance(expression_node, ast.IfExp):
+                            record_named_expressions(expression_node.test, state)
+                            truth = literal_truth(expression_node.test)
+                            if truth is not None:
+                                record_named_expressions(
+                                    expression_node.body if truth else expression_node.orelse,
+                                    state,
+                                )
+                                return
+                        if isinstance(expression_node, ast.Lambda):
+                            for default in (*expression_node.args.defaults, *expression_node.args.kw_defaults):
+                                if default is not None:
+                                    record_named_expressions(default, state)
+                            return
+                        if isinstance(expression_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            for default in (*expression_node.args.defaults, *expression_node.args.kw_defaults):
+                                if default is not None:
+                                    record_named_expressions(default, state)
+                            return
+                        if isinstance(expression_node, ast.ClassDef):
                             return
                         for child in ast.iter_child_nodes(expression_node):
                             if not isinstance(child, ast.stmt):
@@ -2691,16 +2721,25 @@ def _audit_repository_public_call_provenance(
                                         )
                                     return False
 
+                                def capture_names(pattern: ast.pattern) -> set[str]:
+                                    names = (
+                                        {pattern.name}
+                                        if isinstance(pattern, ast.MatchAs) and pattern.name
+                                        else set()
+                                    )
+                                    return names | set().union(
+                                        *(capture_names(child) for child in ast.iter_child_nodes(pattern)
+                                          if isinstance(child, ast.pattern))
+                                    )
+
                                 subject_identity = resolve(statement.subject, state)
                                 paths: list[dict[str, type[BaseException] | None]] = []
                                 exhaustive = False
                                 for case in statement.cases:
                                     case_state = dict(state)
-                                    if isinstance(case.pattern, ast.MatchAs) and case.pattern.name:
-                                        case_state[case.pattern.name] = subject_identity
-                                        record_event(
-                                            case.pattern.name, position, subject_identity
-                                        )
+                                    for capture_name in capture_names(case.pattern):
+                                        case_state[capture_name] = subject_identity
+                                        record_event(capture_name, position, subject_identity)
                                     exhaustive = (
                                         exhaustive
                                         or (
@@ -8405,6 +8444,47 @@ def test_public_call_inventory_routes_nested_named_expression_aliases(
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("alias_setup", "expected"),
+    [
+        ("False and (TypeError := ValueError)\n", frozenset({"apps/candidate.py::use::write"})),
+        (
+            "None if False else (TypeError := ValueError)\n",
+            frozenset(),
+        ),
+        (
+            "def local(value=(TypeError := ValueError)):\n"
+            "    pass\n",
+            frozenset(),
+        ),
+    ],
+    ids=["dead-and", "selected-ifexp", "function-default"],
+)
+def test_public_call_inventory_records_only_evaluated_named_expression_aliases(
+    tmp_path: Path, alias_setup: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + alias_setup
+        + "async def outer(suppressor, candidate, record):\n"
+        "    try:\n        raise TypeError\n"
+        "    except ValueError:\n        closure = None\n"
+        "    except TypeError:\n        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n                Base = None\n"
+        "            else:\n                Base = None\n"
+        "        type Repo = Base\n        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
 def test_public_call_inventory_keeps_conditional_match_capture_unbound(tmp_path: Path) -> None:
