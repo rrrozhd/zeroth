@@ -61,10 +61,25 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     backend = FilesystemArtifactStore(tmp_path / "artifacts")
     owner_store = TenantScopedArtifactStore(backend, tenant_id="tenant-a")
     foreign_store = TenantScopedArtifactStore(backend, tenant_id="tenant-b")
-    await owner_store.store(key, result.stdout.encode(), "text/plain")
-    artifact = await owner_store.retrieve(key)
+    artifact_ref = await owner_store.store(key, result.stdout.encode(), "text/plain")
+    owner_artifact = await owner_store.retrieve(key)
     with pytest.raises(ArtifactNotFoundError) as foreign_read:
         await foreign_store.retrieve(key)
+    unknown_key = generate_artifact_key("unknown-run", "node")
+    with pytest.raises(ArtifactNotFoundError) as unknown_read:
+        await foreign_store.retrieve(unknown_key)
+    foreign_exists = await foreign_store.exists(key)
+    unknown_exists = await foreign_store.exists(unknown_key)
+    # ArtifactStore has no non-destructive list API. Its run cleanup performs
+    # scope-local enumeration first; tenant-b owns no matching artifacts, so
+    # these zero-result attempts safely exercise that observable.
+    foreign_listed = await foreign_store.cleanup_run(
+        "observable-run", idempotency_key="observable-foreign-list"
+    )
+    unknown_listed = await foreign_store.cleanup_run(
+        "unknown-run", idempotency_key="observable-unknown-list"
+    )
+    assert await owner_store.exists(key)
     await service.artifact_store.store(key, result.stdout.encode(), "text/plain")
 
     repository = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
@@ -88,9 +103,88 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
 
     with TestClient(create_app(service)) as client:
         invalid_auth = client.get(f"/v1/artifacts/{key}", headers=api_key_headers(CANARY))
+        owner_api_read = client.get(f"/v1/artifacts/{key}", headers=api_key_headers("safe-a"))
         foreign_api_read = client.get(f"/v1/artifacts/{key}", headers=api_key_headers("safe-b"))
+        unknown_api_read = client.get(
+            f"/v1/artifacts/{unknown_key}", headers=api_key_headers("safe-b")
+        )
     assert invalid_auth.status_code == 401
+    assert owner_api_read.status_code == 200
     assert foreign_api_read.status_code == 404
+    assert unknown_api_read.status_code == 404
+
+    def direct_miss_evidence(error: ArtifactNotFoundError, requested_key: str) -> dict[str, object]:
+        return {
+            "bytes": None,
+            "metadata": {"exists": False, "requested-key": requested_key},
+            "error": {
+                "type": type(error).__name__,
+                "message": str(error),
+            },
+            "status": "not-found",
+            "headers": {},
+        }
+
+    def api_evidence(response, requested_key: str) -> dict[str, object]:  # noqa: ANN001
+        headers = {
+            name: value
+            for name, value in response.headers.items()
+            if name.lower() != "x-correlation-id"
+        }
+        return {
+            "bytes": response.content,
+            "metadata": {
+                "url": str(response.request.url).replace(requested_key, "<requested-key>"),
+                "correlation-id-present": "x-correlation-id" in response.headers,
+            },
+            "error": None if response.is_success else response.json(),
+            "status": response.status_code,
+            "headers": headers,
+        }
+
+    artifact_evidence = {
+        "operation-trace": [
+            "tenant-a:store",
+            "tenant-a:retrieve",
+            "tenant-b:retrieve-owner-key",
+            "tenant-b:exists-owner-key",
+            "tenant-b:enumerate-via-cleanup_run:owner-run",
+            "tenant-b:retrieve-unknown-key",
+            "tenant-b:exists-unknown-key",
+            "tenant-b:enumerate-via-cleanup_run:unknown-run",
+            "api:tenant-a:retrieve-owner-key",
+            "api:tenant-b:retrieve-owner-key",
+            "api:tenant-b:retrieve-unknown-key",
+        ],
+        "owner-retrieval": {
+            "bytes": owner_artifact,
+            "metadata": artifact_ref.model_dump(mode="json"),
+            "error": None,
+            "status": "retrieved",
+            "headers": {},
+        },
+        "foreign-retrieval": direct_miss_evidence(foreign_read.value, key),
+        "unknown-retrieval": direct_miss_evidence(unknown_read.value, unknown_key),
+        "foreign-list": {
+            "bytes": None,
+            "metadata": {"count": foreign_listed},
+            "error": None,
+            "status": "empty",
+            "headers": {},
+        },
+        "unknown-list": {
+            "bytes": None,
+            "metadata": {"count": unknown_listed},
+            "error": None,
+            "status": "empty",
+            "headers": {},
+        },
+        "owner-api-retrieval": api_evidence(owner_api_read, key),
+        "foreign-api-retrieval": api_evidence(foreign_api_read, key),
+        "unknown-api-retrieval": api_evidence(unknown_api_read, unknown_key),
+    }
+    artifact_evidence["foreign-retrieval"]["metadata"]["exists"] = foreign_exists
+    artifact_evidence["unknown-retrieval"]["metadata"]["exists"] = unknown_exists
 
     return {
         "workload-environment": result.environment,
@@ -100,7 +194,7 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
             "body": invalid_auth.content,
             "headers": dict(invalid_auth.headers),
         },
-        "artifacts": artifact,
+        "artifacts": artifact_evidence,
         "audit-payloads": audit.model_dump(mode="json"),
         "other-tenant": {
             "artifact-error": str(foreign_read.value),
@@ -138,6 +232,38 @@ async def test_credential_canary_absent_from_errors(sqlite_db, tmp_path: Path) -
 @pytest.mark.asyncio()
 async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
+    artifacts = captured["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert artifacts != captured["logs"]["stdout"]
+    assert set(artifacts) == {
+        "operation-trace",
+        "owner-retrieval",
+        "foreign-retrieval",
+        "unknown-retrieval",
+        "foreign-list",
+        "unknown-list",
+        "owner-api-retrieval",
+        "foreign-api-retrieval",
+        "unknown-api-retrieval",
+    }
+    evidence_fields = {"bytes", "metadata", "error", "status", "headers"}
+    for operation in set(artifacts) - {"operation-trace"}:
+        assert set(artifacts[operation]) == evidence_fields
+    foreign_retrieval = artifacts["foreign-retrieval"]
+    unknown_retrieval = artifacts["unknown-retrieval"]
+    for field in evidence_fields - {"metadata", "error"}:
+        assert foreign_retrieval[field] == unknown_retrieval[field]
+    assert foreign_retrieval["metadata"].keys() == unknown_retrieval["metadata"].keys()
+    assert foreign_retrieval["metadata"]["exists"] == unknown_retrieval["metadata"]["exists"]
+    assert foreign_retrieval["error"]["type"] == unknown_retrieval["error"]["type"]
+    assert foreign_retrieval["error"]["message"].replace(
+        foreign_retrieval["metadata"]["requested-key"], "<requested-key>"
+    ) == unknown_retrieval["error"]["message"].replace(
+        unknown_retrieval["metadata"]["requested-key"], "<requested-key>"
+    )
+    assert artifacts["foreign-list"] == artifacts["unknown-list"]
+    assert artifacts["foreign-api-retrieval"] == artifacts["unknown-api-retrieval"]
+    assert artifacts["owner-retrieval"]["bytes"] == artifacts["owner-api-retrieval"]["bytes"]
     assert CredentialLeakScanner([CANARY]).scan(captured["artifacts"], surface="artifacts") == []
 
 

@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+SecretReference = str | tuple[str, str]
+
 
 class SecretRedactor:
     """Replace known secret values with stable redaction markers."""
 
-    def __init__(self, known_secrets: Mapping[str, str] | None = None) -> None:
+    def __init__(self, known_secrets: Mapping[SecretReference, str] | None = None) -> None:
         self._known_secrets = {
             ref: value for ref, value in dict(known_secrets or {}).items() if value
         }

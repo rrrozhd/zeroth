@@ -159,7 +159,7 @@ class VaultSecretProvider:
         self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         if value is not None:
             # Keep the redactor aware of live values so error paths stay masked.
-            self._redactor = SecretRedactor({**self._redactor_known(), key[1]: value})
+            self._redactor = SecretRedactor(self._redactor_known())
         return value
 
     # ------------------------------------------------------------------
@@ -228,7 +228,7 @@ class VaultSecretProvider:
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
             if value is not None:
-                self._redactor = SecretRedactor({**self._redactor_known(), logical_name: value})
+                self._redactor = SecretRedactor(self._redactor_known())
             return value
 
     async def _get_async_client(self) -> httpx.AsyncClient:
@@ -277,6 +277,7 @@ class VaultSecretProvider:
             self._cache[(tenant, logical_name)] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
+        self._redactor = SecretRedactor(self._redactor_known())
 
     # ------------------------------------------------------------------
     # Internal fetch helpers
@@ -454,10 +455,10 @@ class VaultSecretProvider:
             raise SecretResolutionError("vault AppRole login returned no client_token")
         return token
 
-    def _redactor_known(self) -> dict[str, str]:
-        """Rebuild the redactor's name -> value seed map from cached entries."""
+    def _redactor_known(self) -> dict[tuple[str, str], str]:
+        """Rebuild tenant-qualified redactor seeds from cached entries."""
         # SecretRedactor keeps its map private; rebuild from cache values.
-        return {name: entry.value for (_tenant, name), entry in self._cache.items() if entry.value}
+        return {key: entry.value for key, entry in self._cache.items() if entry.value}
 
 
 __all__ = ["VaultSecretProvider"]
