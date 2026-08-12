@@ -20,6 +20,7 @@ from zeroth.platform.storage.scoping import (
     ScopeBinding,
     ScopeContext,
     TenantWideScopeContext,
+    persistence_operation,
 )
 
 _SCOPE_INFO_KEY = "zeroth_econ_scope_binding"
@@ -544,6 +545,7 @@ class ScopedSession:
         self.__session = session
         self.scope = scope
 
+    @persistence_operation(ResourceOperation.READ)
     def get(self, entity: type[_ModelT], ident: Any) -> _ModelT | None:
         definition = _definition(entity)
         _validate_binding(definition, self.scope, ResourceOperation.READ)
@@ -562,27 +564,35 @@ class ScopedSession:
             return None
         return instance
 
+    @persistence_operation(*ResourceOperation)
     def execute(self, statement: Any, params: Any = None, **kwargs: Any) -> ScopedResult:
         return ScopedResult(self.__session.execute(statement, params=params, **kwargs))
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.ENUMERATE)
     def scalars(self, statement: Any, params: Any = None, **kwargs: Any) -> ScopedScalarResult:
         return ScopedScalarResult(self.__session.scalars(statement, params=params, **kwargs))
 
+    @persistence_operation(ResourceOperation.CREATE)
     def add(self, instance: object) -> None:
         self.__session.add(instance)
 
+    @persistence_operation(ResourceOperation.DELETE)
     def delete(self, instance: object) -> None:
         self.__session.delete(instance)
 
+    @persistence_operation(*ResourceOperation)
     def commit(self) -> None:
         self.__session.commit()
 
+    @persistence_operation(*ResourceOperation)
     def flush(self, objects: Iterable[object] | None = None) -> None:
         self.__session.flush(objects=objects)
 
+    @persistence_operation(*ResourceOperation)
     def rollback(self) -> None:
         self.__session.rollback()
 
+    @persistence_operation(ResourceOperation.READ)
     def refresh(self, instance: object, attribute_names: Iterable[str] | None = None) -> None:
         if not _instance_matches_scope(instance, self.scope):
             definition = _definition(type(instance))
