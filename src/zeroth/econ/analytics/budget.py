@@ -159,6 +159,7 @@ class BudgetEnforcer:
                     cap_usd=0.0,
                     degraded=True,
                     failure_mode="fail_closed",
+                    measurement_complete=False,
                 )
             # Fail-open (default): Regulus unavailability must not block execution
             # (D-12). But a silent fail-open means budget governance can evaporate
@@ -176,4 +177,5 @@ class BudgetEnforcer:
                 cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
+                measurement_complete=False,
             )

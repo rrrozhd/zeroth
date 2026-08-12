@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import create_engine, text
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.econ.analytics.budget import BudgetEnforcer
 from zeroth.econ.analytics.waste import analyze_run
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
 from zeroth.econ.measurement import MeasurementState
@@ -19,10 +20,12 @@ from zeroth.econ.plane.capabilities.service import pick_ab_arm
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate
 from zeroth.governance.audit.models import NodeAuditRecord, TokenUsage
 from zeroth.runtime.agents.provider import (
+    CallableProviderAdapter,
     DeterministicProviderAdapter,
     LiteLLMProviderAdapter,
     ProviderResponse,
 )
+from zeroth.runtime.agents.errors import AgentOutputValidationError, AgentProviderError, BudgetExceededError
 from zeroth.runtime.agents.models import AgentConfig
 from zeroth.runtime.agents.runner import AgentRunner
 from zeroth.runtime.context.models import CompactionResult, ContextWindowSettings
@@ -144,6 +147,111 @@ async def test_compaction_measurement_is_promoted_into_the_run_audit() -> None:
     assert result.audit_record["cost_usd"] == 0.0
     assert result.audit_record["estimated_cost_usd"] == 0.25
     assert result.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
+
+
+def _compaction_with_estimated_cost(cost: float = 0.25) -> CompactionResult:
+    return CompactionResult(
+        messages=[{"role": "user", "content": "compacted"}],
+        original_count=2,
+        compacted_count=1,
+        tokens_before=20,
+        tokens_after=10,
+        strategy_name="llm_summarization",
+        token_usage=TokenUsage(input_tokens=2, output_tokens=3, total_tokens=5, model_name="m"),
+        estimated_cost_usd=cost,
+        cost_measurement=MeasurementState.ESTIMATED,
+    )
+
+
+def _runner_with_compaction(provider, *, budget_enforcer=None) -> AgentRunner:  # noqa: ANN001
+    class Input(BaseModel):
+        query: str
+
+    class Output(BaseModel):
+        answer: str
+
+    tracker = AsyncMock()
+    compaction = _compaction_with_estimated_cost()
+    tracker.maybe_compact = AsyncMock(return_value=(compaction.messages, compaction))
+    return AgentRunner(
+        AgentConfig(
+            name="fidelity-failure",
+            instruction="answer",
+            model_name="m",
+            input_model=Input,
+            output_model=Output,
+        ),
+        provider,
+        context_tracker=tracker,
+        budget_enforcer=budget_enforcer,
+    )
+
+
+async def test_compaction_measurement_survives_provider_failure() -> None:
+    async def fail(_request):  # noqa: ANN001
+        raise RuntimeError("provider failed")
+
+    with pytest.raises(AgentProviderError) as raised:
+        await _runner_with_compaction(CallableProviderAdapter(fail)).run({"query": "hi"})
+
+    assert raised.value.audit_record["estimated_cost_usd"] == 0.25
+    assert raised.value.audit_record["token_usage"]["total_tokens"] == 5
+
+
+async def test_compaction_measurement_survives_output_failure() -> None:
+    runner = _runner_with_compaction(
+        DeterministicProviderAdapter(
+            [
+                ProviderResponse(
+                    content='{"wrong":"shape"}',
+                    cost_usd=1.0,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ]
+        )
+    )
+
+    with pytest.raises(AgentOutputValidationError) as raised:
+        await runner.run({"query": "hi"})
+
+    assert raised.value.audit_record["cost_usd"] == 1.0
+    assert raised.value.audit_record["estimated_cost_usd"] == 0.25
+
+
+async def test_compaction_measurement_survives_budget_rejection() -> None:
+    budget = AsyncMock(spec=BudgetEnforcer)
+    budget.check_budget = AsyncMock(return_value=(False, 2.0, 1.0))
+    runner = _runner_with_compaction(
+        DeterministicProviderAdapter([]), budget_enforcer=budget
+    )
+
+    with pytest.raises(BudgetExceededError) as raised:
+        await runner.run({"query": "hi"})
+
+    assert raised.value.audit_record["estimated_cost_usd"] == 0.25
+    assert raised.value.audit_record["token_usage"]["total_tokens"] == 5
+
+
+async def test_explicit_zero_estimate_is_retained() -> None:
+    runner = _runner_with_compaction(
+        DeterministicProviderAdapter(
+            [
+                ProviderResponse(
+                    content='{"answer":"ok"}',
+                    cost_usd=0.0,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ]
+        )
+    )
+    compaction = _compaction_with_estimated_cost(0.0)
+    runner.context_tracker.maybe_compact = AsyncMock(
+        return_value=(compaction.messages, compaction)
+    )
+
+    result = await runner.run({"query": "hi"})
+
+    assert result.audit_record["estimated_cost_usd"] == 0.0
 
 
 async def test_masking_preserves_tool_message_identity_and_artifact() -> None:
@@ -284,4 +392,4 @@ def test_execution_measurement_migration_backfills_legacy_rows(
                 "WHERE execution_id = 'legacy'"
             )
         ).one()
-    assert row == ("measured", "unmeasured")
+    assert row == ("unmeasured", "unmeasured")

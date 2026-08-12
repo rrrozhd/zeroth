@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from zeroth.governance.audit.models import NodeAuditRecord
+from zeroth.platform.measurement import MeasurementState
 from zeroth.econ.analytics.waste import WasteKind, waste_rollup
 from zeroth.runtime.runs import Run
 from zeroth.runtime.runs import RunStatus
@@ -103,3 +104,36 @@ def test_no_waste_when_all_completed_single_pass():
     assert r.total_confirmed_waste_usd == 0.0
     assert r.total_flagged_waste_usd == 0.0
     assert "no economic waste" in r.note.lower()
+
+
+def test_rollup_preserves_estimates_and_flags_incomplete_measurement():
+    run = _run("c1", RunStatus.COMPLETED)
+    audits = [
+        _audit("c1", 0.0),
+        NodeAuditRecord(
+            audit_id="estimated",
+            run_id="c1",
+            node_id="estimated",
+            graph_version_ref="g",
+            deployment_ref="default",
+            status="completed",
+            estimated_cost_usd=2.0,
+            cost_measurement=MeasurementState.ESTIMATED,
+        ),
+        NodeAuditRecord(
+            audit_id="unknown",
+            run_id="c1",
+            node_id="unknown",
+            graph_version_ref="g",
+            deployment_ref="default",
+            status="completed",
+            cost_measurement=MeasurementState.UNMEASURED,
+        ),
+    ]
+
+    rollup = waste_rollup([run], audits)
+
+    assert rollup.total_cost_usd == 0.0
+    assert rollup.estimated_cost_usd == 2.0
+    assert rollup.cost_measurement_complete is False
+    assert "incomplete" in rollup.note.lower()
