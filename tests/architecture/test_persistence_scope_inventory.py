@@ -2590,57 +2590,127 @@ def _audit_repository_public_call_provenance(
                             state[name] = identity
                             record_event(name, position, identity)
 
-                    def record_named_expressions(
+                    def _definitely_nonempty_iterable(expression: ast.AST) -> bool:
+                        if isinstance(expression, (ast.List, ast.Set, ast.Tuple)):
+                            return bool(expression.elts)
+                        if isinstance(expression, ast.Dict):
+                            return bool(expression.keys)
+                        return isinstance(expression, ast.Constant) and bool(expression.value)
+
+                    def transfer_expression(
                         expression_node: ast.AST,
                         state: dict[str, type[BaseException] | None],
-                    ) -> None:
+                    ) -> dict[str, type[BaseException] | None]:
                         if isinstance(expression_node, ast.NamedExpr):
-                            record_named_expressions(expression_node.value, state)
+                            state = transfer_expression(expression_node.value, state)
                             bind_alias(
                                 expression_node.target,
                                 expression_node.value,
                                 (expression_node.lineno, expression_node.col_offset),
                                 state,
                             )
-                            return
+                            return state
                         if isinstance(expression_node, ast.BoolOp):
-                            for index, value in enumerate(expression_node.values):
-                                if index:
-                                    prior_truth = literal_truth(expression_node.values[index - 1])
-                                    if (
-                                        isinstance(expression_node.op, ast.And)
-                                        and prior_truth is False
-                                    ) or (
-                                        isinstance(expression_node.op, ast.Or)
-                                        and prior_truth is True
-                                    ):
-                                        break
-                                record_named_expressions(value, state)
-                            return
+                            state = transfer_expression(expression_node.values[0], state)
+                            for index, value in enumerate(expression_node.values[1:], start=1):
+                                prior_truth = literal_truth(expression_node.values[index - 1])
+                                if (
+                                    isinstance(expression_node.op, ast.And)
+                                    and prior_truth is False
+                                ) or (
+                                    isinstance(expression_node.op, ast.Or)
+                                    and prior_truth is True
+                                ):
+                                    break
+                                if prior_truth is None:
+                                    evaluated = transfer_expression(value, dict(state))
+                                    state = join(state, evaluated)
+                                    merge_events(value, state)
+                                else:
+                                    state = transfer_expression(value, state)
+                            return state
                         if isinstance(expression_node, ast.IfExp):
-                            record_named_expressions(expression_node.test, state)
+                            state = transfer_expression(expression_node.test, state)
                             truth = literal_truth(expression_node.test)
                             if truth is not None:
-                                record_named_expressions(
+                                return transfer_expression(
                                     expression_node.body if truth else expression_node.orelse,
                                     state,
                                 )
-                                return
+                            body_state = transfer_expression(expression_node.body, dict(state))
+                            orelse_state = transfer_expression(expression_node.orelse, dict(state))
+                            state = join(body_state, orelse_state)
+                            merge_events(expression_node, state)
+                            return state
+                        if isinstance(
+                            expression_node,
+                            (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
+                        ):
+                            first_generator = expression_node.generators[0]
+                            state = transfer_expression(first_generator.iter, state)
+                            untouched_state = dict(state)
+                            evaluated_state = dict(state)
+                            comprehension_targets: set[str] = set()
+                            for index, generator in enumerate(expression_node.generators):
+                                if index:
+                                    evaluated_state = transfer_expression(
+                                        generator.iter, evaluated_state
+                                    )
+                                target_names = _bound_names(generator.target)
+                                comprehension_targets.update(target_names)
+                                for name in target_names:
+                                    evaluated_state[name] = None
+                                for condition in generator.ifs:
+                                    evaluated_state = transfer_expression(condition, evaluated_state)
+                            if isinstance(expression_node, ast.DictComp):
+                                evaluated_state = transfer_expression(
+                                    expression_node.key, evaluated_state
+                                )
+                                evaluated_state = transfer_expression(
+                                    expression_node.value, evaluated_state
+                                )
+                            else:
+                                evaluated_state = transfer_expression(
+                                    expression_node.elt, evaluated_state
+                                )
+                            for name in comprehension_targets:
+                                if name in untouched_state:
+                                    evaluated_state[name] = untouched_state[name]
+                                else:
+                                    evaluated_state.pop(name, None)
+                            if (
+                                len(expression_node.generators) == 1
+                                and not first_generator.ifs
+                                and _definitely_nonempty_iterable(first_generator.iter)
+                            ):
+                                return evaluated_state
+                            state = join(untouched_state, evaluated_state)
+                            merge_events(expression_node, state)
+                            return state
                         if isinstance(expression_node, ast.Lambda):
                             for default in (*expression_node.args.defaults, *expression_node.args.kw_defaults):
                                 if default is not None:
-                                    record_named_expressions(default, state)
-                            return
+                                    state = transfer_expression(default, state)
+                            return state
                         if isinstance(expression_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            for decorator in expression_node.decorator_list:
+                                state = transfer_expression(decorator, state)
                             for default in (*expression_node.args.defaults, *expression_node.args.kw_defaults):
                                 if default is not None:
-                                    record_named_expressions(default, state)
-                            return
+                                    state = transfer_expression(default, state)
+                            return state
                         if isinstance(expression_node, ast.ClassDef):
-                            return
+                            for decorator in expression_node.decorator_list:
+                                state = transfer_expression(decorator, state)
+                            for base in expression_node.bases:
+                                state = transfer_expression(base, state)
+                            for keyword in expression_node.keywords:
+                                state = transfer_expression(keyword.value, state)
+                            return state
                         for child in ast.iter_child_nodes(expression_node):
                             if not isinstance(child, ast.stmt):
-                                record_named_expressions(child, state)
+                                state = transfer_expression(child, state)
+                        return state
 
                     def walk(
                         block: list[ast.stmt], state: dict[str, type[BaseException] | None]
@@ -2648,7 +2718,7 @@ def _audit_repository_public_call_provenance(
                         state = dict(state)
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
-                            record_named_expressions(statement, state)
+                            state = transfer_expression(statement, state)
                             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                                 targets = (
                                     statement.targets
@@ -8496,6 +8566,223 @@ def test_public_call_inventory_records_only_evaluated_named_expression_aliases(
         "        await repository.write(record)\n",
         encoding="utf-8",
     )
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+def test_public_call_inventory_keeps_conditional_boolop_exception_alias_potential(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, enabled, candidate, record):\n"
+        "    try:\n"
+        "        enabled and (TypeError := ValueError)\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("setup", "expression", "expected"),
+    [
+        (
+            "",
+            "[(TypeError := ValueError) for item in ()]",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "[(TypeError := ValueError) for item in (None,)]",
+            frozenset(),
+        ),
+        (
+            "    TypeError = ValueError\n",
+            "[item for TypeError in ()]",
+            frozenset(),
+        ),
+    ],
+    ids=["empty-body-walrus", "literal-iterable-walrus", "target-shadow"],
+)
+def test_public_call_inventory_models_comprehension_exception_alias_execution(
+    tmp_path: Path, setup: str, expression: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        + setup
+        + f"    result = {expression}\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("definition", "expected"),
+    [
+        (
+            "    @(lambda value: (lambda function: function))(TypeError := ValueError)\n"
+            "    def local():\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "    def local(value=(TypeError := ValueError)):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "    class Local(TypeError := ValueError):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "    class Base:\n"
+            "        def __init_subclass__(cls, **kwargs):\n"
+            "            pass\n"
+            "    class Local(Base, alias=(TypeError := ValueError)):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "    def local():\n"
+            "        (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    class Local:\n"
+            "        (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=[
+        "function-decorator",
+        "function-default",
+        "class-base",
+        "class-keyword",
+        "function-body",
+        "class-body",
+    ],
+)
+def test_public_call_inventory_models_definition_expression_aliases(
+    tmp_path: Path, definition: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        + definition
+        + "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        (
+            "(TypeError := ValueError) if True else (TypeError := TypeError)",
+            frozenset(),
+        ),
+        (
+            "(TypeError := ValueError) if False else (TypeError := TypeError)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "(TypeError := ValueError) if enabled else (TypeError := TypeError)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["literal-true", "literal-false", "unknown-join"],
+)
+def test_public_call_inventory_models_conditional_expression_exception_aliases(
+    tmp_path: Path, expression: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, enabled, candidate, record):\n"
+        f"    {expression}\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
