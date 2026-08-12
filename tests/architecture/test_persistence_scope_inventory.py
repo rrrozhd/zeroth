@@ -2603,6 +2603,9 @@ def _audit_repository_public_call_provenance(
                     ) -> None:
                         bind_identity(target, resolve(value, state), position, state)
 
+                    def exception_identity(identity: object) -> type[BaseException] | None:
+                        return identity if identity is None or isinstance(identity, type) else None
+
                     def _definitely_nonempty_iterable(expression: ast.AST) -> bool:
                         if isinstance(expression, (ast.List, ast.Set, ast.Tuple)):
                             return bool(expression.elts)
@@ -2748,6 +2751,36 @@ def _audit_repository_public_call_provenance(
                                 state = transfer_expression(child, state)
                         return state
 
+                    def transfer_assignment_value(
+                        expression_node: ast.AST,
+                        state: dict[str, type[BaseException] | None],
+                    ) -> tuple[
+                        dict[str, type[BaseException] | None],
+                        object,
+                    ]:
+                        if isinstance(expression_node, (ast.Tuple, ast.List)):
+                            identities: list[object] = []
+                            for element in expression_node.elts:
+                                state, identity = transfer_assignment_value(element, state)
+                                identities.append(identity)
+                            return state, tuple(identities)
+                        if isinstance(expression_node, ast.NamedExpr):
+                            state, identity = transfer_assignment_value(
+                                expression_node.value, state
+                            )
+                            bind_identity(
+                                expression_node.target,
+                                exception_identity(identity),
+                                (
+                                    expression_node.lineno,
+                                    expression_node.col_offset,
+                                ),
+                                state,
+                            )
+                            return state, identity
+                        state = transfer_expression(expression_node, state)
+                        return state, resolve(expression_node, state)
+
                     def transfer_assignment_target(
                         target: ast.AST,
                         state: dict[str, type[BaseException] | None],
@@ -2766,6 +2799,63 @@ def _audit_repository_public_call_provenance(
                                 state = transfer_assignment_target(element, state)
                         return state
 
+                    def bind_assignment_value(
+                        target: ast.AST,
+                        identity: object,
+                        position: tuple[int, int],
+                        state: dict[str, type[BaseException] | None],
+                    ) -> None:
+                        if isinstance(target, ast.Name):
+                            bind_identity(
+                                target,
+                                exception_identity(identity),
+                                position,
+                                state,
+                            )
+                            return
+                        if isinstance(target, ast.Starred):
+                            bind_assignment_value(target.value, None, position, state)
+                            return
+                        if not isinstance(target, (ast.Tuple, ast.List)):
+                            return
+                        if not isinstance(identity, tuple):
+                            bind_identity(target, None, position, state)
+                            return
+                        starred = [
+                            index
+                            for index, element in enumerate(target.elts)
+                            if isinstance(element, ast.Starred)
+                        ]
+                        if not starred:
+                            if len(identity) != len(target.elts):
+                                bind_identity(target, None, position, state)
+                                return
+                            for element, element_identity in zip(
+                                target.elts, identity, strict=True
+                            ):
+                                bind_assignment_value(
+                                    element, element_identity, position, state
+                                )
+                            return
+                        star_index = starred[0]
+                        required = len(target.elts) - 1
+                        if len(starred) != 1 or len(identity) < required:
+                            bind_identity(target, None, position, state)
+                            return
+                        for element, element_identity in zip(
+                            target.elts[:star_index], identity[:star_index], strict=True
+                        ):
+                            bind_assignment_value(element, element_identity, position, state)
+                        bind_assignment_value(target.elts[star_index], None, position, state)
+                        suffix = len(target.elts) - star_index - 1
+                        if suffix:
+                            for element, element_identity in zip(
+                                target.elts[-suffix:], identity[-suffix:], strict=True
+                            ):
+                                bind_assignment_value(
+                                    element, element_identity, position, state
+                                )
+
                     def walk(
                         block: list[ast.stmt], state: dict[str, type[BaseException] | None]
                     ) -> dict[str, type[BaseException] | None]:
@@ -2773,17 +2863,21 @@ def _audit_repository_public_call_provenance(
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
                             if isinstance(statement, ast.Assign):
-                                state = transfer_expression(statement.value, state)
-                                value_identity = resolve(statement.value, state)
+                                state, value_identity = transfer_assignment_value(
+                                    statement.value, state
+                                )
                                 for target in statement.targets:
                                     state = transfer_assignment_target(target, state)
-                                    bind_identity(target, value_identity, position, state)
+                                    bind_assignment_value(
+                                        target, value_identity, position, state
+                                    )
                             elif isinstance(statement, ast.AnnAssign):
                                 if statement.value is not None:
-                                    state = transfer_expression(statement.value, state)
-                                    value_identity = resolve(statement.value, state)
+                                    state, value_identity = transfer_assignment_value(
+                                        statement.value, state
+                                    )
                                     state = transfer_assignment_target(statement.target, state)
-                                    bind_identity(
+                                    bind_assignment_value(
                                         statement.target, value_identity, position, state
                                     )
                                 if (
@@ -8995,6 +9089,106 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
         + statement
         + "    try:\n"
         "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("statement", "raised_name", "expected"),
+    [
+        (
+            "    FirstError, SecondError = TypeError, ValueError\n",
+            "FirstError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    FirstError, SecondError = TypeError, ValueError\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    (FirstError, (SecondError, ThirdError)) = "
+            "(TypeError, (ValueError, TypeError))\n",
+            "SecondError",
+            frozenset(),
+        ),
+        (
+            "    (FirstError, (SecondError, ThirdError)) = "
+            "(TypeError, (ValueError, TypeError))\n",
+            "ThirdError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    FirstError, *RestErrors = TypeError, ValueError\n",
+            "FirstError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    FirstError, *RestErrors = candidate\n",
+            "FirstError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    FirstError, SecondError = (TypeError,)\n",
+            "FirstError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    FirstError, SecondError = "
+            "(FirstError := ValueError), (FirstError := TypeError)\n",
+            "FirstError",
+            frozenset(),
+        ),
+        (
+            "    FirstError, SecondError = "
+            "(FirstError := ValueError), (FirstError := TypeError)\n",
+            "SecondError",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=[
+        "pair-first",
+        "pair-second",
+        "nested-second",
+        "nested-third",
+        "starred-static",
+        "starred-unknown",
+        "length-mismatch",
+        "rhs-side-effect-first",
+        "rhs-side-effect-second",
+    ],
+)
+def test_public_call_inventory_models_destructured_exception_aliases(
+    tmp_path: Path,
+    statement: str,
+    raised_name: str,
+    expected: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        + statement
+        + "    try:\n"
+        + f"        raise {raised_name}\n"
         "    except ValueError:\n"
         "        closure = None\n"
         "    except TypeError:\n"
