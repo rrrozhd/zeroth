@@ -4553,6 +4553,7 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
         {
             "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_scoped_service::scoped",
+            "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
     )
     reviewed, unreviewed = _audit_repository_public_call_inventories(root)
@@ -11459,6 +11460,7 @@ def test_production_audit_repository_has_only_explicit_scoped_constructors() -> 
         {
             "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_scoped_service::scoped",
+            "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
     )
 
