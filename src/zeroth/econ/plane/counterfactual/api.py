@@ -19,7 +19,10 @@ def run(
     db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> ValueEstimateOut:
-    estimate = run_evaluation(db, payload)
+    try:
+        estimate = run_evaluation(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ValueEstimateOut.model_validate(estimate)
 
 

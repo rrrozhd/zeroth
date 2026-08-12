@@ -199,6 +199,76 @@ def test_tenant_scope_upgrade_from_previous_sqlite_preserves_rows() -> None:
             )
 
 
+def test_tenant_scope_downgrade_refuses_cross_tenant_execution_collisions_before_ddl() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        _legacy_schema(connection)
+        connection.execute(
+            text(
+                "INSERT INTO execution_events "
+                "(id, tenant_id, execution_id, payload) VALUES "
+                "(1, 'tenant-a', 'collision', 'a')"
+            )
+        )
+        migration = _load_migration()
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade()
+        connection.execute(
+            text(
+                "INSERT INTO execution_events "
+                "(id, tenant_id, execution_id, payload) VALUES "
+                "(2, 'tenant-b', 'collision', 'b')"
+            )
+        )
+        shape_before = _scope_shape(connection, "execution_events")
+
+        with pytest.raises(
+            RuntimeError,
+            match=r"1 cross-tenant execution_id collision.*collision.*2 tenants.*2 rows",
+        ):
+            migration.downgrade()
+
+        assert _scope_shape(connection, "execution_events") == shape_before
+        assert "tenant_id" in {
+            column["name"] for column in inspect(connection).get_columns("connector_delivery_log")
+        }
+        assert connection.execute(
+            text("SELECT tenant_id, execution_id FROM execution_events ORDER BY tenant_id")
+        ).all() == [("tenant-a", "collision"), ("tenant-b", "collision")]
+
+
+def test_tenant_scope_downgrade_round_trips_noncolliding_sqlite_data() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        _legacy_schema(connection)
+        connection.execute(
+            text(
+                "INSERT INTO execution_events "
+                "(id, tenant_id, execution_id, payload) VALUES "
+                "(1, 'tenant-a', 'unique-a', 'a')"
+            )
+        )
+        migration = _load_migration()
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade()
+
+        migration.downgrade()
+
+        execution_shape = _scope_shape(connection, "execution_events")
+        assert execution_shape["tenant_default"] is not None
+        assert execution_shape["tenant_uniques"] == []
+        assert {
+            tuple(constraint["column_names"])
+            for constraint in inspect(connection).get_unique_constraints("execution_events")
+        } == {("execution_id",)}
+        assert "tenant_id" not in {
+            column["name"] for column in inspect(connection).get_columns("connector_delivery_log")
+        }
+        assert connection.execute(
+            text("SELECT tenant_id, execution_id, payload FROM execution_events")
+        ).one() == ("tenant-a", "unique-a", "a")
+
+
 def test_alembic_upgrade_from_previous_sqlite_revision_preserves_connector_rows(
     tmp_path: Path,
 ) -> None:
@@ -379,6 +449,55 @@ def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, mo
                         "VALUES (3, 'tenant-b', 'shared', 'duplicate')"
                     )
                 )
+
+        engine.dispose()
+        engine = None
+        with pytest.raises(
+            RuntimeError,
+            match=r"1 cross-tenant execution_id collision.*shared.*2 tenants.*2 rows",
+        ):
+            command.downgrade(config, "20260811_04")
+
+        engine = create_engine(database_url)
+        with engine.connect() as connection:
+            assert {
+                tuple(constraint["column_names"])
+                for constraint in inspect(connection).get_unique_constraints("execution_events")
+            } == {("tenant_id", "execution_id")}
+            assert "tenant_id" in {
+                column["name"]
+                for column in inspect(connection).get_columns("connector_delivery_log")
+            }
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM execution_events "
+                    "WHERE tenant_id = 'tenant-b' AND execution_id = 'shared'"
+                )
+            )
+        engine.dispose()
+        engine = None
+
+        command.downgrade(config, "20260811_04")
+
+        engine = create_engine(database_url)
+        with engine.connect() as connection:
+            assert {
+                tuple(constraint["column_names"])
+                for constraint in inspect(connection).get_unique_constraints("execution_events")
+            } == {("execution_id",)}
+            assert "tenant_id" not in {
+                column["name"]
+                for column in inspect(connection).get_columns("connector_delivery_log")
+            }
+            tenant_column = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("execution_events")
+            }["tenant_id"]
+            assert tenant_column["default"] is not None
+            assert connection.execute(
+                text("SELECT tenant_id, execution_id, payload FROM execution_events")
+            ).one() == ("default", "shared", "event")
     finally:
         if engine is not None:
             engine.dispose()
