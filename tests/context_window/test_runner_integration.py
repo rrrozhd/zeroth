@@ -356,6 +356,8 @@ async def test_tool_loop_compaction_measurement_reaches_final_audit() -> None:
     tool_call_response = ProviderResponse(
         content=None,
         tool_calls=[{"id": "tc-1", "name": "search", "args": {"q": "test"}}],
+        cost_usd=0.0,
+        cost_measurement=MeasurementState.MEASURED,
     )
     final_response = ProviderResponse(
         content='{"answer":"found it"}',

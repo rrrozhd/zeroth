@@ -27,6 +27,7 @@ from typing import Any
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
 from zeroth.governance.audit import NodeAuditRecord
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
@@ -361,8 +362,15 @@ class RuntimeParallelExecutor:
                 [(list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts],
             )
             for history, refs in failed_histories:
-                run.execution_history.extend(history)
-                run.audit_refs.extend(refs)
+                for entry in history:
+                    if not entry.audit_ref or all(
+                        existing.audit_ref != entry.audit_ref
+                        for existing in run.execution_history
+                    ):
+                        run.execution_history.append(entry)
+                for ref in refs:
+                    if ref not in run.audit_refs:
+                        run.audit_refs.append(ref)
             raise
 
         # Enrich results with branch state + per-branch cost rollup (D-09)
@@ -588,8 +596,8 @@ class RuntimeParallelExecutor:
                 error="cancelled_by_approval_pause",
                 audit_refs=[],
                 execution_history=[],
-                cost_usd=0.0,
-                cost_measurement="measured",
+                cost_usd=None,
+                cost_measurement=MeasurementState.UNMEASURED,
             )
             for ctx in pending.get("cancelled_branches", [])
         ]

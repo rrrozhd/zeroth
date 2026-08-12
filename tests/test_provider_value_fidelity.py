@@ -30,7 +30,7 @@ from zeroth.runtime.agents.errors import (
     AgentProviderError,
     BudgetExceededError,
 )
-from zeroth.runtime.agents.models import AgentConfig
+from zeroth.runtime.agents.models import AgentConfig, RetryPolicy
 from zeroth.runtime.agents.runner import AgentRunner
 from zeroth.runtime.context.models import CompactionResult, ContextWindowSettings
 from zeroth.runtime.context.strategies import LLMSummarizationStrategy, ObservationMaskingStrategy
@@ -231,6 +231,45 @@ async def test_compaction_measurement_survives_output_failure() -> None:
 
     assert raised.value.audit_record["cost_usd"] == 1.0
     assert raised.value.audit_record["estimated_cost_usd"] == 0.25
+
+
+async def test_validation_retry_keeps_every_provider_measurement() -> None:
+    class Input(BaseModel):
+        query: str
+
+    class Output(BaseModel):
+        answer: str
+
+    runner = AgentRunner(
+        AgentConfig(
+            name="fidelity-retry",
+            instruction="answer",
+            model_name="m",
+            input_model=Input,
+            output_model=Output,
+            retry_policy=RetryPolicy(max_retries=1, use_exponential_backoff=False),
+        ),
+        DeterministicProviderAdapter(
+            [
+                ProviderResponse(
+                    content='{"wrong":"shape"}',
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+                ProviderResponse(
+                    content='{"answer":"ok"}',
+                    estimated_cost_usd=0.3,
+                    cost_measurement=MeasurementState.ESTIMATED,
+                ),
+            ]
+        ),
+    )
+
+    result = await runner.run({"query": "hi"})
+
+    assert result.audit_record["cost_usd"] == 0.2
+    assert result.audit_record["estimated_cost_usd"] == 0.3
+    assert result.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
 
 
 async def test_compaction_measurement_survives_budget_rejection() -> None:

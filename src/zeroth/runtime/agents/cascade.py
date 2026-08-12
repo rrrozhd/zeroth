@@ -51,6 +51,7 @@ class CascadingProviderAdapter:
         primary_estimated_cost: float | None = None
         primary_measurement = MeasurementState.UNMEASURED
         primary_event_id: str | None = None
+        primary: ProviderResponse | None = None
         failure: str | None = None
         try:
             primary = await self._inner.ainvoke(cheap_request)
@@ -79,7 +80,14 @@ class CascadingProviderAdapter:
 
         # Escalate to the incumbent (request.model_name unchanged). If this ALSO raises, the
         # exception propagates -- both models failed; never fabricate a response.
-        incumbent = await self._inner.ainvoke(request)
+        try:
+            incumbent = await self._inner.ainvoke(request)
+        except Exception as exc:
+            if primary is not None:
+                from zeroth.runtime.agents.runner import AgentRunner
+
+                AgentRunner._attach_cost_audit(exc, primary)
+            raise
         incumbent_cost = incumbent.cost_usd
         incumbent_estimated_cost = incumbent.estimated_cost_usd
         states = (primary_measurement, incumbent.cost_measurement)

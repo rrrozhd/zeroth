@@ -367,6 +367,7 @@ async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) 
         ],
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
+    graph.execution_settings.sequential_join_enabled = False
 
     run = await _make_orchestrator(
         {"source": source_runner, "sink": sink_runner}, sqlite_db
@@ -379,6 +380,7 @@ async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) 
     ]
     assert failed[0].estimated_cost_usd == 0.25
     assert failed[0].cost_measurement is MeasurementState.ESTIMATED
+    assert sum_run_cost(run) == pytest.approx(0.25)
 
 
 @pytest.mark.asyncio
