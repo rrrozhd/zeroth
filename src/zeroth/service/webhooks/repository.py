@@ -21,6 +21,7 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDeadLetter,
@@ -78,6 +79,7 @@ class WebhookRepository:
 
     # ── Subscription CRUD ──────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def create_subscription(self, sub: WebhookSubscription) -> WebhookSubscription:
         """Persist a new webhook subscription and return it."""
         if sub.tenant_id != self._scope_context.tenant_id:
@@ -96,6 +98,7 @@ class WebhookRepository:
         )
         return sub
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_subscription(self, subscription_id: str) -> WebhookSubscription | None:
         """Look up a subscription by ID. Returns None if not found."""
         row = await self._subscriptions.select_one(where={"subscription_id": subscription_id})
@@ -103,6 +106,7 @@ class WebhookRepository:
             return None
         return self._row_to_subscription(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_subscriptions(
         self,
         deployment_ref: str | None = None,
@@ -113,6 +117,7 @@ class WebhookRepository:
             rows = await subscriptions.select(where=where, order_by=("created_at",))
         return [self._row_to_subscription(r) for r in rows]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_subscriptions_for_event(
         self,
         deployment_ref: str,
@@ -128,6 +133,7 @@ class WebhookRepository:
                 result.append(sub)
         return result
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def deactivate_subscription(self, subscription_id: str) -> None:
         """Set a subscription to inactive."""
         now = utc_now().isoformat()
@@ -135,12 +141,14 @@ class WebhookRepository:
             {"active": 0, "updated_at": now}, where={"subscription_id": subscription_id}
         )
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete_subscription(self, subscription_id: str) -> None:
         """Hard-delete a subscription."""
         await self._subscriptions.delete(where={"subscription_id": subscription_id})
 
     # ── Delivery lifecycle ─────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def enqueue_delivery(self, delivery: WebhookDelivery) -> WebhookDelivery:
         """Persist a new delivery with PENDING status."""
         await self._deliveries.insert(
@@ -162,6 +170,9 @@ class WebhookRepository:
         )
         return delivery
 
+    @persistence_operation(
+        ResourceOperation.ENUMERATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def claim_pending_delivery(
         self, *, lease_seconds: float = 30.0
     ) -> ClaimedWebhookDelivery | None:
@@ -225,6 +236,7 @@ class WebhookRepository:
                     return ClaimedWebhookDelivery(delivery, generation)
         return None
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def mark_delivered(self, delivery_id: str, generation: int) -> bool:
         """Complete only the currently leased generation."""
         now = utc_now().isoformat()
@@ -239,6 +251,7 @@ class WebhookRepository:
                 returning="delivery_id",
             )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def mark_failed(
         self,
         delivery_id: str,
@@ -275,6 +288,9 @@ class WebhookRepository:
                 returning="delivery_id",
             )
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def dead_letter(self, delivery_id: str, generation: int) -> bool:
         """Move a delivery to the dead-letter table.
 
@@ -327,6 +343,7 @@ class WebhookRepository:
 
     # ── Dead-letter queries ────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_dead_letters(
         self,
         subscription_id: str | None = None,
@@ -351,6 +368,7 @@ class WebhookRepository:
         rows = list(reversed(rows))[:limit]
         return [self._row_to_dead_letter(r) for r in rows]
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_dead_letter(self, dead_letter_id: str) -> WebhookDeadLetter | None:
         """Look up a single dead-letter entry by ID."""
         row = await self._dead_letters.select_one(where={"dead_letter_id": dead_letter_id})

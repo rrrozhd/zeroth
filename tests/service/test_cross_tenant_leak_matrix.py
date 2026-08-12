@@ -195,6 +195,37 @@ def test_sqlalchemy_update_case_detects_disabled_tenant_predicate(monkeypatch) -
         exercise_sqlalchemy_case(engine, case)
 
 
+@pytest.mark.parametrize(
+    "operation",
+    (ResourceOperation.READ, ResourceOperation.ENUMERATE, ResourceOperation.DELETE),
+    ids=lambda operation: operation.value,
+)
+def test_sqlalchemy_query_case_detects_disabled_tenant_predicate(operation, monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_query_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.query_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item for item in generated_sqlalchemy_cases([Widget], engine) if item.operation is operation
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
+
+
 def test_sqlalchemy_create_case_requires_a_retrievable_foreign_row() -> None:
     class MetaBase(DeclarativeBase):
         pass

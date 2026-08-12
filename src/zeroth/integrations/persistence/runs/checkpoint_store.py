@@ -22,6 +22,7 @@ from zeroth.platform.storage import (
 )
 from zeroth.platform.storage.json import load_typed_value
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.runtime.runs import Run
 
 
@@ -64,6 +65,7 @@ class CheckpointRowStore:
             # Value was written before encryption was enabled; return as-is.
             return state_json
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def write_row(
         self,
         *,
@@ -86,6 +88,7 @@ class CheckpointRowStore:
                 created_at=created_at,
             )
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def write_row_in_connection(
         self,
         connection: object,
@@ -114,6 +117,7 @@ class CheckpointRowStore:
             created_at=created_at,
         )
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def write_row_bound(
         self,
         checkpoints: BoundStructuredTable,
@@ -144,6 +148,7 @@ class CheckpointRowStore:
             returning="checkpoint_id",
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         checkpoint_id: str,
@@ -157,6 +162,7 @@ class CheckpointRowStore:
         state_json = self.decrypt_state_json(row["state_json"])
         return Run.model_validate(load_typed_value(state_json, dict[str, Any]))
 
+    @persistence_operation(ResourceOperation.READ)
     async def latest_id_for_run(
         self,
         run_id: str,
@@ -170,6 +176,7 @@ class CheckpointRowStore:
             )
         return rows[-1]["checkpoint_id"] if rows else None
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_ids(
         self,
         thread_id: str,
@@ -183,6 +190,7 @@ class CheckpointRowStore:
             )
         return [row["checkpoint_id"] for row in rows]
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(
         self,
         checkpoint_id: str,

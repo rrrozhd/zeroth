@@ -8,6 +8,7 @@ from zeroth.platform.storage import (
     ScopedTable,
     TenantWideScopeContext,
 )
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 
 class RetentionWorkspaceMaintenanceReader:
@@ -26,6 +27,7 @@ class RetentionWorkspaceMaintenanceReader:
             database, SERVICE_SCOPE_REGISTRY, "service.node_audits", context
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_workspace_ids(self) -> list[str]:
         workspace_ids: set[str] = set()
         for table in (self._runs, self._audits):

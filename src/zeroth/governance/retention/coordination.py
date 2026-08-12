@@ -14,6 +14,7 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ class RetentionCoordinator:
         """Tenant structurally bound to every coordinated transaction."""
         return self._scope_context.tenant_id
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[RetentionTransaction]:
         """Yield a write transaction holding the tenant coordination row."""

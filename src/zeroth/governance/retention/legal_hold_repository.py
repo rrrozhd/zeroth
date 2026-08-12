@@ -18,6 +18,7 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 
 class LegalHoldRepository:
@@ -37,6 +38,7 @@ class LegalHoldRepository:
     def for_default_compatibility(cls, database: AsyncDatabase) -> LegalHoldRepository:
         return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def place(
         self,
         *,
@@ -53,6 +55,7 @@ class LegalHoldRepository:
                 placed_by=placed_by,
             )
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def place_in_transaction(
         self,
         transaction: RetentionTransaction,
@@ -84,6 +87,7 @@ class LegalHoldRepository:
         )
         return hold
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def release(self, hold_id: str) -> bool:
         """Release (deactivate) a hold. Idempotent; returns True if it existed."""
         existing = await self._holds.select_one(where={"hold_id": hold_id}, columns=("hold_id",))
@@ -92,6 +96,7 @@ class LegalHoldRepository:
         async with self._coordinator.transaction() as transaction:
             return await self.release_in_transaction(transaction, hold_id)
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def release_in_transaction(
         self,
         transaction: RetentionTransaction,
@@ -108,11 +113,13 @@ class LegalHoldRepository:
         )
         return True
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, hold_id: str) -> LegalHold | None:
         """Load a single hold by id."""
         row = await self._holds.select_one(where={"hold_id": hold_id})
         return None if row is None else self._row_to_hold(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_for_tenant(self, *, active_only: bool = True) -> list[LegalHold]:
         """List holds for a tenant, active-only by default."""
         where = {"active": 1} if active_only else None
@@ -120,11 +127,13 @@ class LegalHoldRepository:
             rows = await holds.select(where=where, order_by=("created_at", "hold_id"))
         return [self._row_to_hold(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.ENUMERATE, ResourceOperation.READ)
     async def active_holds_for_tenant(self) -> TenantHolds:
         """Resolve active holds into a tenant-wide flag + held run_id set."""
         async with self._coordinator.transaction() as transaction:
             return await self.active_holds_for_tenant_in_transaction(transaction)
 
+    @persistence_operation(ResourceOperation.ENUMERATE, ResourceOperation.READ)
     async def active_holds_for_tenant_in_transaction(
         self,
         transaction: RetentionTransaction,

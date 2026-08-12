@@ -27,6 +27,7 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 # The support vocabulary mirrors zeroth.contracts.graph.SideEffectSupport. It is
 # duplicated as plain strings, not imported, because platform may not depend on
@@ -135,6 +136,7 @@ class SideEffectOperationStore:
     # Reads
     # -----------------------------------------------------------------------
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, operation_key: str) -> dict[str, Any] | None:
         """Return the stored record, with ``dedupe_supported`` derived."""
         row = await self.table.select_one(where={"operation_key": operation_key})
@@ -145,12 +147,14 @@ class SideEffectOperationStore:
         record["dedupe_supported"] = record["support"] != SUPPORT_AT_LEAST_ONCE
         return record
 
+    @persistence_operation(ResourceOperation.READ)
     async def state_of(self, operation_key: str) -> OperationState:
         record = await self.get(operation_key)
         if record is None:
             return OperationState.NOT_STARTED
         return OperationState(record["state"])
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def pending_reconciliation(self, run_id: str) -> list[dict[str, Any]]:
         """Ambiguous operations for a run -- durable work, not an in-memory flag."""
         async with self.table.transaction() as operations:
@@ -164,6 +168,9 @@ class SideEffectOperationStore:
     # Claim
     # -----------------------------------------------------------------------
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def claim(
         self,
         operation_key: str,
@@ -336,6 +343,7 @@ class SideEffectOperationStore:
     # Outcome reports -- all convergent
     # -----------------------------------------------------------------------
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def complete(self, operation_key: str, *, receipt: str) -> bool:
         """Store the result.  Returns False if a result was already stored.
 
@@ -362,6 +370,7 @@ class SideEffectOperationStore:
             )
         return won
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def fail(self, operation_key: str, *, error: str) -> None:
         """Record a *confirmed* failure.
 
@@ -389,6 +398,7 @@ class SideEffectOperationStore:
                 returning="operation_key",
             )
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def mark_ambiguous(self, operation_key: str, *, reason: str) -> None:
         """Record that the outcome is unknown -- distinct from known-failed."""
         self._count("zeroth_side_effect_ambiguous_total")
@@ -405,6 +415,7 @@ class SideEffectOperationStore:
                 returning="operation_key",
             )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_reconciliation(
         self,
         operation_key: str,
@@ -489,11 +500,13 @@ class SideEffectOperationStore:
         self._count("zeroth_side_effect_reconciliation_failed_total")
         return OperationState.AMBIGUOUS
 
+    @persistence_operation(ResourceOperation.DELETE, ResourceOperation.ENUMERATE)
     async def erase_for_run(self, run_id: str) -> int:
         """Delete this scope's receipts for one run."""
         async with self.table.transaction(write_lock=True) as operations:
             return await self.erase_for_run_in_transaction(operations, run_id)
 
+    @persistence_operation(ResourceOperation.DELETE, ResourceOperation.ENUMERATE)
     async def erase_for_run_in_transaction(
         self,
         transaction: BoundStructuredTable,

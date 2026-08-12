@@ -13,6 +13,7 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 if TYPE_CHECKING:
     from zeroth.governance.retention.cleanup_manifest import CleanupManifest, CleanupOperation
@@ -61,6 +62,7 @@ class CleanupStateRepository:
             scope_context,
         )
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def initialize_in_transaction(
         self,
         connection: AsyncConnection,
@@ -111,6 +113,7 @@ class CleanupStateRepository:
                 }
             )
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_state_in_transaction(
         self,
         connection: AsyncConnection,
@@ -136,6 +139,7 @@ class CleanupStateRepository:
             terminal_log_id=row["terminal_log_id"],
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_operations_in_transaction(
         self,
         connection: AsyncConnection,
@@ -156,6 +160,7 @@ class CleanupStateRepository:
             for row in rows
         ]
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_operation_in_transaction(
         self,
         connection: AsyncConnection,
@@ -179,6 +184,7 @@ class CleanupStateRepository:
             revision=int(row["revision"]),
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def claim_in_transaction(
         self,
         connection: AsyncConnection,
@@ -217,6 +223,7 @@ class CleanupStateRepository:
             raise RuntimeError("cleanup state compare-and-swap failed")
         return updated
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def heartbeat_in_transaction(
         self,
         connection: AsyncConnection,
@@ -246,6 +253,7 @@ class CleanupStateRepository:
             raise RuntimeError("cleanup state compare-and-swap failed")
         return updated
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def update_operation_in_transaction(
         self,
         connection: AsyncConnection,
@@ -287,6 +295,7 @@ class CleanupStateRepository:
         )
         return state
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def release_in_transaction(
         self,
         connection: AsyncConnection,
@@ -306,6 +315,7 @@ class CleanupStateRepository:
             terminal_log_id=None,
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def terminal_in_transaction(
         self,
         connection: AsyncConnection,
@@ -327,6 +337,7 @@ class CleanupStateRepository:
             terminal_log_id=terminal_log_id,
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def repair_terminal_in_transaction(
         self,
         connection: AsyncConnection,
