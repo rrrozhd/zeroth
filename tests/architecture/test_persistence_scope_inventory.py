@@ -1806,15 +1806,91 @@ def _audit_repository_public_call_provenance(
                     if isinstance(statement, (ast.Import, ast.ImportFrom))
                     for alias in statement.names
                 )
-                module_exception_aliases = {
-                    target.id: _BUILTIN_EXCEPTION_CLASSES[value.id]
+                module_exception_alias_events: dict[
+                    str, list[tuple[tuple[int, int], type[BaseException] | None]]
+                ] = {}
+                declared_module_exception_classes = {
+                    statement.name: _BUILTIN_EXCEPTION_CLASSES[base.id]
                     for statement in tree.body
-                    if isinstance(statement, ast.Assign)
-                    and len(statement.targets) == 1
-                    and isinstance((target := statement.targets[0]), ast.Name)
-                    and isinstance((value := statement.value), ast.Name)
-                    and value.id in _BUILTIN_EXCEPTION_CLASSES
+                    if isinstance(statement, ast.ClassDef)
+                    and len(statement.bases) == 1
+                    and isinstance((base := statement.bases[0]), ast.Name)
+                    and base.id in _BUILTIN_EXCEPTION_CLASSES
                 }
+
+                def module_exception_identity_at(
+                    name: str,
+                    position: tuple[int, int],
+                    events: dict[
+                        str, list[tuple[tuple[int, int], type[BaseException] | None]]
+                    ] = module_exception_alias_events,
+                ) -> tuple[bool, type[BaseException] | None]:
+                    for event, identity in reversed(events.get(name, [])):
+                        if event < position:
+                            return True, identity
+                    return False, None
+
+                def resolve_module_exception_identity(
+                    expression: ast.AST | None, position: tuple[int, int]
+                ) -> type[BaseException] | None:
+                    dotted = _dotted_ast_path(expression) if expression is not None else None
+                    if dotted is None or len(dotted) != 1:
+                        return None
+                    found, identity = module_exception_identity_at(dotted[0], position)
+                    if found:
+                        return identity
+                    return _BUILTIN_EXCEPTION_CLASSES.get(dotted[0])
+
+                for statement in tree.body:
+                    position = (statement.lineno, statement.col_offset)
+                    if isinstance(statement, ast.ImportFrom):
+                        for alias in statement.names:
+                            module_exception_alias_events.setdefault(
+                                alias.asname or alias.name,
+                                [],
+                            ).append(
+                                (
+                                    position,
+                                    _BUILTIN_EXCEPTION_CLASSES.get(alias.name)
+                                    if statement.module == "builtins"
+                                    else None,
+                                )
+                            )
+                        continue
+                    if isinstance(statement, ast.Import):
+                        for alias in statement.names:
+                            module_exception_alias_events.setdefault(
+                                alias.asname or alias.name.split(".")[0],
+                                [],
+                            ).append((position, None))
+                        continue
+                    if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                        value = statement.value
+                        identity = resolve_module_exception_identity(value, position)
+                        targets = (
+                            statement.targets
+                            if isinstance(statement, ast.Assign)
+                            else (statement.target,)
+                        )
+                        for target in targets:
+                            for name in _bound_names(target):
+                                module_exception_alias_events.setdefault(name, []).append(
+                                    (position, identity)
+                                )
+                        continue
+                    if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        module_exception_alias_events.setdefault(statement.name, []).append(
+                            (
+                                position,
+                                declared_module_exception_classes.get(statement.name),
+                            )
+                        )
+                    elif isinstance(statement, ast.Delete):
+                        for target in statement.targets:
+                            for name in _bound_names(target):
+                                module_exception_alias_events.setdefault(name, []).append(
+                                    (position, None)
+                                )
                 lexical_local_names = local_names.get(owner, set())
                 postponed_annotations = any(
                     isinstance(statement, ast.ImportFrom)
@@ -2359,18 +2435,18 @@ def _audit_repository_public_call_provenance(
                 def builtin_exception_class(
                     expression: ast.AST | None,
                     lexical_local_names: set[str] = set(lexical_local_names),
-                    module_bound_names: set[str] = set(module_bound_names),
-                    module_exception_aliases: dict[str, type[BaseException]] = dict(
-                        module_exception_aliases
-                    ),
                 ) -> type[BaseException] | None:
                     dotted = _dotted_ast_path(expression) if expression is not None else None
                     if dotted is None or len(dotted) > 2 or (len(dotted) == 2 and dotted[0] != "builtins"):
                         return None
                     if len(dotted) == 1 and dotted[0] in lexical_local_names:
                         return None
-                    if len(dotted) == 1 and dotted[0] in module_bound_names:
-                        return module_exception_aliases.get(dotted[0])
+                    if len(dotted) == 1:
+                        found, identity = module_exception_identity_at(
+                            dotted[0], (expression.lineno, expression.col_offset)
+                        )
+                        if found:
+                            return identity
                     candidate = _BUILTIN_EXCEPTION_CLASSES.get(dotted[-1])
                     return candidate if candidate is not None else None
 
@@ -2678,6 +2754,8 @@ def _audit_repository_public_call_provenance(
                                 exceptions.append(before)
                             loop_state = before
                             if isinstance(statement, (ast.For, ast.AsyncFor)):
+                                if binding_may_raise(statement.target):
+                                    exceptions.append(loop_state)
                                 loop_state = bind_names(loop_state, _bound_names(statement.target))
                             body_flow = walk_potential_bindings(
                                 statement.body,
@@ -3418,6 +3496,7 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
     # so every operation below is rooted in a reviewed scoped factory.
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
+            "src/zeroth/platform/storage/isolation_probes.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
             "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
@@ -7512,10 +7591,11 @@ def test_public_call_inventory_keeps_closure_before_suppressed_expression_exit(
     "compound",
     [
         "    with suppressor as (left, right):\n        closure = None\n",
+        "    with suppressor:\n        for left, right in (None,):\n            closure = None\n",
         "    with suppressor:\n        async for item in (None,):\n            closure = None\n",
         "    with suppressor:\n        async with manager:\n            closure = None\n",
     ],
-    ids=["with-destructure", "async-for", "async-with"],
+    ids=["with-destructure", "for-destructure", "async-for", "async-with"],
 )
 def test_public_call_inventory_keeps_closure_before_suppressed_async_or_binding_exit(
     tmp_path: Path, compound: str
@@ -7571,6 +7651,64 @@ def test_public_call_inventory_routes_shadowed_module_exception_alias(tmp_path: 
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("module_setup", "raised_name", "handlers", "expected"),
+    [
+        (
+            "from builtins import TypeError as AliasError\n",
+            "AliasError",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except TypeError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "ValueError = TypeError\n"
+            "class CustomError(Exception):\n"
+            "    pass\n"
+            "ValueError = CustomError\n",
+            "ValueError",
+            "    except TypeError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["imported-builtin-alias", "rebound-alias"],
+)
+def test_public_call_inventory_routes_ordered_module_exception_aliases(
+    tmp_path: Path,
+    module_setup: str,
+    raised_name: str,
+    handlers: str,
+    expected: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + module_setup
+        + "async def outer(suppressor, candidate, record):\n"
+        + "    try:\n"
+        + f"        raise {raised_name}\n"
+        + handlers
+        + "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
 @pytest.mark.parametrize("has_value", [False, True], ids=["annotation-only", "valued"])
@@ -8738,6 +8876,7 @@ def test_production_audit_repository_has_only_explicit_scoped_constructors() -> 
     root = Path(__file__).resolve().parents[2]
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
+            "src/zeroth/platform/storage/isolation_probes.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
             "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
@@ -10026,6 +10165,7 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
         "apps/vendor_dd/entrypoint.py::contract_registry_for_deployment::scoped",
         "apps/vendor_dd/seed.py::main::scoped",
         "src/zeroth/contracts/registry/registry.py::for_scope::scoped",
+        "src/zeroth/platform/storage/isolation_probes.py::_drive_contract_versions::scoped",
         "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
         "src/zeroth/service/bootstrap/factory.py::build_runners_for_deployment::scoped",
         "src/zeroth/service/demo.py::seed_demo::default_compatibility",
