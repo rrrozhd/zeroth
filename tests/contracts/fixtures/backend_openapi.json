@@ -4713,6 +4713,14 @@
             "default": 0,
             "type": "integer"
           },
+          "cost_measurement_complete": {
+            "default": true,
+            "type": "boolean"
+          },
+          "estimated_cost_usd": {
+            "default": 0.0,
+            "type": "number"
+          },
           "findings": {
             "default": 0,
             "type": "integer"

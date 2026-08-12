@@ -610,11 +610,13 @@ class AgentRunner:
             )
             allowed, spend, cap = await self.budget_enforcer.check_budget(_tenant_id)
             if not allowed:
-                raise BudgetExceededError(
+                error = BudgetExceededError(
                     f"tenant budget exceeded: spent ${spend:.4f} of ${cap:.4f} cap",
                     spend=spend,
                     cap=cap,
                 )
+                self._attach_cost_audit(error, compaction_result)
+                raise error
 
         await self._start_mcp_servers(effective_capabilities)
         try:
@@ -622,6 +624,7 @@ class AgentRunner:
             attempts = 0
             for attempt in range(1, max_attempts + 1):
                 attempts = attempt
+                response: ProviderResponse | None = None
                 try:
                     # Each retry rebuilds the provider request from the current message history.
                     request = self._build_provider_request(messages, prompt.metadata)
@@ -672,55 +675,7 @@ class AgentRunner:
                         record["response"] = self.content_guardrail.inspect(
                             record["response"], direction="output"
                         ).payload
-                    usage_parts = [
-                        usage
-                        for usage in (
-                            response.token_usage,
-                            getattr(compaction_result, "token_usage", None),
-                        )
-                        if isinstance(usage, TokenUsage)
-                    ]
-                    if usage_parts:
-                        record["token_usage"] = TokenUsage(
-                            input_tokens=sum(usage.input_tokens for usage in usage_parts),
-                            output_tokens=sum(usage.output_tokens for usage in usage_parts),
-                            total_tokens=sum(usage.total_tokens for usage in usage_parts),
-                            model_name=response.token_usage.model_name
-                            if response.token_usage is not None
-                            else usage_parts[0].model_name,
-                        ).model_dump(mode="json")
-                    cost_parts = tuple(
-                        part
-                        for part in (response, compaction_result)
-                        if part is not None
-                        and isinstance(getattr(part, "cost_measurement", None), MeasurementState)
-                    )
-                    measured_cost = sum(
-                        part.cost_usd if part.cost_usd is not None else 0.0
-                        for part in cost_parts
-                    )
-                    estimated_cost = sum(
-                        part.estimated_cost_usd
-                        if part.estimated_cost_usd is not None
-                        else 0.0
-                        for part in cost_parts
-                    )
-                    states = [part.cost_measurement for part in cost_parts]
-                    record["cost_measurement"] = (
-                        MeasurementState.UNMEASURED
-                        if MeasurementState.UNMEASURED in states
-                        else MeasurementState.ESTIMATED
-                        if MeasurementState.ESTIMATED in states
-                        else MeasurementState.MEASURED
-                    )
-                    if measured_cost or any(
-                        part.cost_measurement is MeasurementState.MEASURED
-                        and part.cost_usd == 0.0
-                        for part in cost_parts
-                    ):
-                        record["cost_usd"] = measured_cost
-                    if estimated_cost:
-                        record["estimated_cost_usd"] = estimated_cost
+                    record.update(self._measurement_audit(response, compaction_result))
                     if response.cost_event_id is not None:
                         record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
@@ -780,17 +735,18 @@ class AgentRunner:
                     )
                 except AgentContentBlockedError as exc:
                     # Content blocks are terminal — never retried or wrapped.
-                    self._attach_cost_audit(exc, response)
+                    self._attach_cost_audit(exc, response, compaction_result)
                     raise
                 except TimeoutError as exc:
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
                     )
                     if not retry_policy.retry_on_timeout or attempt == max_attempts:
+                        self._attach_cost_audit(last_error, response, compaction_result)
                         raise last_error from exc
                 except AgentOutputValidationError as exc:
                     last_error = exc
-                    self._attach_cost_audit(exc, response)
+                    self._attach_cost_audit(exc, response, compaction_result)
                     if not retry_policy.retry_on_validation_error or attempt == max_attempts:
                         raise
                 except Exception as exc:
@@ -800,8 +756,13 @@ class AgentRunner:
                     should_retry = retry_policy.retry_on_provider_error and retryable
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
+                            self._attach_cost_audit(
+                                last_error, response, compaction_result
+                            )
                             raise last_error from exc
-                        raise AgentProviderError(str(last_error)) from last_error
+                        error = AgentProviderError(str(last_error))
+                        self._attach_cost_audit(error, response, compaction_result)
+                        raise error from last_error
                 if retry_policy.use_exponential_backoff:
                     delay = compute_backoff_delay(
                         attempt,
@@ -819,27 +780,64 @@ class AgentRunner:
             await self._stop_mcp_servers()
 
     @staticmethod
-    def _attach_cost_audit(error: Exception, response: ProviderResponse | None) -> None:
+    def _measurement_audit(*parts: Any) -> dict[str, Any]:
+        """Aggregate provider-boundary measurements without inventing zeroes."""
+        measured_parts = tuple(
+            part
+            for part in parts
+            if part is not None
+            and isinstance(getattr(part, "cost_measurement", None), MeasurementState)
+        )
+        usage_parts = tuple(
+            usage
+            for part in parts
+            if part is not None
+            if isinstance((usage := getattr(part, "token_usage", None)), TokenUsage)
+        )
+        fragment: dict[str, Any] = {}
+        if usage_parts:
+            fragment["token_usage"] = TokenUsage(
+                input_tokens=sum(usage.input_tokens for usage in usage_parts),
+                output_tokens=sum(usage.output_tokens for usage in usage_parts),
+                total_tokens=sum(usage.total_tokens for usage in usage_parts),
+                model_name=usage_parts[0].model_name,
+            ).model_dump(mode="json")
+        if not measured_parts:
+            return fragment
+        states = [part.cost_measurement for part in measured_parts]
+        fragment["cost_measurement"] = (
+            MeasurementState.UNMEASURED
+            if MeasurementState.UNMEASURED in states
+            else MeasurementState.ESTIMATED
+            if MeasurementState.ESTIMATED in states
+            else MeasurementState.MEASURED
+        )
+        recorded = [part.cost_usd for part in measured_parts if part.cost_usd is not None]
+        estimates = [
+            part.estimated_cost_usd
+            for part in measured_parts
+            if part.estimated_cost_usd is not None
+        ]
+        if recorded:
+            fragment["cost_usd"] = sum(recorded)
+        if estimates:
+            fragment["estimated_cost_usd"] = sum(estimates)
+        return fragment
+
+    @classmethod
+    def _attach_cost_audit(cls, error: Exception, *parts: Any) -> None:
         """Bundle a paid response's cost onto a failing error's ``audit_record``.
 
-        Output-validation and content-block failures happen *after* a (paid)
-        provider call but *before* the success audit record is built, so without
-        this the spend is invisible to the audit trail -- and thus to
-        ``econ.waste.analyze_run``. Gated on ``cost_usd`` so only instrumented
-        (real-cost) calls are touched; merges into any ``audit_record`` the error
-        already carries (e.g. content-safety findings).
+        Failures after compaction or a provider call happen before the success
+        audit record is built. Merge their measured or estimated spend into any
+        ``audit_record`` the error already carries.
         """
-        if response is None:
-            return
-        fragment: dict[str, Any] = {"cost_measurement": response.cost_measurement}
-        if response.cost_usd is not None:
-            fragment["cost_usd"] = response.cost_usd
-        if response.estimated_cost_usd is not None:
-            fragment["estimated_cost_usd"] = response.estimated_cost_usd
-        if response.cost_event_id is not None:
+        fragment = cls._measurement_audit(*parts)
+        response = next((part for part in parts if isinstance(part, ProviderResponse)), None)
+        if response is not None and response.cost_event_id is not None:
             fragment["cost_event_id"] = response.cost_event_id
-        if response.token_usage is not None:
-            fragment["token_usage"] = response.token_usage.model_dump(mode="json")
+        if not fragment:
+            return
         existing = getattr(error, "audit_record", None)
         error.audit_record = {**existing, **fragment} if isinstance(existing, Mapping) else fragment
 

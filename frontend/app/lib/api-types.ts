@@ -4896,6 +4896,16 @@ export interface components {
              */
             confirmed_findings: number;
             /**
+             * Cost Measurement Complete
+             * @default true
+             */
+            cost_measurement_complete: boolean;
+            /**
+             * Estimated Cost Usd
+             * @default 0
+             */
+            estimated_cost_usd: number;
+            /**
              * Findings
              * @default 0
              */

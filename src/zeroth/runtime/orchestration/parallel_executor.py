@@ -281,9 +281,11 @@ class RuntimeParallelExecutor:
                 redacted_branch_input = self.audit_recorder.redact(dict(branch_output))
                 redacted_branch_output = self.audit_recorder.redact(dict(ds_output))
 
+                redacted_branch_audit = self.audit_recorder.redact(
+                    dict(ds_audit_with_branch)
+                )
                 # Write audit record if audit repo available
                 if self.audit_recorder.audit_repository is not None:
-                    redacted_branch_audit = self.audit_recorder.redact(dict(ds_audit_with_branch))
                     branch_tool_calls, branch_memory = self.audit_recorder.typed_fields(
                         redacted_branch_audit
                     )
@@ -304,6 +306,13 @@ class RuntimeParallelExecutor:
                             input_snapshot=redacted_branch_input,
                             output_snapshot=redacted_branch_output,
                             execution_metadata=redacted_branch_audit,
+                            cost_usd=redacted_branch_audit.get("cost_usd"),
+                            estimated_cost_usd=redacted_branch_audit.get(
+                                "estimated_cost_usd"
+                            ),
+                            cost_measurement=redacted_branch_audit.get(
+                                "cost_measurement"
+                            ),
                             tool_calls=branch_tool_calls,
                             memory_interactions=branch_memory,
                         )
@@ -317,6 +326,11 @@ class RuntimeParallelExecutor:
                         input_snapshot=redacted_branch_input,
                         output_snapshot=redacted_branch_output,
                         audit_ref=audit_ref,
+                        cost_usd=redacted_branch_audit.get("cost_usd"),
+                        estimated_cost_usd=redacted_branch_audit.get(
+                            "estimated_cost_usd"
+                        ),
+                        cost_measurement=redacted_branch_audit.get("cost_measurement"),
                     )
                 )
 
@@ -383,13 +397,9 @@ class RuntimeParallelExecutor:
                 # cost in the audit metadata; sum the entries on ctx to get
                 # the per-branch cost (read from ds_audit["cost_usd"] fields
                 # that the factory wrote into the branch history).
-                branch_cost = 0.0
-                for entry in ctx.execution_history:
-                    audit = getattr(entry, "execution_metadata", None)
-                    if isinstance(audit, dict) and "cost_usd" in audit:
-                        with contextlib.suppress(TypeError, ValueError):
-                            branch_cost += float(audit["cost_usd"])
-                result.cost_usd = branch_cost
+                branch_run = run.model_copy(update={"execution_history": ctx.execution_history})
+                branch_cost = sum_run_cost(branch_run)
+                result.cost_usd = branch_cost if branch_cost is not None else 0.0
 
         # Collect fan-in
         return self.parallel_executor.collect_fan_in(branch_results, config, output_data)

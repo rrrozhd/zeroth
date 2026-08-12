@@ -18,7 +18,11 @@ def upgrade() -> None:
         batch.add_column(
             sa.Column("usage_measurement", sa.String(16), nullable=False, server_default="unmeasured")
         )
-    op.execute("UPDATE execution_events SET cost_measurement = 'measured'")
+    op.execute(
+        "UPDATE execution_events SET cost_measurement = CASE "
+        "WHEN token_cost_usd = 0 AND tool_cost_usd = 0 AND compute_cost_usd = 0 "
+        "THEN 'unmeasured' ELSE 'measured' END"
+    )
     with op.batch_alter_table("execution_events") as batch:
         batch.alter_column(
             "cost_measurement",

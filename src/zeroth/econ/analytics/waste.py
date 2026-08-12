@@ -409,6 +409,8 @@ class WasteRollup(BaseModel):
     runs_with_waste: int = 0
     runs_with_cost: int = 0
     total_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
+    cost_measurement_complete: bool = True
     total_confirmed_waste_usd: float = 0.0
     total_flagged_waste_usd: float = 0.0
     # (confirmed + flagged) / total spend across the window -- spend-weighted, not a
@@ -446,7 +448,8 @@ def waste_rollup(
     terminal_statuses = {RunStatus.COMPLETED.value, RunStatus.FAILED.value}
     terminal = [r for r in top_level if getattr(r.status, "value", r.status) in terminal_statuses]
 
-    total_cost = confirmed = flagged = 0.0
+    total_cost = estimated_cost = confirmed = flagged = 0.0
+    measurement_complete = True
     runs_with_cost = runs_with_waste = 0
     n_findings = n_confirmed = n_flagged = 0
     by_kind: dict[WasteKind, list[float]] = {}  # kind -> [count, wasted]
@@ -455,6 +458,8 @@ def waste_rollup(
     for run in terminal:
         report = analyze_run(run.run_id, run.status, audits_by_run.get(run.run_id, []))
         total_cost += report.total_cost_usd
+        estimated_cost += report.estimated_cost_usd
+        measurement_complete = measurement_complete and report.cost_measurement_complete
         if report.total_cost_usd > 0:
             runs_with_cost += 1
         c, f = report.confirmed_waste_usd, report.flagged_waste_usd
@@ -484,6 +489,8 @@ def waste_rollup(
         runs_with_waste=runs_with_waste,
         runs_with_cost=runs_with_cost,
         total_cost_usd=round(total_cost, 6),
+        estimated_cost_usd=round(estimated_cost, 6),
+        cost_measurement_complete=measurement_complete,
         total_confirmed_waste_usd=round(confirmed, 6),
         total_flagged_waste_usd=round(flagged, 6),
         waste_ratio=waste_ratio,
@@ -504,6 +511,17 @@ def _rollup_note(report: WasteRollup) -> str:
     """Honest one-line reading of the rollup -- never overclaim, never fake a number."""
     if report.window_runs == 0:
         return "No runs on record yet — invoke a workflow to build a waste history."
+    if not report.cost_measurement_complete:
+        return (
+            f"Cost measurement is incomplete across the last {report.window_runs} run(s); "
+            f"recorded spend is ${report.total_cost_usd:.4f} and estimated spend is "
+            f"${report.estimated_cost_usd:.4f}, so waste thresholds cannot be decided."
+        )
+    if report.runs_with_cost == 0 and report.estimated_cost_usd > 0:
+        return (
+            f"The last {report.window_runs} run(s) have no recorded spend and "
+            f"${report.estimated_cost_usd:.4f} estimated spend."
+        )
     if report.runs_with_cost == 0:
         return (
             f"The last {report.window_runs} run(s) are recorded but none has attributed cost — "
@@ -520,3 +538,12 @@ def _rollup_note(report: WasteRollup) -> str:
         f"${report.total_flagged_waste_usd:.4f} flagged waste across {report.window_runs} run(s) "
         f"({report.waste_ratio:.0%} of ${report.total_cost_usd:.4f} spend){where}."
     )
+
+
+WasteRollup.__signature__ = inspect.signature(WasteRollup).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(WasteRollup).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement_complete"}
+    ]
+)

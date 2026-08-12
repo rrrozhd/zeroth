@@ -40,6 +40,10 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "cost_measurement_complete",
         "estimated_cost_usd",
     ),
+    "zeroth.econ.analytics.waste:WasteRollup": (
+        "cost_measurement_complete",
+        "estimated_cost_usd",
+    ),
     "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
         "cost_measurement",
         "usage_measurement",

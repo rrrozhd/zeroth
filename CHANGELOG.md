@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.4] - 2026-08-12
+
+### Fixed
+
+- Preserve provider measurement provenance through parallel and failed executions,
+  and flag incomplete spend in aggregate budget, costing, and waste views.
+
 ## [0.23.0.3] - 2026-08-12
 
 ### Fixed

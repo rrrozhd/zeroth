@@ -5554,6 +5554,16 @@
             "title": "Confirmed Findings",
             "type": "integer"
           },
+          "cost_measurement_complete": {
+            "default": true,
+            "title": "Cost Measurement Complete",
+            "type": "boolean"
+          },
+          "estimated_cost_usd": {
+            "default": 0.0,
+            "title": "Estimated Cost Usd",
+            "type": "number"
+          },
           "findings": {
             "default": 0,
             "title": "Findings",

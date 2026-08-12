@@ -116,6 +116,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
                 cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
+                measurement_complete=False,
             ),
         ),
         (
@@ -126,6 +127,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
                 cap_usd=0.0,
                 degraded=True,
                 failure_mode="fail_closed",
+                measurement_complete=False,
             ),
         ),
     ],
