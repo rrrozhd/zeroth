@@ -141,11 +141,13 @@ async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> 
 @pytest.mark.security_rc
 async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
-    repository = RunRepository.for_default_compatibility(database)
+    owner = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    foreign = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     run_id = f"security-run-scope-{unique}"
-    await repository.create(_run(run_id, tenant_id="tenant-a", suffix=unique))
-    assert await repository.get(run_id, tenant_id="tenant-b") is None
-    assert await repository.get("unknown-run", tenant_id="tenant-b") is None
+    await owner.create(_run(run_id, tenant_id="tenant-a", suffix=unique))
+    assert await foreign.get(run_id) is None
+    assert await foreign.get("unknown-run") is None
+    assert await owner.get(run_id) is not None
 
 
 @requires_docker
@@ -166,23 +168,16 @@ async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> 
 async def test_security_rc_postgres_same_id_tenant_race(security_postgres) -> None:
     database, unique = security_postgres
     run_id = f"security-run-race-{unique}"
+    tenant_a = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    tenant_b = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     raced = await asyncio.gather(
-        RunRepository.for_default_compatibility(database).create(
-            _run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")
-        ),
-        RunRepository.for_default_compatibility(database).create(
-            _run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")
-        ),
+        tenant_a.create(_run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")),
+        tenant_b.create(_run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")),
         return_exceptions=True,
     )
-    assert sum(isinstance(result, Run) for result in raced) == 1
-    assert sum(isinstance(result, KeyError) for result in raced) == 1
-    winner = await RunRepository.for_default_compatibility(database).get(run_id)
-    assert winner is not None
-    loser = "tenant-b" if winner.tenant_id == "tenant-a" else "tenant-a"
-    assert (
-        await RunRepository.for_default_compatibility(database).get(run_id, tenant_id=loser) is None
-    )
+    assert all(isinstance(result, Run) for result in raced)
+    assert (await tenant_a.get(run_id)).thread_id == f"thread-a-{unique}"
+    assert (await tenant_b.get(run_id)).thread_id == f"thread-b-{unique}"
 
 
 @requires_docker
@@ -196,7 +191,7 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         await GraphRepository(first).save(
             build_graph().model_copy(update={"graph_id": graph_id}), tenant_id="tenant-a"
         )
-        await RunRepository.for_default_compatibility(first).create(
+        await RunRepository(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).create(
             _run(run_id, tenant_id="tenant-a", suffix=unique)
         )
         await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
@@ -208,11 +203,14 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
     restarted = await AsyncPostgresDatabase.create(dsn, min_size=1, max_size=2)
     try:
         assert await GraphRepository(restarted).get(graph_id, tenant_id="tenant-b") is None
+        foreign_runs = RunRepository(restarted, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+        assert await foreign_runs.get(run_id) is None
+        assert await foreign_runs.get("unknown-run") is None
         assert (
-            await RunRepository.for_default_compatibility(restarted).get(
-                run_id, tenant_id="tenant-b"
+            await RunRepository(restarted, NullWorkspaceScopeContext(tenant_id="tenant-a")).get(
+                run_id
             )
-            is None
+            is not None
         )
         foreign_ids = {
             record.audit_id
@@ -233,31 +231,25 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
 @pytest.mark.security_rc
 async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) -> None:
     database, unique = security_postgres
-    store = CheckpointRowStore(database)
+    owner_store = CheckpointRowStore(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    foreign_store = CheckpointRowStore(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     checkpoint_id = f"security-checkpoint-{unique}"
     owner = _run(f"checkpoint-a-{unique}", tenant_id="tenant-a", suffix=f"a-{unique}")
     foreign = _run(f"checkpoint-b-{unique}", tenant_id="tenant-b", suffix=f"b-{unique}")
 
-    async def write(run: Run) -> None:
+    async def write(store: CheckpointRowStore, run: Run) -> None:
         await store.write_row(
             checkpoint_id=checkpoint_id,
             run_id=run.run_id,
             thread_id=run.thread_id,
-            tenant_id=run.tenant_id,
-            workspace_id=run.workspace_id,
             checkpoint_order=0,
             state_json=to_json_value(run.model_dump(mode="json")),
             created_at=run.updated_at.isoformat(),
         )
 
-    await asyncio.gather(write(owner), write(foreign))
-    assert (
-        await store.get(checkpoint_id, tenant_id="tenant-a", workspace_id=None)
-    ).run_id == owner.run_id
-    assert (
-        await store.get(checkpoint_id, tenant_id="tenant-b", workspace_id=None)
-    ).run_id == foreign.run_id
-    assert await store.get(checkpoint_id) is None
+    await asyncio.gather(write(owner_store, owner), write(foreign_store, foreign))
+    assert (await owner_store.get(checkpoint_id)).run_id == owner.run_id
+    assert (await foreign_store.get(checkpoint_id)).run_id == foreign.run_id
 
 
 @requires_docker
@@ -267,10 +259,9 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
     config = _migration_config(database_url)
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE contract_versions"))
-        connection.execute(text("TRUNCATE TABLE run_checkpoints"))
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
     engine.dispose()
-    command.downgrade(config, "base")
     command.upgrade(config, "021")
     unique = uuid4().hex
     thread_id = f"migration-thread-{unique}"

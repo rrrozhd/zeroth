@@ -172,9 +172,190 @@ def upgrade() -> None:
             WHERE s.authorization_log_id = retention_cleanup_operations.authorization_log_id
         )
     """)
-    with op.batch_alter_table("retention_cleanup_operations") as batch_op:
-        batch_op.alter_column("tenant_id", nullable=False)
+    op.execute(
+        "ALTER TABLE retention_cleanup_operations RENAME TO retention_cleanup_operations_legacy"
+    )
+    op.execute("""
+        CREATE TABLE retention_cleanup_operations_scoped (
+            authorization_log_id TEXT NOT NULL
+                REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE,
+            operation_id TEXT NOT NULL,
+            status TEXT NOT NULL
+                CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')),
+            deleted_count INTEGER,
+            error TEXT,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            updated_at TEXT NOT NULL,
+            tenant_id VARCHAR NOT NULL,
+            PRIMARY KEY (authorization_log_id, operation_id)
+        )
+    """)
+    op.execute("""
+        INSERT INTO retention_cleanup_operations_scoped (
+            authorization_log_id, operation_id, status, deleted_count, error,
+            revision, updated_at, tenant_id
+        ) SELECT authorization_log_id, operation_id, status, deleted_count, error,
+                 revision, updated_at, tenant_id
+            FROM retention_cleanup_operations_legacy
+    """)
+    op.execute("DROP TABLE retention_cleanup_operations_legacy")
+    op.execute(
+        "ALTER TABLE retention_cleanup_operations_scoped RENAME TO retention_cleanup_operations"
+    )
 
 
 def downgrade() -> None:
-    raise RuntimeError("025 downgrade is unsafe after scope-local identifier collisions")
+    connection = op.get_bind()
+    collision_queries = (
+        ("runs", "run_id"),
+        ("token_engine_snapshots", "run_id"),
+        ("webhook_subscriptions", "subscription_id"),
+        ("webhook_deliveries", "delivery_id"),
+        ("webhook_dead_letters", "dead_letter_id"),
+    )
+    for table_name, identifier in collision_queries:
+        row = connection.execute(
+            sa.text(
+                f"SELECT {identifier} FROM {table_name} GROUP BY {identifier} "
+                f"HAVING COUNT(*) > 1 ORDER BY {identifier} LIMIT 1"
+            )
+        ).first()
+        if row is not None:
+            raise RuntimeError(
+                "Task 9 scope downgrade refused: "
+                f"{table_name}.{identifier} {row[0]!r} exists in multiple scopes"
+            )
+
+    op.execute("ALTER TABLE token_engine_snapshots RENAME TO token_engine_snapshots_scoped")
+    op.execute("ALTER TABLE runs RENAME TO runs_scoped")
+    op.execute("""
+        CREATE TABLE runs (
+            run_id TEXT PRIMARY KEY, checkpoint_id TEXT, parent_checkpoint_id TEXT,
+            epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL,
+            current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL,
+            channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT,
+            started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT,
+            metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL,
+            deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL,
+            current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]',
+            execution_history TEXT NOT NULL DEFAULT '[]',
+            node_visit_counts TEXT NOT NULL DEFAULT '{}',
+            condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]',
+            final_output TEXT, failure_state TEXT, tenant_id TEXT DEFAULT 'default',
+            workspace_id TEXT, submitted_by TEXT, lease_worker_id TEXT,
+            lease_acquired_at TEXT, lease_expires_at TEXT,
+            failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT,
+            token_snapshot_write_disabled INTEGER NOT NULL DEFAULT '0',
+            lease_generation INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    op.execute(f"INSERT INTO runs ({_RUN_COLUMNS}) SELECT {_RUN_COLUMNS} FROM runs_scoped")
+    op.execute("""
+        CREATE TABLE token_engine_snapshots (
+            run_id TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL CHECK (revision >= 0),
+            schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+            next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0),
+            snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL
+        )
+    """)
+    op.execute("""
+        INSERT INTO token_engine_snapshots
+        SELECT run_id, revision, schema_version, next_token_ordinal, snapshot_json, updated_at
+        FROM token_engine_snapshots_scoped
+    """)
+    op.execute("DROP TABLE token_engine_snapshots_scoped")
+    op.execute("DROP TABLE runs_scoped")
+    op.execute(
+        "CREATE INDEX idx_runs_scope "
+        "ON runs(tenant_id, workspace_id, deployment_ref, thread_id, run_id)"
+    )
+    op.execute("CREATE INDEX idx_runs_dispatch ON runs(deployment_ref, status, lease_expires_at)")
+    op.execute("CREATE INDEX ix_runs_pending_claim ON runs(deployment_ref, status, started_at)")
+
+    op.execute("ALTER TABLE webhook_dead_letters RENAME TO webhook_dead_letters_scoped")
+    op.execute("ALTER TABLE webhook_deliveries RENAME TO webhook_deliveries_scoped")
+    op.execute("ALTER TABLE webhook_subscriptions RENAME TO webhook_subscriptions_scoped")
+    op.execute("""
+        CREATE TABLE webhook_subscriptions (
+            subscription_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'default', target_url TEXT NOT NULL,
+            secret TEXT NOT NULL, event_types TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )
+    """)
+    op.execute("""
+        INSERT INTO webhook_subscriptions
+        SELECT subscription_id, deployment_ref, tenant_id, target_url, secret, event_types,
+               active, created_at, updated_at FROM webhook_subscriptions_scoped
+    """)
+    op.execute("""
+        CREATE TABLE webhook_deliveries (
+            delivery_id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL,
+            event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL,
+            last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(subscription_id)
+        )
+    """)
+    op.execute("""
+        INSERT INTO webhook_deliveries
+        SELECT delivery_id, subscription_id, event_type, event_id, payload_json, status,
+               attempt_count, max_attempts, next_attempt_at, last_error, last_status_code,
+               created_at, updated_at FROM webhook_deliveries_scoped
+    """)
+    op.execute("""
+        CREATE TABLE webhook_dead_letters (
+            dead_letter_id TEXT PRIMARY KEY, delivery_id TEXT NOT NULL,
+            subscription_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL, attempt_count INTEGER NOT NULL, last_error TEXT,
+            last_status_code INTEGER, created_at TEXT NOT NULL, dead_lettered_at TEXT NOT NULL
+        )
+    """)
+    op.execute("""
+        INSERT INTO webhook_dead_letters
+        SELECT dead_letter_id, delivery_id, subscription_id, event_type, event_id,
+               payload_json, attempt_count, last_error, last_status_code, created_at,
+               dead_lettered_at FROM webhook_dead_letters_scoped
+    """)
+    op.execute("DROP TABLE webhook_dead_letters_scoped")
+    op.execute("DROP TABLE webhook_deliveries_scoped")
+    op.execute("DROP TABLE webhook_subscriptions_scoped")
+    op.execute(
+        "CREATE INDEX idx_webhook_subs_deployment ON webhook_subscriptions(deployment_ref, active)"
+    )
+    op.execute(
+        "CREATE INDEX idx_webhook_del_pending ON webhook_deliveries(status, next_attempt_at)"
+    )
+    op.execute(
+        "CREATE INDEX idx_webhook_dl_subscription "
+        "ON webhook_dead_letters(subscription_id, dead_lettered_at DESC)"
+    )
+    op.execute(
+        "ALTER TABLE retention_cleanup_operations RENAME TO retention_cleanup_operations_scoped"
+    )
+    op.execute("""
+        CREATE TABLE retention_cleanup_operations (
+            authorization_log_id TEXT NOT NULL
+                REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE,
+            operation_id TEXT NOT NULL,
+            status TEXT NOT NULL
+                CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')),
+            deleted_count INTEGER,
+            error TEXT,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (authorization_log_id, operation_id)
+        )
+    """)
+    op.execute("""
+        INSERT INTO retention_cleanup_operations (
+            authorization_log_id, operation_id, status, deleted_count, error,
+            revision, updated_at
+        ) SELECT authorization_log_id, operation_id, status, deleted_count, error,
+                 revision, updated_at
+            FROM retention_cleanup_operations_scoped
+    """)
+    op.execute("DROP TABLE retention_cleanup_operations_scoped")

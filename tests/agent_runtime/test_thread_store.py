@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 
 import zeroth.runtime.agents.thread_store as thread_store
@@ -12,6 +13,13 @@ from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.service.bootstrap.migrations import run_migrations
 import pytest
+
+
+def test_thread_resolver_scope_is_constructor_bound() -> None:
+    parameters = inspect.signature(RepositoryThreadResolver.resolve).parameters
+
+    assert "tenant_id" not in parameters
+    assert "workspace_id" not in parameters
 
 
 async def test_thread_resolver_creates_and_continues_thread(sqlite_db) -> None:
