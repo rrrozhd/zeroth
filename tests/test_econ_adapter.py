@@ -13,6 +13,7 @@ from zeroth.runtime.agents.provider import (
     ProviderResponse,
 )
 from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 
 
 @pytest.fixture
@@ -97,6 +98,40 @@ async def test_adapter_without_regulus_stamps_cost_but_emits_no_event(
     assert result.cost_usd is None
     assert result.estimated_cost_usd is not None and result.estimated_cost_usd > 0
     assert result.cost_event_id is None  # no Regulus event to reference
+
+
+@pytest.mark.parametrize("with_regulus", [False, True])
+async def test_adapter_preserves_inner_measured_event(with_regulus, cost_estimator, provider_request):
+    from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+
+    client = MagicMock() if with_regulus else None
+    measured = ProviderResponse(
+        content="hello",
+        token_usage=TokenUsage(
+            input_tokens=100, output_tokens=50, total_tokens=150, model_name="gpt-4o"
+        ),
+        cost_usd=0.4,
+        cost_measurement=MeasurementState.MEASURED,
+        cost_event_id="inner-event",
+    )
+    adapter = InstrumentedProviderAdapter(
+        inner=DeterministicProviderAdapter([measured]),
+        regulus_client=client,
+        cost_estimator=cost_estimator,
+        node_id="test-node",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        deployment_ref="deploy-1",
+    )
+
+    result = await adapter.ainvoke(provider_request)
+
+    assert result.cost_usd == 0.4
+    assert result.estimated_cost_usd is None
+    assert result.cost_measurement is MeasurementState.MEASURED
+    assert result.cost_event_id == "inner-event"
+    if client is not None:
+        client.track_execution.assert_not_called()
 
 
 async def test_adapter_calls_track_execution_with_correct_event(

@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from zeroth.contracts.governed import RunStatus
-from zeroth.econ.analytics.budget import BudgetEnforcer
+from zeroth.econ.analytics.budget import BudgetCheckResult, BudgetEnforcer
 from zeroth.econ.analytics.waste import analyze_run
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
 from zeroth.econ.measurement import MeasurementState
@@ -281,9 +281,82 @@ async def test_validation_retry_keeps_every_provider_measurement() -> None:
     assert result.audit_record["token_usage"]["model_name"] == "m"
 
 
+async def test_failed_provider_retry_keeps_measurement_incomplete() -> None:
+    class Input(BaseModel):
+        query: str
+
+    class Output(BaseModel):
+        answer: str
+
+    transient = RuntimeError("provider unavailable")
+    transient.status_code = 503  # type: ignore[attr-defined]
+    runner = AgentRunner(
+        AgentConfig(
+            name="fidelity-failed-retry",
+            instruction="answer",
+            model_name="m",
+            input_model=Input,
+            output_model=Output,
+            retry_policy=RetryPolicy(max_retries=1, use_exponential_backoff=False),
+        ),
+        DeterministicProviderAdapter(
+            [
+                transient,
+                ProviderResponse(
+                    content='{"answer":"ok"}',
+                    token_usage=TokenUsage(
+                        input_tokens=2, output_tokens=3, total_tokens=5, model_name="m"
+                    ),
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+            ]
+        ),
+    )
+
+    result = await runner.run({"query": "hi"})
+
+    assert result.audit_record["cost_usd"] == 0.2
+    assert result.audit_record["cost_measurement"] is MeasurementState.UNMEASURED
+    assert result.audit_record["usage_measurement"] is MeasurementState.UNMEASURED
+
+
+async def test_runner_preserves_degraded_budget_status() -> None:
+    budget = AsyncMock(spec=BudgetEnforcer)
+    status = BudgetCheckResult(
+        allowed=True,
+        spend_usd=0.0,
+        cap_usd=None,
+        degraded=True,
+        failure_mode="fail_open",
+        measurement_complete=False,
+    )
+    budget.check_budget_status = AsyncMock(return_value=status)
+    runner = _runner_with_compaction(
+        DeterministicProviderAdapter(
+            [
+                ProviderResponse(
+                    content='{"answer":"ok"}',
+                    cost_usd=0.0,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ]
+        ),
+        budget_enforcer=budget,
+    )
+
+    result = await runner.run({"query": "hi"})
+
+    budget.check_budget_status.assert_awaited_once_with("default")
+    budget.check_budget.assert_not_awaited()
+    assert result.audit_record["extra"]["budget_check"] == status.model_dump(mode="json")
+
+
 async def test_compaction_measurement_survives_budget_rejection() -> None:
     budget = AsyncMock(spec=BudgetEnforcer)
-    budget.check_budget = AsyncMock(return_value=(False, 2.0, 1.0))
+    budget.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=False, spend_usd=2.0, cap_usd=1.0)
+    )
     runner = _runner_with_compaction(DeterministicProviderAdapter([]), budget_enforcer=budget)
 
     with pytest.raises(BudgetExceededError) as raised:
@@ -291,6 +364,40 @@ async def test_compaction_measurement_survives_budget_rejection() -> None:
 
     assert raised.value.audit_record["estimated_cost_usd"] == 0.25
     assert raised.value.audit_record["token_usage"]["total_tokens"] == 5
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_state", "expected_cost"),
+    [
+        (
+            {"token_cost_usd": "1.25", "cost_measurement": "estimated"},
+            MeasurementState.ESTIMATED,
+            Decimal("1.25"),
+        ),
+        ({"token_cost_usd": None}, MeasurementState.UNMEASURED, None),
+        (
+            {"token_cost_usd": 0, "cost_measurement": "measured"},
+            MeasurementState.MEASURED,
+            Decimal("0"),
+        ),
+    ],
+)
+def test_langgraph_adapter_preserves_explicit_cost_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+    expected_state: MeasurementState,
+    expected_cost: Decimal | None,
+) -> None:
+    from zeroth.econ.instrumentation.langgraph import adapter as adapter_module
+
+    captured = []
+    monkeypatch.setattr(adapter_module, "track_execution", captured.append)
+
+    adapter_module.LangGraphTelemetryAdapter().on_run_end("r", "cap", "impl", payload)
+
+    [event] = captured
+    assert event.token_cost_usd == expected_cost
+    assert event.cost_measurement is expected_state
 
 
 async def test_explicit_zero_estimate_is_retained() -> None:

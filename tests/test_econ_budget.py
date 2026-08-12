@@ -478,7 +478,9 @@ async def test_runner_no_budget_enforcer_runs_normally():
 async def test_runner_allowed_budget_runs_normally():
     """AgentRunner with budget_enforcer that returns allowed=True runs normally."""
     enforcer = AsyncMock()
-    enforcer.check_budget = AsyncMock(return_value=(True, 50.0, 100.0))
+    enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=True, spend_usd=50.0, cap_usd=100.0)
+    )
     provider = _make_provider()
     runner = AgentRunner(_make_config(), provider, budget_enforcer=enforcer)
     result = await runner.run(
@@ -486,7 +488,7 @@ async def test_runner_allowed_budget_runs_normally():
         enforcement_context={"tenant_id": "t-1"},
     )
     assert result.output_data["answer"] == "ok"
-    enforcer.check_budget.assert_awaited_once_with("t-1")
+    enforcer.check_budget_status.assert_awaited_once_with("t-1")
 
 
 # -- Test 9: over-budget raises before provider call --
@@ -496,7 +498,9 @@ async def test_runner_allowed_budget_runs_normally():
 async def test_runner_over_budget_raises_before_provider_call():
     """AgentRunner with over-budget enforcer raises BudgetExceededError BEFORE provider call."""
     enforcer = AsyncMock()
-    enforcer.check_budget = AsyncMock(return_value=(False, 105.0, 100.0))
+    enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=False, spend_usd=105.0, cap_usd=100.0)
+    )
     provider = AsyncMock()
     provider.ainvoke = AsyncMock()
     runner = AgentRunner(_make_config(), provider, budget_enforcer=enforcer)

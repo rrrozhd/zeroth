@@ -23,6 +23,7 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.templates import TemplateReference, TemplateRegistry, TemplateRenderer
 from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.integrations.execution import ExecutableUnitRunResult
 from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
@@ -167,9 +168,9 @@ class _BudgetEnforcer:
     def __init__(self) -> None:
         self.tenants: list[str] = []
 
-    async def check_budget(self, tenant_id: str) -> tuple[bool, float, float]:
+    async def check_budget_status(self, tenant_id: str) -> BudgetCheckResult:
         self.tenants.append(tenant_id)
-        return True, 0.0, 10.0
+        return BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=10.0)
 
 
 class _ToolRunner:

@@ -600,6 +600,7 @@ class AgentRunner:
             )
         compaction_results = [compaction_result] if compaction_result is not None else []
         provider_measurements: list[Any] = []
+        budget_check_audit: dict[str, Any] | None = None
 
         # Pre-execution budget check (per D-10, ECON-03)
         if self.budget_enforcer is not None:
@@ -608,14 +609,21 @@ class AgentRunner:
                 if enforcement_context is not None
                 else "default"
             )
-            allowed, spend, cap = await self.budget_enforcer.check_budget(_tenant_id)
-            if not allowed:
+            budget_status = await self.budget_enforcer.check_budget_status(_tenant_id)
+            budget_check_audit = budget_status.model_dump(mode="json")
+            if not budget_status.allowed:
+                cap = budget_status.cap_usd or 0.0
                 error = BudgetExceededError(
-                    f"tenant budget exceeded: spent ${spend:.4f} of ${cap:.4f} cap",
-                    spend=spend,
+                    f"tenant budget exceeded: spent ${budget_status.spend_usd:.4f} "
+                    f"of ${cap:.4f} cap",
+                    spend=budget_status.spend_usd,
                     cap=cap,
                 )
                 self._attach_cost_audit(error, *compaction_results)
+                error.audit_record = {
+                    **getattr(error, "audit_record", {}),
+                    "budget_check": budget_check_audit,
+                }
                 raise error
 
         try:
@@ -666,6 +674,11 @@ class AgentRunner:
                             "memory_interactions": [
                                 item.model_dump(mode="json") for item in memory_interactions
                             ],
+                            **(
+                                {"budget_check": budget_check_audit}
+                                if budget_check_audit is not None
+                                else {}
+                            ),
                         },
                     )
                     safety_audit: dict[str, Any] = {}
@@ -753,6 +766,13 @@ class AgentRunner:
                     )
                     raise
                 except TimeoutError as exc:
+                    if retry_policy.retry_on_timeout and attempt < max_attempts:
+                        provider_measurements.append(
+                            {
+                                "cost_measurement": MeasurementState.UNMEASURED,
+                                "usage_measurement": MeasurementState.UNMEASURED,
+                            }
+                        )
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
                     )
@@ -773,6 +793,16 @@ class AgentRunner:
                     # Classify: only retry transient provider errors (per LLM-03)
                     retryable = is_retryable_provider_error(exc)
                     should_retry = retry_policy.retry_on_provider_error and retryable
+                    carried_audit = getattr(last_error, "audit_record", None)
+                    if should_retry and attempt < max_attempts:
+                        provider_measurements.append(
+                            dict(carried_audit)
+                            if isinstance(carried_audit, Mapping)
+                            else {
+                                "cost_measurement": MeasurementState.UNMEASURED,
+                                "usage_measurement": MeasurementState.UNMEASURED,
+                            }
+                        )
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
                             self._attach_cost_audit(
@@ -788,9 +818,6 @@ class AgentRunner:
                             *compaction_results,
                         )
                         raise error from last_error
-                    carried_audit = getattr(last_error, "audit_record", None)
-                    if isinstance(carried_audit, Mapping):
-                        provider_measurements.append(dict(carried_audit))
                 if retry_policy.use_exponential_backoff:
                     delay = compute_backoff_delay(
                         attempt,

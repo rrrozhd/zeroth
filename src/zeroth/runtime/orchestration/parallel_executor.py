@@ -174,13 +174,15 @@ class RuntimeParallelExecutor:
 
         # Budget pre-reservation before spawning branches
         if self.budget_enforcer is not None:
-            allowed, current_spend, budget_cap = await self.budget_enforcer.check_budget(
+            budget_status = await self.budget_enforcer.check_budget_status(
                 run.tenant_id,
             )
-            if not allowed:
+            run.metadata["budget_check"] = budget_status.model_dump(mode="json")
+            if not budget_status.allowed:
+                budget_cap = budget_status.cap_usd or 0.0
                 raise FanOutValidationError(
                     f"budget exceeded for tenant {run.tenant_id}: "
-                    f"spend=${current_spend:.4f} >= cap=${budget_cap:.4f}"
+                    f"spend=${budget_status.spend_usd:.4f} >= cap=${budget_cap:.4f}"
                 )
 
         # Global step tracker: reuse parent composition's tracker when
@@ -635,6 +637,24 @@ class RuntimeParallelExecutor:
                     "source_input": pending.get("source_input", {}),
                 },
             )
+
+        if resumed_child_run.status != RunStatus.COMPLETED:
+            resumed_cost = rollup_run_cost(resumed_child_run)
+            failure = resumed_child_run.failure_state
+            detail = failure.message if failure is not None else "unknown failure"
+            error = RuntimeError(
+                f"parallel child run {resumed_child_run.run_id} ended "
+                f"{resumed_child_run.status.value}: {detail}"
+            )
+            error.audit_record = {  # type: ignore[attr-defined]
+                "subgraph_run_id": resumed_child_run.run_id,
+                "subgraph_graph_ref": paused_graph_ref,
+                "subgraph_status": resumed_child_run.status.value,
+                "cost_usd": resumed_cost.cost_usd,
+                "estimated_cost_usd": resumed_cost.estimated_cost_usd,
+                "cost_measurement": resumed_cost.cost_measurement,
+            }
+            raise error
 
         resumed_output = resumed_child_run.final_output or {}
         if not isinstance(resumed_output, dict):

@@ -272,12 +272,16 @@ class ParallelExecutor:
             # persisting just one would orphan the others (audit B10). Fail loudly
             # rather than silently corrupt state — list-based multi-pause resume is
             # the real fix and is out of scope for this hardening pass.
-            raise MultipleBranchPauseError(
+            error = MultipleBranchPauseError(
                 f"{len(pause_signals)} branches paused for approval in a best_effort "
                 "fan-out; concurrent multi-branch approval pauses are not yet "
                 "supported (would orphan child runs). Use fail_fast, or move the "
                 "approval gate outside the fan-out."
             )
+            error.branch_histories = [  # type: ignore[attr-defined]
+                (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+            ]
+            raise error
 
         pause_signal = pause_signals[0] if pause_signals else None
         if pause_signal is not None:
@@ -339,10 +343,14 @@ class ParallelExecutor:
                 if isinstance(result, BranchApprovalPauseSignal)
             ]
             if len(pause_signals) > 1:
-                raise MultipleBranchPauseError(
+                error = MultipleBranchPauseError(
                     f"{len(pause_signals)} branches paused for approval in a fail_fast "
                     "fan-out; concurrent multi-branch approval pauses are not yet supported"
-                ) from pause
+                )
+                error.branch_histories = [  # type: ignore[attr-defined]
+                    (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+                ]
+                raise error from pause
             # Partition: completed-before-pause vs cancelled in-flight.
             completed_before_pause: list[BranchResult] = []
             cancelled_by_pause: list[BranchContext] = []

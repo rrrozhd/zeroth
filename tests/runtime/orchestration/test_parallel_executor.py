@@ -24,7 +24,7 @@ import pytest
 from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeParallelExecutor
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
-from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
 
 
 class _EchoRunRepository:
@@ -226,6 +226,50 @@ async def test_cancelled_approval_sibling_keeps_fan_in_unmeasured() -> None:
     assert cancelled.cost_measurement is MeasurementState.UNMEASURED
     assert result.total_cost_usd == pytest.approx(0.7)
     assert result.cost_measurement is MeasurementState.UNMEASURED
+
+
+async def test_failed_resumed_parallel_child_rolls_once_and_propagates() -> None:
+    subgraph_executor = AsyncMock()
+    subgraph_executor.resume = AsyncMock(
+        return_value=_run(
+            run_id="child-1",
+            status=RunStatus.FAILED,
+            failure_state=RunFailureState(reason="child_failed", message="boom"),
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.3,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="ended FAILED") as raised:
+        await _executor(
+            subgraph_executor=subgraph_executor,
+            orchestrator=object(),
+        ).execute_fan_out_resume(
+            object(),
+            _run(),
+            _ParallelNode(),
+            "source",
+            {
+                "paused_branch": {
+                    "branch_index": 0,
+                    "child_run_id": "child-1",
+                    "graph_ref": "sub",
+                    "node_id": "child-node",
+                    "branch_context": {"branch_index": 0, "execution_history": []},
+                },
+                "split_input": {"items": [1]},
+            },
+            step_tracker=None,
+        )
+
+    assert raised.value.audit_record["cost_usd"] == pytest.approx(0.3)
+    assert raised.value.audit_record["cost_measurement"] is MeasurementState.MEASURED
 
 
 class _ParallelNode:
