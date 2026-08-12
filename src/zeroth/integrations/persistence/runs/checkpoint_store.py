@@ -36,12 +36,12 @@ def new_checkpoint_id() -> str:
     return uuid4().hex
 
 
-@dataclass(slots=True)
 @persistence_surface(
     "service.run_checkpoints",
     probe=named_isolation_probe("_drive_checkpoints"),
     non_persistence_public_methods=frozenset({"encrypt_state_json", "decrypt_state_json"}),
 )
+@dataclass(slots=True)
 class CheckpointRowStore:
     """Reads and writes ``run_checkpoints`` rows for a single database."""
 
