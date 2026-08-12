@@ -253,11 +253,17 @@ async def test_validation_retry_keeps_every_provider_measurement() -> None:
             [
                 ProviderResponse(
                     content='{"wrong":"shape"}',
+                    token_usage=TokenUsage(
+                        input_tokens=2, output_tokens=3, total_tokens=5, model_name="m"
+                    ),
                     cost_usd=0.2,
                     cost_measurement=MeasurementState.MEASURED,
                 ),
                 ProviderResponse(
                     content='{"answer":"ok"}',
+                    token_usage=TokenUsage(
+                        input_tokens=7, output_tokens=11, total_tokens=18, model_name="m"
+                    ),
                     estimated_cost_usd=0.3,
                     cost_measurement=MeasurementState.ESTIMATED,
                 ),
@@ -270,6 +276,7 @@ async def test_validation_retry_keeps_every_provider_measurement() -> None:
     assert result.audit_record["cost_usd"] == 0.2
     assert result.audit_record["estimated_cost_usd"] == 0.3
     assert result.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
+    assert result.audit_record["token_usage"]["total_tokens"] == 23
 
 
 async def test_compaction_measurement_survives_budget_rejection() -> None:
