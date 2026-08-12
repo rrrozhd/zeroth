@@ -16,6 +16,7 @@ from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowS
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
 from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     ResourceOperation,
@@ -109,6 +110,20 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "erase_token_snapshot_for_run_in_transaction": frozenset({O.DELETE}),
             "fence_and_erase_token_snapshot_for_run_in_transaction": frozenset({O.DELETE}),
         },
+    },
+    "service.side_effect_operations": {
+        SideEffectOperationStore: {
+            "get": frozenset({O.READ}),
+            "state_of": frozenset({O.READ}),
+            "pending_reconciliation": frozenset({O.ENUMERATE}),
+            "claim": frozenset({O.CREATE, O.READ, O.UPDATE}),
+            "complete": frozenset({O.UPDATE}),
+            "fail": frozenset({O.UPDATE}),
+            "mark_ambiguous": frozenset({O.UPDATE}),
+            "record_reconciliation": frozenset({O.READ, O.UPDATE}),
+            "erase_for_run": frozenset({O.ENUMERATE, O.DELETE}),
+            "erase_for_run_in_transaction": frozenset({O.ENUMERATE, O.DELETE}),
+        }
     },
     "service.webhook_subscriptions": {
         WebhookRepository: {
