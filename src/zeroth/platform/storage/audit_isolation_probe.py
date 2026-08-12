@@ -28,12 +28,23 @@ async def _drive_audit_resource(
 ) -> None:
     owner = AuditRepository.scoped(database, _scope("driver-owner"))
     foreign = AuditRepository.scoped(database, _scope("driver-foreign"))
-    await owner.write(_audit("driver-owner"))
+    owner_written = await owner.write(_audit("driver-owner"))
     if operation is ResourceOperation.CREATE:
         await foreign.write(_audit("driver-foreign", "driver-foreign-audit"))
     elif operation is ResourceOperation.READ:
-        assert await foreign.get("driver-audit") is None
-        assert await foreign.get("unknown-audit") is None
+        if chain:
+            # ``write`` reads the current chain head before appending.  Using
+            # the same run makes an unscoped head read observable in the
+            # returned sequence/digest without exposing a raw table adapter.
+            foreign_written = await foreign.write(
+                _audit("driver-foreign", "driver-foreign-audit")
+            )
+            assert foreign_written.chain_sequence == 1
+            assert foreign_written.previous_record_digest is None
+            assert owner_written.chain_sequence == 1
+        else:
+            assert await foreign.get("driver-audit") is None
+            assert await foreign.get("unknown-audit") is None
     elif operation is ResourceOperation.ENUMERATE:
         assert await foreign.list() == []
     elif chain:
