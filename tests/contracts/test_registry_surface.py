@@ -35,6 +35,7 @@ def test_errors_publishes_its_whole_surface() -> None:
         "ContractVersion",
         "StepContractBinding",
         "ToolContractBinding",
+        "contract_scope_context",
         "validate_artifact_reference",
     }
 

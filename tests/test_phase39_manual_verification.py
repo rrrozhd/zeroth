@@ -75,7 +75,7 @@ async def deployment_service(database):
     return DeploymentService(
         graph_repository=GraphRepository(database),
         deployment_repository=SQLiteDeploymentRepository(database),
-        contract_registry=ContractRegistry(database),
+        contract_registry=ContractRegistry.for_default_compatibility(database),
     )
 
 

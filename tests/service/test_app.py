@@ -33,7 +33,7 @@ class AppOutputContract(BaseModel):
 
 async def _deploy_test_graph(sqlite_db, deployment_ref: str = "graph-1-service"):
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(AppInputContract, name="contract://input")
     await contract_registry.register(AppOutputContract, name="contract://output")
     deployment_service = DeploymentService(

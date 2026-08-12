@@ -106,7 +106,6 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
 SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
     {
         "audit_chain_heads",
-        "contract_versions",
         "quota_counters",
         "rate_limit_buckets",
         "retention_cleanup_operations",

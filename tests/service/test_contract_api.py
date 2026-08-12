@@ -41,7 +41,7 @@ class DeployedOutputContractV2(BaseModel):
 
 async def _deploy_contract_service(sqlite_db, *, deployment_ref: str = "contract-api-service"):
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(DeployedInputContract, name="contract://input")
     await contract_registry.register(
         DeployedOutputContract,

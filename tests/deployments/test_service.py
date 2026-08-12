@@ -20,6 +20,7 @@ from zeroth.contracts.graph import ExecutionSettings, GraphRepository
 from zeroth.contracts.graph.warnings import LegacyEngineDeprecationWarning
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import ScopeContext
 
 
 def test_deployment_models_consume_platform_clock_per_instance() -> None:
@@ -52,14 +53,70 @@ class DeploymentOutputContract(BaseModel):
 async def _build_service(sqlite_db) -> DeploymentService:
     graph_repository = GraphRepository(sqlite_db)
     deployment_repository = SQLiteDeploymentRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
-    await contract_registry.register(DeploymentInputContract, name="contract://input")
-    await contract_registry.register(DeploymentOutputContract, name="contract://output")
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
+    registries = (
+        contract_registry,
+        ContractRegistry.scoped(
+            sqlite_db,
+            ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+        ),
+        ContractRegistry.scoped(
+            sqlite_db,
+            ScopeContext(tenant_id="tenant-b", workspace_id="workspace-b"),
+        ),
+    )
+    for registry in registries:
+        await registry.register(DeploymentInputContract, name="contract://input")
+        await registry.register(DeploymentOutputContract, name="contract://output")
     return DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
         contract_registry=contract_registry,
     )
+
+
+async def test_other_tenant_registration_does_not_change_deployment_resolution(sqlite_db) -> None:
+    scope_a = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    scope_b = ScopeContext(tenant_id="tenant-b", workspace_id="workspace-b")
+    registry_a = ContractRegistry.scoped(sqlite_db, scope_a)
+    registry_b = ContractRegistry.scoped(sqlite_db, scope_b)
+    for registry in (registry_a, registry_b):
+        await registry.register(DeploymentInputContract, name="contract://input")
+        await registry.register(DeploymentOutputContract, name="contract://output")
+    await registry_b.register(DeploymentInputContract, name="contract://input")
+    await registry_b.register(DeploymentOutputContract, name="contract://output")
+
+    graph_repository = GraphRepository(sqlite_db)
+    graph = build_graph().model_copy(
+        update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    )
+    stored = await graph_repository.create(
+        graph,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    await graph_repository.publish(
+        stored.graph_id,
+        stored.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    service = DeploymentService(
+        graph_repository=graph_repository,
+        deployment_repository=SQLiteDeploymentRepository(sqlite_db),
+        contract_registry=registry_b,
+    )
+
+    deployed = await service.deploy(
+        "tenant-a-service",
+        stored.graph_id,
+        stored.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    assert deployed.entry_input_contract_version == 1
+    assert deployed.entry_output_contract_version == 1
 
 
 def _retarget_graph(graph_id: str):
@@ -127,9 +184,7 @@ async def test_deploy_pins_effective_engine_mode(
     if authored_value is False:
         with pytest.warns(LegacyEngineDeprecationWarning) as captured:
             deployed = await service.deploy("engine-service", stored.graph_id, stored.version)
-        assert "deployment_publication" in {
-            warning.message.stage for warning in captured
-        }
+        assert "deployment_publication" in {warning.message.stage for warning in captured}
     else:
         deployed = await service.deploy("engine-service", stored.graph_id, stored.version)
 

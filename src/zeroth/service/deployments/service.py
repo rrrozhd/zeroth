@@ -11,7 +11,11 @@ from zeroth.contracts.graph.engine_mode import effective_engine_mode, explicit_l
 from zeroth.contracts.graph.serialization import serialize_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.graph.warnings import warn_legacy_engine
-from zeroth.contracts.registry import ContractReference, ContractRegistry
+from zeroth.contracts.registry import (
+    ContractReference,
+    ContractRegistry,
+    contract_scope_context,
+)
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.service.deployments.models import Deployment, DeploymentEngineMode
 from zeroth.service.deployments.provenance import (
@@ -71,10 +75,14 @@ class DeploymentService:
         # Contract versions are pinned now so the deployment keeps using
         # the same schema later.
         input_contract_version = await self._resolve_contract_version(
-            entry_node.input_contract_ref if entry_node else None
+            entry_node.input_contract_ref if entry_node else None,
+            tenant_id=graph.tenant_id,
+            workspace_id=graph.workspace_id,
         )
         output_contract_version = await self._resolve_contract_version(
-            entry_node.output_contract_ref if entry_node else None
+            entry_node.output_contract_ref if entry_node else None,
+            tenant_id=graph.tenant_id,
+            workspace_id=graph.workspace_id,
         )
         last_error: Exception | None = None
         for _ in range(3):
@@ -297,14 +305,21 @@ class DeploymentService:
         msg = f"graph {graph.graph_id}@{graph.version} has unknown entry step {entry_step}"
         raise DeploymentError(msg)
 
-    async def _resolve_contract_version(self, contract_ref: str | None) -> int | None:
+    async def _resolve_contract_version(
+        self,
+        contract_ref: str | None,
+        *,
+        tenant_id: str,
+        workspace_id: str | None,
+    ) -> int | None:
         """Pin the active contract version into the deployment snapshot."""
         if contract_ref is None:
             return None
         if self.contract_registry is None:
             raise DeploymentError(f"contract registry is required to deploy {contract_ref!r}")
+        registry = self.contract_registry.for_scope(contract_scope_context(tenant_id, workspace_id))
         try:
-            contract = await self.contract_registry.resolve(ContractReference(name=contract_ref))
+            contract = await registry.resolve(ContractReference(name=contract_ref))
         except ContractNotFoundError as exc:
             raise DeploymentError(
                 f"deployment contract {contract_ref!r} is not registered"

@@ -146,7 +146,7 @@ async def seed_and_build_app():
     run_migrations(f"sqlite:///{DB_PATH}")
     database = AsyncSQLiteDatabase(path=str(DB_PATH))
 
-    contract_registry = ContractRegistry(database)
+    contract_registry = ContractRegistry.for_default_compatibility(database)
     await contract_registry.register(Topic, name="contract://topic")
     await contract_registry.register(ToolInput, name="contract://tool-input")
     await contract_registry.register(ToolOutput, name="contract://tool-output")
@@ -226,7 +226,7 @@ async def run_client(base_url: str) -> None:
             f"approvals/{approval_id}/resolve \\\n"
             f'     -H "X-API-Key: {DEMO_API_KEY}" \\\n'
             f'     -H "Content-Type: application/json" \\\n'
-            f"     -d '{{\"decision\": \"approve\"}}'"
+            f'     -d \'{{"decision": "approve"}}\''
         )
         print()
 
