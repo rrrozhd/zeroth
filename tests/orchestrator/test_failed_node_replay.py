@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, ExecutionSettings, Graph
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration import OrchestratorError, RuntimeOrchestrator
@@ -120,7 +121,11 @@ async def test_failed_dispatch_replays_identical_payload_and_token_once(
         attempts += 1
         if attempts == 1:
             raise RuntimeError("transient dispatch failure")
-        return ProviderResponse(content={**request.metadata["input_payload"], "done": True})
+        return ProviderResponse(
+            content={**request.metadata["input_payload"], "done": True},
+            cost_usd=0.2,
+            cost_measurement=MeasurementState.MEASURED,
+        )
 
     handlers = {
         "source": lambda _req: ProviderResponse(content={"value": 7}),
@@ -172,7 +177,17 @@ async def test_failed_dispatch_replays_identical_payload_and_token_once(
         [] if token_engine else None,
     ]
     assert attempts == 2
-    assert [entry.node_id for entry in resumed.execution_history].count("target") == 1
+    target_history = [
+        entry for entry in resumed.execution_history if entry.node_id == "target"
+    ]
+    assert [entry.status for entry in target_history] == ["failed", "completed"]
+    assert target_history[0].cost_usd is None
+    assert target_history[1].cost_usd == pytest.approx(0.2)
+    assert [entry.cost_measurement for entry in target_history] == [
+        MeasurementState.UNMEASURED,
+        MeasurementState.MEASURED,
+    ]
+    assert len({entry.audit_ref for entry in target_history}) == 2
     assert resumed.final_output == {**expected, "done": True}
     assert resumed.pending_node_ids == []
     assert resumed.current_node_ids == []

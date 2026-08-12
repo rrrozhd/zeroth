@@ -128,8 +128,6 @@ class ProviderResponse(BaseModel):
             raise ValueError("estimated provider cost requires estimated_cost_usd")
         if self.usage_measurement is MeasurementState.MEASURED and self.token_usage is None:
             raise ValueError("measured provider usage requires token_usage")
-        if self.usage_measurement is MeasurementState.UNMEASURED and self.token_usage is not None:
-            raise ValueError("unmeasured provider usage must omit token_usage")
 
 
 ProviderResponse.__signature__ = inspect.signature(ProviderResponse).replace(

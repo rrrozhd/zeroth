@@ -479,9 +479,15 @@ class TestScenario1SubgraphInFanOutBranch:
         class _FakeResult:
             def __init__(self, output_data: dict[str, Any]) -> None:
                 self.output_data = output_data
-                self.audit_record = {"model": "test", "token_usage": None}
+                self.audit_record = {
+                    "model": "test",
+                    "token_usage": None,
+                    "cost_usd": 0.1,
+                    "cost_measurement": "measured",
+                }
 
         source_runner = AsyncMock()
+        source_runner.context_tracker = None
         source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         async def _fake_execute(**kwargs: Any) -> Run:
@@ -501,7 +507,11 @@ class TestScenario1SubgraphInFanOutBranch:
                 deployment_ref="child-wf",
                 status=RunStatus.COMPLETED,
                 final_output={"done": idx},
-                metadata={"subgraph_depth": 1, "total_cost_usd": 0.0},
+                metadata={
+                    "subgraph_depth": 1,
+                    "total_cost_usd": 0.2,
+                    "cost_measurement": "measured",
+                },
             )
 
         mock_executor = MagicMock(spec=SubgraphExecutor)
@@ -540,6 +550,40 @@ class TestScenario1SubgraphInFanOutBranch:
         assert pending["paused_branch"]["child_run_id"] == "child-run-1"
         assert pending["paused_branch"]["graph_ref"] == "child-wf"
         assert pending["paused_branch"]["node_id"] == "sub-step"
+        [completed] = pending["completed_branches"]
+        assert completed["cost_usd"] == pytest.approx(0.2)
+        assert len(completed["execution_history"]) == 1
+        assert completed["execution_history"][0]["cost_usd"] == pytest.approx(0.2)
+        assert len(completed["audit_refs"]) == 1
+
+        mock_executor.resume = AsyncMock(
+            return_value=Run(
+                run_id="child-run-1",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": 1},
+                metadata={
+                    "subgraph_depth": 1,
+                    "total_cost_usd": 0.3,
+                    "cost_measurement": "measured",
+                },
+            )
+        )
+        result.status = RunStatus.RUNNING
+        resumed = await orch._drive(parent_graph_best, result)
+
+        source_history = [entry for entry in resumed.execution_history if entry.node_id == "source"]
+        subgraph_history = [
+            entry for entry in resumed.execution_history if entry.node_id == "sub-step"
+        ]
+        assert len(source_history) == 1
+        assert source_history[0].cost_usd == pytest.approx(0.1)
+        assert sorted(entry.cost_usd for entry in subgraph_history) == pytest.approx([0.2, 0.3])
+        assert sum(entry.cost_usd or 0.0 for entry in resumed.execution_history) == pytest.approx(
+            0.6
+        )
+        assert len({entry.audit_ref for entry in resumed.execution_history}) == 3
 
     async def test_nested_pause_on_resume_persists_waiting_approval(self, sqlite_db) -> None:
         """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch.
@@ -591,6 +635,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 self.audit_record = {"model": "test", "token_usage": None}
 
         source_runner = AsyncMock()
+        source_runner.context_tracker = None
         source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         def _waiting_child() -> Run:

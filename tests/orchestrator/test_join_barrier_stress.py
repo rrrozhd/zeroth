@@ -402,7 +402,10 @@ async def test_s7_parallel_fanout_node_inside_loop(sqlite_db) -> None:
         return ProviderResponse(content={"value": value + 1, "items": [{"x": 1}, {"x": 2}]})
 
     def _times_ten(req):
-        return ProviderResponse(content={"x": req.metadata["input_payload"].get("x", 0) * 10})
+        return ProviderResponse(
+            content={"x": req.metadata["input_payload"].get("x", 0) * 10},
+            cost_usd=0.25,
+        )
 
     runners = {"S": _runner(_seed), "F": _runner(_echo), "G": _runner(_times_ten)}
 
@@ -432,6 +435,9 @@ async def test_s7_parallel_fanout_node_inside_loop(sqlite_db) -> None:
     assert counts["F"] == 2, counts
     # G runs once per branch (2 items) per iteration → 4 branch executions.
     assert counts["G"] == 4, counts
+    branch_history = [entry for entry in run.execution_history if entry.node_id == "G"]
+    assert sum(entry.cost_usd or 0.0 for entry in branch_history) == pytest.approx(1.0)
+    assert len({entry.audit_ref for entry in branch_history}) == 4
 
 
 # ---------------------------------------------------------------------------

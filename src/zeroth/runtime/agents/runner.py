@@ -807,6 +807,7 @@ class AgentRunner:
 
         measured_parts: list[tuple[MeasurementState, Any, Any]] = []
         usage_parts: list[TokenUsage] = []
+        usage_states: list[MeasurementState] = []
         for part in parts:
             if part is None:
                 continue
@@ -827,6 +828,16 @@ class AgentRunner:
                     usage = None
             if isinstance(usage, TokenUsage):
                 usage_parts.append(usage)
+            usage_state = value(part, "usage_measurement")
+            try:
+                usage_states.append(MeasurementState(usage_state))
+            except (TypeError, ValueError):
+                if isinstance(part, ProviderResponse) or usage is not None:
+                    usage_states.append(
+                        MeasurementState.MEASURED
+                        if usage is not None
+                        else MeasurementState.UNMEASURED
+                    )
         fragment: dict[str, Any] = {}
         if usage_parts:
             fragment["token_usage"] = TokenUsage(
@@ -835,6 +846,14 @@ class AgentRunner:
                 total_tokens=sum(usage.total_tokens for usage in usage_parts),
                 model_name=usage_parts[0].model_name,
             ).model_dump(mode="json")
+        if usage_states:
+            fragment["usage_measurement"] = (
+                MeasurementState.UNMEASURED
+                if MeasurementState.UNMEASURED in usage_states
+                else MeasurementState.ESTIMATED
+                if MeasurementState.ESTIMATED in usage_states
+                else MeasurementState.MEASURED
+            )
         if not measured_parts:
             return fragment
         states = [state for state, _, _ in measured_parts]

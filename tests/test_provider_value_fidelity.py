@@ -10,6 +10,7 @@ from alembic.config import Config
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.econ.analytics.budget import BudgetEnforcer
@@ -450,3 +451,81 @@ def test_execution_measurement_migration_backfills_legacy_rows(
             )
         ).one()
     assert row == ("unmeasured", "unmeasured")
+
+
+def test_migration_free_sqlite_startup_accepts_unmeasured_costs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zeroth.econ.plane import database as plane_database
+    from zeroth.econ.plane.instrumentation.service import ingest_execution
+
+    legacy_engine = create_engine(f"sqlite:///{tmp_path / 'legacy-econ.db'}", future=True)
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE execution_events (id INTEGER PRIMARY KEY, "
+                "execution_id VARCHAR(128) NOT NULL, timestamp DATETIME NOT NULL, "
+                "capability_id VARCHAR(128) NOT NULL, implementation_id VARCHAR(128) NOT NULL, "
+                "model_version VARCHAR(128) NOT NULL, token_cost_usd NUMERIC(12, 4) NOT NULL, "
+                "tool_cost_usd NUMERIC(12, 4) NOT NULL, "
+                "compute_cost_usd NUMERIC(12, 4) NOT NULL, latency_ms INTEGER NOT NULL, "
+                "compute_time_ms INTEGER NOT NULL, metadata JSON NOT NULL)"
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX ix_legacy_execution_capability ON execution_events (capability_id)")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO execution_events "
+                "(execution_id, timestamp, capability_id, implementation_id, model_version, "
+                "token_cost_usd, tool_cost_usd, compute_cost_usd, latency_ms, "
+                "compute_time_ms, metadata) VALUES "
+                "('legacy', CURRENT_TIMESTAMP, 'cap', 'impl', 'm', 1, 2, 3, 0, 0, '{}')"
+            )
+        )
+
+    monkeypatch.setattr(plane_database, "engine", legacy_engine)
+    monkeypatch.setattr(
+        plane_database,
+        "SessionLocal",
+        sessionmaker(bind=legacy_engine, autocommit=False, autoflush=False),
+    )
+
+    db_context = plane_database.get_db()
+    db = next(db_context)
+    try:
+        status, _ = ingest_execution(
+            db,
+            ExecutionEventCreate(
+                execution_id="unmeasured",
+                timestamp="2026-08-12T00:00:00Z",
+                capability_id="cap",
+                implementation_id="impl",
+                model_version="m",
+            ),
+        )
+    finally:
+        db_context.close()
+
+    assert status == "inserted"
+    # A second startup is a no-op, including for the preserved custom index.
+    second_context = plane_database.get_db()
+    next(second_context)
+    second_context.close()
+    with legacy_engine.connect() as connection:
+        columns = {
+            row[1]: row[3]
+            for row in connection.execute(text("PRAGMA table_info(execution_events)"))
+        }
+        execution_ids = connection.execute(
+            text("SELECT execution_id FROM execution_events ORDER BY id")
+        ).scalars().all()
+        indexes = {
+            row[1] for row in connection.execute(text("PRAGMA index_list(execution_events)"))
+        }
+    assert columns["token_cost_usd"] == 0
+    assert columns["tool_cost_usd"] == 0
+    assert columns["compute_cost_usd"] == 0
+    assert execution_ids == ["legacy", "unmeasured"]
+    assert "ix_legacy_execution_capability" in indexes
