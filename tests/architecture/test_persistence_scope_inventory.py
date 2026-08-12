@@ -1061,6 +1061,12 @@ def _binding_targets(node: ast.AST) -> tuple[ast.AST, ...]:
         return (node.target,)
     if isinstance(node, (ast.With, ast.AsyncWith)):
         return tuple(item.optional_vars for item in node.items if item.optional_vars is not None)
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return tuple(
+            ast.Name(id=alias.asname or alias.name.split(".")[0]) for alias in node.names
+        )
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return (ast.Name(id=node.name),)
     if isinstance(node, ast.Match):
         return tuple(
             target
@@ -1875,6 +1881,45 @@ def _audit_repository_public_call_provenance(
                 def bind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
                     return state[0] - names, state[1] | names, state[2] | names
 
+                def unbind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
+                    return state[0], state[1], state[2] - names
+
+                def unbind_flow(flow: PotentialFlow, names: set[str]) -> PotentialFlow:
+                    def unbind_states(states: list[_PotentialState]) -> list[_PotentialState]:
+                        return [unbind_names(state, names) for state in states]
+
+                    return PotentialFlow(
+                        None
+                        if flow.continuing is None
+                        else unbind_names(flow.continuing, names),
+                        unbind_states(flow.breaks),
+                        unbind_states(flow.continues),
+                        unbind_states(flow.returns),
+                        unbind_states(flow.exceptions),
+                    )
+
+                def condition_bound_names(expression: ast.expr, *, true: bool) -> set[str]:
+                    if isinstance(expression, ast.NamedExpr):
+                        return _bound_names(expression.target)
+                    if isinstance(expression, ast.BoolOp):
+                        if isinstance(expression.op, ast.And):
+                            return (
+                                set().union(
+                                    *(condition_bound_names(value, true=True) for value in expression.values)
+                                )
+                                if true
+                                else set()
+                            )
+                        if isinstance(expression.op, ast.Or):
+                            return (
+                                set().union(
+                                    *(condition_bound_names(value, true=False) for value in expression.values)
+                                )
+                                if not true
+                                else set()
+                            )
+                    return set()
+
                 def literal_value(expression: ast.AST) -> object:
                     if isinstance(expression, ast.Constant):
                         return expression.value
@@ -1997,6 +2042,8 @@ def _audit_repository_public_call_provenance(
                         if expression.id in lexical_local_names:
                             return True
                         return expression.id not in _BUILTIN_NAMES | module_bound_names
+                    if isinstance(expression, ast.NamedExpr):
+                        return expression_may_raise(expression.value, bound_names)
                     if isinstance(expression, ast.Lambda):
                         return False
                     if isinstance(expression, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -2180,8 +2227,18 @@ def _audit_repository_public_call_provenance(
                         if isinstance(statement, ast.If):
                             if expression_may_raise(statement.test, before[2]):
                                 exceptions.append(before)
-                            body_flow = walk_potential_bindings(statement.body, before)
-                            else_flow = walk_potential_bindings(statement.orelse, before)
+                            body_flow = walk_potential_bindings(
+                                statement.body,
+                                bind_names(
+                                    before, condition_bound_names(statement.test, true=True)
+                                ),
+                            )
+                            else_flow = walk_potential_bindings(
+                                statement.orelse,
+                                bind_names(
+                                    before, condition_bound_names(statement.test, true=False)
+                                ),
+                            )
                             continuing = join_states(body_flow.continuing, else_flow.continuing)
                             breaks.extend((*body_flow.breaks, *else_flow.breaks))
                             continues.extend((*body_flow.continues, *else_flow.continues))
@@ -2231,8 +2288,12 @@ def _audit_repository_public_call_provenance(
                                 for handler in handlers:
                                     handler_names = {handler.name} if handler.name is not None else set()
                                     handler_flows.append(
-                                        walk_potential_bindings(
-                                            handler.body, bind_names(handler_state, handler_names)
+                                        unbind_flow(
+                                            walk_potential_bindings(
+                                                handler.body,
+                                                bind_names(handler_state, handler_names),
+                                            ),
+                                            handler_names,
                                         )
                                     )
                             continuing = join_states(
@@ -2359,6 +2420,12 @@ def _audit_repository_public_call_provenance(
                                 continues.extend(flow.continues)
                                 returns.extend(flow.returns)
                                 exceptions.extend(flow.exceptions)
+                            continue
+                        if isinstance(statement, ast.Delete):
+                            continuing = unbind_names(
+                                continuing,
+                                set().union(*(_bound_names(target) for target in statement.targets)),
+                            )
                             continue
                         assignment_value = (
                             None
@@ -6448,6 +6515,134 @@ def test_public_call_inventory_keeps_alias_definition_bound_inside_suppressed_wi
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("cleanup", "name"),
+    [
+        ("    del transient\n", "transient"),
+        (
+            "    try:\n"
+            "        raise ValueError\n"
+            "    except ValueError as transient:\n"
+            "        pass\n",
+            "transient",
+        ),
+    ],
+    ids=["del", "except-target"],
+)
+def test_public_call_inventory_keeps_potential_after_deleted_binding_read(
+    tmp_path: Path, cleanup: str, name: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    transient = None\n"
+        + cleanup
+        + "    with suppressor:\n"
+        f"        if {name}:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("definition", "name"),
+    [
+        ("    import json\n", "json"),
+        ("    from json import dumps\n", "dumps"),
+        ("    def local():\n        pass\n", "local"),
+        ("    async def local():\n        pass\n", "local"),
+        ("    class Local:\n        pass\n", "Local"),
+    ],
+    ids=["import", "import-from", "function", "async-function", "class"],
+)
+def test_public_call_inventory_keeps_successful_local_bindings_bound(
+    tmp_path: Path, definition: str, name: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        + definition
+        + "    with suppressor:\n"
+        + f"        if {name}:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_executed_walrus_binding_bound(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        if (local := True):\n"
+        "            pass\n"
+        "        if local:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_conditional_walrus_binding_conservative(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, condition, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        if condition and (local := True):\n"
+        "            pass\n"
+        "        if local:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 @pytest.mark.parametrize(
