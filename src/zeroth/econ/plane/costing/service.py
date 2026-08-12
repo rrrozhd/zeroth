@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, CostProfile, GroundTruthCost, PricingCatalog
 from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogCreate
@@ -12,7 +11,14 @@ from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.service import hierarchical_interval
 
 
-def create_pricing_catalog(db: Session, payload: PricingCatalogCreate) -> PricingCatalog:
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("costing persistence requires an exact ScopedSession")
+    return db
+
+
+def create_pricing_catalog(db: ScopedSession, payload: PricingCatalogCreate) -> PricingCatalog:
+    db = _require_exact_scoped_session(db)
     row = PricingCatalog(**payload.model_dump())
     db.add(row)
     db.commit()
@@ -20,7 +26,8 @@ def create_pricing_catalog(db: Session, payload: PricingCatalogCreate) -> Pricin
     return row
 
 
-def create_cost_profile(db: Session, payload: CostProfileCreate) -> CostProfile:
+def create_cost_profile(db: ScopedSession, payload: CostProfileCreate) -> CostProfile:
+    db = _require_exact_scoped_session(db)
     row = CostProfile(**payload.model_dump())
     db.add(row)
     db.commit()
@@ -28,11 +35,15 @@ def create_cost_profile(db: Session, payload: CostProfileCreate) -> CostProfile:
     return row
 
 
-def get_cost_profile(db: Session, profile_id: int) -> CostProfile | None:
+def get_cost_profile(db: ScopedSession, profile_id: int) -> CostProfile | None:
+    db = _require_exact_scoped_session(db)
     return db.get(CostProfile, profile_id)
 
 
-def _lookup_pricing(db: Session, provider: str, model: str, at: datetime) -> PricingCatalog | None:
+def _lookup_pricing(
+    db: ScopedSession, provider: str, model: str, at: datetime
+) -> PricingCatalog | None:
+    db = _require_exact_scoped_session(db)
     stmt = (
         select(PricingCatalog)
         .where(PricingCatalog.provider == provider, PricingCatalog.model == model, PricingCatalog.effective_from <= at)
@@ -46,13 +57,14 @@ def _lookup_pricing(db: Session, provider: str, model: str, at: datetime) -> Pri
 
 
 def estimate_cost_for_period(
-    db: Session,
+    db: ScopedSession,
     capability_id: str,
     implementation_id: str | None,
     period_start: datetime,
     period_end: datetime,
     method_version: str = "v2_stat",
 ) -> CostEstimate:
+    db = _require_exact_scoped_session(db)
     stmt = select(ExecutionEvent).where(
         ExecutionEvent.capability_id == capability_id,
         ExecutionEvent.timestamp >= period_start,
@@ -126,17 +138,20 @@ def estimate_cost_for_period(
     return row
 
 
-def latest_cost_estimate(db: Session, capability_id: str) -> CostEstimate | None:
+def latest_cost_estimate(db: ScopedSession, capability_id: str) -> CostEstimate | None:
+    db = _require_exact_scoped_session(db)
     stmt = select(CostEstimate).where(CostEstimate.capability_id == capability_id).order_by(CostEstimate.id.desc())
     return db.execute(stmt).scalar_one_or_none()
 
 
 def compute_calibration_summary(db: ScopedSession) -> list[CalibrationMetric]:
+    db = _require_exact_scoped_session(db)
     # Lightweight daily aggregation scaffold for MVP; real reconciler can append rows.
     return list(db.execute(select(CalibrationMetric).order_by(CalibrationMetric.id.desc())).scalars())
 
 
 def add_ground_truth_rows(db: ScopedSession, rows: list[GroundTruthCost]) -> int:
+    db = _require_exact_scoped_session(db)
     for row in rows:
         db.add(row)
     db.commit()

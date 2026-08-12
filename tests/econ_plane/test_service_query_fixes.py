@@ -15,6 +15,8 @@ from zeroth.econ.plane.counterfactual.service import _pick_interval
 from zeroth.econ.plane.database import Base
 from zeroth.econ.plane.instrumentation.models import OutcomeEvent
 from zeroth.econ.plane.performance.service import calculate_snapshots
+from zeroth.econ.plane.scoped_session import ScopedSession
+from zeroth.platform.storage.scoping import TenantWideScopeContext
 
 _NOW = datetime(2026, 7, 1, tzinfo=UTC)
 
@@ -24,7 +26,7 @@ def econ_session():
     engine = create_engine("sqlite://", future=True)
     Base.metadata.create_all(bind=engine)
     with Session(engine) as session:
-        yield session
+        yield ScopedSession(session, TenantWideScopeContext.for_default_compatibility())
 
 
 def _value_estimate(cap_id: str, value: float) -> ValueEstimate:

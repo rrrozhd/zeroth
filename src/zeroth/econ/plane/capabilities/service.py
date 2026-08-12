@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Optional
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, select
 
 from zeroth.econ.plane.capabilities.models import (
     Capability,
@@ -16,6 +15,13 @@ from zeroth.econ.plane.capabilities.models import (
 )
 from zeroth.econ.plane.capabilities.schemas import CapabilityCreate, DeploymentCreate, ExperimentCreate, ImplementationCreate
 from zeroth.econ.plane.common.tenant import resolve_tenant_id
+from zeroth.econ.plane.scoped_session import ScopedSession
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("capability persistence requires an exact ScopedSession")
+    return db
 
 
 def _normalize_category(value: str | None) -> str:
@@ -40,7 +46,8 @@ def _legacy_category(capability_type: str) -> str:
     return mapping.get(capability_type, "RiskMitigation")
 
 
-def create_capability(db: Session, payload: CapabilityCreate) -> Capability:
+def create_capability(db: ScopedSession, payload: CapabilityCreate) -> Capability:
+    db = _require_exact_scoped_session(db)
     tenant_id = resolve_tenant_id(payload.tenant_id)
     capability_type = _normalize_category(payload.type or payload.category)
     existing = db.execute(select(Capability).where(Capability.id == payload.id)).scalar_one_or_none()
@@ -75,7 +82,8 @@ def create_capability(db: Session, payload: CapabilityCreate) -> Capability:
     return row
 
 
-def create_implementation(db: Session, capability_id: str, payload: ImplementationCreate) -> Implementation:
+def create_implementation(db: ScopedSession, capability_id: str, payload: ImplementationCreate) -> Implementation:
+    db = _require_exact_scoped_session(db)
     tenant_id = resolve_tenant_id(payload.tenant_id)
     existing = db.execute(select(Implementation).where(Implementation.id == payload.id)).scalar_one_or_none()
     if existing is not None:
@@ -116,22 +124,26 @@ def create_implementation(db: Session, capability_id: str, payload: Implementati
     return row
 
 
-def list_capabilities(db: Session, tenant_id: str | None = None) -> list[Capability]:
+def list_capabilities(db: ScopedSession, tenant_id: str | None = None) -> list[Capability]:
+    db = _require_exact_scoped_session(db)
     stmt = select(Capability)
     if tenant_id:
         stmt = stmt.where(Capability.tenant_id == tenant_id)
     return list(db.execute(stmt).scalars().all())
 
 
-def get_capability(db: Session, capability_id: str) -> Optional[Capability]:
+def get_capability(db: ScopedSession, capability_id: str) -> Optional[Capability]:
+    db = _require_exact_scoped_session(db)
     return db.execute(select(Capability).where(Capability.id == capability_id)).scalar_one_or_none()
 
 
-def get_implementation(db: Session, implementation_id: str) -> Optional[Implementation]:
+def get_implementation(db: ScopedSession, implementation_id: str) -> Optional[Implementation]:
+    db = _require_exact_scoped_session(db)
     return db.execute(select(Implementation).where(Implementation.id == implementation_id)).scalar_one_or_none()
 
 
-def create_deployment(db: Session, payload: DeploymentCreate) -> Deployment:
+def create_deployment(db: ScopedSession, payload: DeploymentCreate) -> Deployment:
+    db = _require_exact_scoped_session(db)
     tenant_id = resolve_tenant_id(payload.tenant_id)
     existing = db.execute(select(Deployment).where(Deployment.capability_id == payload.capability_id)).scalar_one_or_none()
     if existing is None:
@@ -151,7 +163,11 @@ def create_deployment(db: Session, payload: DeploymentCreate) -> Deployment:
         existing.updated_at = datetime.now(timezone.utc)
         db.execute(select(DeploymentImplementation).where(DeploymentImplementation.deployment_id == existing.id))
 
-    db.query(DeploymentImplementation).filter(DeploymentImplementation.deployment_id == existing.id).delete()
+    db.execute(
+        delete(DeploymentImplementation).where(
+            DeploymentImplementation.deployment_id == existing.id
+        )
+    )
     for implementation_id in payload.active_impl_ids:
         db.add(DeploymentImplementation(deployment_id=existing.id, implementation_id=implementation_id))
 
@@ -160,18 +176,21 @@ def create_deployment(db: Session, payload: DeploymentCreate) -> Deployment:
     return existing
 
 
-def get_deployment(db: Session, capability_id: str) -> Optional[Deployment]:
+def get_deployment(db: ScopedSession, capability_id: str) -> Optional[Deployment]:
+    db = _require_exact_scoped_session(db)
     return db.execute(select(Deployment).where(Deployment.capability_id == capability_id)).scalar_one_or_none()
 
 
-def deployment_active_impl_ids(db: Session, deployment_id: int) -> list[str]:
+def deployment_active_impl_ids(db: ScopedSession, deployment_id: int) -> list[str]:
+    db = _require_exact_scoped_session(db)
     rows = db.execute(
         select(DeploymentImplementation).where(DeploymentImplementation.deployment_id == deployment_id)
     ).scalars()
     return [r.implementation_id for r in rows]
 
 
-def create_experiment(db: Session, payload: ExperimentCreate) -> Experiment:
+def create_experiment(db: ScopedSession, payload: ExperimentCreate) -> Experiment:
+    db = _require_exact_scoped_session(db)
     tenant_id = resolve_tenant_id(payload.tenant_id)
     row = Experiment(
         tenant_id=tenant_id,
@@ -192,7 +211,8 @@ def create_experiment(db: Session, payload: ExperimentCreate) -> Experiment:
     return row
 
 
-def list_experiments(db: Session, capability_id: str) -> list[Experiment]:
+def list_experiments(db: ScopedSession, capability_id: str) -> list[Experiment]:
+    db = _require_exact_scoped_session(db)
     return list(db.execute(select(Experiment).where(Experiment.capability_id == capability_id)).scalars())
 
 
@@ -202,7 +222,10 @@ def pick_ab_arm(join_key: str, target_pct: float) -> str:
     return "A" if bucket < int(target_pct) else "B"
 
 
-def active_experiment(db: Session, capability_id: str, mode: str = "AB") -> Optional[Experiment]:
+def active_experiment(
+    db: ScopedSession, capability_id: str, mode: str = "AB"
+) -> Optional[Experiment]:
+    db = _require_exact_scoped_session(db)
     stmt = (
         select(Experiment)
         .where(Experiment.capability_id == capability_id)

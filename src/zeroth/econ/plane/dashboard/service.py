@@ -1,16 +1,23 @@
 from collections import defaultdict
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.capabilities.models import Capability
 from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, GroundTruthCost
 from zeroth.econ.plane.counterfactual.models import ValueEstimate
 from zeroth.econ.plane.enforcement.models import PolicyAction
 from zeroth.econ.plane.performance.models import PerformanceSnapshot
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 
-def kpis(db: Session) -> dict:
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("dashboard persistence requires an exact ScopedSession")
+    return db
+
+
+def kpis(db: ScopedSession) -> dict:
+    db = _require_exact_scoped_session(db)
     estimates = list(db.execute(select(ValueEstimate)).scalars())
     spend = sum(float(e.estimated_cost_usd) for e in estimates)
     value = sum(float(e.estimated_value_usd) for e in estimates)
@@ -45,7 +52,8 @@ def kpis(db: Session) -> dict:
     }
 
 
-def top_creators(db: Session) -> list[dict]:
+def top_creators(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     grouped = defaultdict(list)
     for estimate in db.execute(select(ValueEstimate)).scalars():
         grouped[estimate.capability_id].append(estimate)
@@ -59,12 +67,14 @@ def top_creators(db: Session) -> list[dict]:
     return sorted(rows, key=lambda r: r["net_margin_usd"], reverse=True)[:5]
 
 
-def capital_destroyers(db: Session) -> list[dict]:
+def capital_destroyers(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     rows = top_creators(db)
     return sorted(rows, key=lambda r: r["net_margin_usd"])[:5]
 
 
-def capability_ranking(db: Session) -> list[dict]:
+def capability_ranking(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     latest_perf: dict[str, PerformanceSnapshot] = {}
     for snap in db.execute(select(PerformanceSnapshot).order_by(PerformanceSnapshot.id.desc())).scalars():
         latest_perf.setdefault(snap.capability_id, snap)
@@ -91,7 +101,8 @@ def capability_ranking(db: Session) -> list[dict]:
     return sorted(rows, key=lambda r: r["net_margin_usd"], reverse=True)
 
 
-def implementation_compare(db: Session, capability_id: str) -> list[dict]:
+def implementation_compare(db: ScopedSession, capability_id: str) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     rows = list(
         db.execute(
             select(ValueEstimate)
@@ -115,7 +126,8 @@ def implementation_compare(db: Session, capability_id: str) -> list[dict]:
     return out
 
 
-def policy_timeline(db: Session) -> list[dict]:
+def policy_timeline(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     out = []
     for p in db.execute(select(PolicyAction).order_by(PolicyAction.id.desc())).scalars():
         out.append(
@@ -132,14 +144,16 @@ def policy_timeline(db: Session) -> list[dict]:
     return out
 
 
-def confidence_trend(db: Session) -> list[dict]:
+def confidence_trend(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     points = []
     for estimate in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars():
         points.append({"x": estimate.period_end.isoformat(), "y": float(estimate.confidence_level)})
     return points
 
 
-def efficiency_trend(db: Session) -> list[dict]:
+def efficiency_trend(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     points = []
     for estimate in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars():
         cost = float(estimate.estimated_cost_usd)
@@ -148,7 +162,8 @@ def efficiency_trend(db: Session) -> list[dict]:
     return points
 
 
-def estimated_vs_ground_truth_cost(db: Session) -> list[dict]:
+def estimated_vs_ground_truth_cost(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     est_rows = list(db.execute(select(CostEstimate).order_by(CostEstimate.id.desc())).scalars())
     gt_rows = list(db.execute(select(GroundTruthCost).order_by(GroundTruthCost.id.desc())).scalars())
 
@@ -165,14 +180,16 @@ def estimated_vs_ground_truth_cost(db: Session) -> list[dict]:
     return out
 
 
-def confidence_gate_status(db: Session) -> dict:
+def confidence_gate_status(db: ScopedSession) -> dict:
+    db = _require_exact_scoped_session(db)
     rows = list(db.execute(select(ValueEstimate)).scalars())
     passed = sum(1 for r in rows if bool(r.confidence_gate_passed))
     blocked = len(rows) - passed
     return {"passed": passed, "blocked": blocked}
 
 
-def data_quality_mix(db: Session) -> dict:
+def data_quality_mix(db: ScopedSession) -> dict:
+    db = _require_exact_scoped_session(db)
     rows = list(db.execute(select(CostEstimate)).scalars())
     measured = sum(1 for r in rows if r.data_quality == "measured")
     inferred = sum(1 for r in rows if r.data_quality == "inferred")
@@ -180,16 +197,19 @@ def data_quality_mix(db: Session) -> dict:
     return {"measured": measured, "inferred": inferred, "mixed": mixed}
 
 
-def calibration_trend(db: Session) -> list[dict]:
+def calibration_trend(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     return [{"x": r.period, "y": float(r.mape)} for r in db.execute(select(CalibrationMetric).order_by(CalibrationMetric.id)).scalars()]
 
 
-def action_suppression(db: Session) -> list[dict]:
+def action_suppression(db: ScopedSession) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     blocked = [r for r in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars() if not bool(r.confidence_gate_passed)]
     return [{"x": r.period_end.isoformat(), "y": 1.0} for r in blocked]
 
 
-def drift_timeline(db: Session, capability_id: str) -> list[dict]:
+def drift_timeline(db: ScopedSession, capability_id: str) -> list[dict]:
+    db = _require_exact_scoped_session(db)
     points = []
     for estimate in db.execute(
         select(ValueEstimate).where(ValueEstimate.capability_id == capability_id).order_by(ValueEstimate.id)

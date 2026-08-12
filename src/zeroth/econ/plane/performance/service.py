@@ -1,13 +1,19 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.counterfactual.models import ValueEstimate
 from zeroth.econ.plane.performance.models import PerformanceSnapshot
+from zeroth.econ.plane.scoped_session import ScopedSession
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("performance persistence requires an exact ScopedSession")
+    return db
 
 
 def _rule_for(capability: Capability, estimate: ValueEstimate, aer: float, confidence_width: float) -> str:
@@ -48,7 +54,8 @@ def estimate_session_exec(estimate: ValueEstimate, capability: Capability) -> li
     return [i for i in capability.implementations if i.status == "ACTIVE"]
 
 
-def calculate_snapshots(db: Session) -> list[PerformanceSnapshot]:
+def calculate_snapshots(db: ScopedSession) -> list[PerformanceSnapshot]:
+    db = _require_exact_scoped_session(db)
     capabilities = list(db.execute(select(Capability)).scalars())
     snapshots: list[PerformanceSnapshot] = []
 
@@ -122,7 +129,8 @@ def calculate_snapshots(db: Session) -> list[PerformanceSnapshot]:
     return snapshots
 
 
-def latest_snapshots(db: Session) -> list[PerformanceSnapshot]:
+def latest_snapshots(db: ScopedSession) -> list[PerformanceSnapshot]:
+    db = _require_exact_scoped_session(db)
     rows = list(db.execute(select(PerformanceSnapshot).order_by(PerformanceSnapshot.id.desc())).scalars())
     dedupe: dict[str, PerformanceSnapshot] = {}
     for row in rows:
