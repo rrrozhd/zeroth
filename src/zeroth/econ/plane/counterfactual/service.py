@@ -9,7 +9,7 @@ from sqlalchemy import select
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
-from zeroth.econ.plane.costing.service import estimate_cost_for_period
+from zeroth.econ.plane.costing.service import PricingCatalogReader, estimate_cost_for_period
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
@@ -155,7 +155,12 @@ def _arms_summary(executions: list[ExecutionEvent], outcome_values: dict[str, fl
     return arms
 
 
-def run_evaluation(db: ScopedSession, payload: EvaluationRunRequest) -> ValueEstimate:
+def run_evaluation(
+    db: ScopedSession,
+    payload: EvaluationRunRequest,
+    *,
+    pricing: PricingCatalogReader | None = None,
+) -> ValueEstimate:
     db = _require_exact_scoped_session(db)
     tenant_id = _bound_tenant(db)
     capability = db.execute(
@@ -206,7 +211,14 @@ def run_evaluation(db: ScopedSession, payload: EvaluationRunRequest) -> ValueEst
     filtered_outcomes = [o for o in outcomes if (o.join_key or o.execution_id) in join_lookup]
 
     if settings.stat_cost_engine:
-        cost_est = estimate_cost_for_period(db, payload.capability_id, payload.implementation_id, payload.period_start, payload.period_end)
+        cost_est = estimate_cost_for_period(
+            db,
+            payload.capability_id,
+            payload.implementation_id,
+            payload.period_start,
+            payload.period_end,
+            pricing=pricing,
+        )
         total_cost = float(cost_est.total_cost_estimate_usd)
         cost_quality = cost_est.data_quality
     else:

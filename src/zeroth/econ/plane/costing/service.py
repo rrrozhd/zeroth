@@ -40,20 +40,32 @@ def get_cost_profile(db: ScopedSession, profile_id: int) -> CostProfile | None:
     return db.get(CostProfile, profile_id)
 
 
-def _lookup_pricing(
-    db: ScopedSession, provider: str, model: str, at: datetime
-) -> PricingCatalog | None:
-    db = _require_exact_scoped_session(db)
-    stmt = (
-        select(PricingCatalog)
-        .where(PricingCatalog.provider == provider, PricingCatalog.model == model, PricingCatalog.effective_from <= at)
-        .order_by(PricingCatalog.effective_from.desc())
-    )
-    rows = list(db.execute(stmt).scalars())
-    for row in rows:
-        if row.effective_to is None or row.effective_to >= at:
-            return row
-    return None
+class PricingCatalogReader:
+    """Read-only global pricing view supplied to tenant costing operations."""
+
+    __slots__ = ("_db",)
+
+    def __init__(self, db: ScopedSession) -> None:
+        db = _require_exact_scoped_session(db)
+        if db.scope is not None:
+            raise ValueError("pricing catalog reads require a global scope")
+        self._db = db
+
+    def lookup(self, provider: str, model: str, at: datetime) -> PricingCatalog | None:
+        stmt = (
+            select(PricingCatalog)
+            .where(
+                PricingCatalog.provider == provider,
+                PricingCatalog.model == model,
+                PricingCatalog.effective_from <= at,
+            )
+            .order_by(PricingCatalog.effective_from.desc())
+        )
+        rows = list(self._db.execute(stmt).scalars())
+        for row in rows:
+            if row.effective_to is None or row.effective_to >= at:
+                return row
+        return None
 
 
 def estimate_cost_for_period(
@@ -63,6 +75,8 @@ def estimate_cost_for_period(
     period_start: datetime,
     period_end: datetime,
     method_version: str = "v2_stat",
+    *,
+    pricing: PricingCatalogReader | None = None,
 ) -> CostEstimate:
     db = _require_exact_scoped_session(db)
     stmt = select(ExecutionEvent).where(
@@ -90,7 +104,9 @@ def estimate_cost_for_period(
         in_tokens = float(md.get("prompt_tokens", 0.0))
         out_tokens = float(md.get("completion_tokens", md.get("output_tokens", 0.0)))
         if (float(e.token_cost_usd) <= 0.0) and provider and model and (in_tokens or out_tokens):
-            price = _lookup_pricing(db, provider, model, e.timestamp)
+            if pricing is None:
+                raise ValueError("inferred costing requires a global pricing catalog scope")
+            price = pricing.lookup(provider, model, e.timestamp)
             if price:
                 token_cost = (in_tokens / 1_000_000.0) * float(price.input_per_million_usd) + (
                     out_tokens / 1_000_000.0
