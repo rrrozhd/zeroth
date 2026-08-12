@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, TypeVar, final
+from typing import Any, ClassVar, TypeVar, final
 
 _DEFAULT_TENANT_ID = "default"
 _RESOURCE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -377,6 +377,20 @@ class TenantWideScopeContext:
         return context
 
 
+@dataclass(frozen=True, slots=True, init=False)
+@final
+class CrossTenantMaintenanceScopeContext:
+    """Explicit read/enumerate authority for scheduled maintenance."""
+
+    allowed_resource_names: ClassVar[frozenset[str]] = frozenset(
+        {"service.approvals", "service.retention_policies"}
+    )
+
+    @classmethod
+    def for_scheduled_maintenance(cls) -> CrossTenantMaintenanceScopeContext:
+        return object.__new__(cls)
+
+
 @dataclass(frozen=True, slots=True)
 @final
 class ResourceScopeDefinition:
@@ -536,6 +550,28 @@ class ResourceScopeRegistry:
         self._validate_operation(definition, operation)
         if definition.scope is ResourceScope.GLOBAL:
             raise ValueError("global resources do not accept a tenant context")
+        if not definition.direct_scope_ready:
+            raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
+        return definition.to_definition()
+
+    def validate_cross_tenant_maintenance_binding(
+        self,
+        resource_name: str,
+        context: CrossTenantMaintenanceScopeContext,
+        *,
+        operation: ResourceOperation,
+    ) -> ResourceScopeDefinition:
+        """Validate read-only cross-tenant maintenance enumeration."""
+        if type(context) is not CrossTenantMaintenanceScopeContext:
+            raise TypeError("context must be a CrossTenantMaintenanceScopeContext")
+        if operation not in {ResourceOperation.READ, ResourceOperation.ENUMERATE}:
+            raise ValueError("cross-tenant maintenance is read-only")
+        if resource_name not in context.allowed_resource_names:
+            raise ValueError("cross-tenant maintenance is limited to approved resources")
+        definition = self.__by_resource[resource_name]
+        self._validate_operation(definition, operation)
+        if definition.scope is ResourceScope.GLOBAL:
+            raise ValueError("global resources do not accept a maintenance context")
         if not definition.direct_scope_ready:
             raise ValueError(f"tenant resource {resource_name!r} has pending direct ownership")
         return definition.to_definition()

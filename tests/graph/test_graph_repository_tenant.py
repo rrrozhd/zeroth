@@ -42,8 +42,8 @@ async def test_get_is_invisible_to_foreign_tenant(sqlite_db) -> None:
     await repo.save(_graph("g-a"), tenant_id="tenant-a")
 
     assert await repo.get("g-a", tenant_id="tenant-b") is None
-    # No tenant filter (internal path) still finds it.
-    assert await repo.get("g-a") is not None
+    # Omitting a tenant is the reserved default scope, never a cross-tenant read.
+    assert await repo.get("g-a") is None
 
 
 @pytest.mark.asyncio
@@ -158,18 +158,15 @@ async def test_legacy_payload_without_workspace_is_only_visible_in_null_scope(sq
 
 
 @pytest.mark.asyncio
-async def test_internal_unscoped_save_can_repair_graph_ownership(sqlite_db) -> None:
+async def test_unscoped_save_cannot_transfer_graph_ownership(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
     saved = await repo.save(_graph("g-repair"), tenant_id="tenant-a", workspace_id="workspace-a")
 
-    repaired = await repo.save(
-        saved.model_copy(update={"tenant_id": "tenant-b", "workspace_id": None})
-    )
+    with pytest.raises(KeyError):
+        await repo.save(saved.model_copy(update={"tenant_id": "tenant-b", "workspace_id": None}))
 
-    assert repaired.tenant_id == "tenant-b"
-    assert repaired.workspace_id is None
-    assert await repo.get("g-repair", tenant_id="tenant-a", workspace_id="workspace-a") is None
-    assert await repo.get("g-repair", tenant_id="tenant-b", workspace_id=None) is not None
+    assert await repo.get("g-repair", tenant_id="tenant-a", workspace_id="workspace-a") is not None
+    assert await repo.get("g-repair", tenant_id="tenant-b", workspace_id=None) is None
 
 
 @requires_docker
