@@ -6,6 +6,7 @@ import importlib
 import inspect as python_inspect
 import os
 import pkgutil
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,7 @@ _AUDIT_REPOSITORY_TYPED_COLLABORATORS = {
     ("zeroth.governance.audit.delivery_state", "AuditRecordWriter"): frozenset({"write"}),
 }
 _AuditRepositoryCallSite = tuple[str, tuple[str, ...] | None, int, int]
+type _PotentialState = tuple[set[str], set[str]]
 _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
     "examples/04_native_tool.py": {
         (("main",), ("demo", "service", "audit_repository")): _AUDIT_REPOSITORY_OPERATION_NAMES,
@@ -1824,10 +1826,31 @@ def _audit_repository_public_call_provenance(
                     if potential_declaration_names == prior_declaration_names:
                         break
 
+                @dataclass
+                class PotentialFlow:
+                    continuing: _PotentialState | None
+                    breaks: list[_PotentialState]
+                    continues: list[_PotentialState]
+                    exceptions: list[_PotentialState]
+
+                def join_states(*states: _PotentialState | None) -> _PotentialState | None:
+                    present = [state for state in states if state is not None]
+                    if not present:
+                        return None
+                    return (
+                        set().union(*(state[0] for state in present)),
+                        set.intersection(*(state[1] for state in present)),
+                    )
+
+                def bind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
+                    return state[0] - names, state[1] | names
+
+                def statement_may_raise(statement: ast.stmt) -> bool:
+                    return any(isinstance(node, (ast.Await, ast.Call)) for node in ast.walk(statement))
+
                 def walk_potential_bindings(
                     block: list[ast.stmt],
-                    potential_names: set[str],
-                    invalidated_names: set[str],
+                    state: _PotentialState,
                     repository_names: set[str] = repository_names,
                     module_names: dict[str, tuple[str, ...]] = module_names,
                     potential_imported_repository_names: set[
@@ -1835,122 +1858,125 @@ def _audit_repository_public_call_provenance(
                     ] = potential_imported_repository_names,
                     potential_declaration_names: set[str] = potential_declaration_names,
                     events: _AliasEvents = events,
-                ) -> tuple[set[str], set[str]]:
-                    potential_names = set(potential_names)
-                    invalidated_names = set(invalidated_names)
+                ) -> PotentialFlow:
+                    continuing: _PotentialState | None = (set(state[0]), set(state[1]))
+                    breaks: list[_PotentialState] = []
+                    continues: list[_PotentialState] = []
+                    exceptions: list[_PotentialState] = []
                     for statement in block:
+                        if continuing is None:
+                            break
+                        before = continuing
+                        if isinstance(statement, ast.Return):
+                            continuing = None
+                            continue
+                        if isinstance(statement, ast.Raise):
+                            exceptions.append(before)
+                            continuing = None
+                            continue
+                        if isinstance(statement, ast.Break):
+                            breaks.append(before)
+                            continuing = None
+                            continue
+                        if isinstance(statement, ast.Continue):
+                            continues.append(before)
+                            continuing = None
+                            continue
                         if isinstance(statement, ast.If):
-                            body_state = walk_potential_bindings(
-                                statement.body, potential_names, invalidated_names
-                            )
-                            else_state = walk_potential_bindings(
-                                statement.orelse, potential_names, invalidated_names
-                            )
-                            potential_names = body_state[0] | else_state[0]
-                            invalidated_names = body_state[1] & else_state[1]
+                            body_flow = walk_potential_bindings(statement.body, before)
+                            else_flow = walk_potential_bindings(statement.orelse, before)
+                            continuing = join_states(body_flow.continuing, else_flow.continuing)
+                            breaks.extend((*body_flow.breaks, *else_flow.breaks))
+                            continues.extend((*body_flow.continues, *else_flow.continues))
+                            exceptions.extend((*body_flow.exceptions, *else_flow.exceptions))
                             continue
                         if isinstance(statement, (ast.Try, ast.TryStar)):
-                            body_state = walk_potential_bindings(
-                                statement.body, potential_names, invalidated_names
+                            body_flow = walk_potential_bindings(statement.body, before)
+                            normal_flow = (
+                                walk_potential_bindings(statement.orelse, body_flow.continuing)
+                                if body_flow.continuing is not None
+                                else PotentialFlow(None, [], [], [])
                             )
-                            path_states = [
-                                walk_potential_bindings(statement.orelse, *body_state),
-                            ]
+                            handler_flows: list[PotentialFlow] = []
                             for handler in statement.handlers:
                                 handler_names = {handler.name} if handler.name is not None else set()
-                                path_states.append(
+                                handler_flows.append(
                                     walk_potential_bindings(
-                                        handler.body,
-                                        potential_names - handler_names,
-                                        invalidated_names | handler_names,
+                                        handler.body, bind_names(before, handler_names)
                                     )
                                 )
-                            potential_names = set().union(*(state[0] for state in path_states))
-                            invalidated_names = set.intersection(
-                                *(state[1] for state in path_states)
+                            continuing = join_states(
+                                normal_flow.continuing,
+                                *(flow.continuing for flow in handler_flows),
                             )
-                            potential_names, invalidated_names = walk_potential_bindings(
-                                statement.finalbody, potential_names, invalidated_names
+                            breaks.extend(
+                                (*body_flow.breaks, *normal_flow.breaks),
                             )
+                            continues.extend(
+                                (*body_flow.continues, *normal_flow.continues),
+                            )
+                            exceptions.extend(
+                                (*body_flow.exceptions, *normal_flow.exceptions),
+                            )
+                            for flow in handler_flows:
+                                breaks.extend(flow.breaks)
+                                continues.extend(flow.continues)
+                                exceptions.extend(flow.exceptions)
+                            if statement.finalbody and continuing is not None:
+                                final_flow = walk_potential_bindings(statement.finalbody, continuing)
+                                continuing = final_flow.continuing
+                                breaks.extend(final_flow.breaks)
+                                continues.extend(final_flow.continues)
+                                exceptions.extend(final_flow.exceptions)
                             continue
                         if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
-                            pre_loop_state = (set(potential_names), set(invalidated_names))
+                            loop_state = before
                             if isinstance(statement, (ast.For, ast.AsyncFor)):
-                                bound_names = _bound_names(statement.target)
-                                potential_names.difference_update(bound_names)
-                                invalidated_names.update(bound_names)
-                            body_state = walk_potential_bindings(
-                                statement.body, potential_names, invalidated_names
+                                loop_state = bind_names(loop_state, _bound_names(statement.target))
+                            body_flow = walk_potential_bindings(statement.body, loop_state)
+                            iteration_state = join_states(
+                                body_flow.continuing, *body_flow.continues
                             )
-                            exhausted_state = walk_potential_bindings(statement.orelse, *body_state)
-                            zero_iteration_state = walk_potential_bindings(
-                                statement.orelse, *pre_loop_state
+                            zero_flow = walk_potential_bindings(statement.orelse, before)
+                            exhausted_flow = (
+                                walk_potential_bindings(statement.orelse, iteration_state)
+                                if iteration_state is not None
+                                else PotentialFlow(None, [], [], [])
                             )
-
-                            def has_direct_break(
-                                candidate: ast.AST, loop: ast.AST = statement
-                            ) -> bool:
-                                if candidate is not loop and isinstance(
-                                    candidate,
-                                    (
-                                        ast.For,
-                                        ast.AsyncFor,
-                                        ast.While,
-                                        ast.FunctionDef,
-                                        ast.AsyncFunctionDef,
-                                        ast.ClassDef,
-                                        ast.Lambda,
-                                    ),
-                                ):
-                                    return False
-                                if isinstance(candidate, ast.Break):
-                                    return True
-                                return any(
-                                    has_direct_break(child) for child in ast.iter_child_nodes(candidate)
-                                )
-
-                            path_states = [zero_iteration_state, exhausted_state]
-                            if has_direct_break(statement):
-                                # A break skips the loop's normal-exhaustion else block.
-                                path_states.append(pre_loop_state)
-                            potential_names = set().union(*(state[0] for state in path_states))
-                            invalidated_names = set.intersection(
-                                *(state[1] for state in path_states)
+                            continuing = join_states(
+                                zero_flow.continuing,
+                                exhausted_flow.continuing,
+                                *body_flow.breaks,
+                            )
+                            breaks.extend((*zero_flow.breaks, *exhausted_flow.breaks))
+                            continues.extend((*zero_flow.continues, *exhausted_flow.continues))
+                            exceptions.extend(
+                                (*body_flow.exceptions, *zero_flow.exceptions, *exhausted_flow.exceptions)
                             )
                             continue
                         if isinstance(statement, (ast.With, ast.AsyncWith)):
-                            suppressed_acquisition_states: list[tuple[set[str], set[str]]] = []
+                            acquired = before
+                            suppressed_acquisition_states: list[_PotentialState] = []
                             for item_index, item in enumerate(statement.items):
                                 if item_index:
-                                    # A manager already entered can suppress a later acquisition
-                                    # failure, allowing execution to continue before this target binds.
-                                    suppressed_acquisition_states.append(
-                                        (set(potential_names), set(invalidated_names))
-                                    )
+                                    # An earlier manager can suppress a later acquisition failure.
+                                    suppressed_acquisition_states.append(acquired)
                                 if item.optional_vars is not None:
-                                    bound_names = _bound_names(item.optional_vars)
-                                    potential_names.difference_update(bound_names)
-                                    invalidated_names.update(bound_names)
-                            entered_state = (set(potential_names), set(invalidated_names))
-                            body_state = walk_potential_bindings(
-                                statement.body, potential_names, invalidated_names
-                            )
-                            path_states = [
-                                body_state,
-                                entered_state,
+                                    acquired = bind_names(acquired, _bound_names(item.optional_vars))
+                            body_flow = walk_potential_bindings(statement.body, acquired)
+                            continuing = join_states(
+                                body_flow.continuing,
+                                *body_flow.exceptions,
                                 *suppressed_acquisition_states,
-                            ]
-                            potential_names = set().union(*(state[0] for state in path_states))
-                            invalidated_names = set.intersection(
-                                *(state[1] for state in path_states)
                             )
+                            breaks.extend(body_flow.breaks)
+                            continues.extend(body_flow.continues)
                             continue
                         if isinstance(statement, ast.Match):
-                            path_states = [
+                            case_flows = [
                                 walk_potential_bindings(
                                     case.body,
-                                    potential_names - _bound_names(case.pattern),
-                                    invalidated_names | _bound_names(case.pattern),
+                                    bind_names(before, _bound_names(case.pattern)),
                                 )
                                 for case in statement.cases
                             ]
@@ -1967,29 +1993,31 @@ def _audit_repository_public_call_provenance(
                                 is_irrefutable(case.pattern) and case.guard is None
                                 for case in statement.cases
                             )
-                            if not exhaustive:
-                                path_states.append((potential_names, invalidated_names))
-                            potential_names = set().union(*(state[0] for state in path_states))
-                            invalidated_names = set.intersection(
-                                *(state[1] for state in path_states)
+                            continuing = join_states(
+                                *(flow.continuing for flow in case_flows),
+                                None if exhaustive else before,
                             )
+                            for flow in case_flows:
+                                breaks.extend(flow.breaks)
+                                continues.extend(flow.continues)
+                                exceptions.extend(flow.exceptions)
                             continue
+                        if statement_may_raise(statement):
+                            exceptions.append(before)
                         if not isinstance(statement, ast.TypeAlias):
                             for target in _binding_targets(statement):
-                                bound_names = _bound_names(target)
-                                invalidated_names.update(bound_names)
-                                potential_names.difference_update(bound_names)
+                                continuing = bind_names(continuing, _bound_names(target))
                             continue
                         options = _assignment_value_options(statement.value)
                         has_potential_evidence = any(
                             _has_repository_annotation_evidence(
-                                option, repository_names | potential_names, module_names
+                                option, repository_names | continuing[0], module_names
                             )
                             or _has_repository_annotation_evidence(
                                 option,
                                 potential_imported_repository_names
-                                | potential_names
-                                | (potential_declaration_names - invalidated_names),
+                                | continuing[0]
+                                | (potential_declaration_names - continuing[1]),
                                 {},
                             )
                             for option in options
@@ -2002,17 +2030,17 @@ def _audit_repository_public_call_provenance(
                             for option in options
                         )
                         if has_potential_evidence and not is_definite_repository_alias:
-                            potential_names.add(statement.name.id)
-                            invalidated_names.discard(statement.name.id)
+                            continuing[0].add(statement.name.id)
+                            continuing[1].discard(statement.name.id)
                             position = (statement.lineno, statement.col_offset)
                             events.setdefault(statement.name.id, []).extend(
                                 ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
                             )
                         else:
-                            potential_names.discard(statement.name.id)
-                    return potential_names, invalidated_names
+                            continuing[0].discard(statement.name.id)
+                    return PotentialFlow(continuing, breaks, continues, exceptions)
 
-                walk_potential_bindings(statements, set(), set())
+                walk_potential_bindings(statements, (set(), set()))
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -5543,11 +5571,10 @@ def test_public_call_inventory_finally_rebind_clears_potential_type_alias(tmp_pa
     "compound",
     [
         "for value in values:\n    Base = OtherRepository\nelse:\n    pass\n",
-        "for value in values:\n    Base = OtherRepository\n    break\nelse:\n    Base = AnotherRepository\n",
         "match value:\n    case 1:\n        Base = OtherRepository\n",
         "match value:\n    case _ if cond:\n        Base = OtherRepository\n",
     ],
-    ids=["loop-zero", "loop-break", "match-nonexhaustive", "match-guarded"],
+    ids=["loop-zero", "match-nonexhaustive", "match-guarded"],
 )
 def test_public_call_inventory_keeps_unmatched_compound_potential_paths(
     tmp_path: Path, compound: str
@@ -5566,6 +5593,21 @@ def test_public_call_inventory_keeps_unmatched_compound_potential_paths(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+def test_public_call_inventory_clears_potential_after_rebound_break_path(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        "for value in values:\n    Base = OtherRepository\n    break\nelse:\n    Base = AnotherRepository\n"
+        "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -5677,6 +5719,86 @@ def test_public_call_inventory_keeps_potential_after_suppressed_with_rebind(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+@pytest.mark.parametrize(
+    "manager",
+    [
+        "with suppressor:\n        Base = None\n",
+        "async with suppressor:\n        Base = None\n",
+    ],
+    ids=["with", "async-with"],
+)
+def test_public_call_inventory_clears_potential_after_immediate_with_rebind(
+    tmp_path: Path, manager: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        + "    "
+        + manager
+        + "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "manager",
+    [
+        "with suppressor:\n        Base = OtherRepository\n        may_raise()\n",
+        "async with suppressor:\n        Base = OtherRepository\n        await may_raise()\n",
+    ],
+    ids=["with", "async-with"],
+)
+def test_public_call_inventory_uses_state_at_suppressed_with_call(
+    tmp_path: Path, manager: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        + "    "
+        + manager
+        + "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize("terminal", ["return", "raise RuntimeError"], ids=["return", "raise"])
+def test_public_call_inventory_ignores_terminated_potential_branch(
+    tmp_path: Path, terminal: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        f"    if condition:\n        {terminal}\n"
+        "    else:\n        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 @pytest.mark.parametrize(
