@@ -278,6 +278,7 @@ async def test_validation_retry_keeps_every_provider_measurement() -> None:
     assert result.audit_record["estimated_cost_usd"] == 0.3
     assert result.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
     assert result.audit_record["token_usage"]["total_tokens"] == 23
+    assert result.audit_record["token_usage"]["model_name"] == "m"
 
 
 async def test_compaction_measurement_survives_budget_rejection() -> None:

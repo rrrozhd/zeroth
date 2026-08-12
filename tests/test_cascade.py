@@ -114,6 +114,7 @@ async def test_blank_cheap_aggregates_both_attempts_token_usage() -> None:
     assert out.token_usage.input_tokens == 10
     assert out.token_usage.output_tokens == 6
     assert out.token_usage.total_tokens == 16
+    assert out.token_usage.model_name == ""
     assert out.usage_measurement is MeasurementState.MEASURED
 
 

@@ -725,6 +725,16 @@ class GraphDriver:
                             step_tracker=step_tracker,
                         )
                 except (FanOutValidationError, ParallelExecutionError) as exc:
+                    await self.audit_recorder.record_history(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        output_data,
+                        audit_record,
+                        started_at=node_started_at,
+                    )
+                    self.increment_node_visit(run, node_id)
                     return await self.fail_run(run, "parallel_execution_failed", str(exc))
                 # D-11: Check for run-wide approval pause from a branch's subgraph.
                 if fan_in_result.pause_state is not None:

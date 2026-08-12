@@ -42,7 +42,7 @@ from zeroth.runtime.parallel.models import (
     GlobalStepTracker,
 )
 from zeroth.runtime.runs import Run, RunHistoryEntry
-from zeroth.runtime.runs.costs import rollup_run_cost
+from zeroth.runtime.runs.costs import rollup_cost_history, rollup_run_cost
 from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 
@@ -63,6 +63,38 @@ def sum_run_cost(run: Run) -> float | None:
     }.intersection(run.metadata):
         return 0.0
     return rollup_run_cost(run).total_usd
+
+
+def _dump_branch_context(ctx: BranchContext) -> dict[str, Any]:
+    """Serialize the partial branch state needed after an approval pause."""
+    return {
+        "branch_index": ctx.branch_index,
+        "branch_id": ctx.branch_id,
+        "input_payload": dict(ctx.input_payload),
+        "execution_history": [
+            entry.model_dump(mode="json") if hasattr(entry, "model_dump") else entry
+            for entry in ctx.execution_history
+        ],
+        "audit_refs": list(ctx.audit_refs),
+        "metadata": dict(ctx.metadata),
+    }
+
+
+def _restore_branch_context(data: Mapping[str, Any], run_id: str) -> BranchContext:
+    """Rehydrate the accounting-bearing subset persisted by `_dump_branch_context`."""
+    branch_index = int(data.get("branch_index", -1))
+    history = [
+        RunHistoryEntry.model_validate(entry) if isinstance(entry, Mapping) else entry
+        for entry in data.get("execution_history", [])
+    ]
+    return BranchContext(
+        branch_index=branch_index,
+        branch_id=str(data.get("branch_id", f"{run_id}:branch:{branch_index}")),
+        input_payload=dict(data.get("input_payload", {})),
+        execution_history=history,
+        audit_refs=list(data.get("audit_refs", [])),
+        metadata=dict(data.get("metadata", {})),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +231,9 @@ class RuntimeParallelExecutor:
                         raise RuntimeError(
                             f"branch {ctx.branch_index}: SubgraphExecutor not configured"
                         )
+                    ctx.metadata["subgraph_input"] = self.audit_recorder.redact(
+                        dict(branch_output)
+                    )
                     child_run = await self.subgraph_executor.execute(
                         orchestrator=self.orchestrator,
                         parent_graph=graph,
@@ -352,22 +387,14 @@ class RuntimeParallelExecutor:
                     "version": pause.version,
                     "node_id": pause.node_id,
                     "branch_context": (
-                        {
-                            "branch_index": paused_ctx.branch_index,
-                            "branch_id": paused_ctx.branch_id,
-                            "input_payload": dict(paused_ctx.input_payload),
-                        }
+                        _dump_branch_context(paused_ctx)
                         if paused_ctx is not None
                         else None
                     ),
                 },
                 "completed_branch_results": completed_results,
                 "cancelled_branch_contexts": [
-                    {
-                        "branch_index": cctx.branch_index,
-                        "branch_id": cctx.branch_id,
-                        "input_payload": dict(cctx.input_payload),
-                    }
+                    _dump_branch_context(cctx)
                     for cctx in getattr(pause, "cancelled_branch_contexts", []) or []
                 ],
                 "split_input": dict(output_data),
@@ -595,14 +622,10 @@ class RuntimeParallelExecutor:
         if not isinstance(resumed_output, dict):
             resumed_output = {"result": resumed_output}
         resumed_cost = rollup_run_cost(resumed_child_run)
-        paused_ctx_data = paused_info.get("branch_context") or {}
-        paused_ctx = BranchContext(
-            branch_index=paused_branch_index,
-            branch_id=paused_ctx_data.get(
-                "branch_id", f"{run.run_id}:branch:{paused_branch_index}"
-            ),
-            input_payload=dict(paused_ctx_data.get("input_payload", {})),
-        )
+        paused_ctx_data = paused_info.get("branch_context") or {
+            "branch_index": paused_branch_index,
+        }
+        paused_ctx = _restore_branch_context(paused_ctx_data, run.run_id)
         audit_ref = self.audit_recorder.next_branch_audit_ref(run, paused_ctx)
         paused_node_id = paused_info.get("node_id", node_id)
         paused_node = node_by_id(graph, paused_node_id) if isinstance(graph, Graph) else node
@@ -616,7 +639,10 @@ class RuntimeParallelExecutor:
             "branch_id": paused_ctx.branch_id,
             "branch_index": paused_branch_index,
         }
-        redacted_input = self.audit_recorder.redact(dict(paused_ctx.input_payload))
+        resume_input = paused_ctx.metadata.get("subgraph_input", paused_ctx.input_payload)
+        if not isinstance(resume_input, Mapping):
+            resume_input = paused_ctx.input_payload
+        redacted_input = self.audit_recorder.redact(dict(resume_input))
         redacted_output = self.audit_recorder.redact(dict(resumed_output))
         if self.audit_recorder.audit_repository is not None:
             await self.audit_recorder.audit_repository.write(
@@ -641,41 +667,61 @@ class RuntimeParallelExecutor:
                     cost_measurement=resumed_cost.cost_measurement,
                 )
             )
-        paused_result = BranchResult(
-            branch_index=paused_branch_index,
-            output=resumed_output,
-            error=None,
-            audit_refs=[audit_ref],
-            execution_history=[
-                RunHistoryEntry(
-                    node_id=paused_node_id,
-                    status="completed",
-                    input_snapshot=redacted_input,
-                    output_snapshot=redacted_output,
-                    audit_ref=audit_ref,
-                    cost_usd=resumed_cost.cost_usd,
-                    estimated_cost_usd=resumed_cost.estimated_cost_usd,
-                    cost_measurement=resumed_cost.cost_measurement,
-                )
-            ],
+        resumed_entry = RunHistoryEntry(
+            node_id=paused_node_id,
+            status="completed",
+            input_snapshot=redacted_input,
+            output_snapshot=redacted_output,
+            audit_ref=audit_ref,
             cost_usd=resumed_cost.cost_usd,
             estimated_cost_usd=resumed_cost.estimated_cost_usd,
             cost_measurement=resumed_cost.cost_measurement,
         )
+        paused_history = [*paused_ctx.execution_history, resumed_entry]
+        paused_cost = rollup_cost_history(paused_history)
+        paused_result = BranchResult(
+            branch_index=paused_branch_index,
+            output=resumed_output,
+            error=None,
+            audit_refs=[*paused_ctx.audit_refs, audit_ref],
+            execution_history=paused_history,
+            cost_usd=paused_cost.cost_usd,
+            estimated_cost_usd=paused_cost.estimated_cost_usd,
+            cost_measurement=paused_cost.cost_measurement,
+        )
 
         # 3. Record cancelled siblings as None-output BranchResults (D-19).
-        cancelled_results: list[BranchResult] = [
-            BranchResult(
-                branch_index=int(ctx.get("branch_index", -1)),
-                output=None,
-                error="cancelled_by_approval_pause",
-                audit_refs=[],
-                execution_history=[],
-                cost_usd=None,
-                cost_measurement=MeasurementState.UNMEASURED,
+        cancelled_results: list[BranchResult] = []
+        for data in pending.get("cancelled_branches", []):
+            cancelled_ctx = _restore_branch_context(data, run.run_id)
+            cancelled_input = cancelled_ctx.metadata.get(
+                "subgraph_input", cancelled_ctx.input_payload
             )
-            for ctx in pending.get("cancelled_branches", [])
-        ]
+            if not isinstance(cancelled_input, Mapping):
+                cancelled_input = cancelled_ctx.input_payload
+            cancelled_history = [
+                *cancelled_ctx.execution_history,
+                RunHistoryEntry(
+                    node_id=paused_node_id,
+                    status="cancelled",
+                    input_snapshot=self.audit_recorder.redact(dict(cancelled_input)),
+                    output_snapshot={},
+                    cost_measurement=MeasurementState.UNMEASURED,
+                ),
+            ]
+            cancelled_cost = rollup_cost_history(cancelled_history)
+            cancelled_results.append(
+                BranchResult(
+                    branch_index=cancelled_ctx.branch_index,
+                    output=None,
+                    error="cancelled_by_approval_pause",
+                    audit_refs=list(cancelled_ctx.audit_refs),
+                    execution_history=cancelled_history,
+                    cost_usd=cancelled_cost.cost_usd,
+                    estimated_cost_usd=cancelled_cost.estimated_cost_usd,
+                    cost_measurement=cancelled_cost.cost_measurement,
+                )
+            )
 
         # 4. Merge into branch-index order and run through collect_fan_in.
         all_results = completed_results + [paused_result] + cancelled_results

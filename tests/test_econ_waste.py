@@ -39,6 +39,7 @@ from zeroth.runtime.agents.models import RetryPolicy
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.agents.resilience import CachingProviderAdapter
 from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.runs import RunStatus
 
 
@@ -398,6 +399,32 @@ def test_aggregate_retry_cost_is_not_multiplied_and_blocks_a_complete_decision()
     assert retry.metadata["attempts"] == 2
     assert retry.wasted_usd == 0.0
     assert report.total_cost_usd == pytest.approx(0.02)
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)
+
+
+def test_estimated_aggregate_retry_is_indeterminate_without_fabricated_dollars() -> None:
+    audit = NodeAuditRecord(
+        audit_id="a",
+        run_id="r1",
+        node_id="a",
+        graph_version_ref="g:v1",
+        deployment_ref="g",
+        status="completed",
+        estimated_cost_usd=0.02,
+        cost_measurement=MeasurementState.ESTIMATED,
+        execution_metadata={"extra": {"attempts": 2}},
+    )
+
+    report = analyze_run("r1", RunStatus.COMPLETED, [audit])
+
+    retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
+    assert retry.wasted_usd == 0.0
+    assert retry.metadata["aggregate_estimated_cost_usd"] == pytest.approx(0.02)
+    assert report.total_cost_usd == 0.0
+    assert report.estimated_cost_usd == pytest.approx(0.02)
     assert report.flagged_waste_usd == 0.0
     assert report.cost_measurement_complete is False
     with pytest.raises(EconThresholdError, match="incomplete"):

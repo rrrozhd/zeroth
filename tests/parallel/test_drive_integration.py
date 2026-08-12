@@ -346,7 +346,11 @@ async def test_fan_out_fail_fast(sqlite_db) -> None:
 async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) -> None:
     source_runner = _make_agent_runner(
         output_model=ItemsOutput,
-        handler=lambda req: ProviderResponse(content={"items": [{"x": 1}]}),
+        handler=lambda req: ProviderResponse(
+            content={"items": [{"x": 1}]},
+            cost_usd=0.125,
+            cost_measurement=MeasurementState.MEASURED,
+        ),
     )
     sink_runner = _make_agent_runner(
         input_model=BranchItemInput,
@@ -380,7 +384,59 @@ async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) 
     ]
     assert failed[0].estimated_cost_usd == 0.25
     assert failed[0].cost_measurement is MeasurementState.ESTIMATED
-    assert sum_run_cost(run) == pytest.approx(0.25)
+    source_history = [entry for entry in run.execution_history if entry.node_id == "source"]
+    assert len(source_history) == 1
+    assert source_history[0].cost_usd == pytest.approx(0.125)
+    assert source_history[0].cost_measurement is MeasurementState.MEASURED
+    assert source_history[0].audit_ref is not None
+    assert run.audit_refs.count(source_history[0].audit_ref) == 1
+    assert sum_run_cost(run) == pytest.approx(0.375)
+
+
+@pytest.mark.asyncio
+async def test_fan_out_validation_failure_persists_measured_source_once(sqlite_db) -> None:
+    source_runner = _make_agent_runner(
+        output_model=ItemsOutput,
+        handler=lambda req: ProviderResponse(
+            content={"items": []},
+            cost_usd=0.125,
+            cost_measurement=MeasurementState.MEASURED,
+        ),
+    )
+    graph = _make_graph(
+        [
+            _make_agent_node(
+                "source",
+                parallel_config=ParallelConfig(split_path="items", fail_mode="fail_fast"),
+            ),
+            _make_agent_node("sink"),
+        ],
+        [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
+    )
+    graph.execution_settings.sequential_join_enabled = False
+    audit_repository = AuditRepository(sqlite_db)
+
+    run = await _make_orchestrator(
+        {"source": source_runner},
+        sqlite_db,
+        audit_repository=audit_repository,
+    ).run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.FAILED
+    source_history = [entry for entry in run.execution_history if entry.node_id == "source"]
+    assert len(source_history) == 1
+    assert source_history[0].cost_usd == pytest.approx(0.125)
+    assert source_history[0].cost_measurement is MeasurementState.MEASURED
+    assert source_history[0].audit_ref is not None
+    assert run.audit_refs.count(source_history[0].audit_ref) == 1
+    assert sum_run_cost(run) == pytest.approx(0.125)
+    source_audits = [
+        record
+        for record in await audit_repository.list_by_run(run.run_id)
+        if record.node_id == "source"
+    ]
+    assert len(source_audits) == 1
+    assert source_audits[0].cost_usd == pytest.approx(0.125)
 
 
 @pytest.mark.asyncio

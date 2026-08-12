@@ -273,12 +273,18 @@ def analyze_run(
 
     for record in audits:
         attempts = _attempts(record)
-        cost = record.cost_usd if record.cost_usd is not None else 0.0
-        if attempts <= 1 or cost <= 0:
+        if attempts <= 1 or (
+            record.cost_usd is None and record.estimated_cost_usd is None
+        ):
             continue
         # The audit cost is the aggregate across all attempts. Without per-attempt
         # amounts, the failed attempts' share cannot be split out honestly.
         measurement_complete = False
+        aggregate_metadata = {"attempts": attempts}
+        if record.cost_usd is not None:
+            aggregate_metadata["aggregate_cost_usd"] = record.cost_usd
+        if record.estimated_cost_usd is not None:
+            aggregate_metadata["aggregate_estimated_cost_usd"] = record.estimated_cost_usd
         if failed:
             findings.append(
                 WasteFinding(
@@ -288,9 +294,9 @@ def analyze_run(
                     severity="info",
                     detail=(
                         f"node made {attempts} attempts; retry overhead is indeterminate "
-                        "and aggregate cost is already counted in the failed-run total"
+                        "and aggregate spend is already represented in the run totals"
                     ),
-                    metadata={"attempts": attempts, "aggregate_cost_usd": cost},
+                    metadata=aggregate_metadata,
                 )
             )
         else:
@@ -304,7 +310,7 @@ def analyze_run(
                         f"node succeeded after {attempts} attempts; retry overhead "
                         "is indeterminate without per-attempt costs"
                     ),
-                    metadata={"attempts": attempts, "aggregate_cost_usd": cost},
+                    metadata=aggregate_metadata,
                 )
             )
 

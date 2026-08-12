@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.8] - 2026-08-12
+
+- Preserve source and branch accounting across fan-out failures and approval
+  pauses, flag estimated retries, and avoid cross-model token attribution.
+
 ## [0.23.0.7] - 2026-08-12
 
 - Preserve cost and usage provenance across repeated fan-out, approval resume,
