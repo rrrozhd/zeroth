@@ -29,7 +29,7 @@ from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.runs import Run
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.service.bootstrap import bootstrap_app
-from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 
@@ -220,7 +220,7 @@ async def deploy_service(
         tenant_id=tenant_id,
         workspace_id=workspace_id,
     )
-    service = await bootstrap_service(
+    service = await bootstrap_scoped_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         tenant_id=deployment.tenant_id,

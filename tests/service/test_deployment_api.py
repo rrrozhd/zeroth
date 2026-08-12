@@ -12,7 +12,7 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 from zeroth.governance.identity import ServiceRole
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app as bootstrap_app
 from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 
 DEPLOYMENT = "deployments-test"

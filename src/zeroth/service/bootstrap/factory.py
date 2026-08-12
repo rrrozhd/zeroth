@@ -118,7 +118,7 @@ def _configured_policy_registry(
     return registry
 
 
-async def bootstrap_service(
+async def bootstrap_scoped_service(
     database: AsyncDatabase,
     *,
     deployment_ref: str,
@@ -841,7 +841,33 @@ async def bootstrap_service(
     return bootstrap
 
 
-async def bootstrap_app(
+async def bootstrap_service(
+    database: AsyncDatabase,
+    *,
+    deployment_ref: str,
+    agent_runners: Mapping[str, AgentRunner] | None = None,
+    executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
+    guardrail_config: GuardrailConfig | None = None,
+    enable_durable_worker: bool = True,
+    secret_provider: SecretProvider | None = None,
+) -> ServiceBootstrap:
+    """Build the reserved-default deployment service with the legacy signature."""
+    return await bootstrap_scoped_service(
+        database,
+        deployment_ref=deployment_ref,
+        agent_runners=agent_runners,
+        executable_unit_runner=executable_unit_runner,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
+        guardrail_config=guardrail_config,
+        enable_durable_worker=enable_durable_worker,
+        secret_provider=secret_provider,
+    )
+
+
+async def bootstrap_scoped_app(
     database: AsyncDatabase,
     *,
     deployment_ref: str,
@@ -854,7 +880,7 @@ async def bootstrap_app(
 ) -> FastAPI:
     """Build the FastAPI app for a specific deployment."""
     return create_app(
-        await bootstrap_service(
+        await bootstrap_scoped_service(
             database,
             deployment_ref=deployment_ref,
             tenant_id=tenant_id,
@@ -864,6 +890,26 @@ async def bootstrap_app(
             auth_config=auth_config,
             bearer_token_verifier=bearer_token_verifier,
         )
+    )
+
+
+async def bootstrap_app(
+    database: AsyncDatabase,
+    *,
+    deployment_ref: str,
+    agent_runners: Mapping[str, AgentRunner] | None = None,
+    executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
+) -> FastAPI:
+    """Build the reserved-default deployment app with the legacy signature."""
+    return await bootstrap_scoped_app(
+        database,
+        deployment_ref=deployment_ref,
+        agent_runners=agent_runners,
+        executable_unit_runner=executable_unit_runner,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
     )
 
 

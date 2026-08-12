@@ -38,7 +38,7 @@ from zeroth.governance.attestations.store import (
 )
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.signing import EnvHmacSigner
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app as bootstrap_app
 
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
@@ -953,6 +953,7 @@ async def _two_deployment_app(sqlite_db):
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment_a.deployment_ref,
+        tenant_id=TENANT_A,
         auth_config=_auth_config(),
     )
     return app, deployment_a, deployment_b
