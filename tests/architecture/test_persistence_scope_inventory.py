@@ -690,6 +690,21 @@ def _must_alias_events(
                 state = join(state, evaluated_state)
                 merge_event(value, state)
             return state
+        if isinstance(node, ast.Compare):
+            state = record_named_expressions(node.left, state)
+            state = record_named_expressions(node.comparators[0], state)
+            for comparator in node.comparators[1:]:
+                evaluated_state = record_named_expressions(comparator, dict(state))
+                state = join(state, evaluated_state)
+                merge_event(comparator, state)
+            return state
+        if isinstance(node, ast.Assert):
+            state = record_named_expressions(node.test, state)
+            if node.msg is not None:
+                message_state = record_named_expressions(node.msg, dict(state))
+                state = join(state, message_state)
+                merge_event(node.msg, state)
+            return state
         if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
             state = record_named_expressions(node.generators[0].iter, state)
             evaluated_state = dict(state)
@@ -2260,6 +2275,54 @@ def test_public_call_inventory_joins_short_circuit_walrus_factory_aliases(
         "async def use(record, cond):\n"
         "    factory = other_factory\n"
         f"    result = {expression}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == expected
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+@pytest.mark.parametrize(
+    ("statement", "expected", "unreviewed"),
+    [
+        (
+            "result = 0 < cond < (factory := AuditRepository.scoped)",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "assert cond, (factory := AuditRepository.scoped)",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "result = 0 < (factory := AuditRepository.scoped) < cond",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "assert (factory := AuditRepository.scoped), message",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+    ],
+    ids=["compare-later", "assert-message", "compare-first", "assert-test"],
+)
+def test_public_call_inventory_joins_conditional_comparison_and_assert_walruses(
+    tmp_path: Path,
+    statement: str,
+    expected: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    factory = other_factory\n"
+        f"    {statement}\n"
         "    repository = factory(db, scope)\n"
         "    await repository.write(record)\n",
         encoding="utf-8",
