@@ -71,7 +71,7 @@ async def test_approval_service_creates_and_queries_pending_records(sqlite_db) -
     service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     run = await RunRepository(sqlite_db).create(_run())
 
@@ -104,7 +104,7 @@ async def test_approval_service_resolves_and_is_idempotent(sqlite_db) -> None:
     service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     run = await RunRepository(sqlite_db).create(_run())
     record = await service.create_pending(run=run, node=_node(), input_payload={"value": 2})

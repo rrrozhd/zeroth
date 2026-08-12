@@ -15,7 +15,7 @@ from zeroth.contracts.registry import (
     contract_scope_context,
 )
 from zeroth.contracts.registry.errors import ContractNotFoundError
-from zeroth.platform.storage import ScopeContext, TenantWideScopeContext
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 
 class Address(BaseModel):
@@ -62,15 +62,15 @@ def _scope(tenant_id: str) -> ScopeContext:
     ("tenant_id", "workspace_id", "expected_type"),
     [
         ("tenant-a", "workspace-a", ScopeContext),
-        ("tenant-a", None, TenantWideScopeContext),
+        ("tenant-a", None, NullWorkspaceScopeContext),
         ("default", "workspace-a", ScopeContext),
-        ("default", None, TenantWideScopeContext),
+        ("default", None, NullWorkspaceScopeContext),
     ],
 )
 def test_contract_scope_context_preserves_trusted_owner_shape(
     tenant_id: str,
     workspace_id: str | None,
-    expected_type: type[ScopeContext] | type[TenantWideScopeContext],
+    expected_type: type[ScopeContext] | type[NullWorkspaceScopeContext],
 ) -> None:
     context = contract_scope_context(tenant_id, workspace_id)
 

@@ -21,6 +21,7 @@ from zeroth.platform.artifacts.errors import ArtifactNotFoundError
 from zeroth.platform.artifacts.models import generate_artifact_key
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
 from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.service.app import create_app
 
 
@@ -66,7 +67,7 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
         await foreign_store.retrieve(key)
     await service.artifact_store.store(key, result.stdout.encode(), "text/plain")
 
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
     await repository.write(
         NodeAuditRecord(
             audit_id="observable-audit",
@@ -86,12 +87,8 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     assert audit is not None
 
     with TestClient(create_app(service)) as client:
-        invalid_auth = client.get(
-            f"/v1/artifacts/{key}", headers=api_key_headers(CANARY)
-        )
-        foreign_api_read = client.get(
-            f"/v1/artifacts/{key}", headers=api_key_headers("safe-b")
-        )
+        invalid_auth = client.get(f"/v1/artifacts/{key}", headers=api_key_headers(CANARY))
+        foreign_api_read = client.get(f"/v1/artifacts/{key}", headers=api_key_headers("safe-b"))
     assert invalid_auth.status_code == 401
     assert foreign_api_read.status_code == 404
 
@@ -114,7 +111,9 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
 
 
 @pytest.mark.asyncio()
-async def test_credential_canary_absent_from_workload_environment(sqlite_db, tmp_path: Path) -> None:
+async def test_credential_canary_absent_from_workload_environment(
+    sqlite_db, tmp_path: Path
+) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
         CredentialLeakScanner([CANARY]).scan(
@@ -146,9 +145,7 @@ async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path
 async def test_credential_canary_absent_from_audit_payloads(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
-        CredentialLeakScanner([CANARY]).scan(
-            captured["audit-payloads"], surface="audit-payloads"
-        )
+        CredentialLeakScanner([CANARY]).scan(captured["audit-payloads"], surface="audit-payloads")
         == []
     )
 
@@ -157,6 +154,5 @@ async def test_credential_canary_absent_from_audit_payloads(sqlite_db, tmp_path:
 async def test_credential_canary_absent_from_other_tenant(sqlite_db, tmp_path: Path) -> None:
     captured = await _capture_observable_surfaces(sqlite_db, tmp_path)
     assert (
-        CredentialLeakScanner([CANARY]).scan(captured["other-tenant"], surface="other-tenant")
-        == []
+        CredentialLeakScanner([CANARY]).scan(captured["other-tenant"], surface="other-tenant") == []
     )

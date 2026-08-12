@@ -44,8 +44,17 @@ from zeroth.governance.audit.erasure_schema import (
 from zeroth.governance.audit.errors import DuplicateAuditIdError
 from zeroth.governance.audit.models import AuditQuery, NodeAuditRecord
 from zeroth.governance.audit.verifier import _compute_pii_commitments, compute_chained_record
-from zeroth.platform.storage import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncConnection,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    ScopedTable,
+    TenantWideScopeContext,
+)
 from zeroth.platform.storage.json import to_json_value
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 
 if TYPE_CHECKING:
     from zeroth.governance.audit.capture_policy import CaptureClassifier
@@ -62,9 +71,26 @@ class AuditRepository:
     def __init__(
         self,
         database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
         signer: SigningKeyProvider | None = None,
     ):
+        if type(scope_context) not in {
+            ScopeContext,
+            NullWorkspaceScopeContext,
+            TenantWideScopeContext,
+        }:
+            raise TypeError("scope_context must be a trusted scope context")
         self._database: AsyncDatabase = database
+        self._scope_context = scope_context
+        table = (
+            ScopedTable
+            if type(scope_context) in {ScopeContext, NullWorkspaceScopeContext}
+            else ScopedTable.for_privileged_tenant_wide
+        )
+        self._audits = table(database, SERVICE_SCOPE_REGISTRY, "service.node_audits", scope_context)
+        self._chain_heads = table(
+            database, SERVICE_SCOPE_REGISTRY, "service.audit_chain_heads", scope_context
+        )
         # WS-D signer: signs each record's digest under the SAME chain lock that
         # fixes the chain head, so the digest and its signature are committed
         # atomically. None -> records stay unsigned-legacy (injected post-build
@@ -75,6 +101,41 @@ class AuditRepository:
         # configurable, via ``configure_capture``.
         self._capture = AuditCapturePolicy()
         self._capture_configured = False
+
+    @classmethod
+    def scoped(
+        cls,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
+        signer: SigningKeyProvider | None = None,
+    ) -> AuditRepository:
+        """Construct an audit repository bound to one trusted tenant/workspace."""
+        return cls(database, scope_context, signer)
+
+    @classmethod
+    def for_default_compatibility(
+        cls,
+        database: AsyncDatabase,
+        *,
+        signer: SigningKeyProvider | None = None,
+    ) -> AuditRepository:
+        """Bind legacy tests and migration tools to the reserved default scope."""
+        return cls(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            signer,
+        )
+
+    def _validate_owner(self, tenant_id: str, workspace_id: str | None) -> None:
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        if (
+            type(self._scope_context) is ScopeContext
+            and workspace_id != self._scope_context.workspace_id
+        ):
+            raise ValueError("workspace_id does not match bound scope")
+        if type(self._scope_context) is NullWorkspaceScopeContext and workspace_id is not None:
+            raise ValueError("workspace_id does not match bound scope")
 
     def configure_capture(self, classifier: CaptureClassifier) -> None:
         """Install the deployment's capture classifier, once, at wiring time.
@@ -114,10 +175,12 @@ class AuditRepository:
         """
         # First, so the digest below covers the captured object.
         record = self._capture.apply(record)
-        async with self._database.transaction(write_lock=True) as connection:
+        self._validate_owner(record.tenant_id, record.workspace_id)
+        async with self._audits.transaction(write_lock=True) as audits:
+            heads = audits.bind(self._chain_heads)
             head = await lock_audit_chain(
-                connection,
-                backend=self._database.backend,
+                audits,
+                heads,
                 run_id=record.run_id,
             )
             # WS-E: stamp the latest commitment digest version BEFORE the
@@ -137,47 +200,32 @@ class AuditRepository:
                 head.digest,
                 self._signer,
             )
-            existing = await connection.fetch_one(
-                "SELECT 1 FROM node_audits WHERE audit_id = ?",
-                (chained.audit_id,),
+            existing = await audits.select_one(
+                where={"audit_id": chained.audit_id},
+                columns=("audit_id",),
             )
             if existing is not None:
                 raise DuplicateAuditIdError(f"audit_id {record.audit_id!r} already exists")
             created_at = datetime.now(UTC)
-            await connection.execute(
-                """
-                INSERT INTO node_audits (
-                    audit_id,
-                    run_id,
-                    thread_id,
-                    node_id,
-                    graph_version_ref,
-                    deployment_ref,
-                    tenant_id,
-                    workspace_id,
-                    created_at,
-                    chain_sequence,
-                    record_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    chained.audit_id,
-                    chained.run_id,
-                    chained.thread_id,
-                    chained.node_id,
-                    chained.graph_version_ref,
-                    chained.deployment_ref,
-                    chained.tenant_id,
-                    chained.workspace_id,
-                    created_at.isoformat(),
-                    chained.chain_sequence,
-                    to_json_value(chained.model_dump(mode="json")),
-                ),
+            await audits.insert(
+                {
+                    "audit_id": chained.audit_id,
+                    "run_id": chained.run_id,
+                    "thread_id": chained.thread_id,
+                    "node_id": chained.node_id,
+                    "graph_version_ref": chained.graph_version_ref,
+                    "deployment_ref": chained.deployment_ref,
+                    "tenant_id": chained.tenant_id,
+                    "workspace_id": chained.workspace_id,
+                    "created_at": created_at.isoformat(),
+                    "chain_sequence": chained.chain_sequence,
+                    "record_json": to_json_value(chained.model_dump(mode="json")),
+                }
             )
             if chained.record_digest is None:  # pragma: no cover - compute contract
                 raise RuntimeError("audit record digest was not computed")
             await advance_audit_chain(
-                connection,
+                heads,
                 run_id=record.run_id,
                 digest=chained.record_digest,
                 next_sequence=head.next_sequence + 1,
@@ -186,13 +234,12 @@ class AuditRepository:
 
     async def get(self, audit_id: str, *, tenant_id: str | None = None) -> NodeAuditRecord | None:
         """Look up one audit record, optionally constrained by tenant in SQL."""
-        sql = "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?"
-        params: tuple[str, ...] = (audit_id,)
-        if tenant_id is not None:
-            sql += " AND tenant_id = ?"
-            params = (audit_id, tenant_id)
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(sql, params)
+        if tenant_id is not None and tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        row = await self._audits.select_one(
+            where={"audit_id": audit_id},
+            columns=("record_json", "chain_sequence"),
+        )
         if row is None:
             return None
         return self._hydrate(row)
@@ -204,30 +251,43 @@ class AuditRepository:
         is given, all records are returned.
         """
         query = query or AuditQuery()
-        clauses: list[str] = []
-        params: list[str] = []
+        if query.tenant_id is not None and query.tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        if (
+            type(self._scope_context) is ScopeContext
+            and query.workspace_id is not None
+            and query.workspace_id != self._scope_context.workspace_id
+        ):
+            raise ValueError("workspace_id does not match bound scope")
+        if (
+            type(self._scope_context) is NullWorkspaceScopeContext
+            and query.workspace_id is not None
+        ):
+            raise ValueError("workspace_id does not match bound scope")
+        if (
+            type(self._scope_context) is ScopeContext
+            and query.workspace_scoped
+            and query.workspace_id is None
+        ):
+            raise ValueError("workspace_id does not match bound scope")
+        where: dict[str, str] = {}
         for field in (
             "run_id",
             "thread_id",
             "node_id",
             "graph_version_ref",
             "deployment_ref",
-            "tenant_id",  # WS-B: tenant filter (node_audits.tenant_id column)
-            "workspace_id",
         ):
             value = getattr(query, field)
             if value is None:
                 continue
-            clauses.append(f"{field} = ?")
-            params.append(value)
-        if query.workspace_scoped and query.workspace_id is None:
-            clauses.append("workspace_id IS NULL")
-        sql = "SELECT record_json, chain_sequence FROM node_audits"
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at, audit_id"
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, tuple(params))
+            where[field] = value
+        async with self._audits.transaction() as audits:
+            rows = await audits.select(
+                where=where,
+                columns=("record_json", "chain_sequence"),
+                order_by=("created_at", "audit_id"),
+            )
         records = [self._hydrate(row) for row in rows]
         return order_audit_records(records) if query.run_id is not None else records
 
@@ -257,7 +317,7 @@ class AuditRepository:
         run_id: str,
     ) -> list[NodeAuditRecord]:
         """Return a run's records using the caller's database transaction."""
-        return await load_ordered_run_records(connection, run_id)
+        return await load_ordered_run_records(self._audits.in_transaction(connection), run_id)
 
     async def list_by_thread(self, thread_id: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific thread."""
@@ -308,30 +368,36 @@ class AuditRepository:
         tamper event. digest_version=1 (legacy) records are un-erasable and raise;
         an already-erased or missing record is a no-op (idempotent).
         """
-        async with self._database.transaction() as connection:
+        async with self._audits.transaction() as audits:
             return await self.crypto_erase_in_transaction(
-                connection,
+                audits,
                 audit_id,
                 reason=reason,
             )
 
     async def crypto_erase_in_transaction(
         self,
-        connection: AsyncConnection,
+        connection: AsyncConnection | BoundStructuredTable,
         audit_id: str,
         *,
         reason: str,
         record: NodeAuditRecord | None = None,
     ) -> NodeAuditRecord | None:
         """Crypto-erase one audit through an existing transaction."""
+        audits = (
+            connection
+            if isinstance(connection, BoundStructuredTable)
+            else self._audits.in_transaction(connection)
+        )
         if record is None:
-            row = await connection.fetch_one(
-                "SELECT record_json, chain_sequence FROM node_audits WHERE audit_id = ?",
-                (audit_id,),
+            row = await audits.select_one(
+                where={"audit_id": audit_id},
+                columns=("record_json", "chain_sequence"),
             )
             record = None if row is None else self._hydrate(row)
         if record is None:
             return None
+        self._validate_owner(record.tenant_id, record.workspace_id)
         if record.audit_id != audit_id:
             raise ValueError(
                 f"supplied record audit_id {record.audit_id!r} does not match {audit_id!r}"
@@ -365,9 +431,9 @@ class AuditRepository:
                 "erasure_reason": reason,
             }
         )
-        await connection.execute(
-            "UPDATE node_audits SET record_json = ? WHERE audit_id = ?",
-            (to_json_value(erased.model_dump(mode="json")), audit_id),
+        await audits.update(
+            {"record_json": to_json_value(erased.model_dump(mode="json"))},
+            where={"audit_id": audit_id},
         )
         return erased
 
@@ -385,9 +451,9 @@ class AuditRepository:
         are excluded (un-erasable), as are records for any run in
         ``exclude_run_ids`` (legal-hold protected).
         """
-        async with self._database.transaction() as connection:
+        async with self._audits.transaction() as audits:
             return await self.list_erasable_in_transaction(
-                connection,
+                audits,
                 tenant_id,
                 older_than,
                 exclude_run_ids=exclude_run_ids,
@@ -395,7 +461,7 @@ class AuditRepository:
 
     async def list_erasable_in_transaction(
         self,
-        connection: AsyncConnection,
+        connection: AsyncConnection | BoundStructuredTable,
         tenant_id: str,
         older_than: datetime,
         *,
@@ -406,20 +472,23 @@ class AuditRepository:
         One cutoff-bounded projection query; only aged rows are hydrated —
         never the tenant's full audit history.
         """
-        excluded = set(exclude_run_ids or ())
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        audits = (
+            connection
+            if isinstance(connection, BoundStructuredTable)
+            else self._audits.in_transaction(connection)
+        )
+        excluded = tuple(dict.fromkeys(exclude_run_ids or ()))
         cutoff = older_than.astimezone(UTC).isoformat()
-        rows = await connection.fetch_all(
-            "SELECT record_json, chain_sequence FROM node_audits "
-            "WHERE tenant_id = ? AND created_at < ? "
-            "ORDER BY created_at, audit_id",
-            (tenant_id, cutoff),
+        rows = await audits.select(
+            columns=("record_json", "chain_sequence"),
+            where_lt={"created_at": cutoff},
+            where_not_in={"run_id": excluded},
+            order_by=("created_at", "audit_id"),
         )
         records = [self._hydrate(row) for row in rows]
-        return [
-            record
-            for record in records
-            if (record.digest_version or 1) >= 2 and record.run_id not in excluded
-        ]
+        return [record for record in records if (record.digest_version or 1) >= 2]
 
     @staticmethod
     def _hydrate(row: dict[str, object]) -> NodeAuditRecord:

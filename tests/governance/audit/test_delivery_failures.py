@@ -80,7 +80,7 @@ class _UnblankableCapturePolicy(AuditCapturePolicy):
         raise RuntimeError(f"transform failed on {record.audit_id}")
 
 
-def _record(audit_id: str, *, tenant_id: str = "tenant-a") -> NodeAuditRecord:
+def _record(audit_id: str, *, tenant_id: str = "default") -> NodeAuditRecord:
     return NodeAuditRecord(
         audit_id=audit_id,
         run_id="run-1",
@@ -88,6 +88,7 @@ def _record(audit_id: str, *, tenant_id: str = "tenant-a") -> NodeAuditRecord:
         graph_version_ref="graph:v1",
         deployment_ref="deployment-1",
         tenant_id=tenant_id,
+        workspace_id=None,
         status="completed",
     )
 
@@ -154,7 +155,7 @@ async def test_a_capture_that_crashes_does_not_kill_the_worker_or_lose_later_eve
     # repository, so the crash is induced directly. An exception escaping it
     # once killed the only worker, made aclose re-raise, and left the event
     # counted nowhere; it must now cost exactly the one event.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     repository._capture = _ExplodingCapturePolicy("audit-crashes")
     queue = _queue(repository, max_attempts=1)
 
@@ -182,7 +183,7 @@ async def test_an_event_whose_blank_fallback_also_fails_is_counted_and_named(
         raise RuntimeError(f"cannot blank {record.audit_id}")
 
     monkeypatch.setattr(capture_policy_module, "blank_record", _explode)
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     repository._capture = _UnblankableCapturePolicy()
     queue = _queue(repository, max_attempts=1)
 

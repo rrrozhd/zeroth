@@ -170,7 +170,10 @@ async def bootstrap_service(
 
     run_repository = RunRepository(database)
     thread_repository = ThreadRepository(database)
-    audit_repository = AuditRepository(database)
+    audit_repository = AuditRepository.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
     approval_repository = ApprovalRepository(database)
     approval_service = ApprovalService(
         repository=approval_repository,

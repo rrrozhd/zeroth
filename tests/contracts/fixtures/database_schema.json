@@ -91,6 +91,10 @@
     {
       "down_revision": "022",
       "revision": "023"
+    },
+    {
+      "down_revision": "023",
+      "revision": "024"
     }
   ],
   "tables": {
@@ -311,13 +315,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "run_id",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": null,
           "hidden": 0,
           "name": "head_digest",
@@ -326,7 +339,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": "1",
           "hidden": 0,
           "name": "next_sequence",
@@ -335,7 +348,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": null,
           "hidden": 0,
           "name": "updated_at",
@@ -344,11 +357,12 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE audit_chain_heads ( run_id TEXT PRIMARY KEY, head_digest TEXT, next_sequence INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE audit_chain_heads ( tenant_id TEXT NOT NULL, run_id TEXT NOT NULL, head_digest TEXT, next_sequence INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, CONSTRAINT audit_chain_heads_scope_pkey PRIMARY KEY (tenant_id, run_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "run_id"
           ],
           "name": "sqlite_autoindex_audit_chain_heads_1",
@@ -1621,10 +1635,10 @@
         },
         {
           "cid": 6,
-          "default": "'default'",
+          "default": null,
           "hidden": 0,
           "name": "tenant_id",
-          "not_null": false,
+          "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
         },
@@ -1662,7 +1676,7 @@
           "name": "cost_usd",
           "not_null": false,
           "primary_key_position": 0,
-          "type": "FLOAT"
+          "type": "REAL"
         },
         {
           "cid": 11,
@@ -1683,11 +1697,13 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE node_audits ( audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, created_at TEXT NOT NULL, record_json TEXT NOT NULL , cost_usd FLOAT, cost_event_id TEXT, chain_sequence INTEGER)",
+      "constraint_definition": "CREATE TABLE node_audits ( audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, created_at TEXT NOT NULL, record_json TEXT NOT NULL, cost_usd REAL, cost_event_id TEXT, chain_sequence INTEGER )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "deployment_ref",
             "created_at",
             "audit_id"
@@ -1699,6 +1715,8 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "graph_version_ref",
             "created_at",
             "audit_id"
@@ -1710,22 +1728,13 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "node_id",
             "created_at",
             "audit_id"
           ],
           "name": "idx_node_audits_node_id",
-          "origin": "c",
-          "partial": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "run_id",
-            "created_at",
-            "audit_id"
-          ],
-          "name": "idx_node_audits_run_id",
           "origin": "c",
           "partial": false,
           "unique": false
@@ -1742,6 +1751,20 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "run_id",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_tenant_run",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
             "thread_id",
             "created_at",
             "audit_id"
@@ -1762,10 +1785,11 @@
         },
         {
           "columns": [
+            "tenant_id",
             "run_id",
             "chain_sequence"
           ],
-          "name": "uq_node_audits_run_chain_sequence",
+          "name": "uq_node_audits_tenant_run_chain_sequence",
           "origin": "c",
           "partial": false,
           "unique": true

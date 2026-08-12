@@ -131,7 +131,7 @@ async def _seed_running(repo: RunRepository, node_ids: list[str]) -> Run:
 def _orchestrator(sqlite_db, runners: dict[str, Any]) -> RuntimeOrchestrator:
     return RuntimeOrchestrator(
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=None,
         budget_enforcer=None,

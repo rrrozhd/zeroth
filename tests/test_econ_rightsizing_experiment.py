@@ -50,6 +50,8 @@ def _audit(
     from zeroth.governance.audit.models import ToolCallRecord
 
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=f"a-{node_id}-{run_id}-{json.dumps(inp, sort_keys=True)}",
         run_id=run_id,
         node_id=node_id,

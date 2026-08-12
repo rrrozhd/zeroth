@@ -279,7 +279,7 @@ async def test_live_sequential_two_agents(sqlite_db) -> None:
     )
     orch = RuntimeOrchestrator(
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"a": a, "b": b},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -563,11 +563,11 @@ async def test_live_human_approval_pause_resume(sqlite_db) -> None:
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
         run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orch = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=AuditRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         run_repository=RunRepository(sqlite_db),
         agent_runners={"finish": finish},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),

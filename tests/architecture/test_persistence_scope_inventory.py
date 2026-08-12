@@ -36,6 +36,26 @@ _SOURCE_ROOT = _ECON_PLANE_ROOT.parents[1]
 _GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_roles"}
 
 
+def test_production_audit_repository_has_one_explicit_scoped_constructor() -> None:
+    """Keep the complete production construction surface owner-bound."""
+    calls: list[tuple[str, str]] = []
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            if (
+                isinstance(function, ast.Attribute)
+                and isinstance(function.value, ast.Name)
+                and function.value.id == "AuditRepository"
+            ):
+                calls.append((path.relative_to(_SOURCE_ROOT).as_posix(), function.attr))
+            elif isinstance(function, ast.Name) and function.id == "AuditRepository":
+                calls.append((path.relative_to(_SOURCE_ROOT).as_posix(), "__init__"))
+    assert calls == [("service/bootstrap/factory.py", "scoped")]
+
+
 @pytest.fixture(scope="module")
 def migration_head_tables(
     tmp_path_factory: pytest.TempPathFactory,
@@ -1042,18 +1062,6 @@ governance/approvals/repository.py::resolve_pending::fetch_one#1
 governance/approvals/repository.py::resolve_pending::transaction#1
 governance/approvals/repository.py::write::execute#1
 governance/approvals/repository.py::write::transaction#1
-governance/audit/repository.py::crypto_erase::transaction#1
-governance/audit/repository.py::crypto_erase_in_transaction::execute#1
-governance/audit/repository.py::crypto_erase_in_transaction::fetch_one#1
-governance/audit/repository.py::get::fetch_one#1
-governance/audit/repository.py::get::transaction#1
-governance/audit/repository.py::list::fetch_all#1
-governance/audit/repository.py::list::transaction#1
-governance/audit/repository.py::list_erasable::transaction#1
-governance/audit/repository.py::list_erasable_in_transaction::fetch_all#1
-governance/audit/repository.py::write::execute#1
-governance/audit/repository.py::write::fetch_one#1
-governance/audit/repository.py::write::transaction#1
 governance/decisions/repository.py::_insert_then_read::execute#1
 governance/decisions/repository.py::_insert_then_read::fetch_one#1
 governance/decisions/repository.py::_insert_then_read::transaction#1
@@ -1194,10 +1202,6 @@ governance/attestations/store.py::record::fetch_one#1
 governance/attestations/store.py::record::transaction#1
 governance/attestations/store.py::register::execute#1
 governance/attestations/store.py::register::transaction#1
-governance/audit/coordination.py::_fetch_legacy_records::fetch_all#1
-governance/audit/coordination.py::_fetch_sequenced_records::fetch_all#1
-governance/audit/coordination.py::_has_legacy_records::fetch_one#1
-governance/audit/coordination.py::advance_audit_chain::execute#1
 governance/retention/claims.py::record_heartbeat::transaction#1
 governance/retention/claims.py::record_operation_delta::transaction#1
 governance/retention/claims.py::record_terminal::transaction#1
