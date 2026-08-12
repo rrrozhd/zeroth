@@ -2088,6 +2088,40 @@ def _audit_repository_public_call_provenance(
                 def binding_may_raise(target: ast.AST) -> bool:
                     return not isinstance(target, ast.Name)
 
+                def target_shape_matches(value: ast.AST, target: ast.AST) -> bool:
+                    if isinstance(target, (ast.Tuple, ast.List)):
+                        return (
+                            isinstance(value, (ast.Tuple, ast.List))
+                            and not any(isinstance(item, ast.Starred) for item in value.elts)
+                            and not any(isinstance(item, ast.Starred) for item in target.elts)
+                            and len(value.elts) == len(target.elts)
+                            and all(
+                                target_shape_matches(item_value, item_target)
+                                for item_value, item_target in zip(
+                                    value.elts, target.elts, strict=True
+                                )
+                            )
+                        )
+                    return True
+
+                def bind_target(
+                    state: _PotentialState,
+                    target: ast.AST,
+                    *,
+                    known_shape: bool,
+                ) -> tuple[_PotentialState, list[_PotentialState]]:
+                    if isinstance(target, ast.Name):
+                        return bind_names(state, {target.id}), []
+                    if isinstance(target, (ast.Tuple, ast.List)):
+                        exceptions = [] if known_shape else [state]
+                        for item in target.elts:
+                            state, item_exceptions = bind_target(
+                                state, item, known_shape=known_shape
+                            )
+                            exceptions.extend(item_exceptions)
+                        return state, exceptions
+                    return state, [state]
+
                 def condition_bound_names(expression: ast.expr, *, true: bool) -> set[str]:
                     if isinstance(expression, ast.NamedExpr):
                         return _bound_names(expression.target)
@@ -2432,21 +2466,189 @@ def _audit_repository_public_call_provenance(
                         return expression_may_raise(pattern.value, bound_names)
                     return False
 
+                exception_alias_event_cache: dict[
+                    ast.AST | None,
+                    dict[str, list[tuple[tuple[int, int], type[BaseException] | None]]],
+                ] = {}
+
+                def exception_alias_events(
+                    scope: ast.AST | None,
+                    cache: dict[
+                        ast.AST | None,
+                        dict[str, list[tuple[tuple[int, int], type[BaseException] | None]]],
+                    ] = exception_alias_event_cache,
+                    module_tree: ast.Module = tree,
+                ) -> dict[str, list[tuple[tuple[int, int], type[BaseException] | None]]]:
+                    if scope in cache:
+                        return cache[scope]
+                    alias_events: dict[
+                        str, list[tuple[tuple[int, int], type[BaseException] | None]]
+                    ] = {}
+
+                    def record_event(
+                        name: str, position: tuple[int, int], identity: type[BaseException] | None
+                    ) -> None:
+                        alias_events.setdefault(name, []).append((position, identity))
+
+                    def resolve(
+                        expression: ast.AST | None,
+                        state: dict[str, type[BaseException] | None],
+                    ) -> type[BaseException] | None:
+                        dotted = _dotted_ast_path(expression) if expression is not None else None
+                        if dotted is None or len(dotted) != 1:
+                            return None
+                        return state.get(dotted[0], _BUILTIN_EXCEPTION_CLASSES.get(dotted[0]))
+
+                    def join(
+                        *states: dict[str, type[BaseException] | None],
+                    ) -> dict[str, type[BaseException] | None]:
+                        return {
+                            name: values[0] if all(value == values[0] for value in values) else None
+                            for name in set().union(*(state.keys() for state in states))
+                            if (values := [state.get(name) for state in states])
+                        }
+
+                    def merge_events(
+                        statement: ast.AST, state: dict[str, type[BaseException] | None]
+                    ) -> None:
+                        position = (statement.end_lineno, statement.end_col_offset)
+                        for name, identity in state.items():
+                            record_event(name, position, identity)
+
+                    def walk(
+                        block: list[ast.stmt], state: dict[str, type[BaseException] | None]
+                    ) -> dict[str, type[BaseException] | None]:
+                        state = dict(state)
+                        for statement in block:
+                            position = (statement.lineno, statement.col_offset)
+                            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                                identity = resolve(statement.value, state)
+                                targets = (
+                                    statement.targets
+                                    if isinstance(statement, ast.Assign)
+                                    else (statement.target,)
+                                )
+                                for target in targets:
+                                    for name in _bound_names(target):
+                                        state[name] = identity
+                                        record_event(name, position, identity)
+                            elif isinstance(statement, ast.ImportFrom):
+                                for alias in statement.names:
+                                    name = alias.asname or alias.name
+                                    identity = (
+                                        _BUILTIN_EXCEPTION_CLASSES.get(alias.name)
+                                        if statement.module == "builtins"
+                                        else None
+                                    )
+                                    state[name] = identity
+                                    record_event(name, position, identity)
+                            elif isinstance(statement, ast.Import):
+                                for alias in statement.names:
+                                    name = alias.asname or alias.name.split(".")[0]
+                                    state[name] = None
+                                    record_event(name, position, None)
+                            elif isinstance(statement, ast.If):
+                                if isinstance(statement.test, ast.Constant) and isinstance(
+                                    statement.test.value, bool
+                                ):
+                                    state = walk(
+                                        statement.body if statement.test.value else statement.orelse,
+                                        state,
+                                    )
+                                else:
+                                    state = join(
+                                        walk(statement.body, state), walk(statement.orelse, state)
+                                    )
+                                    merge_events(statement, state)
+                            elif isinstance(statement, (ast.Try, ast.TryStar)):
+                                paths = [walk(statement.body, state)]
+                                paths.extend(walk(handler.body, state) for handler in statement.handlers)
+                                state = join(*paths)
+                                state = walk(statement.finalbody, state)
+                                merge_events(statement, state)
+                            elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                                body_state = dict(state)
+                                if isinstance(statement, (ast.For, ast.AsyncFor)):
+                                    for name in _bound_names(statement.target):
+                                        body_state[name] = None
+                                state = join(state, walk(statement.body, body_state))
+                                state = walk(statement.orelse, state)
+                                merge_events(statement, state)
+                            elif isinstance(statement, (ast.With, ast.AsyncWith)):
+                                body_state = dict(state)
+                                for item in statement.items:
+                                    if item.optional_vars is not None:
+                                        for name in _bound_names(item.optional_vars):
+                                            body_state[name] = None
+                                state = join(state, walk(statement.body, body_state))
+                                merge_events(statement, state)
+                            elif isinstance(statement, ast.Match):
+                                paths = [walk(case.body, state) for case in statement.cases]
+                                paths.append(state)
+                                state = join(*paths)
+                                merge_events(statement, state)
+                            elif isinstance(statement, ast.Delete):
+                                for target in statement.targets:
+                                    for name in _bound_names(target):
+                                        state[name] = None
+                                        record_event(name, position, None)
+                            elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                                identity = (
+                                    _BUILTIN_EXCEPTION_CLASSES.get(statement.bases[0].id)
+                                    if isinstance(statement, ast.ClassDef)
+                                    and len(statement.bases) == 1
+                                    and isinstance(statement.bases[0], ast.Name)
+                                    else None
+                                )
+                                state[statement.name] = identity
+                                record_event(statement.name, position, identity)
+                        return state
+
+                    initial_state = {
+                        name: None
+                        for name in (
+                            _function_argument_names(scope)
+                            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            else set()
+                        )
+                    }
+                    walk(module_tree.body if scope is None else scope.body, initial_state)
+                    cache[scope] = alias_events
+                    return alias_events
+
                 def builtin_exception_class(
                     expression: ast.AST | None,
                     lexical_local_names: set[str] = set(lexical_local_names),
+                    scope_owner: ast.AST | None = owner,
+                    all_local_names: dict[ast.AST, set[str]] = local_names,
+                    all_parents: dict[ast.AST, ast.AST] = parents,
                 ) -> type[BaseException] | None:
                     dotted = _dotted_ast_path(expression) if expression is not None else None
                     if dotted is None or len(dotted) > 2 or (len(dotted) == 2 and dotted[0] != "builtins"):
                         return None
-                    if len(dotted) == 1 and dotted[0] in lexical_local_names:
-                        return None
                     if len(dotted) == 1:
-                        found, identity = module_exception_identity_at(
-                            dotted[0], (expression.lineno, expression.col_offset)
-                        )
-                        if found:
-                            return identity
+                        position = (expression.lineno, expression.col_offset)
+                        scope: ast.AST | None = scope_owner
+                        while scope is not None:
+                            aliases = exception_alias_events(scope)
+                            local_scope_names = all_local_names.get(scope, set()) | set(aliases)
+                            if dotted[0] in local_scope_names:
+                                for event, identity in reversed(aliases.get(dotted[0], [])):
+                                    if event < position:
+                                        return identity
+                                return None
+                            parent = all_parents.get(scope)
+                            while parent is not None and not isinstance(
+                                parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                            ):
+                                parent = all_parents.get(parent)
+                            scope = parent
+                        aliases = exception_alias_events(None)
+                        if dotted[0] in aliases:
+                            for event, identity in reversed(aliases[dotted[0]]):
+                                if event < position:
+                                    return identity
+                            return None
                     candidate = _BUILTIN_EXCEPTION_CLASSES.get(dotted[-1])
                     return candidate if candidate is not None else None
 
@@ -2754,9 +2956,24 @@ def _audit_repository_public_call_provenance(
                                 exceptions.append(before)
                             loop_state = before
                             if isinstance(statement, (ast.For, ast.AsyncFor)):
-                                if binding_may_raise(statement.target):
-                                    exceptions.append(loop_state)
-                                loop_state = bind_names(loop_state, _bound_names(statement.target))
+                                known_target_shape = (
+                                    isinstance(statement, ast.For)
+                                    and isinstance(statement.iter, (ast.Tuple, ast.List))
+                                    and not any(
+                                        isinstance(item, ast.Starred)
+                                        for item in statement.iter.elts
+                                    )
+                                    and all(
+                                        target_shape_matches(item, statement.target)
+                                        for item in statement.iter.elts
+                                    )
+                                )
+                                loop_state, target_exceptions = bind_target(
+                                    loop_state,
+                                    statement.target,
+                                    known_shape=known_target_shape,
+                                )
+                                exceptions.extend(target_exceptions)
                             body_flow = walk_potential_bindings(
                                 statement.body,
                                 loop_state,
@@ -3468,6 +3685,10 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
         "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run_in_transaction",
         "src/zeroth/governance/retention/erasure_service.py::purge_audits::crypto_erase_in_transaction",
         "src/zeroth/governance/retention/erasure_service.py::purge_audits::list_erasable_in_transaction",
+        "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::crypto_erase",
+        "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::get",
+        "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::list",
+        "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_branch_execution::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_execution::write",
         "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
@@ -3496,7 +3717,7 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
     # so every operation below is rooted in a reviewed scoped factory.
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
-            "src/zeroth/platform/storage/isolation_probes.py::_drive_audit_resource::scoped",
+            "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
             "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
@@ -7711,6 +7932,124 @@ def test_public_call_inventory_routes_ordered_module_exception_aliases(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
+@pytest.mark.parametrize(
+    ("alias_setup", "expected"),
+    [
+        (
+            "if True:\n"
+            "    AliasError = TypeError\n",
+            frozenset(),
+        ),
+        (
+            "if enabled:\n"
+            "    AliasError = TypeError\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["guaranteed-branch", "uncertain-branch"],
+)
+def test_public_call_inventory_routes_compound_module_exception_aliases(
+    tmp_path: Path, alias_setup: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + alias_setup
+        + "async def outer(suppressor, enabled, candidate, record):\n"
+        "    try:\n"
+        "        raise AliasError\n"
+        "    except ValueError:\n"
+        "        pass\n"
+        "    except TypeError:\n"
+        "        closure = None\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("alias_setup", "expected"),
+    [
+        ("    AliasError = TypeError\n", frozenset()),
+        (
+            "    AliasError = TypeError\n"
+            "    AliasError = Exception\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["local-alias", "local-rebind"],
+)
+def test_public_call_inventory_routes_ordered_local_exception_aliases(
+    tmp_path: Path, alias_setup: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        + alias_setup
+        + "    try:\n"
+        "        raise AliasError\n"
+        "    except ValueError:\n"
+        "        pass\n"
+        "    except TypeError:\n"
+        "        closure = None\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+def test_public_call_inventory_preserves_partial_for_target_binding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    with suppressor:\n"
+        "        for closure, missing.attr in ((None, None),):\n"
+        "            pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
 @pytest.mark.parametrize("has_value", [False, True], ids=["annotation-only", "valued"])
 def test_public_call_inventory_skips_function_local_variable_annotation_evaluation(
     tmp_path: Path, has_value: bool
@@ -8876,7 +9215,7 @@ def test_production_audit_repository_has_only_explicit_scoped_constructors() -> 
     root = Path(__file__).resolve().parents[2]
     assert _audit_repository_binding_inventory(root) == frozenset(
         {
-            "src/zeroth/platform/storage/isolation_probes.py::_drive_audit_resource::scoped",
+            "src/zeroth/platform/storage/audit_isolation_probe.py::_drive_audit_resource::scoped",
             "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
             "src/zeroth/service/bootstrap/factory.py::retention_service_for::scoped",
         }
