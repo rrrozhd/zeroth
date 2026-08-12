@@ -651,7 +651,7 @@ def _must_alias_events(
                 ((statement.lineno, statement.col_offset), identity)
             )
 
-    def merge_event(statement: ast.stmt, state: dict[str, _AliasIdentity]) -> None:
+    def merge_event(statement: ast.AST, state: dict[str, _AliasIdentity]) -> None:
         position = (statement.end_lineno, statement.end_col_offset)
         for name, identity in state.items():
             events.setdefault(name, []).append((position, identity))
@@ -669,33 +669,36 @@ def _must_alias_events(
             state[name] = None
             events.setdefault(name, []).append((position, None))
 
-    def statement_named_expressions(statement: ast.stmt) -> tuple[ast.NamedExpr, ...]:
-        expressions: list[ast.NamedExpr] = []
-
-        def visit(node: ast.AST) -> None:
-            if isinstance(node, ast.NamedExpr):
-                visit(node.value)
-                expressions.append(node)
-                return
-            if isinstance(node, ast.Lambda):
-                for default in (*node.args.defaults, *node.args.kw_defaults):
-                    if default is not None:
-                        visit(default)
-                return
-            for child in ast.iter_child_nodes(node):
-                if not isinstance(child, ast.stmt):
-                    visit(child)
-
-        visit(statement)
-        return tuple(expressions)
+    def record_named_expressions(
+        node: ast.AST, state: dict[str, _AliasIdentity]
+    ) -> dict[str, _AliasIdentity]:
+        if isinstance(node, ast.NamedExpr):
+            state = record_named_expressions(node.value, state)
+            record(node, state)
+            return state
+        if isinstance(node, ast.IfExp):
+            state = record_named_expressions(node.test, state)
+            body_state = record_named_expressions(node.body, dict(state))
+            orelse_state = record_named_expressions(node.orelse, dict(state))
+            state = join(body_state, orelse_state)
+            merge_event(node, state)
+            return state
+        if isinstance(node, ast.Lambda):
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    state = record_named_expressions(default, state)
+            return state
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, ast.stmt):
+                state = record_named_expressions(child, state)
+        return state
 
     def walk_block(
         statements: list[ast.stmt], state: dict[str, _AliasIdentity]
     ) -> dict[str, _AliasIdentity]:
         state = dict(state)
         for statement in statements:
-            for expression in statement_named_expressions(statement):
-                record(expression, state)
+            state = record_named_expressions(statement, state)
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 record(statement, state)
             elif isinstance(statement, ast.AugAssign):
@@ -2139,6 +2142,49 @@ def test_public_call_inventory_reports_nested_walrus_conditional_factory_aliases
             "apps/candidate.py::use::write",
         }
     )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected", "unreviewed"),
+    [
+        (
+            "result = (factory := AuditRepository.scoped) if cond else other_factory",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "result = other_factory if cond else (factory := AuditRepository.scoped)",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "result = (factory := AuditRepository.scoped) if cond else (factory := AuditRepository.scoped)",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+    ],
+    ids=["forward-branch", "reverse-branch", "agreeing-branches"],
+)
+def test_public_call_inventory_joins_conditional_walrus_factory_aliases(
+    tmp_path: Path,
+    expression: str,
+    expected: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    factory = other_factory\n"
+        f"    {expression}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == expected
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
 
 
 def test_public_call_inventory_tracks_local_canonical_repository_import_alias(
