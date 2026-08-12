@@ -344,8 +344,15 @@ async def _drive_webhook_dead_letters(
     assert len(owner_rows) == 1
     if operation is O.CREATE:
         # Dead-letter IDs are generated: a foreign append must not change owner state.
+        await _seed_delivery(foreign, "driver-foreign")
         await foreign.dead_letter("driver-delivery")
         assert await owner.list_dead_letters() == owner_rows
+        foreign_rows = await foreign.list_dead_letters()
+        assert len(foreign_rows) == 1
+        assert owner_rows[0].delivery_id == foreign_rows[0].delivery_id == "driver-delivery"
+        assert owner_rows[0].dead_letter_id != foreign_rows[0].dead_letter_id
+        assert await _delivery_status(database, "driver-owner") == DeliveryStatus.DEAD_LETTER
+        assert await _delivery_status(database, "driver-foreign") == DeliveryStatus.DEAD_LETTER
     elif operation is O.READ:
         dead_letter_id = owner_rows[0].dead_letter_id
         assert await foreign.get_dead_letter(dead_letter_id) is None
@@ -593,8 +600,10 @@ async def _drive_cleanup_operations(database: AsyncDatabase, operation: Resource
             )
     else:
         await _initialize_cleanup(database, foreign, "driver-foreign")
+        lease = datetime.now(UTC) + timedelta(minutes=1)
+        foreign_operation = _manifest("driver-foreign").operations[0]
         async with database.transaction() as connection:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="unknown operation"):
                 await foreign.update_operation_in_transaction(
                     connection,
                     authorization_log_id=_authorization_id("driver-foreign"),
@@ -602,8 +611,50 @@ async def _drive_cleanup_operations(database: AsyncDatabase, operation: Resource
                     generation=0,
                     expected_revision=0,
                     operation=owner_operation,
-                    lease_expires_at=datetime.now(UTC),
+                    lease_expires_at=lease,
                 )
+            with pytest.raises(ValueError, match="unknown operation"):
+                await foreign.update_operation_in_transaction(
+                    connection,
+                    authorization_log_id="unknown-authorization",
+                    claim_id="unknown",
+                    generation=0,
+                    expected_revision=0,
+                    operation=foreign_operation,
+                    lease_expires_at=lease,
+                )
+            assert (
+                await owner.get_operation_in_transaction(
+                    connection, _authorization_id("driver-owner"), owner_operation.operation_id
+                )
+            ).status == "pending"
+            claimed = await foreign.claim_in_transaction(
+                connection,
+                authorization_log_id=_authorization_id("driver-foreign"),
+                expected_generation=0,
+                expected_revision=0,
+                claim_id="foreign-claim",
+                claim_log_id="foreign-claim-log",
+                lease_expires_at=lease,
+            )
+            updated_operation = foreign_operation.model_copy(update={"status": "completed"})
+            updated_state = await foreign.update_operation_in_transaction(
+                connection,
+                authorization_log_id=_authorization_id("driver-foreign"),
+                claim_id="foreign-claim",
+                generation=claimed.generation,
+                expected_revision=claimed.revision,
+                operation=updated_operation,
+                lease_expires_at=lease,
+            )
+            assert updated_state.revision == claimed.revision + 1
+            assert (
+                await foreign.get_operation_in_transaction(
+                    connection,
+                    _authorization_id("driver-foreign"),
+                    foreign_operation.operation_id,
+                )
+            ).status == "completed"
             assert (
                 await owner.get_operation_in_transaction(
                     connection, _authorization_id("driver-owner"), owner_operation.operation_id
