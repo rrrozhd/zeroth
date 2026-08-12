@@ -1837,97 +1837,13 @@ def _audit_repository_public_call_provenance(
                     def contains(candidate_node: ast.AST, descendant: ast.AST) -> bool:
                         return candidate_node is descendant or descendant in ast.walk(candidate_node)
 
-                    def join_continuing_names(*paths: set[str] | None) -> set[str] | None:
-                        continuing_paths = [path for path in paths if path is not None]
-                        return set.intersection(*continuing_paths) if continuing_paths else None
-
-                    def expression_can_raise(candidate: ast.AST) -> bool:
-                        return isinstance(
-                            candidate,
-                            (
-                                ast.Attribute,
-                                ast.Await,
-                                ast.Call,
-                                ast.Raise,
-                                ast.Subscript,
-                                ast.YieldFrom,
-                            ),
-                        ) or any(expression_can_raise(child) for child in ast.iter_child_nodes(candidate))
-
                     def bound_after_statement(
                         names: set[str], statement: ast.stmt
                     ) -> set[str] | None:
-                        if isinstance(statement, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
-                            return None
-                        if isinstance(statement, ast.Delete):
-                            return names - set().union(
-                                *(_bound_names(target) for target in statement.targets)
-                            )
-                        if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
-                            return names
-                        if isinstance(statement, ast.If):
-                            return join_continuing_names(
-                                bound_after_block(statement.body, names),
-                                bound_after_block(statement.orelse, names),
-                            )
-                        if isinstance(statement, (ast.Try, ast.TryStar)):
-                            continuing = bound_after_block(statement.body, names)
-                            if continuing is not None:
-                                continuing = bound_after_block(statement.orelse, continuing)
-                            exception_possible = any(
-                                expression_can_raise(child) for child in statement.body
-                            )
-                            handler_paths = (
-                                [bound_after_block(handler.body, names) for handler in statement.handlers]
-                                if exception_possible
-                                else []
-                            )
-                            continuing = join_continuing_names(continuing, *handler_paths)
-                            return (
-                                bound_after_block(statement.finalbody, continuing)
-                                if continuing is not None and statement.finalbody
-                                else continuing
-                            )
-                        if isinstance(statement, (ast.With, ast.AsyncWith)):
-                            body_names = bound_after_block(
-                                statement.body,
-                                names
-                                | set().union(
-                                    *(
-                                        _bound_names(item.optional_vars)
-                                        for item in statement.items
-                                        if item.optional_vars is not None
-                                    )
-                                ),
-                            )
-                            suppressed_exception = any(
-                                expression_can_raise(child) for child in statement.body
-                            )
-                            return join_continuing_names(
-                                body_names, names if suppressed_exception else None
-                            )
-                        if isinstance(statement, ast.Match):
-                            paths = [bound_after_block(case.body, names) for case in statement.cases]
-                            exhaustive = any(
-                                isinstance(case.pattern, ast.MatchAs)
-                                and case.pattern.pattern is None
-                                and case.guard is None
-                                for case in statement.cases
-                            )
-                            return join_continuing_names(
-                                *paths,
-                                *( () if exhaustive else (names,)),
-                            )
-                        return names | direct_binding_names(statement)
-
-                    def bound_after_block(
-                        block: list[ast.stmt], names: set[str]
-                    ) -> set[str] | None:
-                        for statement in block:
-                            names = bound_after_statement(names, statement)
-                            if names is None:
-                                return None
-                        return names
+                        flow = walk_potential_bindings(
+                            [statement], (set(), set(), set(names)), events={}
+                        )
+                        return None if flow.continuing is None else flow.continuing[2]
 
                     def bound_at_definition(
                         block: list[ast.stmt], names: set[str]
@@ -1983,13 +1899,7 @@ def _audit_repository_public_call_provenance(
 
                     return bound_at_definition(parent.body, initial_names)
 
-                initial_bound_names = (
-                    _function_argument_names(owner)
-                    | (module_bound_names - lexical_local_names)
-                    | (enclosing_closure_names(owner) - lexical_local_names)
-                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    else set()
-                )
+                initial_bound_names: set[str] = set()
                 nested_type_aliases: list[ast.TypeAlias] = []
 
                 def collect_type_aliases(
@@ -2364,7 +2274,15 @@ def _audit_repository_public_call_provenance(
                         ) or class_body_may_raise(expression.body, bound_names)
                     if isinstance(
                         expression,
-                        (ast.Attribute, ast.Await, ast.Call, ast.Subscript, ast.YieldFrom),
+                        (
+                            ast.Attribute,
+                            ast.Await,
+                            ast.Call,
+                            ast.Import,
+                            ast.ImportFrom,
+                            ast.Subscript,
+                            ast.YieldFrom,
+                        ),
                     ):
                         return True
                     if isinstance(expression, (ast.BinOp, ast.BoolOp, ast.Compare, ast.UnaryOp)):
@@ -2374,119 +2292,15 @@ def _audit_repository_public_call_provenance(
                         for child in ast.iter_child_nodes(expression)
                     )
 
-                def class_body_flow(
-                    block: list[ast.stmt],
-                    outer_bound_names: set[str],
-                    class_bound_names: set[str] | None = None,
-                    postponed_annotations: bool = postponed_annotations,
-                ) -> tuple[bool, set[str]]:
-                    class_bound_names = set() if class_bound_names is None else set(class_bound_names)
-                    for statement in block:
-                        bound_names = outer_bound_names | class_bound_names
-                        if isinstance(statement, ast.If):
-                            if expression_may_raise(statement.test, bound_names):
-                                return True, class_bound_names
-                            body_raises, body_names = class_body_flow(
-                                statement.body, outer_bound_names, class_bound_names
-                            )
-                            else_raises, else_names = class_body_flow(
-                                statement.orelse, outer_bound_names, class_bound_names
-                            )
-                            if body_raises or else_raises:
-                                return True, class_bound_names
-                            class_bound_names = body_names & else_names
-                            continue
-                        if isinstance(statement, (ast.For, ast.AsyncFor)):
-                            if expression_may_raise(statement.iter, bound_names):
-                                return True, class_bound_names
-                            guaranteed_nonempty = isinstance(statement.iter, (ast.Tuple, ast.List)) and any(
-                                not isinstance(item, ast.Starred) for item in statement.iter.elts
-                            )
-                            if guaranteed_nonempty:
-                                body_raises, body_names, exit_kind = class_loop_body_flow(
-                                    statement.body,
-                                    outer_bound_names,
-                                    class_bound_names | _bound_names(statement.target),
-                                )
-                                if body_raises:
-                                    return True, class_bound_names
-                                class_bound_names = body_names
-                                if exit_kind != "break":
-                                    else_raises, else_names = class_body_flow(
-                                        statement.orelse, outer_bound_names, class_bound_names
-                                    )
-                                    if else_raises:
-                                        return True, class_bound_names
-                                    class_bound_names = else_names
-                            continue
-                        if isinstance(statement, ast.AnnAssign):
-                            if (
-                                (statement.value is not None and expression_may_raise(statement.value, bound_names))
-                                or (
-                                    not postponed_annotations
-                                    and expression_may_raise(statement.annotation, bound_names)
-                                )
-                            ):
-                                return True, class_bound_names
-                        elif isinstance(statement, (ast.Assign, ast.AugAssign, ast.Expr)):
-                            if expression_may_raise(statement.value, bound_names):
-                                return True, class_bound_names
-                        elif expression_may_raise(statement, bound_names):
-                            return True, class_bound_names
-                        class_bound_names.update(executed_binding_names(statement))
-                    return False, class_bound_names
-
-                def class_loop_body_flow(
-                    block: list[ast.stmt],
-                    outer_bound_names: set[str],
-                    class_bound_names: set[str],
-                ) -> tuple[bool, set[str], str | None]:
-                    def nested_exit_kind(candidate_block: list[ast.stmt]) -> str | None:
-                        for nested_statement in candidate_block:
-                            if isinstance(nested_statement, ast.Break):
-                                return "break"
-                            if isinstance(nested_statement, ast.Continue):
-                                return "continue"
-                            if isinstance(nested_statement, ast.If):
-                                truth = literal_truth(nested_statement.test)
-                                selected_blocks = (
-                                    (nested_statement.body if truth else nested_statement.orelse,)
-                                    if truth is not None
-                                    else (nested_statement.body, nested_statement.orelse)
-                                )
-                                for selected_block in selected_blocks:
-                                    if (exit_kind := nested_exit_kind(selected_block)) is not None:
-                                        return exit_kind
-                            if isinstance(
-                                nested_statement,
-                                (ast.For, ast.AsyncFor, ast.While, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
-                            ):
-                                continue
-                        return None
-
-                    for statement in block:
-                        if isinstance(statement, ast.Break):
-                            return False, class_bound_names, "break"
-                        if isinstance(statement, ast.Continue):
-                            return False, class_bound_names, "continue"
-                        if isinstance(statement, ast.If):
-                            if expression_may_raise(
-                                statement.test, outer_bound_names | class_bound_names
-                            ):
-                                return True, class_bound_names, None
-                            if (exit_kind := nested_exit_kind([statement])) is not None:
-                                return False, class_bound_names, exit_kind
-                        raises, class_bound_names = class_body_flow(
-                            [statement], outer_bound_names, class_bound_names
-                        )
-                        if raises:
-                            return True, class_bound_names, None
-                    return False, class_bound_names, None
-
                 def class_body_may_raise(
                     block: list[ast.stmt], outer_bound_names: set[str]
                 ) -> bool:
-                    return class_body_flow(block, outer_bound_names)[0]
+                    flow = walk_potential_bindings(
+                        block,
+                        (set(), set(), set(outer_bound_names)),
+                        events={},
+                    )
+                    return bool(flow.exceptions)
 
                 def pattern_may_raise(
                     pattern: ast.pattern,
@@ -2653,6 +2467,7 @@ def _audit_repository_public_call_provenance(
                     ] = potential_imported_repository_names,
                     potential_declaration_names: set[str] = potential_declaration_names,
                     events: _AliasEvents = events,
+                    postponed_annotations: bool = postponed_annotations,
                 ) -> PotentialFlow:
                     continuing: _PotentialState | None = (
                         set(state[0]),
@@ -2688,6 +2503,21 @@ def _audit_repository_public_call_provenance(
                         if isinstance(statement, ast.If):
                             if expression_may_raise(statement.test, before[2]):
                                 exceptions.append(before)
+                            truth = literal_truth(statement.test)
+                            if truth is not None:
+                                selected_flow = walk_potential_bindings(
+                                    statement.body if truth else statement.orelse,
+                                    bind_names(
+                                        before,
+                                        condition_bound_names(statement.test, true=truth),
+                                    ),
+                                )
+                                continuing = selected_flow.continuing
+                                breaks.extend(selected_flow.breaks)
+                                continues.extend(selected_flow.continues)
+                                returns.extend(selected_flow.returns)
+                                exceptions.extend(selected_flow.exceptions)
+                                continue
                             body_flow = walk_potential_bindings(
                                 statement.body,
                                 bind_names(
@@ -2805,7 +2635,19 @@ def _audit_repository_public_call_provenance(
                             iteration_state = join_states(
                                 body_flow.continuing, *body_flow.continues
                             )
-                            zero_flow = walk_potential_bindings(statement.orelse, before)
+                            guaranteed_nonempty = (
+                                isinstance(statement, (ast.For, ast.AsyncFor))
+                                and isinstance(statement.iter, (ast.Tuple, ast.List))
+                                and any(
+                                    not isinstance(item, ast.Starred)
+                                    for item in statement.iter.elts
+                                )
+                            )
+                            zero_flow = (
+                                PotentialFlow(None, [], [], [], [])
+                                if guaranteed_nonempty
+                                else walk_potential_bindings(statement.orelse, before)
+                            )
                             exhausted_flow = (
                                 walk_potential_bindings(statement.orelse, iteration_state)
                                 if iteration_state is not None
@@ -2886,6 +2728,11 @@ def _audit_repository_public_call_provenance(
                                 exceptions.extend(delete_exceptions)
                             continue
                         if isinstance(statement, ast.AnnAssign) and statement.value is None:
+                            if (
+                                not postponed_annotations
+                                and expression_may_raise(statement.annotation, continuing[2])
+                            ):
+                                exceptions.append(before)
                             continue
                         assignment_value = (
                             None
@@ -2902,7 +2749,11 @@ def _audit_repository_public_call_provenance(
                             )
                             else statement
                         )
-                        if expression_may_raise(assignment_value, continuing[2]):
+                        if expression_may_raise(assignment_value, continuing[2]) or (
+                            isinstance(statement, ast.AnnAssign)
+                            and not postponed_annotations
+                            and expression_may_raise(statement.annotation, continuing[2])
+                        ):
                             exceptions.append(before)
                         if not isinstance(statement, ast.TypeAlias):
                             continuing = bind_names(
@@ -2942,6 +2793,13 @@ def _audit_repository_public_call_provenance(
                         continuing[2].add(statement.name.id)
                     return PotentialFlow(continuing, breaks, continues, returns, exceptions)
 
+                initial_bound_names = (
+                    _function_argument_names(owner)
+                    | (module_bound_names - lexical_local_names)
+                    | (enclosing_closure_names(owner) - lexical_local_names)
+                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    else set()
+                )
                 walk_potential_bindings(statements, (set(), set(), set(initial_bound_names)))
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
@@ -7468,6 +7326,128 @@ def test_public_call_inventory_does_not_seed_unreached_compound_closure(
         "        type Repo = Base\n"
         "        repository: Repo = candidate\n"
         "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("compound", "expected"),
+    [
+        (
+            "    try:\n"
+            "        raise ValueError\n"
+            "    except TypeError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    try:\n"
+            "        raise ValueError\n"
+            "    except ValueError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "    with suppressor, failing:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["unreachable-handler", "reachable-handler", "suppressed-acquisition"],
+)
+def test_public_call_inventory_routes_compound_closure_exits(
+    tmp_path: Path, compound: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, failing, candidate, record):\n"
+        + compound
+        + "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    "transient",
+    [
+        "        missing\n",
+        "        import unavailable\n",
+        "        del missing\n",
+        "        1 / divisor\n",
+    ],
+    ids=["unbound-name", "import", "delete", "operator"],
+)
+def test_public_call_inventory_keeps_closure_before_suppressed_expression_exit(
+    tmp_path: Path, transient: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, divisor, candidate, record):\n"
+        "    with suppressor:\n"
+        + transient
+        + "        closure = None\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_keeps_both_unknown_class_loop_exit_paths(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, selector, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        class Local:\n"
+        "            for item in (None,):\n"
+        "                if selector:\n"
+        "                    continue\n"
+        "                else:\n"
+        "                    break\n"
+        "            else:\n"
+        "                captured = None\n"
+        "            if captured:\n"
+        "                pass\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
         encoding="utf-8",
     )
 
