@@ -12,9 +12,12 @@ version negotiation.
 from __future__ import annotations
 
 import logging
+import threading
 
 import httpx
 import pytest
+
+import zeroth.platform.secrets.vault as vault_module
 
 from zeroth.platform.config.settings import SecretsSettings
 from zeroth.platform.secrets import (
@@ -24,6 +27,64 @@ from zeroth.platform.secrets import (
 )
 
 _SECRET_VALUE = "sk-vault-super-secret"
+
+
+def test_concurrent_secret_history_publication_cannot_lose_a_redaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = VaultSecretProvider(addr="https://vault.test", token="root-token")
+    original_redactor = vault_module.SecretRedactor
+    first_snapshot_ready = threading.Event()
+    release_first = threading.Event()
+
+    def gated_redactor(seeds=None):  # noqa: ANN001, ANN202
+        snapshot = list(seeds or ())
+        if len(snapshot) == 1:
+            first_snapshot_ready.set()
+            assert release_first.wait(timeout=2)
+        return original_redactor(snapshot)
+
+    monkeypatch.setattr(vault_module, "SecretRedactor", gated_redactor)
+    first = threading.Thread(
+        target=provider._remember_secret,
+        args=(("tenant-a", "shared"), "tenant-a-secret"),
+    )
+    second = threading.Thread(
+        target=provider._remember_secret,
+        args=(("tenant-b", "shared"), "tenant-b-secret"),
+    )
+
+    first.start()
+    assert first_snapshot_ready.wait(timeout=2)
+    second.start()
+    second.join(timeout=0.2)
+    release_first.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert {reference for reference, _value in provider._redaction_history} == {
+        ("tenant-a", "shared"),
+        ("tenant-b", "shared"),
+    }
+    assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
+        "[REDACTED:SECRET] [REDACTED:SECRET]"
+    )
+
+
+@pytest.mark.asyncio
+async def test_warm_without_credentials_is_best_effort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = VaultSecretProvider(addr="x")
+
+    with caplog.at_level(logging.WARNING):
+        await provider.warm([("tenant-safe", "logical-safe")])
+
+    assert caplog.messages == [
+        "vault warm setup failed: vault provider has no token and incomplete AppRole config"
+    ]
 
 
 def _kv_v2_transport(*, expect_path: str, value: str = _SECRET_VALUE) -> httpx.MockTransport:
