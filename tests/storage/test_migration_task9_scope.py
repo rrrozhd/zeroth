@@ -678,6 +678,59 @@ def test_025_downgrade_refuses_scope_collision_before_ddl(tmp_path: Path) -> Non
         engine.dispose()
 
 
+def _seed_orphan_side_effect(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO side_effect_operations (
+                    operation_key, run_id, dispatch_id, idempotency_key, target_ref,
+                    state, support, created_at, updated_at
+                ) VALUES (
+                    'orphan-operation', 'deleted-run', 'dispatch', 'idempotency',
+                    'unit://orphan', 'IN_FLIGHT', 'at_least_once',
+                    '2026-08-12', '2026-08-12'
+                )"""
+            )
+        )
+
+
+def _assert_orphan_upgrade_refused_and_preserved(database_url: str) -> None:
+    config = _config(database_url)
+    command.upgrade(config, "024")
+    engine = create_engine(database_url)
+    _seed_orphan_side_effect(engine)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="orphan-operation.*deleted-run.*owner"):
+        command.upgrade(config, "025")
+
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        assert "tenant_id" not in {
+            column["name"] for column in inspector.get_columns("side_effect_operations")
+        }
+        with engine.connect() as connection:
+            assert connection.execute(
+                text(
+                    "SELECT operation_key, run_id FROM side_effect_operations "
+                    "WHERE operation_key='orphan-operation'"
+                )
+            ).one() == ("orphan-operation", "deleted-run")
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "024"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_025_upgrade_refuses_orphan_side_effect_without_reclassifying_it(
+    tmp_path: Path,
+) -> None:
+    _assert_orphan_upgrade_refused_and_preserved(f"sqlite:///{tmp_path / 'task9-orphan.db'}")
+
+
 @requires_docker
 def test_task9_scope_migration_round_trips_on_postgres(postgres_container) -> None:
     admin_url = make_url(postgres_container.get_connection_url()).set(
@@ -726,6 +779,28 @@ def test_task9_scope_migration_round_trips_on_postgres(postgres_container) -> No
                 )
         finally:
             engine.dispose()
+    finally:
+        admin_engine.dispose()
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP DATABASE "{database_name}" WITH (FORCE)'))
+        admin_engine.dispose()
+
+
+@requires_docker
+def test_task9_scope_migration_refuses_orphan_side_effect_on_postgres(
+    postgres_container,
+) -> None:
+    admin_url = make_url(postgres_container.get_connection_url()).set(
+        drivername="postgresql+psycopg"
+    )
+    database_name = f"zeroth_task9_orphan_{uuid4().hex}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with admin_engine.connect() as connection:
+        connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+    database_url = admin_url.set(database=database_name).render_as_string(hide_password=False)
+    try:
+        _assert_orphan_upgrade_refused_and_preserved(database_url)
     finally:
         admin_engine.dispose()
         admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
