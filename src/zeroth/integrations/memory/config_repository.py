@@ -13,7 +13,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ResourceOperation,
+    ScopedTable,
+)
 from zeroth.platform.storage.scoping import (
     named_isolation_probe,
     persistence_operation,
@@ -23,13 +29,6 @@ from zeroth.platform.storage.scoping import (
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _tenant_predicate(tenant_id: str | None) -> tuple[str | None, tuple[str, ...]]:
-    """Render the tenant predicate shared by scoped connector operations."""
-    if tenant_id is None:
-        return None, ()
-    return "tenant_id = ?", (tenant_id,)
 
 
 class MemoryConnectorConfig(BaseModel):
@@ -68,6 +67,19 @@ class MemoryConnectorConfigRepository:
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
+    def _configs(self, tenant_id: str | None) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id in {None, "default"}
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
+        return ScopedTable(
+            self._database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.memory_connector_configs",
+            context,
+        )
+
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
     )
@@ -82,46 +94,29 @@ class MemoryConnectorConfigRepository:
         """Insert or update a connector config; returns the stored row."""
         now = _utcnow_iso()
         params_json = json.dumps(params, sort_keys=True, separators=(",", ":"))
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(
-                "SELECT tenant_id FROM memory_connector_configs WHERE ref = ?",
-                (ref,),
+        configs = self._configs(tenant_id)
+        async with configs.transaction(write_lock=True) as table:
+            stored = await table.upsert(
+                {
+                    "ref": ref,
+                    "backend_type": backend_type,
+                    "params": params_json,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                conflict_columns=("ref",),
+                update_columns=("backend_type", "params", "updated_at"),
+                returning="ref",
+                update_where={"tenant_id": tenant_id},
             )
-            if existing is not None and existing["tenant_id"] != tenant_id:
-                raise KeyError(ref)
-            if existing is None:
-                await connection.execute(
-                    """
-                    INSERT INTO memory_connector_configs (
-                        ref, backend_type, params, tenant_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (ref, backend_type, params_json, tenant_id, now, now),
-                )
-            else:
-                tenant_sql, tenant_params = _tenant_predicate(tenant_id)
-                assert tenant_sql is not None
-                await connection.execute(
-                    f"""
-                    UPDATE memory_connector_configs
-                    SET backend_type = ?, params = ?, updated_at = ?
-                    WHERE ref = ? AND {tenant_sql}
-                    """,
-                    (backend_type, params_json, now, ref, *tenant_params),
-                )
+        if not stored:
+            raise KeyError(ref)
         return await self.get(ref, tenant_id=tenant_id)  # type: ignore[return-value]
 
     @persistence_operation(ResourceOperation.READ)
     async def get(self, ref: str, *, tenant_id: str | None = None) -> MemoryConnectorConfig | None:
         """Load a single connector config by ref (optionally tenant-scoped)."""
-        sql = "SELECT * FROM memory_connector_configs WHERE ref = ?"
-        params: tuple[object, ...] = (ref,)
-        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
-        if tenant_sql is not None:
-            sql += f" AND {tenant_sql}"
-            params = (ref, *tenant_params)
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(sql, params)
+        row = await self._configs(tenant_id).select_one(where={"ref": ref})
         if row is None:
             return None
         return self._row_to_config(row)
@@ -129,33 +124,18 @@ class MemoryConnectorConfigRepository:
     @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(self, *, tenant_id: str | None = None) -> list[MemoryConnectorConfig]:
         """Persisted connector configs, ordered by ref (optionally tenant-scoped)."""
-        sql = "SELECT * FROM memory_connector_configs"
-        params: tuple[object, ...] = ()
-        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
-        if tenant_sql is not None:
-            sql += f" WHERE {tenant_sql}"
-            params = tenant_params
-        sql += " ORDER BY ref"
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+        async with self._configs(tenant_id).transaction() as table:
+            rows = await table.select(order_by=("ref",))
         return [self._row_to_config(row) for row in rows]
 
     @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, ref: str, *, tenant_id: str | None = None) -> bool:
         """Delete a connector config. Returns True if a row existed (in tenant)."""
-        select_sql = "SELECT ref FROM memory_connector_configs WHERE ref = ?"
-        delete_sql = "DELETE FROM memory_connector_configs WHERE ref = ?"
-        params: tuple[object, ...] = (ref,)
-        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
-        if tenant_sql is not None:
-            select_sql += f" AND {tenant_sql}"
-            delete_sql += f" AND {tenant_sql}"
-            params = (ref, *tenant_params)
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(select_sql, params)
+        async with self._configs(tenant_id).transaction(write_lock=True) as table:
+            existing = await table.select_one(where={"ref": ref}, columns=("ref",))
             if existing is None:
                 return False
-            await connection.execute(delete_sql, params)
+            await table.delete(where={"ref": ref})
         return True
 
     def _row_to_config(self, row: Any) -> MemoryConnectorConfig:

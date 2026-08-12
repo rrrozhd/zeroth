@@ -1069,11 +1069,10 @@ async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperati
     repository = SQLiteDeploymentRepository(database)
     await repository.create(_deployment("driver-owner"), tenant_id="driver-owner")
     if operation in {O.CREATE, O.UPDATE}:
-        with _raises(KeyError):
-            await repository.create(
-                _deployment("driver-foreign", version=2),
-                tenant_id="driver-foreign",
-            )
+        await repository.create(
+            _deployment("driver-foreign", version=2),
+            tenant_id="driver-foreign",
+        )
     elif operation is O.READ:
         assert await repository.get("driver-deployment", tenant_id="driver-foreign") is None
         assert await repository.get("unknown-deployment", tenant_id="driver-foreign") is None
@@ -1082,7 +1081,12 @@ async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperati
     owner_after = await repository.get("driver-deployment", tenant_id="driver-owner")
     assert owner_after is not None
     assert owner_after.status.value == "active"
-    assert await repository.get("driver-deployment", tenant_id="driver-foreign") is None
+    foreign_after = await repository.get("driver-deployment", tenant_id="driver-foreign")
+    if operation in {O.CREATE, O.UPDATE}:
+        assert foreign_after is not None
+        assert foreign_after.tenant_id == "driver-foreign"
+    else:
+        assert foreign_after is None
     assert await repository.get("unknown-deployment", tenant_id="driver-foreign") is None
 
 

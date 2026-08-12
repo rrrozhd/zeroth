@@ -40,7 +40,13 @@ from zeroth.governance.decisions.request import (
     StoredDecision,
 )
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ResourceOperation,
+    ScopedTable,
+)
 from zeroth.platform.storage.scoping import (
     named_isolation_probe,
     persistence_operation,
@@ -52,11 +58,6 @@ _COLUMNS = (
     "reason_code, approval_ref, policy_version, deployment_ref, principal_id, "
     "action_name, action_fingerprint, created_at"
 )
-
-_SELECT_BY_KEY = (
-    f"SELECT {_COLUMNS} FROM decision_records WHERE tenant_id = ? AND idempotency_key = ?"
-)
-
 
 class IdempotencyConflictError(ValueError):
     """An idempotency key was reused for a materially different request.
@@ -130,6 +131,14 @@ class DecisionRepository:
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    def _decisions(self, tenant_id: str) -> ScopedTable:
+        return ScopedTable(
+            self._database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.decision_records",
+            NullWorkspaceScopeContext(tenant_id=tenant_id),
+        )
+
     @persistence_operation(ResourceOperation.READ)
     async def find_by_idempotency_key(
         self,
@@ -146,8 +155,10 @@ class DecisionRepository:
             The stored decision and the digest it was made for, or ``None``
             when this tenant has not used the key.
         """
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(_SELECT_BY_KEY, (tenant_id, idempotency_key))
+        row = await self._decisions(tenant_id).select_one(
+            where={"idempotency_key": idempotency_key},
+            columns=tuple(column.strip() for column in _COLUMNS.split(",")),
+        )
         return None if row is None else _row_to_stored(row)
 
     @persistence_operation(ResourceOperation.READ)
@@ -241,33 +252,28 @@ class DecisionRepository:
         losing insert a no-op instead of an integrity error, which keeps the
         statement portable across SQLite and PostgreSQL.
         """
-        lock = _for_update(self._database.backend)
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                f"""
-                INSERT INTO decision_records ({_COLUMNS})
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-                """,
-                (
-                    candidate.decision_id,
-                    request.tenant_id,
-                    request.idempotency_key,
-                    digest,
-                    candidate.kind.value,
-                    candidate.reason_code,
-                    candidate.approval_ref,
-                    candidate.policy_version,
-                    request.deployment_ref,
-                    request.principal_id,
-                    request.action.name,
-                    request.action.fingerprint,
-                    candidate.issued_at.isoformat(),
-                ),
+        async with self._decisions(request.tenant_id).transaction(write_lock=True) as decisions:
+            await decisions.insert_if_absent(
+                {
+                    "decision_id": candidate.decision_id,
+                    "idempotency_key": request.idempotency_key,
+                    "request_digest": digest,
+                    "decision_kind": candidate.kind.value,
+                    "reason_code": candidate.reason_code,
+                    "approval_ref": candidate.approval_ref,
+                    "policy_version": candidate.policy_version,
+                    "deployment_ref": request.deployment_ref,
+                    "principal_id": request.principal_id,
+                    "action_name": request.action.name,
+                    "action_fingerprint": request.action.fingerprint,
+                    "created_at": candidate.issued_at.isoformat(),
+                },
+                conflict_columns=("tenant_id", "idempotency_key"),
             )
-            return await connection.fetch_one(
-                f"{_SELECT_BY_KEY}{lock}",
-                (request.tenant_id, request.idempotency_key),
+            return await decisions.select_one(
+                where={"idempotency_key": request.idempotency_key},
+                columns=tuple(column.strip() for column in _COLUMNS.split(",")),
+                for_update=True,
             )
 
 

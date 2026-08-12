@@ -528,10 +528,12 @@ async def bootstrap_service(
 
     if settings.approval_sla.enabled:
         try:
+            from zeroth.governance.approvals.repository import OverdueApprovalMaintenanceReader
             from zeroth.governance.approvals.sla_checker import ApprovalSLAChecker
 
             sla_checker_obj = ApprovalSLAChecker(
                 approval_service=approval_service,
+                maintenance_reader=OverdueApprovalMaintenanceReader(database),
                 webhook_service=webhook_service_obj,
                 poll_interval=settings.approval_sla.checker_poll_interval,
             )

@@ -8,11 +8,13 @@ import pytest
 
 from zeroth.platform.storage import (
     GlobalTable,
+    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
     ResourceScopeRegistry,
+    SERVICE_SCOPE_REGISTRY,
     ScopedJoin,
     ScopedTable,
     ScopeContext,
@@ -124,6 +126,7 @@ _NON_PERSISTENCE_PUBLIC_METHODS = {
     ScopedSession: frozenset(),
     ScopedTable: frozenset(
         {
+            "for_cross_tenant_maintenance",
             "for_privileged_tenant_wide",
             "in_transaction",
             "transaction",
@@ -841,6 +844,36 @@ async def test_scoped_crud_cannot_replace_canonical_definition(operation: str) -
 
 
 @pytest.mark.asyncio
+async def test_bound_select_one_orders_latest_row_under_read_authorization() -> None:
+    database = _RecordingDatabase()
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="latest-record",
+                table_name="records",
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+    table = ScopedTable(
+        database,
+        registry,
+        "latest-record",
+        NullWorkspaceScopeContext(tenant_id="tenant-a"),
+    )
+
+    async with table.transaction() as records:
+        await records.select_one(
+            where={"deployment_ref": "dep-a"},
+            order_by_desc=("registered_at",),
+        )
+
+    _, sql, params = database.connection.calls[-1]
+    assert sql.endswith("ORDER BY registered_at DESC LIMIT 1")
+    assert params == ("dep-a", "tenant-a")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["select", "insert", "update", "delete"])
 async def test_global_crud_cannot_replace_canonical_definition(operation: str) -> None:
     database = _RecordingDatabase()
@@ -1066,6 +1099,26 @@ async def test_privileged_tenant_wide_gateway_is_explicit_and_omits_workspace() 
 
     with pytest.raises(ValueError, match="workspace"):
         await table.insert({"run_id": "run-2"})
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_approval_maintenance_is_read_only_and_exactly_allowlisted() -> None:
+    database = _RecordingDatabase()
+    context = CrossTenantMaintenanceScopeContext.for_scheduled_maintenance()
+    approvals = ScopedTable.for_cross_tenant_maintenance(
+        database, SERVICE_SCOPE_REGISTRY, "service.approvals", context
+    )
+
+    await approvals.select(where={"status": "pending"})
+    _, sql, params = database.connection.calls[-1]
+    assert "tenant_id" not in sql
+    assert params == ("pending",)
+    with pytest.raises(ValueError, match="read-only"):
+        await approvals.update({"status": "resolved"}, where={"approval_id": "a-1"})
+    with pytest.raises(ValueError, match="limited"):
+        ScopedTable.for_cross_tenant_maintenance(
+            database, SERVICE_SCOPE_REGISTRY, "service.runs", context
+        )
 
 
 @pytest.mark.asyncio
