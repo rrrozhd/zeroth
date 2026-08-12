@@ -2450,6 +2450,16 @@ def _audit_repository_public_call_provenance(
                         for item in expression.elts
                     )
 
+                def is_static_literal_mapping(expression: ast.AST) -> bool:
+                    return isinstance(expression, ast.Dict) and all(
+                        (
+                            is_static_literal_mapping(value)
+                            if key is None
+                            else is_primitive_literal(key) and is_primitive_literal(value)
+                        )
+                        for key, value in zip(expression.keys, expression.values, strict=True)
+                    )
+
                 def expression_may_raise(
                     expression: ast.AST | None,
                     bound_names: set[str],
@@ -2495,7 +2505,7 @@ def _audit_repository_public_call_provenance(
                     if isinstance(expression, ast.Dict):
                         for key, value in zip(expression.keys, expression.values, strict=True):
                             if key is None:
-                                if not is_static_literal_iterable(value):
+                                if not is_static_literal_mapping(value):
                                     return True
                             elif not is_primitive_literal(key) or expression_may_raise(
                                 value, bound_names
@@ -9541,6 +9551,51 @@ def test_public_call_inventory_models_assert_message_aliases(
         ),
         (
             "",
+            "assert False, {**'safe'}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert False, {**()}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert False, {**[]}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "assert False, {**{}}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, {**{'safe': None}}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
             "assert True",
             "    except AssertionError:\n"
             "        closure = None\n",
@@ -9589,6 +9644,11 @@ def test_public_call_inventory_models_assert_message_aliases(
         "primitive-starred-tuple-is-safe",
         "primitive-set-is-safe",
         "primitive-dict-is-safe",
+        "string-dict-unpack-remains-conservative",
+        "tuple-dict-unpack-remains-conservative",
+        "list-dict-unpack-remains-conservative",
+        "empty-dict-unpack-is-safe",
+        "primitive-dict-unpack-is-safe",
         "true-raises-none",
         "unknown-remains-conservative",
         "shadowed-assertion-error",
