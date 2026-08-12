@@ -200,9 +200,10 @@ class TestSubgraphResolverResolve:
         with pytest.raises(SubgraphResolutionError, match="not found"):
             await resolver.resolve("shared-ref", tenant_id="tenant-a")
 
-        # Unscoped (tenant_id=None) still resolves — internal/deploy path unchanged.
-        _graph2, deployment2 = await resolver.resolve("shared-ref")
-        assert deployment2.deployment_id == "dep-b"
+        # Unscoped compatibility is bound to the reserved default tenant; it
+        # cannot act as cross-tenant authority for a named tenant's deployment.
+        with pytest.raises(SubgraphResolutionError, match="not found"):
+            await resolver.resolve("shared-ref")
 
 
 # ---------------------------------------------------------------------------
