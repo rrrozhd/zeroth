@@ -73,7 +73,11 @@ async def _signed_setup(
 
     resolved_auth = auth_config or default_service_auth_config()
     service = await bootstrap_service(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=resolved_auth
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+        auth_config=resolved_auth,
     )
     # Inject the signer into the already-built surface (the settings-built signer
     # is None in tests because no key is configured in the process env).
@@ -82,7 +86,11 @@ async def _signed_setup(
     service.deployment_service.signer = signer
 
     app = await bootstrap_app(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=resolved_auth
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+        auth_config=resolved_auth,
     )
     app.state.bootstrap = service
     return service, deployment, app

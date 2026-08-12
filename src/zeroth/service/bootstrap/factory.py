@@ -122,6 +122,8 @@ async def bootstrap_service(
     database: AsyncDatabase,
     *,
     deployment_ref: str,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
     agent_runners: Mapping[str, AgentRunner] | None = None,
     executable_unit_runner: ExecutableUnitRunner | None = None,
     auth_config: ServiceAuthConfig | None = None,
@@ -132,7 +134,11 @@ async def bootstrap_service(
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
     deployment_repository = SQLiteDeploymentRepository(database)
-    deployment = await deployment_repository.get(deployment_ref)
+    deployment = await deployment_repository.get(
+        deployment_ref,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if deployment is None:
         raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
 
@@ -875,6 +881,8 @@ async def bootstrap_app(
     database: AsyncDatabase,
     *,
     deployment_ref: str,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
     agent_runners: Mapping[str, AgentRunner] | None = None,
     executable_unit_runner: ExecutableUnitRunner | None = None,
     auth_config: ServiceAuthConfig | None = None,
@@ -885,6 +893,8 @@ async def bootstrap_app(
         await bootstrap_service(
             database,
             deployment_ref=deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_runners=agent_runners,
             executable_unit_runner=executable_unit_runner,
             auth_config=auth_config,
@@ -897,6 +907,8 @@ async def build_runners_for_deployment(
     database: AsyncDatabase,
     deployment_ref: str,
     *,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
     provider: ProviderAdapter | None = None,
     secret_provider: SecretProvider | None = None,
     allow_env_fallback: bool = True,
@@ -914,7 +926,11 @@ async def build_runners_for_deployment(
     runtime factory builds runners from a graph it is handed, while this
     helper resolves the deployment and constructs the concrete repository.
     """
-    deployment = await SQLiteDeploymentRepository(database).get(deployment_ref)
+    deployment = await SQLiteDeploymentRepository(database).get(
+        deployment_ref,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if deployment is None:
         return None
     graph = hydrate_deployed_graph(deployment)

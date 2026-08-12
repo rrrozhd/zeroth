@@ -67,6 +67,8 @@ async def _bootstrap():
     database = await create_database(settings)
 
     deployment_ref = os.environ.get("ZEROTH_DEPLOYMENT_REF", "default")
+    tenant_id = os.environ.get("ZEROTH_TENANT_ID", "default")
+    workspace_id = os.environ.get("ZEROTH_WORKSPACE_ID")
 
     # WS-F: one process-wide secret provider, reused for LLM keys, HTTP-client
     # auth, the WS-D signing key, and execution-unit env resolution. Built here
@@ -91,6 +93,8 @@ async def _bootstrap():
         agent_runners = await build_runners_for_deployment(
             database,
             deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
             secret_provider=secret_provider,
             allow_env_fallback=settings.secrets.allow_env_fallback,
             llm_key_map=settings.secrets.llm_key_map,
@@ -106,6 +110,8 @@ async def _bootstrap():
     bootstrap = await bootstrap_service(
         database,
         deployment_ref=deployment_ref,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
         agent_runners=agent_runners,
         secret_provider=secret_provider,
     )
