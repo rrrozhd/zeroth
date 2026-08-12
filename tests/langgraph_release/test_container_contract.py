@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -9,10 +10,27 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
+IMAGE_EXPORT_COMMAND = (
+    "uv",
+    "export",
+    "--locked",
+    "--no-dev",
+    "--extra",
+    "memory-pg",
+    "--extra",
+    "langgraph",
+    "--extra",
+    "langgraph-gateway",
+    "--no-emit-project",
+    "--no-annotate",
+    "--no-header",
+)
+
 
 def test_container_and_compatibility_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    compose_config = yaml.safe_load(compose)
     workflow = (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
     workflow_config = yaml.safe_load(workflow)
     runtime = (ROOT / "release/langgraph/runtime_smoke.py").read_text(encoding="utf-8")
@@ -28,31 +46,40 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.adapter.version=1.0" in dockerfile
     assert "io.zeroth.langgraph.compatibility.langgraph=1.2.9" in dockerfile
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
-    assert 'ARG ZEROTH_EXTRAS="langgraph,langgraph-gateway"' in dockerfile
-    assert dockerfile.count("python:3.12.13-slim-bookworm") == 2
-    # Derived, not a literal: asserting the same string the Dockerfile contains
-    # cannot detect the two moving apart, which is how the label stayed at
-    # 0.17.0.4 across two package-version bumps with this test green.
-    assert f"org.opencontainers.image.version={compatibility['release']}" in dockerfile
-    assert "zeroth-core:${ZEROTH_IMAGE_TAG:-" + compatibility["release"] + "}" in compose
-    assert "memory-pg,langgraph,langgraph-gateway" in compose
+    assert "ARG ZEROTH_EXTRAS" not in dockerfile
+    assert dockerfile.count("python:3.12.13-slim-bookworm") == 1
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = project["project"]["version"]
+    benchmark = json.loads(
+        (ROOT / "release/langgraph/benchmark-evidence.json").read_text(encoding="utf-8")
+    )
+    benchmark_source = (ROOT / "release/langgraph/langgraph_benchmark.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert f"org.opencontainers.image.version={version}" in dockerfile
+    assert compose_config["services"]["zeroth"]["image"] == (
+        f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{version}}}"
+    )
+    assert compatibility["release"] == version
+    assert compatibility["resolved"]["zeroth_core"] == version
+    assert manifest["release"] == version
+    assert benchmark["release"] == version
+    assert f'CURRENT_RELEASE = "{version}"' in benchmark_source
+    assert "requirements-image.txt" in dockerfile
     build_step = next(
         step
         for step in workflow_config["jobs"]["container-evidence"]["steps"]
         if step.get("name") == "Build release image"
     )
-    assert build_step["run"] == (
-        "docker build --build-arg "
-        "ZEROTH_EXTRAS=memory-pg,langgraph,langgraph-gateway "
-        "-t zeroth-core:${{ github.ref_name }} ."
-    )
+    assert build_step["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
     assert "langgraph-fixture:" in compose
     assert 'ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"' in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE:" in compose
     assert "ZEROTH_LANGGRAPH_GATEWAY__DEPLOYMENT_REF:" in compose
     assert "stop_grace_period" in compose and "/health/ready" in compose
-    assert "actions/attest@v4" in workflow
+    assert "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4" in workflow
     assert "attestations: write" in workflow and "id-token: write" in workflow
     assert "artifact-metadata: write" in workflow
     assert "sbom-path" in workflow and "smoke" in workflow.lower()
@@ -184,3 +211,102 @@ def test_the_governed_upstream_is_a_real_agent_server_not_an_imitation() -> None
     # And the graph it serves is a real compiled StateGraph.
     graph_source = (root / "release/langgraph/shell_graph.py").read_text(encoding="utf-8")
     assert "StateGraph" in graph_source and ".compile()" in graph_source
+
+
+def test_image_dependencies_are_hash_locked(tmp_path: Path) -> None:
+    requirements = ROOT / "requirements-image.txt"
+    assert requirements.is_file(), "requirements-image.txt is not checked in"
+
+    exported = tmp_path / "requirements-image.txt"
+    result = subprocess.run(
+        [*IMAGE_EXPORT_COMMAND, "--output-file", str(exported)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert requirements.read_bytes() == exported.read_bytes()
+
+    locked = requirements.read_text(encoding="utf-8")
+    assert " --hash=sha256:" in locked
+    assert "-e " not in locked and "zeroth-core" not in locked
+
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY requirements-image.txt" in dockerfile
+    assert "pip install --no-cache-dir" in dockerfile
+    assert "--require-hashes" in dockerfile
+    assert "--only-binary=:all:" in dockerfile
+    assert "-r /tmp/requirements-image.txt" in dockerfile
+
+
+def test_compose_services_are_hardened() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    assert set(compose["services"]) == {"zeroth", "langgraph-fixture", "db"}
+    for name, service in compose["services"].items():
+        assert service.get("read_only") is True, f"{name} root filesystem is writable"
+        assert "ALL" in service.get("cap_drop", []), f"{name} retains Linux capabilities"
+        assert "no-new-privileges:true" in service.get("security_opt", []), (
+            f"{name} can gain privileges"
+        )
+        assert isinstance(service.get("pids_limit"), int) and service["pids_limit"] > 0, (
+            f"{name} has no positive PID limit"
+        )
+
+    db = compose["services"]["db"]
+    assert db.get("user") == "postgres"
+    assert "zeroth-pg:/var/lib/postgresql/data" in db["volumes"]
+    db_tmpfs = {str(path).split(":", 1)[0] for path in db.get("tmpfs", [])}
+    assert {"/tmp", "/var/run/postgresql"} <= db_tmpfs
+
+    zeroth = compose["services"]["zeroth"]
+    assert zeroth["environment"]["ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR"] == (
+        "/data/artifacts"
+    )
+    assert "zeroth-data:/data" in zeroth["volumes"]
+    assert "zeroth-data" in compose["volumes"]
+
+
+def test_container_docs_build_the_candidate_wheel_first() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs/how-to/deployment/langgraph-release.md").read_text(encoding="utf-8")
+
+    assert "uv build --wheel" in readme
+    assert readme.index("uv build --wheel") < readme.index("docker build -t zeroth-core .")
+    assert "uv build --wheel" in deployment
+    assert deployment.index("uv build --wheel") < deployment.index("docker compose build")
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+        "version"
+    ]
+    assert f"Zeroth `{version}`" in deployment
+    assert f"=={version}" in deployment
+
+
+def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY dist/zeroth_core-*.whl /opt/zeroth/wheel/" in dockerfile
+    assert "pip install --no-cache-dir --no-deps /opt/zeroth/wheel/zeroth_core-*.whl" in dockerfile
+    assert "python -m build" not in dockerfile and "ARG ZEROTH_EXTRAS" not in dockerfile
+
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/release-zeroth-core.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["container-evidence"]["steps"]
+    build_index = next(
+        i for i, step in enumerate(steps) if step.get("name") == "Build release image"
+    )
+    dist_downloads = [
+        (i, step) for i, step in enumerate(steps) if step.get("with", {}).get("name") == "dist"
+    ]
+    assert len(dist_downloads) == 1
+    assert dist_downloads[0][0] < build_index
+    assert dist_downloads[0][1]["with"]["path"] == "dist/"
+    assert steps[build_index]["run"] == "docker build -t zeroth-core:${{ github.ref_name }} ."
+
+    comparison = next(
+        step for step in steps if step.get("name") == "Compare image wheel with release candidate"
+    )
+    assert steps.index(comparison) > build_index
+    assert "docker cp" in comparison["run"]
+    assert "/opt/zeroth/wheel" in comparison["run"]
+    assert "cmp " in comparison["run"]

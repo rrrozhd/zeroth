@@ -116,9 +116,7 @@ def app(monkeypatch, console_dir: Path):
 
 
 def _client(app) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    )
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
 @pytest.mark.asyncio
@@ -127,6 +125,10 @@ async def test_console_index_served_without_auth(app) -> None:
         r = await c.get("/console/")  # no X-API-Key header
     assert r.status_code == 200
     assert "console-ok" in r.text
+    assert r.headers["content-security-policy"].startswith("default-src 'self'")
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["referrer-policy"] == "no-referrer"
 
 
 @pytest.mark.asyncio

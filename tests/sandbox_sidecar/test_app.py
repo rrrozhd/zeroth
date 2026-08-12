@@ -165,12 +165,29 @@ async def test_get_status_not_found(client: AsyncClient, mock_executor: AsyncMoc
 
 @pytest.mark.asyncio
 async def test_cancel_endpoint(client: AsyncClient, mock_executor: AsyncMock) -> None:
-    """POST /executions/{id}/cancel returns cancelled status."""
+    """POST /executions/{id}/cancel returns cancelled status when known."""
+    mock_executor.cancel.return_value = True
+
     resp = await client.post("/executions/test-789/cancel")
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelled"
     mock_executor.cancel.assert_awaited_once_with("test-789")
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_not_found(client: AsyncClient, mock_executor: AsyncMock) -> None:
+    """POST /executions/{id}/cancel 404s when the execution was never known.
+
+    Mirrors GET /executions/{id}'s not-found behavior (A07-11) instead of
+    unconditionally reporting success.
+    """
+    mock_executor.cancel.return_value = False
+
+    resp = await client.post("/executions/unknown-id/cancel")
+
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

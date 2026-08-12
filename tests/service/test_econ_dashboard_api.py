@@ -42,7 +42,11 @@ async def test_econ_dashboard_registered_503_without_regulus(sqlite_db) -> None:
     with TestClient(app) as client:
         r = client.get("/v1/econ/dashboard/kpis", headers=admin_headers())
     assert r.status_code == 503
-    assert "Regulus" in r.json()["detail"]
+    # A02-10: the detail names the backend and a closed-vocabulary category,
+    # never the caught exception's own text (which carries the dialled URL).
+    detail = r.json()["detail"]
+    assert detail.startswith("regulus backend: ")
+    assert "http" not in detail
 
 
 async def test_econ_dashboard_compat_alias_registered(sqlite_db) -> None:
