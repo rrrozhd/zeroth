@@ -213,7 +213,6 @@ class LangGraphEnforcementService:
             approval_ref=(decision_id if verdict is ToolDecisionKind.REQUIRE_APPROVAL else None),
         )
         stored = await self.repository.save_decision(
-            request.tenant_id,
             request.idempotency_key,
             request.deployment_ref,
             action_hash,
@@ -228,7 +227,6 @@ class LangGraphEnforcementService:
         self, request: DecisionRequestV1, claims: ReservedContextClaims
     ) -> tuple[ToolDecisionKind, str, str]:
         inventory = await self.repository.get_inventory(
-            request.tenant_id,
             request.deployment_ref,
             self.expected_graph_version,
             self.expected_adapter_version,
@@ -308,7 +306,6 @@ class LangGraphEnforcementService:
             raise EnforcementBoundaryError("zeroth.invalid_context", status_code=401)
         run_id = claims.run_id
         inventory = await self.repository.get_inventory(
-            request.tenant_id,
             request.deployment_ref,
             request.graph_version,
             request.adapter_version,

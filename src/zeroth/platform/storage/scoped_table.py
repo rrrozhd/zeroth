@@ -104,17 +104,14 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "run_checkpoints",
         "runs",
         "threads",
+        "token_engine_snapshots",
     }
 )
 SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES = frozenset(
     {
         "quota_counters",
         "rate_limit_buckets",
-        "retention_cleanup_operations",
         "side_effect_operations",
-        "token_engine_snapshots",
-        "webhook_dead_letters",
-        "webhook_deliveries",
     }
 )
 """Tenant resources awaiting their direct ownership migrations in Tasks 7-9."""
@@ -491,6 +488,7 @@ class BoundStructuredTable:
         where_null: tuple[str, ...] = (),
         where_not_null: tuple[str, ...] = (),
         where_lt: dict[str, Any] | None = None,
+        where_in: dict[str, tuple[Any, ...]] | None = None,
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
     ) -> tuple[list[str], list[Any]]:
         predicates, params = self.__table._where(where, definition=definition)
@@ -501,6 +499,13 @@ class BoundStructuredTable:
         for column, value in (where_lt or {}).items():
             predicates.append(f"{_identifier(column)} < ?")
             params.append(value)
+        for column, values in (where_in or {}).items():
+            identifier = _identifier(column)
+            if not values:
+                predicates.append("1 = 0")
+                continue
+            predicates.append(f"{identifier} IN ({', '.join('?' for _ in values)})")
+            params.extend(values)
         for column, values in (where_not_in or {}).items():
             identifier = _identifier(column)
             if not values:
@@ -517,8 +522,12 @@ class BoundStructuredTable:
         where_null: tuple[str, ...] = (),
         where_not_null: tuple[str, ...] = (),
         where_lt: dict[str, Any] | None = None,
+        where_in: dict[str, tuple[Any, ...]] | None = None,
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
         order_by: tuple[str, ...] = (),
+        order_by_desc: tuple[str, ...] = (),
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Select rows using structured predicates inside this transaction."""
         definition = self._definition(ResourceOperation.ENUMERATE)
@@ -529,6 +538,7 @@ class BoundStructuredTable:
             where_null=where_null,
             where_not_null=where_not_null,
             where_lt=where_lt,
+            where_in=where_in,
             where_not_in=where_not_in,
         )
         sql = f"SELECT {_columns(columns)} FROM {table_name}"
@@ -536,6 +546,17 @@ class BoundStructuredTable:
             sql += " WHERE " + " AND ".join(predicates)
         if order_by:
             sql += " ORDER BY " + ", ".join(_identifier(column) for column in order_by)
+        elif order_by_desc:
+            sql += " ORDER BY " + ", ".join(
+                f"{_identifier(column)} DESC" for column in order_by_desc
+            )
+        if limit is not None:
+            if type(limit) is not int or limit < 0:
+                raise ValueError("limit must be a non-negative int")
+            if type(offset) is not int or offset < 0:
+                raise ValueError("offset must be a non-negative int")
+            sql += " LIMIT ? OFFSET ?"
+            params.extend((limit, offset))
         return await self.__connection.fetch_all(sql, tuple(params))
 
     async def select_one(
@@ -594,6 +615,50 @@ class BoundStructuredTable:
         row = await self.__connection.fetch_one(sql, tuple(rendered.values()))
         return row is not None
 
+    async def upsert(
+        self,
+        values: dict[str, Any],
+        *,
+        conflict_columns: tuple[str, ...],
+        update_columns: tuple[str, ...],
+        returning: str,
+        update_where: dict[str, Any] | None = None,
+    ) -> bool:
+        """Insert or update a scoped row, preserving an optional atomic fence."""
+        definition = self._definition(ResourceOperation.CREATE)
+        self._definition(ResourceOperation.UPDATE)
+        table_name = _definition_table_name(definition)
+        rendered = self.__table._validate_values(values, create=True, definition=definition)
+        columns = tuple(rendered)
+        conflicts = tuple(_identifier(column) for column in conflict_columns)
+        updates = tuple(_identifier(column) for column in update_columns)
+        if not conflicts or any(column not in rendered for column in conflicts):
+            raise ValueError("conflict_columns must be non-empty inserted columns")
+        if not updates or any(column not in rendered for column in updates):
+            raise ValueError("update_columns must be non-empty inserted columns")
+        if _OWNERSHIP_COLUMNS.intersection(updates):
+            raise ValueError("ownership columns cannot be updated")
+        sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
+            f"({', '.join('?' for _ in columns)}) "
+            f"ON CONFLICT ({', '.join(conflicts)}) DO UPDATE SET "
+            + ", ".join(f"{column} = excluded.{column}" for column in updates)
+        )
+        params = list(rendered.values())
+        if update_where:
+            clauses: list[str] = []
+            for column, value in update_where.items():
+                identifier = _identifier(column)
+                if value is None:
+                    clauses.append(f"{table_name}.{identifier} IS NULL")
+                else:
+                    clauses.append(f"{table_name}.{identifier} = ?")
+                    params.append(value)
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += f" RETURNING {_identifier(returning)}"
+        row = await self.__connection.fetch_one(sql, tuple(params))
+        return row is not None
+
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update scoped rows inside this transaction."""
         definition = self._definition(ResourceOperation.UPDATE)
@@ -606,6 +671,64 @@ class BoundStructuredTable:
         await self.__connection.execute(
             f"UPDATE {table_name} SET {assignments} WHERE " + " AND ".join(predicates),
             (*rendered.values(), *where_params),
+        )
+
+    async def update_if_matches(
+        self,
+        values: dict[str, Any],
+        *,
+        where: dict[str, Any],
+        returning: str,
+    ) -> bool:
+        """Atomically update a scoped row and report whether predicates matched."""
+        definition = self._definition(ResourceOperation.UPDATE)
+        table_name = _definition_table_name(definition)
+        if not where:
+            raise ValueError("update requires a non-empty where predicate")
+        rendered = self.__table._validate_values(values, create=False, definition=definition)
+        predicates, where_params = self._where(definition, where)
+        assignments = ", ".join(f"{column} = ?" for column in rendered)
+        row = await self.__connection.fetch_one(
+            f"UPDATE {table_name} SET {assignments} WHERE "
+            + " AND ".join(predicates)
+            + f" RETURNING {_identifier(returning)}",
+            (*rendered.values(), *where_params),
+        )
+        return row is not None
+
+    async def increment_and_get(
+        self,
+        column: str,
+        *,
+        where: dict[str, Any],
+    ) -> int | None:
+        """Atomically increment an integer column on a scoped row."""
+        definition = self._definition(ResourceOperation.UPDATE)
+        table_name = _definition_table_name(definition)
+        if not where:
+            raise ValueError("increment requires a non-empty where predicate")
+        identifier = _identifier(column)
+        if identifier in _OWNERSHIP_COLUMNS:
+            raise ValueError("ownership columns cannot be updated")
+        predicates, params = self._where(definition, where)
+        row = await self.__connection.fetch_one(
+            f"UPDATE {table_name} SET {identifier} = {identifier} + 1 WHERE "
+            + " AND ".join(predicates)
+            + f" RETURNING {identifier}",
+            tuple(params),
+        )
+        return None if row is None else int(row[identifier])
+
+    async def delete(self, *, where: dict[str, Any]) -> None:
+        """Delete scoped rows inside this transaction."""
+        definition = self._definition(ResourceOperation.DELETE)
+        table_name = _definition_table_name(definition)
+        if not where:
+            raise ValueError("delete requires a non-empty where predicate")
+        predicates, params = self._where(definition, where)
+        await self.__connection.execute(
+            f"DELETE FROM {table_name} WHERE " + " AND ".join(predicates),
+            tuple(params),
         )
 
 

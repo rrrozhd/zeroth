@@ -157,7 +157,9 @@ def register_retention_routes(app: FastAPI | APIRouter) -> None:
         """Return the caller tenant's resolved retention policy (admin-tier)."""
         principal = await require_permission(request, Permission.RETENTION_ADMIN)
         bootstrap = _bootstrap(request)
-        policy = await bootstrap.retention_policy_repository.resolve(principal.tenant_id)
+        if principal.tenant_id != bootstrap.retention_policy_repository.tenant_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="policy not found")
+        policy = await bootstrap.retention_policy_repository.resolve()
         return _policy_response(policy)
 
     @app.put("/retention/policy", response_model=RetentionPolicyResponse)

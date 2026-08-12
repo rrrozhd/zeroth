@@ -75,7 +75,9 @@ def _make_orchestrator_for_unit(
 ) -> RuntimeOrchestrator:
     """Minimal orchestrator for calling _resolve_template_memory directly."""
     eu_runner = ExecutableUnitRunner(ExecutableUnitRegistry())
-    run_repo = RunRepository(sqlite_db) if sqlite_db is not None else MagicMock()
+    run_repo = (
+        RunRepository.for_default_compatibility(sqlite_db) if sqlite_db is not None else MagicMock()
+    )
     return RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={},
@@ -457,7 +459,7 @@ async def test_memory_flows_into_rendered_instruction(sqlite_db) -> None:
     )
 
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"coder": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
@@ -519,7 +521,7 @@ async def test_tmb_audit_record_present_in_dispatch_audit(sqlite_db) -> None:
     )
 
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),

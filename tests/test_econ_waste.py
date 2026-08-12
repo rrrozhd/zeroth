@@ -297,7 +297,7 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
         edges=[],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"n1": _failing_runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
@@ -369,7 +369,7 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
         ],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
@@ -492,7 +492,7 @@ async def test_cache_hit_reaches_audit_and_is_detected(sqlite_db) -> None:
     # instrumented path -- where a hit must NOT inflate cost or double-bill Regulus --
     # is covered by test_instrumented_cache_hit_costs_zero_through_orchestrator below.
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
@@ -560,7 +560,7 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     )
     regulus = MagicMock()
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
@@ -635,7 +635,7 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
         edges=[],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"n1": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),

@@ -76,7 +76,7 @@ async def test_node_audit_records_a_real_duration(sqlite_db) -> None:
     )
     orchestrator = RuntimeOrchestrator(
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )

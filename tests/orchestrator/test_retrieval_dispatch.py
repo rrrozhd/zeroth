@@ -152,7 +152,9 @@ async def test_retrieval_unknown_connector_raises() -> None:
 @pytest.mark.asyncio
 async def test_retrieval_node_runs_end_to_end_through_orchestrator(sqlite_db) -> None:
     connector = _RecordingConnector(_entries())
-    orch = _orchestrator(_resolver(connector), run_repository=RunRepository(sqlite_db))
+    orch = _orchestrator(
+        _resolver(connector), run_repository=RunRepository.for_default_compatibility(sqlite_db)
+    )
     graph = Graph(
         graph_id="g-rag",
         name="rag",
@@ -176,7 +178,7 @@ async def test_retrieval_audit_record_is_persisted_with_sources(sqlite_db) -> No
     connector = _RecordingConnector(_entries())
     orch = _orchestrator(
         _resolver(connector),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
     )
     graph = Graph(

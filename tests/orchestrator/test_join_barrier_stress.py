@@ -100,7 +100,7 @@ def _runner(handler) -> AgentRunner:
 
 def _orch(runners, sqlite_db) -> RuntimeOrchestrator:
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )

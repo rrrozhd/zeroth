@@ -203,7 +203,9 @@ def _two_agent_graph() -> Graph:
 
 def _orchestrator(sqlite_db, journal: _Journal, **overrides: Any) -> RuntimeOrchestrator:
     kwargs: dict[str, Any] = {
-        "run_repository": _RecordingRunRepository(RunRepository(sqlite_db), journal),
+        "run_repository": _RecordingRunRepository(
+            RunRepository.for_default_compatibility(sqlite_db), journal
+        ),
         "audit_repository": _RecordingAuditRepository(
             AuditRepository.for_default_compatibility(sqlite_db), journal
         ),
@@ -466,7 +468,7 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
     journal = _Journal()
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     graph = Graph(

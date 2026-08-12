@@ -130,7 +130,7 @@ async def _seed_running(repo: RunRepository, node_ids: list[str]) -> Run:
 
 def _orchestrator(sqlite_db, runners: dict[str, Any]) -> RuntimeOrchestrator:
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=None,
@@ -140,7 +140,7 @@ def _orchestrator(sqlite_db, runners: dict[str, Any]) -> RuntimeOrchestrator:
 
 @pytest.mark.asyncio
 async def test_operator_cancel_mid_dispatch_stops_before_next_node(sqlite_db) -> None:
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     persisted = await _seed_running(repo, ["n1", "n2"])
     n1 = _CancelDuringDispatchRunner(repo, persisted.run_id, transition_to=RunStatus.FAILED)
     n2 = _PlainRunner()
@@ -155,7 +155,7 @@ async def test_operator_cancel_mid_dispatch_stops_before_next_node(sqlite_db) ->
 
 @pytest.mark.asyncio
 async def test_operator_interrupt_mid_dispatch_stops_before_next_node(sqlite_db) -> None:
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     persisted = await _seed_running(repo, ["n1", "n2"])
     n1 = _CancelDuringDispatchRunner(
         repo, persisted.run_id, transition_to=RunStatus.WAITING_INTERRUPT
@@ -173,7 +173,7 @@ async def test_operator_interrupt_mid_dispatch_stops_before_next_node(sqlite_db)
 @pytest.mark.asyncio
 async def test_precancelled_run_never_dispatches(sqlite_db) -> None:
     """A run already cancelled before the loop starts dispatches nothing."""
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     persisted = await _seed_running(repo, ["n1", "n2"])
     await repo.transition(
         persisted.run_id,
@@ -196,7 +196,7 @@ async def test_cancel_then_replay_resumes_remaining_nodes(sqlite_db) -> None:
     FAILED->PENDING replay resumes from where it stopped instead of being marked
     COMPLETED with the remaining nodes silently skipped.
     """
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     # Seed only the entry node; successors are queued dynamically per hop (as real
     # runs do), so the checkpoint after the cancelled hop must include n2.
     persisted = await _seed_running(repo, ["n1"])
@@ -237,7 +237,7 @@ async def test_external_stop_yields_to_concurrent_operator_transition(sqlite_db)
     """
     from unittest.mock import AsyncMock
 
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     persisted = await _seed_running(repo, ["n1", "n2"])
     await repo.transition(
         persisted.run_id,
@@ -271,7 +271,7 @@ async def test_external_stop_persists_when_no_concurrent_transition(sqlite_db) -
     """
     from unittest.mock import AsyncMock
 
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     persisted = await _seed_running(repo, ["n1", "n2"])
     await repo.transition(
         persisted.run_id,

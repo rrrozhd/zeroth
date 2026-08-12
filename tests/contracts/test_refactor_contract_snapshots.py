@@ -202,8 +202,8 @@ def test_alembic_order_and_actual_sqlite_schema_match_snapshot(tmp_path: Path) -
 
 
 async def test_persisted_run_thread_and_checkpoint_models_round_trip(sqlite_db) -> None:
-    run_repository = RunRepository(sqlite_db)
-    thread_repository = ThreadRepository(sqlite_db)
+    run_repository = RunRepository.for_default_compatibility(sqlite_db)
+    thread_repository = ThreadRepository.for_default_compatibility(sqlite_db)
     run = Run(
         run_id="run-contract",
         thread_id="thread-contract",
@@ -265,7 +265,7 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
         started_at=_FIXED_TIME,
         updated_at=_FIXED_TIME,
     )
-    await RunRepository(sqlite_db).create(run)
+    await RunRepository.for_default_compatibility(sqlite_db).create(run)
 
     audit = NodeAuditRecord(
         tenant_id="default",
@@ -345,7 +345,7 @@ async def test_persisted_cleanup_manifest_round_trip(sqlite_db) -> None:
         ),
         operations=[artifact_operation, econ_operation],
     )
-    log_repository = RetentionAuditLogRepository(sqlite_db)
+    log_repository = RetentionAuditLogRepository.for_default_compatibility(sqlite_db)
     authorization_log_id = await log_repository.record(
         tenant_id=tenant_id,
         run_id=run_id,

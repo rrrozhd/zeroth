@@ -12,26 +12,40 @@ from uuid import uuid4
 
 from zeroth.governance.retention.coordination import RetentionCoordinator, RetentionTransaction
 from zeroth.governance.retention.models import LegalHold, TenantHolds
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopedTable,
+)
 
 
 class LegalHoldRepository:
     """Place, release, and query legal holds over ``legal_holds``."""
 
-    def __init__(self, database: AsyncDatabase) -> None:
+    def __init__(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
+        if type(scope_context) is not NullWorkspaceScopeContext:
+            raise TypeError("scope_context must be a trusted tenant scope")
         self._database = database
-        self._coordinator = RetentionCoordinator(database)
+        self._scope_context = scope_context
+        self._holds = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.legal_holds", scope_context
+        )
+        self._coordinator = RetentionCoordinator(database, scope_context)
+
+    @classmethod
+    def for_default_compatibility(cls, database: AsyncDatabase) -> LegalHoldRepository:
+        return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
 
     async def place(
         self,
-        tenant_id: str,
         *,
         run_id: str | None = None,
         reason: str | None = None,
         placed_by: str | None = None,
     ) -> LegalHold:
         """Place a hold (run-scoped when ``run_id`` given, else tenant-wide)."""
-        async with self._coordinator.transaction(tenant_id) as transaction:
+        async with self._coordinator.transaction() as transaction:
             return await self.place_in_transaction(
                 transaction,
                 run_id=run_id,
@@ -57,34 +71,25 @@ class LegalHoldRepository:
             placed_by=placed_by,
             created_at=datetime.now(UTC),
         )
-        await transaction.connection.execute(
-            """
-            INSERT INTO legal_holds
-                (hold_id, tenant_id, run_id, reason, active, placed_by,
-                 created_at, released_at)
-            VALUES (?, ?, ?, ?, 1, ?, ?, NULL)
-            """,
-            (
-                hold.hold_id,
-                hold.tenant_id,
-                hold.run_id,
-                hold.reason,
-                hold.placed_by,
-                hold.created_at.isoformat(),
-            ),
+        await self._holds.in_transaction(transaction.connection).insert(
+            {
+                "hold_id": hold.hold_id,
+                "run_id": hold.run_id,
+                "reason": hold.reason,
+                "active": 1,
+                "placed_by": hold.placed_by,
+                "created_at": hold.created_at.isoformat(),
+                "released_at": None,
+            }
         )
         return hold
 
     async def release(self, hold_id: str) -> bool:
         """Release (deactivate) a hold. Idempotent; returns True if it existed."""
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(
-                "SELECT tenant_id FROM legal_holds WHERE hold_id = ?",
-                (hold_id,),
-            )
+        existing = await self._holds.select_one(where={"hold_id": hold_id}, columns=("hold_id",))
         if existing is None:
             return False
-        async with self._coordinator.transaction(str(existing["tenant_id"])) as transaction:
+        async with self._coordinator.transaction() as transaction:
             return await self.release_in_transaction(transaction, hold_id)
 
     async def release_in_transaction(
@@ -93,44 +98,31 @@ class LegalHoldRepository:
         hold_id: str,
     ) -> bool:
         """Release a hold using an existing tenant coordination transaction."""
-        existing = await transaction.connection.fetch_one(
-            "SELECT 1 FROM legal_holds WHERE hold_id = ? AND tenant_id = ?",
-            (hold_id, transaction.tenant_id),
-        )
+        holds = self._holds.in_transaction(transaction.connection)
+        existing = await holds.select_one(where={"hold_id": hold_id}, columns=("hold_id",))
         if existing is None:
             return False
-        await transaction.connection.execute(
-            """
-            UPDATE legal_holds SET active = 0, released_at = ?
-            WHERE hold_id = ? AND tenant_id = ?
-            """,
-            (datetime.now(UTC).isoformat(), hold_id, transaction.tenant_id),
+        await holds.update(
+            {"active": 0, "released_at": datetime.now(UTC).isoformat()},
+            where={"hold_id": hold_id},
         )
         return True
 
     async def get(self, hold_id: str) -> LegalHold | None:
         """Load a single hold by id."""
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT * FROM legal_holds WHERE hold_id = ?",
-                (hold_id,),
-            )
+        row = await self._holds.select_one(where={"hold_id": hold_id})
         return None if row is None else self._row_to_hold(row)
 
-    async def list_for_tenant(self, tenant_id: str, *, active_only: bool = True) -> list[LegalHold]:
+    async def list_for_tenant(self, *, active_only: bool = True) -> list[LegalHold]:
         """List holds for a tenant, active-only by default."""
-        sql = "SELECT * FROM legal_holds WHERE tenant_id = ?"
-        params: tuple[object, ...] = (tenant_id,)
-        if active_only:
-            sql += " AND active = 1"
-        sql += " ORDER BY created_at, hold_id"
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+        where = {"active": 1} if active_only else None
+        async with self._holds.transaction() as holds:
+            rows = await holds.select(where=where, order_by=("created_at", "hold_id"))
         return [self._row_to_hold(row) for row in rows]
 
-    async def active_holds_for_tenant(self, tenant_id: str) -> TenantHolds:
+    async def active_holds_for_tenant(self) -> TenantHolds:
         """Resolve active holds into a tenant-wide flag + held run_id set."""
-        async with self._coordinator.transaction(tenant_id) as transaction:
+        async with self._coordinator.transaction() as transaction:
             return await self.active_holds_for_tenant_in_transaction(transaction)
 
     async def active_holds_for_tenant_in_transaction(
@@ -138,13 +130,8 @@ class LegalHoldRepository:
         transaction: RetentionTransaction,
     ) -> TenantHolds:
         """Resolve active holds using an existing tenant coordination transaction."""
-        rows = await transaction.connection.fetch_all(
-            """
-            SELECT * FROM legal_holds
-            WHERE tenant_id = ? AND active = 1
-            ORDER BY created_at, hold_id
-            """,
-            (transaction.tenant_id,),
+        rows = await self._holds.in_transaction(transaction.connection).select(
+            where={"active": 1}, order_by=("created_at", "hold_id")
         )
         holds = [self._row_to_hold(row) for row in rows]
         tenant_wide = any(hold.run_id is None for hold in holds)

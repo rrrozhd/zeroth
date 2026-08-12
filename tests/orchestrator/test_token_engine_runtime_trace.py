@@ -215,7 +215,7 @@ class CorruptingTracingOrchestrator(TracingOrchestrator):
 
 def _orchestrator(runners: dict[str, AgentRunner], sqlite_db) -> TracingOrchestrator:
     return TracingOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -283,7 +283,7 @@ async def test_real_runtime_trace_detects_corrupted_join_payload(sqlite_db) -> N
         ],
     )
     orch = CorruptingTracingOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             "A": _runner(_emit(value=1)),
             "L": _runner(_emit(left=10), LeftOutput),

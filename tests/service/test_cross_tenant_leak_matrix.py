@@ -394,7 +394,7 @@ async def test_connector_delete_foreign_matches_unknown(sqlite_db) -> None:
 
 @pytest.mark.asyncio
 async def test_run_repository_optional_tenant_filter(sqlite_db) -> None:
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     await repo.create(
         Run(
             run_id="run-a",

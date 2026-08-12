@@ -17,7 +17,7 @@ from zeroth.service.webhooks.service import WebhookService
 
 @pytest.fixture
 async def webhook_repo(sqlite_db):
-    return WebhookRepository(sqlite_db)
+    return WebhookRepository.for_default_compatibility(sqlite_db)
 
 
 @pytest.fixture

@@ -71,7 +71,7 @@ class RecordingOrchestrator(RuntimeOrchestrator):
 
 def _orchestrator(sqlite_db, handlers: dict[str, Any]) -> RecordingOrchestrator:
     return RecordingOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner(handler) for node_id, handler in handlers.items()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -159,7 +159,7 @@ async def test_failed_dispatch_replays_identical_payload_and_token_once(
     assert failed.pending_node_ids == []
     assert "target" not in failed.metadata["node_payloads"]
 
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     await repo.transition(failed.run_id, RunStatus.PENDING)
     await repo.transition(failed.run_id, RunStatus.RUNNING)
     resumed = await orchestrator.resume_graph(graph, failed.run_id)
@@ -227,7 +227,7 @@ async def test_failed_fan_out_does_not_create_ordinary_in_flight_record(sqlite_d
         edges=[],
     )
     orchestrator = FailingFanOutOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"source": _runner(lambda _req: ProviderResponse(content={"value": 7}))},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )

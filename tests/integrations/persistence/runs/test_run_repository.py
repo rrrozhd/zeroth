@@ -16,6 +16,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    NullWorkspaceScopeContext,
+    ScopedTable,
+)
 from zeroth.integrations.persistence.runs import retention_queries
 from zeroth.integrations.persistence.runs.run_repository import (
     ALLOWED_TRANSITIONS,
@@ -58,11 +63,15 @@ def _make_run(
     )
 
 
+def _repository(database, tenant_id: str = "tenant-1") -> RunRepository:
+    return RunRepository(database, NullWorkspaceScopeContext(tenant_id=tenant_id))
+
+
 async def test_create_persists_a_run_and_reads_it_back(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A created run round-trips through the database."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
 
     created = await repository.create(_make_run())
 
@@ -76,7 +85,7 @@ async def test_repository_exposes_its_database_for_coordinated_transactions(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Services join the repository's transaction, so the database must be reachable."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
 
     assert repository.database is sqlite_db
 
@@ -85,38 +94,42 @@ async def test_get_hides_a_run_owned_by_another_tenant(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A tenant-scoped read must not see another tenant's run."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db, "tenant-1")
+    foreign = _repository(sqlite_db, "tenant-2")
     await repository.create(_make_run(tenant_id="tenant-1"))
 
-    assert await repository.get("run-1", tenant_id="tenant-1") is not None
-    assert await repository.get("run-1", tenant_id="tenant-2") is None
+    assert await repository.get("run-1") is not None
+    assert await foreign.get("run-1") is None
     assert await repository.get("run-1") is not None
 
 
-async def test_create_rejects_foreign_tenant_same_id_without_overwriting_owner(
+async def test_create_preserves_both_owners_when_tenants_share_a_run_id(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db, "tenant-a")
+    foreign_repository = _repository(sqlite_db, "tenant-b")
     owner = _make_run("guessed-run", tenant_id="tenant-a")
     owner.metadata = {"owner": "tenant-a"}
     await repository.create(owner)
     foreign = _make_run("guessed-run", tenant_id="tenant-b")
     foreign.metadata = {"owner": "tenant-b"}
 
-    with pytest.raises(KeyError, match="run already exists"):
-        await repository.create(foreign)
+    await foreign_repository.create(foreign)
 
     persisted = await repository.get("guessed-run")
     assert persisted is not None
     assert persisted.tenant_id == "tenant-a"
     assert persisted.metadata == {"owner": "tenant-a"}
+    foreign_persisted = await foreign_repository.get("guessed-run")
+    assert foreign_persisted is not None
+    assert foreign_persisted.metadata == {"owner": "tenant-b"}
 
 
-async def test_racing_tenants_get_exactly_one_same_run_id_winner(
+async def test_racing_tenants_can_create_the_same_run_id(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    first = RunRepository(sqlite_db)
-    second = RunRepository(sqlite_db)
+    first = _repository(sqlite_db, "tenant-a")
+    second = _repository(sqlite_db, "tenant-b")
     contenders = [
         _make_run("raced-run", thread_id="thread-a", tenant_id="tenant-a"),
         _make_run("raced-run", thread_id="thread-b", tenant_id="tenant-b"),
@@ -128,17 +141,15 @@ async def test_racing_tenants_get_exactly_one_same_run_id_winner(
         return_exceptions=True,
     )
 
-    assert sum(isinstance(result, Run) for result in results) == 1
-    assert sum(isinstance(result, KeyError) for result in results) == 1
-    persisted = await first.get("raced-run")
-    assert persisted is not None
-    assert persisted.tenant_id in {"tenant-a", "tenant-b"}
+    assert all(isinstance(result, Run) for result in results)
+    assert (await first.get("raced-run")).tenant_id == "tenant-a"
+    assert (await second.get("raced-run")).tenant_id == "tenant-b"
 
 
 async def test_replayed_same_run_id_is_refused_without_mutating_owner(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db, "tenant-a")
     original = _make_run("replayed-run", tenant_id="tenant-a")
     original.metadata = {"request": "first"}
     await repository.create(original)
@@ -148,7 +159,7 @@ async def test_replayed_same_run_id_is_refused_without_mutating_owner(
     with pytest.raises(KeyError, match="run already exists"):
         await repository.create(replay)
 
-    persisted = await repository.get("replayed-run", tenant_id="tenant-a")
+    persisted = await repository.get("replayed-run")
     assert persisted is not None
     assert persisted.metadata == {"request": "first"}
 
@@ -157,7 +168,7 @@ async def test_transition_records_the_new_status(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A permitted transition persists the new status."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
 
     transitioned = await repository.transition("run-1", RunStatus.RUNNING)
@@ -169,7 +180,7 @@ async def test_transition_rejects_a_move_out_of_a_terminal_status(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """COMPLETED is terminal: nothing may move a finished run back into flight."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
     await repository.transition("run-1", RunStatus.RUNNING)
     await repository.transition("run-1", RunStatus.COMPLETED)
@@ -182,7 +193,7 @@ async def test_transition_raises_for_an_unknown_run(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Transitioning a run that does not exist is a KeyError, not a silent no-op."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
 
     with pytest.raises(KeyError):
         await repository.transition("missing", RunStatus.RUNNING)
@@ -198,7 +209,7 @@ async def test_record_history_appends_and_recomputes_completed_steps(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Completed steps are derived from history, not tracked independently."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
 
     updated = await repository.record_history(
@@ -213,7 +224,7 @@ async def test_count_pending_and_increment_failure_count(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Backpressure and retry accounting read through the same adapter."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
 
     assert await repository.count_pending("deployment-1") == 1
@@ -225,7 +236,7 @@ async def test_list_dead_letter_runs_selects_only_the_dead_letter_reason(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A failed run is only dead-lettered when its failure carries the sentinel."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run("run-dead", thread_id="thread-dead"))
     await repository.create(_make_run("run-plain", thread_id="thread-plain"))
     await repository.transition(
@@ -248,7 +259,7 @@ async def test_erase_checkpoints_for_run_is_idempotent(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Right-to-erasure reruns must not fail or double-count."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
 
     first = await repository.erase_checkpoints_for_run("run-1")
@@ -262,7 +273,7 @@ async def test_redact_run_nulls_payloads_but_keeps_the_row(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Redaction preserves chain continuity while removing the plaintext payloads."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     run = _make_run()
     run.metadata = {"secret": "value"}
     await repository.create(run)
@@ -279,7 +290,7 @@ async def test_redact_run_reports_a_missing_run(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Redacting a run that is already gone reports False rather than raising."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
 
     assert await repository.redact_run("missing") is False
 
@@ -288,7 +299,7 @@ async def test_erasure_payloads_expose_database_resident_values(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """The erasure verifier needs every payload that erasure is about to destroy."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     run = _make_run()
     run.metadata = {"secret": "value"}
     await repository.create(run)
@@ -303,7 +314,7 @@ async def test_tenant_id_for_run_resolves_inside_a_caller_transaction(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Retention resolves ownership without opening a second transaction."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db, "tenant-9")
     await repository.create(_make_run(tenant_id="tenant-9"))
 
     async with repository.database.transaction() as connection:
@@ -318,7 +329,7 @@ async def test_list_erasable_run_ids_selects_only_stale_terminal_runs(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Live work is never TTL-erasable regardless of age."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run("run-done", thread_id="thread-done"))
     await repository.create(_make_run("run-live", thread_id="thread-live"))
     await repository.transition("run-done", RunStatus.RUNNING)
@@ -326,7 +337,7 @@ async def test_list_erasable_run_ids_selects_only_stale_terminal_runs(
     await repository.transition("run-live", RunStatus.RUNNING)
 
     future = datetime.now(UTC) + timedelta(days=1)
-    erasable = await repository.list_erasable_run_ids("tenant-1", future)
+    erasable = await repository.list_erasable_run_ids(future)
 
     assert erasable == ["run-done"]
 
@@ -335,42 +346,34 @@ async def test_list_erasable_run_ids_ignores_runs_newer_than_the_cutoff(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A run updated after the cutoff is outside the TTL window."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
     await repository.transition("run-1", RunStatus.RUNNING)
     await repository.transition("run-1", RunStatus.COMPLETED)
 
     past = datetime.now(UTC) - timedelta(days=1)
 
-    assert await repository.list_erasable_run_ids("tenant-1", past) == []
+    assert await repository.list_erasable_run_ids(past) == []
 
 
 async def test_lock_and_recheck_rejects_a_run_that_became_ineligible(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Selection is an unlocked snapshot, so the destructive path re-verifies."""
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
     await repository.transition("run-1", RunStatus.RUNNING)
     await repository.transition("run-1", RunStatus.COMPLETED)
     future = datetime.now(UTC) + timedelta(days=1)
 
     async with repository.database.transaction() as connection:
-        eligible = await repository.lock_and_recheck_erasable_run(
-            connection, "run-1", "tenant-1", future
-        )
-        wrong_tenant = await repository.lock_and_recheck_erasable_run(
-            connection, "run-1", "tenant-other", future
-        )
+        eligible = await repository.lock_and_recheck_erasable_run(connection, "run-1", future)
         too_fresh = await repository.lock_and_recheck_erasable_run(
-            connection, "run-1", "tenant-1", datetime.now(UTC) - timedelta(days=1)
+            connection, "run-1", datetime.now(UTC) - timedelta(days=1)
         )
-        missing = await repository.lock_and_recheck_erasable_run(
-            connection, "absent", "tenant-1", future
-        )
+        missing = await repository.lock_and_recheck_erasable_run(connection, "absent", future)
 
     assert eligible == "run-1"
-    assert wrong_tenant is None
     assert too_fresh is None
     assert missing is None
 
@@ -383,11 +386,16 @@ async def test_retention_queries_run_against_a_supplied_connection(
     This is what lets retention erase runs, checkpoints, and its own audit log
     inside a single atomic transaction.
     """
-    repository = RunRepository(sqlite_db)
+    repository = _repository(sqlite_db)
     await repository.create(_make_run())
+    context = NullWorkspaceScopeContext(tenant_id="tenant-1")
+    runs = ScopedTable(sqlite_db, SERVICE_SCOPE_REGISTRY, "service.runs", context)
+    checkpoints = ScopedTable(sqlite_db, SERVICE_SCOPE_REGISTRY, "service.run_checkpoints", context)
 
     async with sqlite_db.transaction() as connection:
-        assert await retention_queries.tenant_id_for_run(connection, "run-1") == "tenant-1"
-        assert await retention_queries.redact_run(connection, "run-1") is True
-        assert await retention_queries.erase_checkpoints_for_run(connection, "run-1") >= 1
-        assert await retention_queries.erase_checkpoints_for_run(connection, "run-1") == 0
+        bound_runs = runs.in_transaction(connection)
+        bound_checkpoints = checkpoints.in_transaction(connection)
+        assert await retention_queries.tenant_id_for_run(bound_runs, "run-1") == "tenant-1"
+        assert await retention_queries.redact_run(bound_runs, "run-1") is True
+        assert await retention_queries.erase_checkpoints_for_run(bound_checkpoints, "run-1") >= 1
+        assert await retention_queries.erase_checkpoints_for_run(bound_checkpoints, "run-1") == 0

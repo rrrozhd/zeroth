@@ -49,7 +49,7 @@ async def test_sqlite_repository_reconstruction_preserves_scope_predicates(tmp_p
     run_migrations(f"sqlite:///{database_path}")
     first = AsyncSQLiteDatabase(str(database_path))
     try:
-        await RunRepository(first).create(
+        await RunRepository.for_default_compatibility(first).create(
             _run("owner-run", tenant_id="tenant-a", thread_id="owner-thread")
         )
         await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
@@ -66,8 +66,18 @@ async def test_sqlite_repository_reconstruction_preserves_scope_predicates(tmp_p
 
     restarted = AsyncSQLiteDatabase(str(database_path))
     try:
-        assert await RunRepository(restarted).get("owner-run", tenant_id="tenant-b") is None
-        assert await ThreadRepository(restarted).get("owner-thread", tenant_id="tenant-b") is None
+        assert (
+            await RunRepository.for_default_compatibility(restarted).get(
+                "owner-run", tenant_id="tenant-b"
+            )
+            is None
+        )
+        assert (
+            await ThreadRepository.for_default_compatibility(restarted).get(
+                "owner-thread", tenant_id="tenant-b"
+            )
+            is None
+        )
         assert (
             await AuditRepository.scoped(
                 restarted, NullWorkspaceScopeContext(tenant_id="tenant-b")
@@ -91,13 +101,17 @@ async def test_execution_result_guessing_stays_hidden_after_restart(tmp_path: Pa
     owner = _run("result-run", tenant_id="tenant-a", thread_id="result-thread")
     owner.status = RunStatus.COMPLETED
     owner.final_output = {"secret_result": "tenant-a-only"}
-    await RunRepository(first).create(owner)
+    await RunRepository.for_default_compatibility(first).create(owner)
     await first.close()
 
     restarted = AsyncSQLiteDatabase(str(database_path))
     try:
-        foreign = await RunRepository(restarted).get("result-run", tenant_id="tenant-b")
-        unknown = await RunRepository(restarted).get("unknown-run", tenant_id="tenant-b")
+        foreign = await RunRepository.for_default_compatibility(restarted).get(
+            "result-run", tenant_id="tenant-b"
+        )
+        unknown = await RunRepository.for_default_compatibility(restarted).get(
+            "unknown-run", tenant_id="tenant-b"
+        )
         assert foreign is unknown is None
     finally:
         await restarted.close()
@@ -134,7 +148,7 @@ async def test_sqlite_deployment_repository_reconstruction_preserves_scope(tmp_p
 
 
 async def test_checkpoint_guessing_is_hidden_by_owning_run_tenant(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository.for_default_compatibility(sqlite_db)
     owner = await repository.create(
         _run("checkpoint-run", tenant_id="tenant-a", thread_id="checkpoint-thread")
     )
@@ -147,7 +161,7 @@ async def test_checkpoint_guessing_is_hidden_by_owning_run_tenant(sqlite_db) -> 
 
 
 async def test_worker_claims_only_its_tenant_pending_runs(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository.for_default_compatibility(sqlite_db)
     await repository.create(
         _run(
             "tenant-a-run",
@@ -186,7 +200,7 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(
     database_path = tmp_path / "worker-restart.db"
     run_migrations(f"sqlite:///{database_path}")
     first = AsyncSQLiteDatabase(str(database_path))
-    repository = RunRepository(first)
+    repository = RunRepository.for_default_compatibility(first)
     for tenant in ("tenant-a", "tenant-b"):
         await repository.create(
             _run(
@@ -199,7 +213,7 @@ async def test_restarted_dispatch_worker_executes_only_its_deployment_tenant(
     await first.close()
 
     restarted = AsyncSQLiteDatabase(str(database_path))
-    repository = RunRepository(restarted)
+    repository = RunRepository.for_default_compatibility(restarted)
     leases = LeaseManager(restarted)
     transition_committed = asyncio.Event()
 

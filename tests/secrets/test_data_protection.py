@@ -42,8 +42,8 @@ async def test_checkpoints_do_not_persist_raw_secret_values(tmp_path: Path) -> N
     run_migrations(f"sqlite:///{db_path}")
     database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
 
-    run_repository = RunRepository(database)
-    thread_repository = ThreadRepository(database)
+    run_repository = RunRepository.for_default_compatibility(database)
+    thread_repository = ThreadRepository.for_default_compatibility(database)
     resolver = RepositoryThreadResolver(thread_repository)
     created = await resolver.resolve(
         None,
@@ -85,7 +85,7 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
 
     audit_repository = AuditRepository.for_default_compatibility(database)
-    run_repository = RunRepository(database)
+    run_repository = RunRepository.for_default_compatibility(database)
     secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
     secret_resolver.resolve_environment_variables(
         [EnvironmentVariable(name="API_KEY", secret_ref="API_KEY")]
@@ -178,7 +178,7 @@ async def test_failure_error_and_message_are_redacted(tmp_path: Path) -> None:
     database = AsyncSQLiteDatabase(path=db_path, encryption_key=encryption_key)
 
     audit_repository = AuditRepository.for_default_compatibility(database)
-    run_repository = RunRepository(database)
+    run_repository = RunRepository.for_default_compatibility(database)
     secret_resolver = SecretResolver(EnvSecretProvider({"API_KEY": "super-secret"}))
     secret_resolver.resolve_environment_variables(
         [EnvironmentVariable(name="API_KEY", secret_ref="API_KEY")]

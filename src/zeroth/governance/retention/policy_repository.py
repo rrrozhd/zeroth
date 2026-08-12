@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from zeroth.governance.retention.models import SYSTEM_DEFAULT_TENANT, RetentionPolicy
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.governance.retention.models import RetentionPolicy
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopedTable,
+    TenantWideScopeContext,
+)
 
 
 def _to_bool(value: object) -> bool:
@@ -24,22 +30,60 @@ class RetentionPolicyRepository:
     def __init__(
         self,
         database: AsyncDatabase,
+        scope_context: NullWorkspaceScopeContext | TenantWideScopeContext,
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> None:
         self._database = database
+        if type(scope_context) is NullWorkspaceScopeContext:
+            self._policies = ScopedTable(
+                database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
+            )
+        elif type(scope_context) is TenantWideScopeContext:
+            self._policies = ScopedTable.for_privileged_tenant_wide(
+                database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
+            )
+        else:
+            raise TypeError("scope_context must be a trusted tenant scope")
+        self._scope_context = scope_context
+        self._system_policies = ScopedTable(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.retention_policies",
+            NullWorkspaceScopeContext.for_default_compatibility(),
+        )
         self._default_policy = default_policy
 
-    async def get(self, tenant_id: str) -> RetentionPolicy | None:
+    @classmethod
+    def for_default_compatibility(
+        cls,
+        database: AsyncDatabase,
+        *,
+        default_policy: RetentionPolicy | None = None,
+    ) -> RetentionPolicyRepository:
+        return cls(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            default_policy=default_policy,
+        )
+
+    @classmethod
+    def for_privileged_tenant_maintenance(
+        cls, database: AsyncDatabase, scope_context: TenantWideScopeContext
+    ) -> RetentionPolicyRepository:
+        return cls(database, scope_context)
+
+    @property
+    def tenant_id(self) -> str:
+        """Tenant structurally bound to policy operations."""
+        return self._scope_context.tenant_id
+
+    async def get(self) -> RetentionPolicy | None:
         """Return the explicit policy for a tenant, or None if it has none."""
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT * FROM retention_policies WHERE tenant_id = ?",
-                (tenant_id,),
-            )
+        row = await self._policies.select_one(where={})
         return None if row is None else self._row_to_policy(row)
 
-    async def resolve(self, tenant_id: str) -> RetentionPolicy:
+    async def resolve(self) -> RetentionPolicy:
         """Return the tenant's policy, falling back through the defaults chain.
 
         Order: explicit tenant row (a stored ``NULL`` TTL means keep forever,
@@ -48,12 +92,14 @@ class RetentionPolicyRepository:
         all-``NULL``, so configuration must outrank it to ever take effect) →
         the ``'default'`` system row → a synthesized keep-forever policy.
         """
-        explicit = await self.get(tenant_id)
+        tenant_id = self._scope_context.tenant_id
+        explicit = await self.get()
         if explicit is not None:
             return explicit
         if self._default_policy is not None:
             return self._default_policy.model_copy(update={"tenant_id": tenant_id})
-        system = await self.get(SYSTEM_DEFAULT_TENANT)
+        system_row = await self._system_policies.select_one(where={})
+        system = None if system_row is None else self._row_to_policy(system_row)
         if system is not None:
             return system.model_copy(update={"tenant_id": tenant_id})
         return RetentionPolicy(tenant_id=tenant_id)
@@ -61,43 +107,35 @@ class RetentionPolicyRepository:
     async def upsert(self, policy: RetentionPolicy) -> RetentionPolicy:
         """Insert or update a tenant's policy; returns the persisted row."""
         now = datetime.now(UTC)
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(
-                "SELECT created_at FROM retention_policies WHERE tenant_id = ?",
-                (policy.tenant_id,),
-            )
+        if policy.tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        async with self._policies.transaction(write_lock=True) as policies:
+            existing = await policies.select_one(where={}, columns=("created_at",))
             created_at = existing["created_at"] if existing is not None else now.isoformat()
-            await connection.execute(
-                """
-                INSERT INTO retention_policies
-                    (tenant_id, audit_ttl_seconds, run_ttl_seconds, enabled,
-                     created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(tenant_id) DO UPDATE SET
-                    audit_ttl_seconds = excluded.audit_ttl_seconds,
-                    run_ttl_seconds = excluded.run_ttl_seconds,
-                    enabled = excluded.enabled,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    policy.tenant_id,
-                    policy.audit_ttl_seconds,
-                    policy.run_ttl_seconds,
-                    1 if policy.enabled else 0,
-                    created_at,
-                    now.isoformat(),
-                ),
-            )
-        resolved = await self.get(policy.tenant_id)
+            values = {
+                "audit_ttl_seconds": policy.audit_ttl_seconds,
+                "run_ttl_seconds": policy.run_ttl_seconds,
+                "enabled": 1 if policy.enabled else 0,
+                "created_at": created_at,
+                "updated_at": now.isoformat(),
+            }
+            if existing is None:
+                await policies.insert(values)
+            else:
+                await policies.update(
+                    {key: value for key, value in values.items() if key != "created_at"},
+                    where={"tenant_id": policy.tenant_id},
+                )
+        resolved = await self.get()
         assert resolved is not None  # noqa: S101 - just written
         return resolved
 
-    async def list_all_enabled(self) -> list[RetentionPolicy]:
+    async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
         """Return every enabled policy (drives the purge worker's sweep)."""
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                "SELECT * FROM retention_policies WHERE enabled = 1 ORDER BY tenant_id",
-            )
+        if type(self._scope_context) is not TenantWideScopeContext:
+            raise PermissionError("tenant-wide maintenance scope required")
+        async with self._policies.transaction() as policies:
+            rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))
         return [self._row_to_policy(row) for row in rows]
 
     def _row_to_policy(self, row: dict[str, object]) -> RetentionPolicy:

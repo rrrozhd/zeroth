@@ -134,7 +134,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        run = await bootstrap.run_repository.get(resolved.run_id, tenant_id=deployment.tenant_id)
+        run = await bootstrap.run_repository.get(resolved.run_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 

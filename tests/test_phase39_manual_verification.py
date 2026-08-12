@@ -81,7 +81,7 @@ async def deployment_service(database):
 
 @pytest.fixture
 async def run_repository(database):
-    return RunRepository(database)
+    return RunRepository.for_default_compatibility(database)
 
 
 # ---------------------------------------------------------------------------

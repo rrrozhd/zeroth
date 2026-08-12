@@ -60,7 +60,7 @@ async def test_orchestrator_emits_run_node_agent_span_tree(otel_spans, sqlite_db
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -92,9 +92,7 @@ async def test_runner_emits_tool_span_nested_under_agent(otel_spans) -> None:
     )
     provider = DeterministicProviderAdapter(
         [
-            ProviderResponse(
-                content=None, tool_calls=[{"id": "t1", "name": "search", "args": {}}]
-            ),
+            ProviderResponse(content=None, tool_calls=[{"id": "t1", "name": "search", "args": {}}]),
             ProviderResponse(content='{"answer":"done"}'),
         ]
     )

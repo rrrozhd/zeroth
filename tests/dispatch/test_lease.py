@@ -33,7 +33,7 @@ async def _create_pending_run(run_repo: RunRepository) -> str:
 @pytest.mark.asyncio
 async def test_claim_pending_returns_none_when_empty(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    RunRepository(sqlite_db)
+    RunRepository.for_default_compatibility(sqlite_db)
 
     result = await manager.claim_pending(DEPLOYMENT, WORKER_A)
 
@@ -43,7 +43,7 @@ async def test_claim_pending_returns_none_when_empty(sqlite_db: AsyncSQLiteDatab
 @pytest.mark.asyncio
 async def test_claim_pending_claims_oldest_run(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
 
@@ -58,7 +58,7 @@ async def test_claim_pending_claims_oldest_run(sqlite_db: AsyncSQLiteDatabase) -
 @pytest.mark.asyncio
 async def test_claim_pending_sets_lease_columns(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -72,7 +72,7 @@ async def test_claim_pending_sets_lease_columns(sqlite_db: AsyncSQLiteDatabase) 
 @pytest.mark.asyncio
 async def test_release_clears_lease_columns(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -86,7 +86,7 @@ async def test_release_clears_lease_columns(sqlite_db: AsyncSQLiteDatabase) -> N
 @pytest.mark.asyncio
 async def test_renew_lease_returns_true_for_owner(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -98,7 +98,7 @@ async def test_renew_lease_returns_true_for_owner(sqlite_db: AsyncSQLiteDatabase
 @pytest.mark.asyncio
 async def test_renew_lease_returns_false_for_non_owner(sqlite_db: AsyncSQLiteDatabase) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -111,7 +111,7 @@ async def test_renew_lease_returns_false_for_non_owner(sqlite_db: AsyncSQLiteDat
 async def test_concurrent_claims_do_not_overlap(sqlite_db: AsyncSQLiteDatabase) -> None:
     """Two concurrent workers should each claim at most one distinct run."""
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id_a = await _create_pending_run(run_repo)
     run_id_b = await _create_pending_run(run_repo)
@@ -128,7 +128,7 @@ async def test_claim_orphaned_finds_running_runs_with_expired_leases(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     manager = LeaseManager(sqlite_db, lease_duration_seconds=60)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     # Claim then immediately expire the lease in DB.
@@ -149,7 +149,7 @@ async def test_get_recovery_checkpoint_id_returns_none_when_no_checkpoint(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     manager = LeaseManager(sqlite_db)
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
 
     run_id = await _create_pending_run(run_repo)
     result = await manager.get_recovery_checkpoint_id(run_id)

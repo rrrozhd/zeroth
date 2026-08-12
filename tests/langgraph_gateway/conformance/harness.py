@@ -437,7 +437,7 @@ def create_gateway_app(
         database_path = str(Path(evidence_path).with_name("enforcement.sqlite3"))
         run_migrations(f"sqlite:///{database_path}")
         database = AsyncSQLiteDatabase(path=database_path)
-        repository = LangGraphEnforcementRepository(database)
+        repository = LangGraphEnforcementRepository.for_default_compatibility(database)
         enforcement_service = LangGraphEnforcementService(
             repository,
             codec=context_codec,

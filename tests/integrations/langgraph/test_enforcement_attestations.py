@@ -112,7 +112,7 @@ async def _service(
 ):
     signer = _signer()
     codec = ReservedContextCodec(signer, clock=lambda: 150)
-    repository = LangGraphEnforcementRepository(sqlite_db)
+    repository = LangGraphEnforcementRepository.for_default_compatibility(sqlite_db)
     service = LangGraphEnforcementService(
         repository,
         codec=codec,

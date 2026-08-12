@@ -141,7 +141,7 @@ async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> 
 @pytest.mark.security_rc
 async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
-    repository = RunRepository(database)
+    repository = RunRepository.for_default_compatibility(database)
     run_id = f"security-run-scope-{unique}"
     await repository.create(_run(run_id, tenant_id="tenant-a", suffix=unique))
     assert await repository.get(run_id, tenant_id="tenant-b") is None
@@ -167,16 +167,22 @@ async def test_security_rc_postgres_same_id_tenant_race(security_postgres) -> No
     database, unique = security_postgres
     run_id = f"security-run-race-{unique}"
     raced = await asyncio.gather(
-        RunRepository(database).create(_run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")),
-        RunRepository(database).create(_run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")),
+        RunRepository.for_default_compatibility(database).create(
+            _run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")
+        ),
+        RunRepository.for_default_compatibility(database).create(
+            _run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")
+        ),
         return_exceptions=True,
     )
     assert sum(isinstance(result, Run) for result in raced) == 1
     assert sum(isinstance(result, KeyError) for result in raced) == 1
-    winner = await RunRepository(database).get(run_id)
+    winner = await RunRepository.for_default_compatibility(database).get(run_id)
     assert winner is not None
     loser = "tenant-b" if winner.tenant_id == "tenant-a" else "tenant-a"
-    assert await RunRepository(database).get(run_id, tenant_id=loser) is None
+    assert (
+        await RunRepository.for_default_compatibility(database).get(run_id, tenant_id=loser) is None
+    )
 
 
 @requires_docker
@@ -190,7 +196,9 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         await GraphRepository(first).save(
             build_graph().model_copy(update={"graph_id": graph_id}), tenant_id="tenant-a"
         )
-        await RunRepository(first).create(_run(run_id, tenant_id="tenant-a", suffix=unique))
+        await RunRepository.for_default_compatibility(first).create(
+            _run(run_id, tenant_id="tenant-a", suffix=unique)
+        )
         await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
             _audit(f"restart-{unique}", tenant_id="tenant-a")
         )
@@ -200,7 +208,12 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
     restarted = await AsyncPostgresDatabase.create(dsn, min_size=1, max_size=2)
     try:
         assert await GraphRepository(restarted).get(graph_id, tenant_id="tenant-b") is None
-        assert await RunRepository(restarted).get(run_id, tenant_id="tenant-b") is None
+        assert (
+            await RunRepository.for_default_compatibility(restarted).get(
+                run_id, tenant_id="tenant-b"
+            )
+            is None
+        )
         foreign_ids = {
             record.audit_id
             for record in await AuditRepository.scoped(
@@ -312,7 +325,9 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
 async def test_security_rc_postgres_approval_opposite_decision_race(security_postgres) -> None:
     database, unique = security_postgres
     repository = ApprovalRepository(database)
-    service = ApprovalService(repository=repository, run_repository=RunRepository(database))
+    service = ApprovalService(
+        repository=repository, run_repository=RunRepository.for_default_compatibility(database)
+    )
     record = await repository.write(
         ApprovalRecord(
             approval_id=f"approval-race-{unique}",

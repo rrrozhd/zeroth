@@ -66,7 +66,7 @@ from zeroth.platform.signing import (
     build_signing_provider_async,
     build_verification_provider_async,
 )
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.provider import ProviderAdapter
@@ -168,8 +168,9 @@ async def bootstrap_service(
             f"graph metadata for {deployment_ref!r}"
         )
 
-    run_repository = RunRepository(database)
-    thread_repository = ThreadRepository(database)
+    deployment_scope = contract_scope_context(deployment.tenant_id, deployment.workspace_id)
+    run_repository = RunRepository(database, deployment_scope)
+    thread_repository = ThreadRepository(database, deployment_scope)
     audit_repository = AuditRepository.scoped(
         database,
         contract_scope_context(deployment.tenant_id, deployment.workspace_id),
@@ -488,7 +489,7 @@ async def bootstrap_service(
             from zeroth.service.webhooks.repository import WebhookRepository
             from zeroth.service.webhooks.service import WebhookService
 
-            webhook_repository = WebhookRepository(database)
+            webhook_repository = WebhookRepository(database, deployment_scope)
             webhook_service_obj = WebhookService(
                 repository=webhook_repository,
                 default_max_retries=settings.webhook.default_max_retries,
@@ -556,11 +557,12 @@ async def bootstrap_service(
             audit_ttl_seconds=settings.retention.default_audit_ttl_seconds,
             run_ttl_seconds=settings.retention.default_run_ttl_seconds,
         )
+    retention_scope = NullWorkspaceScopeContext(tenant_id=deployment.tenant_id)
     retention_policy_repository = RetentionPolicyRepository(
-        database, default_policy=retention_default_policy
+        database, retention_scope, default_policy=retention_default_policy
     )
-    legal_hold_repository = LegalHoldRepository(database)
-    retention_log_repository = RetentionAuditLogRepository(database)
+    legal_hold_repository = LegalHoldRepository(database, retention_scope)
+    retention_log_repository = RetentionAuditLogRepository(database, retention_scope)
     retention_erasure_service = RetentionErasureService(
         audit_repository=audit_repository,
         run_repository=run_repository,
@@ -659,7 +661,9 @@ async def bootstrap_service(
                 timeout_seconds=gateway_settings.connect_timeout_seconds,
             )
             gateway_compatibility = await detector.detect()
-            langgraph_enforcement_repository = LangGraphEnforcementRepository(database)
+            langgraph_enforcement_repository = LangGraphEnforcementRepository(
+                database, deployment_scope
+            )
             langgraph_enforcement_service = LangGraphEnforcementService(
                 langgraph_enforcement_repository,
                 codec=context_codec,

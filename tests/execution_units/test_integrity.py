@@ -143,7 +143,7 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
     )
     orchestrator = RuntimeOrchestrator(
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=runner,
     )
