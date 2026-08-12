@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     connectors_enabled: bool = False
+    # The one directory the warehouse-file adapters may write into. Their
+    # ``spool_path`` is operator-supplied and used to be opened verbatim, so it
+    # could name any file the process could write. See
+    # zeroth.platform.primitives.boundary.confine_path.
+    connector_spool_root: str = "./.zeroth/connector-spool"
     connector_worker_batch_size: int = 100
     connector_max_attempts: int = 8
     connector_backoff_base_s: int = 2

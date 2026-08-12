@@ -13,6 +13,10 @@ from dataclasses import dataclass
 
 import httpx
 
+from zeroth.platform.primitives.boundary import (
+    OutboundDestinationError,
+    resolve_outbound_url,
+)
 from zeroth.service.webhooks.models import WebhookDelivery
 from zeroth.service.webhooks.repository import WebhookRepository
 from zeroth.service.webhooks.signing import sign_payload
@@ -88,6 +92,21 @@ class WebhookDeliveryWorker:
                 retry_delay=0,
             )
             return
+        # A02-6, defence in depth: creation-time validation cannot reach a row
+        # persisted before that bound existed, and such a row is exactly the
+        # SSRF primitive the finding describes. Dead-lettered rather than
+        # retried -- a target that names internal infrastructure will not become
+        # legitimate on the next attempt.
+        try:
+            approved = resolve_outbound_url(sub.target_url, context="webhook target_url")
+        except OutboundDestinationError:
+            logger.warning(
+                "refusing delivery %s: subscription %s has an unsafe or unavailable destination",
+                delivery.delivery_id,
+                sub.subscription_id,
+            )
+            await self.repository.dead_letter(delivery.delivery_id)
+            return
         payload_bytes = delivery.payload_json.encode("utf-8")
         signature = sign_payload(payload_bytes, sub.secret)
         headers = {
@@ -95,10 +114,19 @@ class WebhookDeliveryWorker:
             "X-Zeroth-Signature": f"sha256={signature}",
             "X-Zeroth-Event": delivery.event_type.value,
             "X-Zeroth-Delivery": delivery.delivery_id,
+            "Host": approved.host_header,
+            # The pooled client's origin key is the pinned IP. Closing each
+            # connection prevents a later hostname on the same shared IP from
+            # reusing TLS established with another hostname's SNI.
+            "Connection": "close",
         }
         try:
             response = await self.http_client.post(
-                sub.target_url, content=payload_bytes, headers=headers
+                approved.connect_url,
+                content=payload_bytes,
+                headers=headers,
+                follow_redirects=False,
+                extensions={"sni_hostname": approved.sni_hostname},
             )
             if 200 <= response.status_code < 300:
                 await self.repository.mark_delivered(delivery.delivery_id)
