@@ -2085,13 +2085,6 @@ def _audit_repository_public_call_provenance(
                         return state, exceptions
                     return state, [state]
 
-                def target_has_late_failure(target: ast.AST) -> bool:
-                    if isinstance(target, ast.Starred):
-                        return target_has_late_failure(target.value)
-                    if isinstance(target, (ast.Tuple, ast.List)):
-                        return any(target_has_late_failure(item) for item in target.elts)
-                    return not isinstance(target, ast.Name)
-
                 def target_shape_matches(value: ast.AST, target: ast.AST) -> bool:
                     if isinstance(target, ast.Starred):
                         return target_shape_matches(value, target.value)
@@ -2557,6 +2550,17 @@ def _audit_repository_public_call_provenance(
                         for name, identity in state.items():
                             record_event(name, position, identity)
 
+                    def bind_alias(
+                        target: ast.AST,
+                        value: ast.AST | None,
+                        position: tuple[int, int],
+                        state: dict[str, type[BaseException] | None],
+                    ) -> None:
+                        identity = resolve(value, state)
+                        for name in _bound_names(target):
+                            state[name] = identity
+                            record_event(name, position, identity)
+
                     def walk(
                         block: list[ast.stmt], state: dict[str, type[BaseException] | None]
                     ) -> dict[str, type[BaseException] | None]:
@@ -2564,16 +2568,22 @@ def _audit_repository_public_call_provenance(
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
                             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
-                                identity = resolve(statement.value, state)
                                 targets = (
                                     statement.targets
                                     if isinstance(statement, ast.Assign)
                                     else (statement.target,)
                                 )
                                 for target in targets:
-                                    for name in _bound_names(target):
-                                        state[name] = identity
-                                        record_event(name, position, identity)
+                                    bind_alias(target, statement.value, position, state)
+                            elif isinstance(statement, ast.Expr) and isinstance(
+                                statement.value, ast.NamedExpr
+                            ):
+                                bind_alias(
+                                    statement.value.target,
+                                    statement.value.value,
+                                    position,
+                                    state,
+                                )
                             elif isinstance(statement, ast.ImportFrom):
                                 for alias in statement.names:
                                     name = alias.asname or alias.name
@@ -2625,8 +2635,20 @@ def _audit_repository_public_call_provenance(
                                 state = join(state, walk(statement.body, body_state))
                                 merge_events(statement, state)
                             elif isinstance(statement, ast.Match):
-                                paths = [walk(case.body, state) for case in statement.cases]
-                                paths.append(state)
+                                subject_identity = resolve(statement.subject, state)
+                                paths: list[dict[str, type[BaseException] | None]] = []
+                                exhaustive = False
+                                for case in statement.cases:
+                                    case_state = dict(state)
+                                    if isinstance(case.pattern, ast.MatchAs) and case.pattern.name:
+                                        case_state[case.pattern.name] = subject_identity
+                                        record_event(
+                                            case.pattern.name, position, subject_identity
+                                        )
+                                        exhaustive = case.guard is None
+                                    paths.append(walk(case.body, case_state))
+                                if not exhaustive:
+                                    paths.append(state)
                                 state = join(*paths)
                                 merge_events(statement, state)
                             elif isinstance(statement, ast.Delete):
@@ -3094,9 +3116,7 @@ def _audit_repository_public_call_provenance(
                                         acquired,
                                         item.optional_vars,
                                         known_shape=False,
-                                        may_fail_unpack=not target_has_late_failure(
-                                            item.optional_vars
-                                        ),
+                                        may_fail_unpack=True,
                                     )
                                     suppressed_acquisition_states.extend(target_exceptions)
                             body_flow = walk_potential_bindings(
@@ -8193,17 +8213,23 @@ def test_public_call_inventory_models_starred_for_target_shapes(
 
 
 @pytest.mark.parametrize(
-    "compound",
+    ("compound", "expected"),
     [
-        "    with suppressor:\n"
-        "        closure, missing.attr = (None, None)\n",
-        "    with manager as (closure, missing.attr):\n"
-        "        pass\n",
+        (
+            "    with suppressor:\n"
+            "        closure, missing.attr = (None, None)\n",
+            frozenset(),
+        ),
+        (
+            "    with manager as (closure, missing.attr):\n"
+            "        pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
     ],
     ids=["assignment", "with-target"],
 )
 def test_public_call_inventory_preserves_partial_assignment_target_binding(
-    tmp_path: Path, compound: str
+    tmp_path: Path, compound: str, expected: frozenset[str]
 ) -> None:
     module = tmp_path / "apps" / "candidate.py"
     module.parent.mkdir(parents=True)
@@ -8212,6 +8238,48 @@ def test_public_call_inventory_preserves_partial_assignment_target_binding(
         "async def outer(suppressor, manager, candidate, record):\n"
         + compound
         + "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    "alias_setup",
+    [
+        "(TypeError := ValueError)\n",
+        "match ValueError:\n"
+        "    case TypeError:\n"
+        "        pass\n",
+    ],
+    ids=["named-expression", "match-capture"],
+)
+def test_public_call_inventory_routes_exception_alias_binding_forms(
+    tmp_path: Path, alias_setup: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        + alias_setup
+        + "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
         "        type Base = list[AuditRepository]\n"
         "        with suppressor:\n"
         "            if closure:\n"
