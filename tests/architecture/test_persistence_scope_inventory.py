@@ -1277,6 +1277,15 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
 
 _CONTRACT_REGISTRY_CLASS = ("zeroth", "contracts", "registry", "ContractRegistry")
 _CONTRACT_REGISTRY_MODULE = _CONTRACT_REGISTRY_CLASS[:-1]
+_CONTRACT_REGISTRY_IMPLEMENTATION_MODULE = (*_CONTRACT_REGISTRY_MODULE, "registry")
+
+
+def _canonical_contract_registry_name(name: tuple[str, ...]) -> tuple[str, ...]:
+    if name == _CONTRACT_REGISTRY_IMPLEMENTATION_MODULE:
+        return _CONTRACT_REGISTRY_MODULE
+    if name == (*_CONTRACT_REGISTRY_IMPLEMENTATION_MODULE, "ContractRegistry"):
+        return _CONTRACT_REGISTRY_CLASS
+    return name
 
 
 def _resolved_contract_registry_name(
@@ -1291,18 +1300,7 @@ def _resolved_contract_registry_name(
     if isinstance(node, ast.Attribute):
         base = _resolved_contract_registry_name(node.value, registry_names, module_names)
         if base is not None:
-            return (*base, node.attr)
-    return None
-
-
-def _assigned_contract_registry_binding(
-    node: ast.AST,
-    registry_names: set[str],
-    module_names: dict[str, tuple[str, ...]],
-) -> tuple[str, ...] | None:
-    resolved = _resolved_contract_registry_name(node, registry_names, module_names)
-    if resolved is not None:
-        return resolved
+            return _canonical_contract_registry_name((*base, node.attr))
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
@@ -1314,6 +1312,17 @@ def _assigned_contract_registry_binding(
         and node.args[1].value == "ContractRegistry"
     ):
         return _CONTRACT_REGISTRY_CLASS
+    return None
+
+
+def _assigned_contract_registry_binding(
+    node: ast.AST,
+    registry_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    resolved = _resolved_contract_registry_name(node, registry_names, module_names)
+    if resolved is not None:
+        return resolved
     return None
 
 
@@ -1330,15 +1339,25 @@ def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
                 if isinstance(imported, ast.ImportFrom):
                     for alias in imported.names:
                         if (
-                            imported.module == "zeroth.contracts.registry"
+                            imported.module
+                            in {
+                                "zeroth.contracts.registry",
+                                "zeroth.contracts.registry.registry",
+                            }
                             and alias.name == "ContractRegistry"
                         ):
                             registry_names.add(alias.asname or alias.name)
-                        elif imported.module == "zeroth.contracts" and alias.name == "registry":
+                        elif (
+                            imported.module in {"zeroth.contracts", "zeroth.contracts.registry"}
+                            and alias.name == "registry"
+                        ):
                             module_names[alias.asname or alias.name] = _CONTRACT_REGISTRY_MODULE
                 elif isinstance(imported, ast.Import):
                     for alias in imported.names:
-                        if alias.name == "zeroth.contracts.registry":
+                        if alias.name in {
+                            "zeroth.contracts.registry",
+                            "zeroth.contracts.registry.registry",
+                        }:
                             if alias.asname:
                                 module_names[alias.asname] = _CONTRACT_REGISTRY_MODULE
                             else:
@@ -1434,6 +1453,9 @@ def test_contract_registry_production_bindings_are_explicit_and_reviewed() -> No
     [
         "import zeroth.contracts.registry\nzeroth.contracts.registry.ContractRegistry(db)\n",
         "from zeroth.contracts import registry\nregistry.ContractRegistry(db)\n",
+        ("from zeroth.contracts import registry\ngetattr(registry, 'ContractRegistry')(db)\n"),
+        ("from zeroth.contracts.registry.registry import ContractRegistry\nContractRegistry(db)\n"),
+        ("import zeroth.contracts.registry.registry as registry\nregistry.ContractRegistry(db)\n"),
         (
             "from zeroth.contracts.registry import ContractRegistry\n"
             "R: type = ContractRegistry\n"
@@ -1469,6 +1491,8 @@ def test_contract_registry_binding_inventory_rejects_qualified_and_aliased_const
         "from another_package import ContractRegistry\nContractRegistry(db)\n",
         "import another_package as registry\nregistry.ContractRegistry(db)\n",
         "class Registry:\n    ContractRegistry = object\nregistry = Registry()\nregistry.ContractRegistry()\n",
+        ("import another_package as registry\ngetattr(registry, 'ContractRegistry')(db)\n"),
+        ("from zeroth.contracts import registry\ngetattr(registry, 'UnrelatedClass')(db)\n"),
     ],
 )
 def test_contract_registry_binding_inventory_ignores_unrelated_symbols(
@@ -1494,6 +1518,24 @@ def test_contract_registry_binding_inventory_ignores_unrelated_symbols(
             "from zeroth.contracts import registry\n"
             "def bind():\n"
             "    return registry.ContractRegistry.for_default_compatibility(db)\n",
+            "default_compatibility",
+        ),
+        (
+            "import zeroth.contracts.registry.registry as registry\n"
+            "def bind():\n"
+            "    return registry.ContractRegistry.scoped(db, scope)\n",
+            "scoped",
+        ),
+        (
+            "from zeroth.contracts import registry\n"
+            "def bind():\n"
+            "    return getattr(registry, 'ContractRegistry').scoped(db, scope)\n",
+            "scoped",
+        ),
+        (
+            "from zeroth.contracts import registry\n"
+            "def bind():\n"
+            "    return getattr(registry, 'ContractRegistry').for_default_compatibility(db)\n",
             "default_compatibility",
         ),
     ],
