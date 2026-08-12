@@ -81,7 +81,7 @@ for every knob the `database` section exposes.
 
 ## Common gotchas
 
-- **Port 8000 in use:** set `ZEROTH_SERVICE__PORT=8001` (or another free port)
+- **Port 8000 in use:** set `PORT=8001` (or another free port)
   before launching. The `PORT` env var is also honored.
 - **Missing LLM keys:** agent nodes fail fast if their provider key is
   missing. Put `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. in a `.env` file

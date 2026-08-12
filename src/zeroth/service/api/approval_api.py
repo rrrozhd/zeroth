@@ -250,12 +250,6 @@ async def _require_pending_visible_approval(
     return record
 
 
-def _approval_visible_to_deployment(record: ApprovalRecord, deployment: object) -> bool:
-    return record.deployment_ref == getattr(
-        deployment, "deployment_ref", None
-    ) and record.graph_version_ref == getattr(deployment, "graph_version_ref", None)
-
-
 def _approval_matches_filters(
     record: ApprovalRecord,
     *,

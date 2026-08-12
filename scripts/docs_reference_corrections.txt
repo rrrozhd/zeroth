@@ -1,0 +1,21 @@
+# Immutable correction inventory: the 16 seed paths in seed order, then 3 prose fixes.
+# path|stale text|current text; {project_version} is read from root pyproject.toml.
+CONTRIBUTING.md|import zeroth.core|from importlib.metadata import version
+SECURITY.md|src/econ_plane|src/zeroth/econ/plane
+docs/how-to/deployment/langgraph-release.md|zeroth-core[langgraph,langgraph-gateway]==0.20.1.2.1|zeroth-core[langgraph,langgraph-gateway]=={project_version}
+docs/how-to/deployment/langgraph-release.md|ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL|ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL
+docs/how-to/deployment/langgraph-release.md|ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE|ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE
+docs/how-to/deployment/local-dev.md|ZEROTH_SERVICE__PORT=8001|PORT=8001
+docs/how-to/deployment/with-regulus.md|src/zeroth/core/econ/instrumentation|src/zeroth/econ/instrumentation
+docs/how-to/deployment/with-regulus.md|src/zeroth/econ_plane/_migrations|src/zeroth/econ/plane/_migrations
+docs/how-to/deployment/with-regulus.md|src/zeroth/core/econ/instrumentation/PROVENANCE.md|src/zeroth/econ/instrumentation/PROVENANCE.md
+docs/how-to/deployment/with-regulus.md|src/zeroth/econ_plane/PROVENANCE.md|src/zeroth/econ/plane/PROVENANCE.md
+docs/how-to/migration-from-monolith.md|zeroth-core>=0.1.1|pip install zeroth-core
+docs/how-to/migration-from-monolith.md|zeroth-core>=0.1.1|pip install zeroth-core
+docs/how-to/migration-from-monolith.md|zeroth-core[memory-pg,dispatch]>=0.1.1|zeroth-core[memory-pg,dispatch]
+docs/how-to/migration-from-monolith.md|ZEROTH_AUTH__API_KEYS_JSON|ZEROTH_SERVICE_API_KEYS_JSON
+docs/how-to/migration-from-monolith.md|zeroth-core[memory-pg,dispatch]>=0.1.1|zeroth-core[memory-pg,dispatch]
+docs/how-to/service.md|src/zeroth/core/service/entrypoint.py|src/zeroth/service/entrypoint.py
+docs/concepts/econ.md|The cost events are forwarded to **Regulus**, whose SDK — [`econ-instrumentation-sdk`](https://pypi.org/project/econ-instrumentation-sdk/), pinned as a direct dependency in `pyproject.toml` — handles transport and dashboarding. Regulus is an external service; Zeroth is the client.|The cost events are forwarded through `zeroth.econ.instrumentation` to **Regulus**. Both the instrumentation client and the `zeroth.econ.plane` backend ship in `zeroth-core`; the backend can be mounted in-process or run separately.
+docs/how-to/deployment/embedded-library.md|Reuse the `zeroth.runtime.migrations` package as the script location.|call `zeroth.service.bootstrap.migrations.run_migrations` with the database URL before the first boot
+docs/how-to/econ.md|talk to the external **Regulus** backend via the `econ-instrumentation-sdk` package listed as a direct dependency in `pyproject.toml`.|Both use the bundled **Regulus** integration: `zeroth.econ.instrumentation` emits events to the `zeroth.econ.plane` backend shipped in `zeroth-core`.

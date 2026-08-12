@@ -32,6 +32,7 @@ import {
   TONE,
 } from "@/app/components/primitives";
 import { useToast } from "@/app/components/Toast";
+import { useAuditVerification } from "@/app/components/auditVerificationContext";
 import { RUN_TONE, runStatusLabel } from "@/app/components/runTone";
 import { useLoad, type Loadable } from "@/app/hooks/useLoad";
 import { usePolling } from "@/app/hooks/usePolling";
@@ -414,6 +415,7 @@ function RunDetail({
   const timeline = useLoad<AuditTimeline>(() => getRunTimeline(runId));
   const toast = useToast();
   const [busy, setBusy] = useState<null | "cancel" | "interrupt" | "replay">(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const status = run.data?.status ?? "";
   const live = LIVE.has(status);
@@ -444,6 +446,7 @@ function RunDetail({
     verb: string,
   ) {
     setBusy(kind);
+    setActionError(null);
     try {
       await fn();
       toast(`${verb} ${runId}`);
@@ -451,10 +454,17 @@ function RunDetail({
       timeline.reload();
       onListChanged();
     } catch (e) {
-      toast(`${kind} failed: ${errMsg(e)}`);
+      const message = `${kind === "cancel" ? "Cancel" : "Interrupt"} failed: ${errMsg(e)}`;
+      setActionError(message);
+      toast(message);
     } finally {
       setBusy(null);
     }
+  }
+
+  async function doCancel() {
+    if (!window.confirm(`Cancel run ${runId}?`)) return;
+    await act("cancel", () => cancelRun(runId), "Cancelled");
   }
 
   async function doReplay() {
@@ -487,7 +497,7 @@ function RunDetail({
             <Button
               variant="danger"
               disabled={busy !== null}
-              onClick={() => act("cancel", () => cancelRun(runId), "Cancelled")}
+              onClick={doCancel}
             >
               {busy === "cancel" ? "…" : "Cancel"}
             </Button>
@@ -506,6 +516,22 @@ function RunDetail({
           </Button>
         </div>
       </div>
+
+      {actionError && (
+        <div
+          role="alert"
+          style={{
+            background: "rgba(248,113,113,0.08)",
+            border: "1px solid rgba(248,113,113,0.3)",
+            borderRadius: 8,
+            padding: "10px 12px",
+            color: "var(--danger)",
+            fontSize: 12.5,
+          }}
+        >
+          {actionError}
+        </div>
+      )}
 
       {run.error ? (
         <InlineError message={run.error} onRetry={run.reload} />
@@ -750,6 +776,7 @@ type VerifyState =
 
 function EvidencePanel({ runId }: { runId: string }) {
   const evidence = useLoad<RunEvidence>(() => getRunEvidence(runId));
+  const { markVerified } = useAuditVerification();
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
 
   async function runVerify() {
@@ -757,12 +784,8 @@ function EvidencePanel({ runId }: { runId: string }) {
     try {
       const result = await verifyRunChain(runId);
       setVerify({ phase: "done", result });
-      if (result.verified) {
-        try {
-          window.localStorage.setItem("zeroth.auditVerified", "1");
-        } catch {
-          /* localStorage unavailable — the chip still reflects the result */
-        }
+      if (result.verified && result.signature_verified !== false) {
+        markVerified(new Date().toISOString());
       }
     } catch (e) {
       setVerify({ phase: "error", msg: errMsg(e) });

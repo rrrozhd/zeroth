@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.4] - 2026-08-12
+
+### Added
+
+- A shrink-only documentation-reference gate validates maintained imports,
+  settings, source paths, and installation examples against a pinned seed.
+- Console component tests now collect TSX surfaces and cover destructive actions,
+  navigation safety, verification state, and stale run responses.
+
+### Changed
+
+- Release images install a hash-locked dependency set and the exact candidate
+  wheel, while Compose services run read-only with dropped capabilities and
+  bounded process counts.
+- Removed proven-dead backend and Console declarations while preserving live
+  compatibility and runtime paths.
+
+### Fixed
+
+- A delayed Studio submission can no longer replace a newer historical run or
+  its thread state.
+- Documentation history markers bind to their nearest inline reference without
+  hiding actionable startup instructions.
+
 ## [0.22.3] - 2026-08-11
 
 ### Fixed
@@ -509,7 +533,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded polling for asynchronously settling state, counted side-effect assertions, and
   platform lifecycle (restart, drain) as an operation the harness enacts rather than a
   route the product must serve.
-
 ## [0.20] - 2026-08-09
 
 ### Added
