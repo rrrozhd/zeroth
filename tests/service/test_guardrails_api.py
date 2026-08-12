@@ -133,7 +133,7 @@ async def test_run_api_token_bucket_key_isolates_same_subject_and_deployment_by_
             rate_limit_refill_rate=0.0,
             quota_daily_limit=None,
         ),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         rate_limiter=TokenBucketRateLimiter(sqlite_db),
     )
     tenant_a = _guardrail_run("tenant-a")
@@ -155,7 +155,7 @@ async def test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant(
             rate_limit_refill_rate=0.0,
             quota_daily_limit=1,
         ),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         rate_limiter=None,
         quota_enforcer=QuotaEnforcer(sqlite_db),
     )
@@ -178,7 +178,7 @@ async def test_run_api_token_bucket_identity_resists_delimiter_collision(sqlite_
             rate_limit_refill_rate=0.0,
             quota_daily_limit=None,
         ),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         rate_limiter=TokenBucketRateLimiter(sqlite_db),
     )
     first = _guardrail_run("alpha:deployment:shared", "tail")
@@ -202,7 +202,7 @@ async def test_run_api_quota_identity_resists_delimiter_collision(sqlite_db) -> 
             rate_limit_refill_rate=0.0,
             quota_daily_limit=1,
         ),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         rate_limiter=None,
         quota_enforcer=QuotaEnforcer(sqlite_db),
     )

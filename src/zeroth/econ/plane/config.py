@@ -11,7 +11,13 @@ class Settings(BaseSettings):
     confidence_gating_strict: bool = True
     confidence_gate_level: float = 0.95
     confidence_gate_rel_width: float = 0.30
-    default_tenant_id: str = "tenant_default"
+    default_tenant_id: str = "default"
+    insecure_public_token_issuer_enabled: bool = False
+    service_principal_subject: str = "zeroth-service"
+    service_principal_email: str = "zeroth-service@example.com"
+    service_principal_tenant_id: str = "default"
+    service_principal_workspace_id: str | None = None
+    service_principal_roles: str = "Admin"
     outcome_pipeline_v2: bool = True
     experiment_routing: bool = True
     shadow_eval: bool = True

@@ -75,7 +75,7 @@ async def test_dispatch_injects_memory_resolver(sqlite_db) -> None:
     # Verify runner starts without a resolver.
     assert runner.memory_resolver is None
 
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={"agent-1": runner},
@@ -99,7 +99,7 @@ async def test_dispatch_injects_budget_enforcer(sqlite_db) -> None:
 
     assert runner.budget_enforcer is None
 
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={"agent-1": runner},
@@ -123,7 +123,7 @@ async def test_dispatch_preserves_originals_when_none(sqlite_db) -> None:
     runner.memory_resolver = original_resolver
     runner.budget_enforcer = original_enforcer
 
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={"agent-1": runner},
@@ -149,7 +149,7 @@ async def test_dispatch_restores_on_exception(sqlite_db) -> None:
     assert runner.memory_resolver is None
     assert runner.budget_enforcer is None
 
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repo,
         agent_runners={"agent-1": runner},

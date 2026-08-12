@@ -12,9 +12,12 @@ version negotiation.
 from __future__ import annotations
 
 import logging
+import threading
 
 import httpx
 import pytest
+
+import zeroth.platform.secrets.vault as vault_module
 
 from zeroth.platform.config.settings import SecretsSettings
 from zeroth.platform.secrets import (
@@ -24,6 +27,64 @@ from zeroth.platform.secrets import (
 )
 
 _SECRET_VALUE = "sk-vault-super-secret"
+
+
+def test_concurrent_secret_history_publication_cannot_lose_a_redaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = VaultSecretProvider(addr="https://vault.test", token="root-token")
+    original_redactor = vault_module.SecretRedactor
+    first_snapshot_ready = threading.Event()
+    release_first = threading.Event()
+
+    def gated_redactor(seeds=None):  # noqa: ANN001, ANN202
+        snapshot = list(seeds or ())
+        if len(snapshot) == 1:
+            first_snapshot_ready.set()
+            assert release_first.wait(timeout=2)
+        return original_redactor(snapshot)
+
+    monkeypatch.setattr(vault_module, "SecretRedactor", gated_redactor)
+    first = threading.Thread(
+        target=provider._remember_secret,
+        args=(("tenant-a", "shared"), "tenant-a-secret"),
+    )
+    second = threading.Thread(
+        target=provider._remember_secret,
+        args=(("tenant-b", "shared"), "tenant-b-secret"),
+    )
+
+    first.start()
+    assert first_snapshot_ready.wait(timeout=2)
+    second.start()
+    second.join(timeout=0.2)
+    release_first.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert {reference for reference, _value in provider._redaction_history} == {
+        ("tenant-a", "shared"),
+        ("tenant-b", "shared"),
+    }
+    assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
+        "[REDACTED:SECRET] [REDACTED:SECRET]"
+    )
+
+
+@pytest.mark.asyncio
+async def test_warm_without_credentials_is_best_effort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = VaultSecretProvider(addr="x")
+
+    with caplog.at_level(logging.WARNING):
+        await provider.warm([("tenant-safe", "logical-safe")])
+
+    assert caplog.messages == [
+        "vault warm setup failed: vault provider has no token and incomplete AppRole config"
+    ]
 
 
 def _kv_v2_transport(*, expect_path: str, value: str = _SECRET_VALUE) -> httpx.MockTransport:
@@ -84,6 +145,121 @@ def test_resolve_is_cached_within_ttl() -> None:
     assert provider.resolve_secret("llm.openai", tenant_id="acme") == _SECRET_VALUE
     assert calls["n"] == 1  # second call served from cache
     assert path  # path documented for clarity
+
+
+@pytest.mark.parametrize("resolution_order", [("tenant-a", "tenant-b"), ("tenant-b", "tenant-a")])
+def test_redactor_preserves_same_name_secret_identity_across_tenants(
+    resolution_order: tuple[str, str],
+) -> None:
+    values = {
+        "/v1/secret/data/tenants/tenant-a/shared_token": "shared-prefix",
+        "/v1/secret/data/tenants/tenant-b/shared_token": "shared-prefix-suffix",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"data": {"value": values[request.url.path]}, "metadata": {}}},
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    for tenant in resolution_order:
+        assert (
+            provider.resolve_secret("shared.token", tenant_id=tenant)
+            == {
+                "tenant-a": "shared-prefix",
+                "tenant-b": "shared-prefix-suffix",
+            }[tenant]
+        )
+    redacted = provider._redactor.redact("shared-prefix shared-prefix-suffix")
+    assert redacted == "[REDACTED:SECRET] [REDACTED:SECRET]"
+
+
+@pytest.mark.asyncio
+async def test_warm_preserves_same_name_secret_identity_across_tenants() -> None:
+    values = {
+        "/v1/secret/data/tenants/tenant-a/shared_token": "tenant-a-secret",
+        "/v1/secret/data/tenants/tenant-b/shared_token": "tenant-b-secret",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"data": {"value": values[request.url.path]}, "metadata": {}}},
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        async_transport=httpx.MockTransport(handler),
+    )
+
+    await provider.warm([("tenant-a", "shared.token"), ("tenant-b", "shared.token")])
+
+    assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
+        "[REDACTED:SECRET] [REDACTED:SECRET]"
+    )
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_warm_redacts_earlier_value_from_later_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, json={"data": {"data": {"value": "first-secret"}}})
+        raise RuntimeError("transport echoed first-secret")
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        async_transport=httpx.MockTransport(handler),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await provider.warm([("tenant-a", "first"), ("tenant-a", "second")])
+
+    assert "first-secret" not in caplog.text
+    assert "[REDACTED:SECRET]" in caplog.text
+    await provider.aclose()
+
+
+def test_redactor_retains_rotated_secret_values_after_cache_expiry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    responses = iter(["old-secret", "new-secret"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        try:
+            value = next(responses)
+        except StopIteration:
+            raise RuntimeError("transport echoed old-secret") from None
+        return httpx.Response(200, json={"data": {"data": {"value": value}}})
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        cache_ttl=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert provider.resolve_secret("rotating", tenant_id="tenant-a") == "old-secret"
+    assert provider.resolve_secret("rotating", tenant_id="tenant-a") == "new-secret"
+    with caplog.at_level(logging.WARNING):
+        assert provider.resolve_secret("rotating", tenant_id="tenant-a") is None
+
+    assert "old-secret" not in caplog.text
+    assert "[REDACTED:SECRET]" in caplog.text
 
 
 def test_resolve_never_logs_secret_value(caplog: pytest.LogCaptureFixture) -> None:
@@ -218,9 +394,7 @@ def test_approle_token_reauth_on_expiry_retries_and_refreshes() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/auth/approle/login"):
             state["logins"] += 1
-            return httpx.Response(
-                200, json={"auth": {"client_token": f"token-{state['logins']}"}}
-            )
+            return httpx.Response(200, json={"auth": {"client_token": f"token-{state['logins']}"}})
         state["secret_gets"] += 1
         token = request.headers.get("X-Vault-Token")
         if state["secret_gets"] == 1:

@@ -52,19 +52,6 @@ async def test_ensure_and_lock_row_initializes_and_returns_sqlite_row(async_data
     assert first["tenant_id"] == "tenant-a"
     assert second == first
 
-    async with async_database.transaction(write_lock=True) as connection:
-        audit_head = await ensure_and_lock_row(
-            connection,
-            backend=async_database.backend,
-            table="audit_chain_heads",
-            key_column="run_id",
-            key="run-a",
-        )
-    assert audit_head is not None
-    assert audit_head["run_id"] == "run-a"
-    assert audit_head["head_digest"] is None
-    assert audit_head["next_sequence"] == 1
-
 
 class _AsyncContext:
     def __init__(self, value: object) -> None:

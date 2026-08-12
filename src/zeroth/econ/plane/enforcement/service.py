@@ -4,13 +4,25 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.enforcement.models import AuditLog, EnforcementAction, PolicyAction, TenantBudget, TrafficPolicy
 from zeroth.econ.plane.enforcement.schemas import EnforcementActionCreate
+from zeroth.econ.plane.scoped_session import ScopedSession
+
+
+def _require_exact_scoped_session(db: object) -> ScopedSession:
+    if type(db) is not ScopedSession:
+        raise TypeError("enforcement persistence requires an exact ScopedSession")
+    return db
+
+
+def _bound_tenant(db: ScopedSession) -> str:
+    db = _require_exact_scoped_session(db)
+    if db.scope is None:
+        raise ValueError("enforcement persistence requires a tenant-bound scope")
+    return db.scope.tenant_id
 
 
 _ACTION_MAP = {
@@ -22,14 +34,15 @@ _ACTION_MAP = {
 
 
 def _propose_policy_action(
-    db: Session,
+    db: ScopedSession,
     capability_id: str,
     action_type: str,
     payload_json: dict,
     confidence_state_json: dict | None = None,
 ) -> PolicyAction:
+    db = _require_exact_scoped_session(db)
     row = PolicyAction(
-        tenant_id=resolve_tenant_id(None),
+        tenant_id=_bound_tenant(db),
         capability_id=capability_id,
         proposed_at=datetime.now(timezone.utc),
         proposed_by="system",
@@ -62,7 +75,8 @@ def _propose_policy_action(
     return row
 
 
-def create_action(db: Session, payload: EnforcementActionCreate) -> EnforcementAction:
+def create_action(db: ScopedSession, payload: EnforcementActionCreate) -> EnforcementAction:
+    db = _require_exact_scoped_session(db)
     row = EnforcementAction(
         capability_id=payload.capability_id,
         action_type=payload.action_type,
@@ -90,21 +104,26 @@ def create_action(db: Session, payload: EnforcementActionCreate) -> EnforcementA
     return row
 
 
-def list_actions(db: Session, status: Optional[str] = None) -> list[EnforcementAction]:
+def list_actions(db: ScopedSession, status: Optional[str] = None) -> list[EnforcementAction]:
+    db = _require_exact_scoped_session(db)
     stmt = select(EnforcementAction)
     if status:
         stmt = stmt.where(EnforcementAction.status == status)
     return list(db.execute(stmt.order_by(EnforcementAction.id.desc())).scalars())
 
 
-def list_policy_actions(db: Session, status: Optional[str] = None) -> list[PolicyAction]:
+def list_policy_actions(db: ScopedSession, status: Optional[str] = None) -> list[PolicyAction]:
+    db = _require_exact_scoped_session(db)
     stmt = select(PolicyAction)
     if status:
         stmt = stmt.where(PolicyAction.status == status.upper())
     return list(db.execute(stmt.order_by(PolicyAction.id.desc())).scalars())
 
 
-def _apply_traffic_policy(db: Session, capability_id: str, after_config: dict) -> None:
+def _apply_traffic_policy(
+    db: ScopedSession, capability_id: str, after_config: dict
+) -> None:
+    db = _require_exact_scoped_session(db)
     policy = db.execute(select(TrafficPolicy).where(TrafficPolicy.capability_id == capability_id)).scalar_one_or_none()
     if policy is None:
         policy = TrafficPolicy(capability_id=capability_id, weights=after_config)
@@ -113,7 +132,14 @@ def _apply_traffic_policy(db: Session, capability_id: str, after_config: dict) -
         policy.weights = after_config
 
 
-def decide_action(db: Session, action_id: int, decision: str, approver_sub: str, reason: str) -> Optional[EnforcementAction]:
+def decide_action(
+    db: ScopedSession,
+    action_id: int,
+    decision: str,
+    approver_sub: str,
+    reason: str,
+) -> Optional[EnforcementAction]:
+    db = _require_exact_scoped_session(db)
     row = db.get(EnforcementAction, action_id)
     if row is None:
         return None
@@ -194,8 +220,9 @@ def decide_action(db: Session, action_id: int, decision: str, approver_sub: str,
     return row
 
 
-def get_budget_status(db: Session, tenant_id: str) -> dict:
+def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
     """Month-to-date spend (execution_events cost columns) vs the tenant's cap."""
+    db = _require_exact_scoped_session(db)
     from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 
     now = datetime.now(timezone.utc)
@@ -227,7 +254,10 @@ def get_budget_status(db: Session, tenant_id: str) -> dict:
     }
 
 
-def upsert_tenant_budget(db: Session, tenant_id: str, budget_cap_usd: float) -> TenantBudget:
+def upsert_tenant_budget(
+    db: ScopedSession, tenant_id: str, budget_cap_usd: float
+) -> TenantBudget:
+    db = _require_exact_scoped_session(db)
     row = db.execute(
         select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
     ).scalar_one_or_none()

@@ -14,7 +14,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+)
 from zeroth.runtime.runs import Run, Thread, ThreadMemoryBinding, ThreadStatus
 
 if TYPE_CHECKING:
@@ -64,8 +68,6 @@ class RepositoryThreadResolver:
         *,
         graph_version_ref: str,
         deployment_ref: str,
-        tenant_id: str = "default",
-        workspace_id: str | None = None,
         participating_agent_refs: list[str] | None = None,
         state_snapshot_refs: list[str] | None = None,
         checkpoint_refs: list[str] | None = None,
@@ -74,21 +76,11 @@ class RepositoryThreadResolver:
         status: ThreadStatus | None = None,
     ) -> ThreadResolution:
         """Look up a thread by ID, or create one if it does not exist yet."""
-        created = (
-            thread_id is None
-            or await self.thread_repository.get(
-                thread_id,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
-            is None
-        )
+        created = thread_id is None or await self.thread_repository.get(thread_id) is None
         thread = await self.thread_repository.resolve(
             thread_id,
             graph_version_ref=graph_version_ref,
             deployment_ref=deployment_ref,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
             participating_agent_refs=participating_agent_refs,
             state_snapshot_refs=state_snapshot_refs,
             checkpoint_refs=checkpoint_refs,
@@ -129,8 +121,17 @@ class RepositoryThreadStateStore:
                 raise ValueError("database or repository instances are required")
             from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
-            run_repository = run_repository or RunRepository(database)
-            thread_repository = thread_repository or ThreadRepository(database)
+            scope_context = (
+                ScopeContext.for_default_compatibility(workspace_id=workspace_id)
+                if tenant_id == "default" and workspace_id is not None
+                else NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else ScopeContext(tenant_id=tenant_id, workspace_id=workspace_id)
+                if workspace_id is not None
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            run_repository = run_repository or RunRepository(database, scope_context)
+            thread_repository = thread_repository or ThreadRepository(database, scope_context)
         self._run_repository = run_repository
         self._thread_repository = thread_repository
         self._database: AsyncDatabase | None = database
@@ -139,17 +140,11 @@ class RepositoryThreadStateStore:
 
     async def load(self, thread_id: str) -> dict[str, Any] | None:
         """Load the most recent state snapshot for a thread from the database."""
-        thread = await self._thread_repository.get(
-            thread_id, tenant_id=self._tenant_id, workspace_id=self._workspace_id
-        )
+        thread = await self._thread_repository.get(thread_id)
         if thread is None:
             return None
         for checkpoint_id in reversed(thread.state_snapshot_refs or thread.checkpoint_refs):
-            checkpoint = await self._run_repository.get_checkpoint(
-                checkpoint_id,
-                tenant_id=self._tenant_id,
-                workspace_id=self._workspace_id,
-            )
+            checkpoint = await self._run_repository.get_checkpoint(checkpoint_id)
             if checkpoint is None:
                 continue
             if not self._is_thread_state_checkpoint(checkpoint):
@@ -165,9 +160,7 @@ class RepositoryThreadStateStore:
 
     async def checkpoint(self, thread_id: str, state: dict[str, Any]) -> str:
         """Save a state snapshot for the thread and return the checkpoint ID."""
-        thread = await self._thread_repository.get(
-            thread_id, tenant_id=self._tenant_id, workspace_id=self._workspace_id
-        )
+        thread = await self._thread_repository.get(thread_id)
         if thread is None:
             raise KeyError(thread_id)
 
@@ -178,8 +171,6 @@ class RepositoryThreadStateStore:
             thread_id,
             graph_version_ref=thread.graph_version_ref,
             deployment_ref=thread.deployment_ref,
-            tenant_id=thread.tenant_id,
-            workspace_id=thread.workspace_id,
             state_snapshot_refs=[checkpoint_id],
             checkpoint_refs=[checkpoint_id],
             status=thread.status,

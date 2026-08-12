@@ -52,12 +52,12 @@ class WebhookDeliveryWorker:
         """Continuously claim and deliver pending webhooks until cancelled."""
         while True:
             try:
-                delivery = await self.repository.claim_pending_delivery()
-                if delivery is not None:
+                claim = await self.repository.claim_pending_delivery()
+                if claim is not None:
                     await self._semaphore.acquire()
                     task = asyncio.create_task(
-                        self._deliver_with_semaphore(delivery),
-                        name=f"webhook-{delivery.delivery_id}",
+                        self._deliver_with_semaphore(claim.delivery, claim.generation),
+                        name=f"webhook-{claim.delivery.delivery_id}",
                     )
                     self._active_tasks.add(task)
                     task.add_done_callback(self._active_tasks.discard)
@@ -69,14 +69,14 @@ class WebhookDeliveryWorker:
                 logger.exception("webhook delivery poll error")
                 await asyncio.sleep(self.poll_interval)
 
-    async def _deliver_with_semaphore(self, delivery: WebhookDelivery) -> None:
+    async def _deliver_with_semaphore(self, delivery: WebhookDelivery, generation: int) -> None:
         """Deliver a webhook and release the semaphore afterwards."""
         try:
-            await self._deliver(delivery)
+            await self._deliver(delivery, generation)
         finally:
             self._semaphore.release()
 
-    async def _deliver(self, delivery: WebhookDelivery) -> None:
+    async def _deliver(self, delivery: WebhookDelivery, generation: int) -> None:
         """Send an HTTP POST for a single delivery."""
         sub = await self.repository.get_subscription(delivery.subscription_id)
         if sub is None:
@@ -87,6 +87,7 @@ class WebhookDeliveryWorker:
             )
             await self.repository.mark_failed(
                 delivery.delivery_id,
+                generation,
                 error="subscription not found",
                 status_code=None,
                 retry_delay=0,
@@ -105,7 +106,7 @@ class WebhookDeliveryWorker:
                 delivery.delivery_id,
                 sub.subscription_id,
             )
-            await self.repository.dead_letter(delivery.delivery_id)
+            await self.repository.dead_letter(delivery.delivery_id, generation)
             return
         payload_bytes = delivery.payload_json.encode("utf-8")
         signature = sign_payload(payload_bytes, sub.secret)
@@ -129,40 +130,44 @@ class WebhookDeliveryWorker:
                 extensions={"sni_hostname": approved.sni_hostname},
             )
             if 200 <= response.status_code < 300:
-                await self.repository.mark_delivered(delivery.delivery_id)
+                await self.repository.mark_delivered(delivery.delivery_id, generation)
             else:
                 await self._handle_failure(
                     delivery,
+                    generation,
                     error=f"HTTP {response.status_code}",
                     status_code=response.status_code,
                 )
         except httpx.TimeoutException:
-            await self._handle_failure(delivery, error="timeout", status_code=None)
+            await self._handle_failure(delivery, generation, error="timeout", status_code=None)
         except httpx.HTTPError as exc:
-            await self._handle_failure(delivery, error=str(exc), status_code=None)
+            await self._handle_failure(delivery, generation, error=str(exc), status_code=None)
 
     async def _handle_failure(
         self,
         delivery: WebhookDelivery,
+        generation: int,
         *,
         error: str,
         status_code: int | None,
     ) -> None:
         """Handle a failed delivery: retry or dead-letter."""
-        next_attempt = delivery.attempt_count + 1
-        if next_attempt >= delivery.max_attempts:
-            await self.repository.dead_letter(delivery.delivery_id)
+        if delivery.attempt_count >= delivery.max_attempts:
+            await self.repository.dead_letter(delivery.delivery_id, generation)
             logger.warning(
                 "webhook delivery %s dead-lettered after %d attempts",
                 delivery.delivery_id,
-                next_attempt,
+                delivery.attempt_count,
             )
         else:
             delay = next_retry_delay(
-                delivery.attempt_count, self.retry_base_delay, self.retry_max_delay
+                max(0, delivery.attempt_count - 1),
+                self.retry_base_delay,
+                self.retry_max_delay,
             )
             await self.repository.mark_failed(
                 delivery.delivery_id,
+                generation,
                 error=error,
                 status_code=status_code,
                 retry_delay=delay,

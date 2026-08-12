@@ -34,6 +34,7 @@ from zeroth.integrations.langgraph import (
 )
 from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 from zeroth.service.langgraph_gateway.enforcement import (
     ActionDescriptorV1,
@@ -112,7 +113,9 @@ async def _service(
 ):
     signer = _signer()
     codec = ReservedContextCodec(signer, clock=lambda: 150)
-    repository = LangGraphEnforcementRepository(sqlite_db)
+    repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
     service = LangGraphEnforcementService(
         repository,
         codec=codec,

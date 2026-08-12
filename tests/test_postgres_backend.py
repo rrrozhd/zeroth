@@ -47,7 +47,7 @@ class TestRunRepositoryDualBackend:
         from zeroth.integrations.persistence.runs import RunRepository
         from zeroth.runtime.runs import Run
 
-        repo = RunRepository(dual_database)
+        repo = RunRepository.for_default_compatibility(dual_database)
         run = await repo.create(
             Run(
                 graph_version_ref="graph:v1",
@@ -65,7 +65,7 @@ class TestRunRepositoryDualBackend:
         from zeroth.integrations.persistence.runs import RunRepository
         from zeroth.runtime.runs import Run
 
-        repo = RunRepository(dual_database)
+        repo = RunRepository.for_default_compatibility(dual_database)
 
         await repo.create(
             Run(

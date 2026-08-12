@@ -182,7 +182,6 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         # ignored so one tenant cannot enumerate another's subscriptions (F8).
         subs = await webhook_service.list_subscriptions(
             deployment_ref=deployment.deployment_ref,
-            tenant_id=deployment.tenant_id,
         )
         return WebhookSubscriptionListResponse(
             subscriptions=[_serialize_subscription(s) for s in subs],
@@ -356,7 +355,6 @@ async def _served_subscription_ids(request: Request, deployment: Any) -> set[str
     webhook_service = _webhook_service(request)
     subs = await webhook_service.list_subscriptions(
         deployment_ref=deployment.deployment_ref,
-        tenant_id=deployment.tenant_id,
     )
     return {s.subscription_id for s in subs}
 

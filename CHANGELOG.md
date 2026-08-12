@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-12
+
+### Changed
+
+- Persistent resource ownership is declared in one closed registry. Tenant-bound
+  SQLAlchemy sessions, structured async tables, and non-relational resource drivers now
+  apply scope at the storage boundary; a generated matrix exercises every registered
+  physical resource and declared persistence operation (ZER-44).
+- Econ authorization derives tenant and workspace scope from provisioned identities, and
+  scoped migrations partition operational rows, connector state, contracts, audit chains,
+  runs, webhooks, retention state, legal holds, and gateway state by tenant (ZER-44).
+
+### Fixed
+
+- Cross-tenant identifiers no longer resolve another tenant's execution, capability,
+  connector, outbox, contract, audit chain, run, checkpoint, webhook, retention, legal-hold,
+  or gateway row. Foreign resources retain the same empty or unknown observable as missing
+  resources, including artifact and secret surfaces (ZER-44 / A01-14, A01-32, A01-29,
+  A01-26, A02-1, A02-2, A02-26, A03-1, A06-3, A06-19, A07-19, A08-9, A10-6).
 ## [0.22.4] - 2026-08-12
 
 ### Added

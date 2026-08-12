@@ -126,7 +126,7 @@ def _make_orchestrator(
 ) -> RuntimeOrchestrator:
     eu_registry = ExecutableUnitRegistry()
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=agent_runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
         audit_repository=audit_repository,
@@ -174,7 +174,7 @@ def _fan_out_graph(*, max_total_steps: int = 50) -> Graph:
 @pytest.mark.asyncio
 async def test_per_branch_audit_records(sqlite_db) -> None:
     """3-branch fan-out produces 3 separate NodeAuditRecords with branch_id."""
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     orchestrator = _make_orchestrator(
         {"source": _source_runner(), "sink": _sink_runner()},
         sqlite_db,
@@ -202,7 +202,7 @@ async def test_per_branch_audit_records(sqlite_db) -> None:
 @pytest.mark.asyncio
 async def test_per_branch_audit_linked_to_parent(sqlite_db) -> None:
     """All branch audit records have same run_id as parent."""
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     orchestrator = _make_orchestrator(
         {"source": _source_runner(), "sink": _sink_runner()},
         sqlite_db,
@@ -231,7 +231,7 @@ async def test_failed_branch_dispatch_records_failed_audit(sqlite_db) -> None:
         output_model=ProcessedOutput,
         handler=_raise,
     )
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     orchestrator = _make_orchestrator(
         {"source": _source_runner(), "sink": failing_sink},
         sqlite_db,
@@ -267,7 +267,7 @@ async def test_batched_fan_out_audits_every_branch_across_waves(sqlite_db) -> No
     Five items with ``batch_size=2`` run as waves [0,1],[2,3],[4]; all five
     branch audits must be present with distinct, contiguous branch indices.
     """
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     source = _make_agent_runner(
         output_model=ItemsOutput,
         handler=lambda req: ProviderResponse(
@@ -640,7 +640,7 @@ def _memory_fan_out(sqlite_db, *, sink_capabilities: list[str]):
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"source": _source_runner(), "sink": _memory_sink_runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         policy_guard=PolicyGuard(capability_registry=default_capability_registry()),

@@ -17,7 +17,7 @@ from zeroth.service.webhooks.service import WebhookService
 
 @pytest.fixture
 async def webhook_repo(sqlite_db):
-    return WebhookRepository(sqlite_db)
+    return WebhookRepository.for_default_compatibility(sqlite_db)
 
 
 @pytest.fixture
@@ -151,7 +151,9 @@ class TestReplayDeadLetter:
             attempt_count=1,
         )
         delivery = await webhook_repo.enqueue_delivery(delivery)
-        await webhook_repo.dead_letter(delivery.delivery_id)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await webhook_repo.dead_letter(delivery.delivery_id, claim.generation)
 
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 1

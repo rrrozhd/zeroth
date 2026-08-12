@@ -20,6 +20,7 @@ from zeroth.service.demo import (
     build_hello_graph,
     seed_demo,
 )
+from tests.service.helpers import agent_graph, deploy_service
 
 
 async def test_seed_demo_creates_published_graph_and_deployment(sqlite_db):
@@ -29,7 +30,7 @@ async def test_seed_demo_creates_published_graph_and_deployment(sqlite_db):
     assert deployment.graph_id == DEMO_GRAPH_ID
     assert deployment.graph_version_ref == f"{DEMO_GRAPH_ID}@1"
 
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     assert await registry.latest_version(DEMO_INPUT_CONTRACT) == 1
     assert await registry.latest_version(DEMO_OUTPUT_CONTRACT) == 1
 
@@ -43,7 +44,7 @@ async def test_seed_demo_is_idempotent(sqlite_db):
 
 
 async def test_factory_builds_runner_from_agent_node_data(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await registry.register(DemoQuestion, name=DEMO_INPUT_CONTRACT)
     await registry.register(DemoAnswer, name=DEMO_OUTPUT_CONTRACT)
 
@@ -59,7 +60,7 @@ async def test_factory_builds_runner_from_agent_node_data(sqlite_db):
 
 
 async def test_factory_preserves_declared_mcp_servers(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await registry.register(DemoQuestion, name=DEMO_INPUT_CONTRACT)
     await registry.register(DemoAnswer, name=DEMO_OUTPUT_CONTRACT)
 
@@ -76,7 +77,7 @@ async def test_factory_preserves_declared_mcp_servers(sqlite_db):
 
 
 async def test_factory_raises_actionable_error_for_unregistered_contract(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     graph = build_hello_graph()
 
     with pytest.raises(AgentRunnerFactoryError, match="agent"):
@@ -94,6 +95,35 @@ async def test_build_runners_for_deployment_roundtrip(sqlite_db):
 
 async def test_build_runners_for_missing_deployment_returns_none(sqlite_db):
     assert await build_runners_for_deployment(sqlite_db, "nope") is None
+
+
+async def test_build_runners_resolves_non_default_deployment_in_exact_scope(sqlite_db):
+    _, deployment = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="tenant-runner-graph"),
+        deployment_ref="tenant-runner-deployment",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    assert (
+        await build_runners_for_deployment(
+            sqlite_db,
+            deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
+            workspace_id="other-workspace",
+        )
+        is None
+    )
+    runners = await build_runners_for_deployment(
+        sqlite_db,
+        deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+    )
+
+    assert runners is not None
+    assert set(runners) == {"agent-step"}
 
 
 def test_cli_parser_has_expected_subcommands():

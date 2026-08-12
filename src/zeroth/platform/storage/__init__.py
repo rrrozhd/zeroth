@@ -25,24 +25,83 @@ from zeroth.platform.storage.redis import (
     RedisDeploymentMode,
     docker_container_running,
 )
+from zeroth.platform.storage.scoped_resource import ScopedOperation, ScopedResourceDriver
+from zeroth.platform.storage.scoped_table import (
+    ASYNC_NON_PERSISTENCE_MODULES,
+    ASYNC_PERSISTENCE_MODULES,
+    ECON_MIGRATION_SCOPE_DEFINITIONS,
+    SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES,
+    SERVICE_SCOPE_DEFINITIONS,
+    SERVICE_SCOPE_REGISTRY,
+    GlobalTable,
+    ScopedJoin,
+    ScopedTable,
+)
+from zeroth.platform.storage.scoping import (
+    CrossTenantMaintenanceScopeContext,
+    NullWorkspaceScopeContext,
+    PersistenceSurface,
+    ResourceOperation,
+    ResourceScope,
+    ResourceScopeDefinition,
+    ResourceScopeRegistry,
+    ScopeContext,
+    TenantWideScopeContext,
+    discover_persistence_surfaces,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_resource_operations,
+    persistence_surface,
+    persistence_surfaces,
+    register_persistence_surface,
+    validate_persistence_surface,
+)
 from zeroth.platform.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
 
 if TYPE_CHECKING:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
 __all__ = [
+    "ASYNC_PERSISTENCE_MODULES",
+    "ASYNC_NON_PERSISTENCE_MODULES",
     "AsyncConnection",
     "AsyncDatabase",
     "AsyncPostgresDatabase",
     "AsyncSQLiteDatabase",
+    "CrossTenantMaintenanceScopeContext",
     "EncryptedField",
+    "ECON_MIGRATION_SCOPE_DEFINITIONS",
+    "GlobalTable",
     "Migration",
+    "NullWorkspaceScopeContext",
     "RedisConfig",
     "RedisDeploymentMode",
+    "ResourceOperation",
+    "PersistenceSurface",
+    "ResourceScope",
+    "ResourceScopeDefinition",
+    "ResourceScopeRegistry",
+    "ScopeContext",
+    "SERVICE_SCOPE_DEFINITIONS",
+    "SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES",
+    "SERVICE_SCOPE_REGISTRY",
+    "ScopedJoin",
+    "ScopedOperation",
+    "ScopedResourceDriver",
+    "ScopedTable",
     "SQLiteDatabase",
+    "TenantWideScopeContext",
     "create_database",
     "docker_container_running",
+    "discover_persistence_surfaces",
     "ensure_and_lock_row",
+    "named_isolation_probe",
+    "persistence_operation",
+    "persistence_resource_operations",
+    "persistence_surface",
+    "persistence_surfaces",
+    "register_persistence_surface",
+    "validate_persistence_surface",
 ]
 
 

@@ -118,7 +118,7 @@ def _make_orchestrator(
     """Build a RuntimeOrchestrator with minimal config."""
     eu_registry = ExecutableUnitRegistry()
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=agent_runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
         audit_repository=audit_repository,
@@ -442,7 +442,7 @@ async def test_fan_out_audit_refs_merged(sqlite_db) -> None:
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
 
-    audit_repo = AuditRepository(sqlite_db)
+    audit_repo = AuditRepository.for_default_compatibility(sqlite_db)
     orchestrator = _make_orchestrator(
         {"source": source_runner, "sink": sink_runner},
         sqlite_db,
@@ -463,7 +463,7 @@ async def test_operator_cancel_during_fan_out_stops_before_downstream(sqlite_db)
     branches are running is observed at the fan-in, so the downstream node after
     the fan-in never dispatches and the run ends FAILED.
     """
-    repo = RunRepository(sqlite_db)
+    repo = RunRepository.for_default_compatibility(sqlite_db)
     run_id_box: dict[str, str] = {}
 
     source_runner = _make_agent_runner(

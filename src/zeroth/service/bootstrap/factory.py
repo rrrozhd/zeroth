@@ -11,7 +11,7 @@ from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
@@ -66,7 +66,7 @@ from zeroth.platform.signing import (
     build_signing_provider_async,
     build_verification_provider_async,
 )
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.provider import ProviderAdapter
@@ -118,10 +118,12 @@ def _configured_policy_registry(
     return registry
 
 
-async def bootstrap_service(
+async def bootstrap_scoped_service(
     database: AsyncDatabase,
     *,
     deployment_ref: str,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
     agent_runners: Mapping[str, AgentRunner] | None = None,
     executable_unit_runner: ExecutableUnitRunner | None = None,
     auth_config: ServiceAuthConfig | None = None,
@@ -131,22 +133,29 @@ async def bootstrap_service(
     secret_provider: SecretProvider | None = None,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
-    # Phase 43-02 (D-15): wire GraphValidator into GraphRepository so
-    # publish() rejects graphs with invalid parallel configs BEFORE the
-    # DRAFT -> PUBLISHED state transition.
-    _contract_registry = ContractRegistry(database)
+    deployment_repository = SQLiteDeploymentRepository(database)
+    deployment = await deployment_repository.get(
+        deployment_ref,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
+    if deployment is None:
+        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
+
+    # The persisted deployment is the trusted bootstrap boundary: it fixes the
+    # tenant whose contracts this deployment may resolve before any registry
+    # or graph validator is constructed.
+    _contract_registry = ContractRegistry.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
     _graph_validator = GraphValidator(contract_registry=_contract_registry)
     graph_repository = GraphRepository(database, validator=_graph_validator)
-    deployment_repository = SQLiteDeploymentRepository(database)
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
         contract_registry=_contract_registry,
     )
-    deployment = await deployment_service.get(deployment_ref)
-    if deployment is None:
-        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
-
     try:
         graph = hydrate_deployed_graph(deployment)
     except Exception as exc:  # pragma: no cover - defensive wrapper
@@ -165,10 +174,16 @@ async def bootstrap_service(
             f"graph metadata for {deployment_ref!r}"
         )
 
-    run_repository = RunRepository(database)
-    thread_repository = ThreadRepository(database)
-    audit_repository = AuditRepository(database)
-    approval_repository = ApprovalRepository(database)
+    deployment_scope = contract_scope_context(deployment.tenant_id, deployment.workspace_id)
+    run_repository = RunRepository(database, deployment_scope)
+    thread_repository = ThreadRepository(database, deployment_scope)
+    audit_repository = AuditRepository.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
+    approval_repository = ApprovalRepository.scoped_for_deployment(
+        database, deployment_scope, deployment.deployment_ref
+    )
     approval_service = ApprovalService(
         repository=approval_repository,
         run_repository=run_repository,
@@ -182,7 +197,11 @@ async def bootstrap_service(
     # boundary into a recognisable repeat. Constructed here so live executions get
     # replay suppression and operation metrics -- the dispatch path is a
     # pass-through whenever this is absent.
-    operation_store = SideEffectOperationStore(database, metrics_collector=metrics_collector)
+    operation_store = SideEffectOperationStore(
+        database,
+        deployment_scope,
+        metrics_collector=metrics_collector,
+    )
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,
@@ -205,8 +224,13 @@ async def bootstrap_service(
         run_repository=run_repository,
         max_failure_count=resolved_guardrail_config.max_failure_count,
     )
-    rate_limiter = TokenBucketRateLimiter(database)
-    quota_enforcer = QuotaEnforcer(database)
+    guardrail_scope = (
+        NullWorkspaceScopeContext.for_default_compatibility()
+        if deployment.tenant_id == "default"
+        else NullWorkspaceScopeContext(tenant_id=deployment.tenant_id)
+    )
+    rate_limiter = TokenBucketRateLimiter.scoped(database, guardrail_scope)
+    quota_enforcer = QuotaEnforcer.scoped(database, guardrail_scope)
     queue_gauge = QueueDepthGauge(
         run_repository=run_repository,
         deployment_ref=deployment.deployment_ref,
@@ -394,11 +418,12 @@ async def bootstrap_service(
             f"Unknown artifact store backend: {artifact_settings.backend!r}. "
             "Must be 'filesystem' or 'redis'."
         )
-    if artifact_store is not None:
+    artifact_backend = artifact_store
+    if artifact_backend is not None:
         from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
         artifact_store = TenantScopedArtifactStore(
-            artifact_store,
+            artifact_backend,
             tenant_id=deployment.tenant_id,
             workspace_id=deployment.workspace_id,
         )
@@ -482,7 +507,7 @@ async def bootstrap_service(
             from zeroth.service.webhooks.repository import WebhookRepository
             from zeroth.service.webhooks.service import WebhookService
 
-            webhook_repository = WebhookRepository(database)
+            webhook_repository = WebhookRepository(database, deployment_scope)
             webhook_service_obj = WebhookService(
                 repository=webhook_repository,
                 default_max_retries=settings.webhook.default_max_retries,
@@ -528,11 +553,14 @@ async def bootstrap_service(
     # The econ-event eraser is intentionally left unwired here (None) — see
     # docs/retention-and-erasure.md for the run->join_key deferral.
     from zeroth.governance.retention import (
+        EnabledPolicyMaintenanceReader,
         LegalHoldRepository,
         RetentionAuditLogRepository,
         RetentionErasureService,
+        RetentionOwnerMaintenanceReader,
         RetentionPolicyRepository,
         RetentionPurgeWorker,
+        RetentionWorkspaceMaintenanceReader,
     )
 
     retention_default_policy = None
@@ -550,11 +578,16 @@ async def bootstrap_service(
             audit_ttl_seconds=settings.retention.default_audit_ttl_seconds,
             run_ttl_seconds=settings.retention.default_run_ttl_seconds,
         )
-    retention_policy_repository = RetentionPolicyRepository(
-        database, default_policy=retention_default_policy
+    retention_scope = (
+        NullWorkspaceScopeContext.for_default_compatibility()
+        if deployment.tenant_id == "default"
+        else NullWorkspaceScopeContext(tenant_id=deployment.tenant_id)
     )
-    legal_hold_repository = LegalHoldRepository(database)
-    retention_log_repository = RetentionAuditLogRepository(database)
+    retention_policy_repository = RetentionPolicyRepository.scoped(
+        database, retention_scope, default_policy=retention_default_policy
+    )
+    legal_hold_repository = LegalHoldRepository(database, retention_scope)
+    retention_log_repository = RetentionAuditLogRepository(database, retention_scope)
     retention_erasure_service = RetentionErasureService(
         audit_repository=audit_repository,
         run_repository=run_repository,
@@ -566,9 +599,52 @@ async def bootstrap_service(
     )
     retention_worker_obj: object | None = None
     if settings.retention.enabled:
-        retention_worker_obj = RetentionPurgeWorker(
-            erasure_service=retention_erasure_service,
-            policy_repository=retention_policy_repository,
+
+        def policy_repository_for(tenant_id: str) -> RetentionPolicyRepository:
+            scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            return RetentionPolicyRepository.scoped(
+                database, scope, default_policy=retention_default_policy
+            )
+
+        def retention_service_for(
+            tenant_scope: ScopeContext | NullWorkspaceScopeContext,
+        ) -> RetentionErasureService:
+            tenant_id = tenant_scope.tenant_id
+            workspace_id = tenant_scope.workspace_id if type(tenant_scope) is ScopeContext else None
+            null_scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            tenant_artifacts = None
+            if artifact_backend is not None:
+                from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+
+                tenant_artifacts = TenantScopedArtifactStore(
+                    artifact_backend, tenant_id=tenant_id, workspace_id=workspace_id
+                )
+            return RetentionErasureService(
+                audit_repository=AuditRepository.scoped(database, tenant_scope, signer),
+                run_repository=RunRepository(database, tenant_scope),
+                policy_repository=policy_repository_for(tenant_id),
+                legal_hold_repository=LegalHoldRepository(database, null_scope),
+                log_repository=RetentionAuditLogRepository(database, null_scope),
+                artifact_store=tenant_artifacts,
+                econ_eraser=None,
+            )
+
+        retention_worker_obj = RetentionPurgeWorker.for_shared_database(
+            policy_reader=EnabledPolicyMaintenanceReader(database),
+            tenant_reader=RetentionOwnerMaintenanceReader(database),
+            policy_repository_factory=policy_repository_for,
+            workspace_reader_factory=lambda tenant_id: RetentionWorkspaceMaintenanceReader(
+                database, tenant_id
+            ),
+            erasure_service_factory=retention_service_for,
             poll_interval=settings.retention.worker_poll_interval,
         )
 
@@ -600,7 +676,10 @@ async def bootstrap_service(
             budget_checker=budget_enforcer,
         ),
         inventory=RegisteredInventoryLookup(inventory_registration_repository),
-        deployment_policies=DeploymentRecordPolicyResolver(deployment_service.get),
+        deployment_policies=DeploymentRecordPolicyResolver(
+            deployment_service.get,
+            workspace_id=deployment.workspace_id,
+        ),
         # Without a gate the service defaults to ``NoApprovalRequired``,
         # which answers "no hold" for every call -- so a policy carrying
         # ``approval_required_for_side_effects`` was silently ignored for
@@ -653,7 +732,9 @@ async def bootstrap_service(
                 timeout_seconds=gateway_settings.connect_timeout_seconds,
             )
             gateway_compatibility = await detector.detect()
-            langgraph_enforcement_repository = LangGraphEnforcementRepository(database)
+            langgraph_enforcement_repository = LangGraphEnforcementRepository(
+                database, deployment_scope
+            )
             langgraph_enforcement_service = LangGraphEnforcementService(
                 langgraph_enforcement_repository,
                 codec=context_codec,
@@ -810,6 +891,58 @@ async def bootstrap_service(
     return bootstrap
 
 
+async def bootstrap_service(
+    database: AsyncDatabase,
+    *,
+    deployment_ref: str,
+    agent_runners: Mapping[str, AgentRunner] | None = None,
+    executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
+    guardrail_config: GuardrailConfig | None = None,
+    enable_durable_worker: bool = True,
+    secret_provider: SecretProvider | None = None,
+) -> ServiceBootstrap:
+    """Build the reserved-default deployment service with the legacy signature."""
+    return await bootstrap_scoped_service(
+        database,
+        deployment_ref=deployment_ref,
+        agent_runners=agent_runners,
+        executable_unit_runner=executable_unit_runner,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
+        guardrail_config=guardrail_config,
+        enable_durable_worker=enable_durable_worker,
+        secret_provider=secret_provider,
+    )
+
+
+async def bootstrap_scoped_app(
+    database: AsyncDatabase,
+    *,
+    deployment_ref: str,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
+    agent_runners: Mapping[str, AgentRunner] | None = None,
+    executable_unit_runner: ExecutableUnitRunner | None = None,
+    auth_config: ServiceAuthConfig | None = None,
+    bearer_token_verifier: JWTBearerTokenVerifier | None = None,
+) -> FastAPI:
+    """Build the FastAPI app for a specific deployment."""
+    return create_app(
+        await bootstrap_scoped_service(
+            database,
+            deployment_ref=deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            agent_runners=agent_runners,
+            executable_unit_runner=executable_unit_runner,
+            auth_config=auth_config,
+            bearer_token_verifier=bearer_token_verifier,
+        )
+    )
+
+
 async def bootstrap_app(
     database: AsyncDatabase,
     *,
@@ -819,16 +952,14 @@ async def bootstrap_app(
     auth_config: ServiceAuthConfig | None = None,
     bearer_token_verifier: JWTBearerTokenVerifier | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app for a specific deployment."""
-    return create_app(
-        await bootstrap_service(
-            database,
-            deployment_ref=deployment_ref,
-            agent_runners=agent_runners,
-            executable_unit_runner=executable_unit_runner,
-            auth_config=auth_config,
-            bearer_token_verifier=bearer_token_verifier,
-        )
+    """Build the reserved-default deployment app with the legacy signature."""
+    return await bootstrap_scoped_app(
+        database,
+        deployment_ref=deployment_ref,
+        agent_runners=agent_runners,
+        executable_unit_runner=executable_unit_runner,
+        auth_config=auth_config,
+        bearer_token_verifier=bearer_token_verifier,
     )
 
 
@@ -836,6 +967,8 @@ async def build_runners_for_deployment(
     database: AsyncDatabase,
     deployment_ref: str,
     *,
+    tenant_id: str = "default",
+    workspace_id: str | None = None,
     provider: ProviderAdapter | None = None,
     secret_provider: SecretProvider | None = None,
     allow_env_fallback: bool = True,
@@ -853,11 +986,18 @@ async def build_runners_for_deployment(
     runtime factory builds runners from a graph it is handed, while this
     helper resolves the deployment and constructs the concrete repository.
     """
-    deployment = await SQLiteDeploymentRepository(database).get(deployment_ref)
+    deployment = await SQLiteDeploymentRepository(database).get(
+        deployment_ref,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if deployment is None:
         return None
     graph = hydrate_deployed_graph(deployment)
-    registry = ContractRegistry(database)
+    registry = ContractRegistry.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
     return await build_agent_runners(
         graph,
         registry,

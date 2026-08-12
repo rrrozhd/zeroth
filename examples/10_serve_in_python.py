@@ -110,7 +110,7 @@ async def seed_deployment() -> AsyncSQLiteDatabase:
     run_migrations(f"sqlite:///{DB_PATH}")
     database = AsyncSQLiteDatabase(path=str(DB_PATH))
 
-    contract_registry = ContractRegistry(database)
+    contract_registry = ContractRegistry.for_default_compatibility(database)
     await contract_registry.register(Question, name="contract://question")
     await contract_registry.register(Answer, name="contract://answer")
 
@@ -167,17 +167,14 @@ def print_curl_hints(port: int) -> None:
     print()
     print("# 2. submit a run")
     print(
-        f'curl -X POST {base}/v1/runs \\\n'
+        f"curl -X POST {base}/v1/runs \\\n"
         f'     -H "X-API-Key: {DEMO_API_KEY}" \\\n'
         f'     -H "Content-Type: application/json" \\\n'
         f'     -d \'{{"input_payload": {{"question": "What is Zeroth?"}}}}\''
     )
     print()
     print("# 3. poll the run (replace <run_id> with the id from step 2)")
-    print(
-        f'curl -H "X-API-Key: {DEMO_API_KEY}" '
-        f"{base}/v1/runs/<run_id>"
-    )
+    print(f'curl -H "X-API-Key: {DEMO_API_KEY}" {base}/v1/runs/<run_id>')
     print("─" * 64 + "\n")
 
 

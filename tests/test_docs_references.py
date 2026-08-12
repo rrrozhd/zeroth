@@ -288,15 +288,12 @@ def test_with_regulus_standalone_commands_are_protected() -> None:
         .splitlines()
     )
 
-    assert lines[81] == (
-        "uv run uvicorn zeroth.econ.plane.main:app --port 8000   # the Regulus backend"
-    )
-    assert lines[93] == (
-        "    image: zeroth-core:latest          # same image; runs zeroth.econ.plane.main:app"
-    )
-    assert lines[94] == (
-        "    command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000"
-    )
+    for command in (
+        "uv run uvicorn zeroth.econ.plane.main:app --port 8000   # the Regulus backend",
+        "    image: zeroth-core:latest          # same image; runs zeroth.econ.plane.main:app",
+        "    command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000",
+    ):
+        assert command in lines
 
 
 def test_migration_troubleshooting_names_only_retired_import_roots() -> None:

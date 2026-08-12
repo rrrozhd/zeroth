@@ -24,12 +24,12 @@ from zeroth.contracts.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.runs import Run
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
 from zeroth.service.bootstrap import bootstrap_app
-from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 
@@ -192,7 +192,10 @@ async def deploy_service(
     workspace_id: str | None = None,
 ):
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.scoped(
+        sqlite_db,
+        contract_scope_context(tenant_id, workspace_id),
+    )
     await contract_registry.register(RunInputPayload, name="contract://input")
     await contract_registry.register(RunInputPayload, name="contract://output")
     for contract_ref, model in (extra_contract_models or {}).items():
@@ -217,9 +220,11 @@ async def deploy_service(
         tenant_id=tenant_id,
         workspace_id=workspace_id,
     )
-    service = await bootstrap_service(
+    service = await bootstrap_scoped_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
         auth_config=auth_config or default_service_auth_config(),
     )
     return service, deployment

@@ -51,6 +51,8 @@ def _audit(
     execution_metadata: dict | None = None,
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id="r1",
         node_id=node_id,
@@ -295,8 +297,8 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
         edges=[],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"n1": _failing_runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -304,7 +306,7 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
     run = await orch.run_graph(graph, {})
     assert run.status is RunStatus.FAILED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     rejected = [a for a in audits if a.node_id == "n1" and a.status == "rejected"]
     assert len(rejected) == 1
     assert rejected[0].cost_usd == pytest.approx(0.02)  # paid-then-failed spend survived
@@ -367,8 +369,8 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
         ],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -376,7 +378,7 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
     run = await orch.run_graph(graph, {"count": 0})
     assert run.status is RunStatus.COMPLETED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     loop_audits = [a for a in audits if a.node_id == "loop"]
     assert len(loop_audits) >= 2  # one audit per visit -> loop multiplicity is real
 
@@ -490,15 +492,15 @@ async def test_cache_hit_reaches_audit_and_is_detected(sqlite_db) -> None:
     # instrumented path -- where a hit must NOT inflate cost or double-bill Regulus --
     # is covered by test_instrumented_cache_hit_costs_zero_through_orchestrator below.
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
 
     run = await orch.run_graph(graph, {"value": 1})  # 2 visits: miss then hit
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     report = analyze_run(run.run_id, run.status, audits)
     cache = next(f for f in report.findings if f.kind == WasteKind.CACHE_INEFFICIENCY)
     assert cache.metadata == {"hits": 1, "misses": 1, "hit_rate": 0.5}
@@ -558,8 +560,8 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     )
     regulus = MagicMock()
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         regulus_client=regulus,
@@ -569,7 +571,7 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
 
     run = await orch.run_graph(graph, {"value": 1})  # 2 visits: miss then hit
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     report = analyze_run(run.run_id, run.status, audits)
 
     # Two visits: a cold miss with real cost, and a hit that costs nothing.
@@ -633,8 +635,8 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
         edges=[],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"n1": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -642,7 +644,7 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
     run = await orch.run_graph(graph, {})
     assert run.status is RunStatus.COMPLETED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     n1 = next(a for a in audits if a.node_id == "n1")
     assert n1.execution_metadata["attempt"] == 2  # retry recorded in the audit
     report = analyze_run(run.run_id, run.status, audits)

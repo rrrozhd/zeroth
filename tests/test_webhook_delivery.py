@@ -21,7 +21,7 @@ from zeroth.service.webhooks.repository import WebhookRepository
 
 @pytest.fixture
 async def webhook_repo(sqlite_db):
-    return WebhookRepository(sqlite_db)
+    return WebhookRepository.for_default_compatibility(sqlite_db)
 
 
 @pytest.fixture
@@ -74,7 +74,9 @@ class TestDeliver:
         response.status_code = 200
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         http_client.post.assert_called_once()
         call_kwargs = http_client.post.call_args
@@ -92,7 +94,9 @@ class TestDeliver:
         response.status_code = 200
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         call_args = http_client.post.call_args
         headers = call_args.kwargs.get("headers", call_args[1].get("headers", {}))
@@ -111,7 +115,9 @@ class TestDeliver:
             lambda _host: [ipaddress.ip_address("93.184.216.34")],
         )
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         call = http_client.post.call_args
         assert call.args[0] == "https://93.184.216.34/hook"
@@ -126,7 +132,9 @@ class TestDeliver:
         response.status_code = 500
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         # Delivery should be marked as failed (status updated in DB)
         # The repository mark_failed increments attempt_count
@@ -142,7 +150,9 @@ class TestDeliver:
         response.status_code = 500
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 1
@@ -162,7 +172,7 @@ class TestDeliver:
             event_types=[WebhookEventType.RUN_COMPLETED],
         )
         sub = await webhook_repo.create_subscription(sub)
-        delivery = await webhook_repo.enqueue_delivery(
+        await webhook_repo.enqueue_delivery(
             WebhookDelivery(
                 subscription_id=sub.subscription_id,
                 event_type=WebhookEventType.RUN_COMPLETED,
@@ -171,7 +181,9 @@ class TestDeliver:
             )
         )
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         http_client.post.assert_not_called()
 
@@ -179,7 +191,9 @@ class TestDeliver:
         sub, delivery = await _create_sub_and_delivery(webhook_repo)
         http_client.post.side_effect = httpx.TimeoutException("timed out")
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 0  # not dead-lettered yet, just failed
@@ -250,7 +264,9 @@ class TestRetryBackoffWindow:
         # double-compute overshot.
         before = datetime.now(UTC)
         with patch("zeroth.service.webhooks.delivery.random.uniform", lambda _low, high: high):
-            await worker._deliver(delivery)
+            claim = await webhook_repo.claim_pending_delivery()
+            assert claim is not None
+            await worker._deliver(claim.delivery, claim.generation)
         after = datetime.now(UTC)
 
         async with sqlite_db.transaction() as conn:

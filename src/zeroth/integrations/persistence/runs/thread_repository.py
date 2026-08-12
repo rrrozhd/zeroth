@@ -19,7 +19,13 @@ from zeroth.integrations.persistence.runs.run_repository import (
 )
 from zeroth.integrations.persistence.runs.serialization import row_to_thread
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["ThreadRepository"]
@@ -27,6 +33,7 @@ __all__ = ["ThreadRepository"]
 _UNSCOPED_WORKSPACE = object()
 
 
+@persistence_surface("service.threads", probe=named_isolation_probe("_drive_threads"))
 class ThreadRepository:
     """High-level async interface for saving and loading threads.
 
@@ -34,83 +41,64 @@ class ThreadRepository:
     as well as attaching runs and managing the active run.
     """
 
-    def __init__(self, database: AsyncDatabase):
-        self._store = _RunThreadStore(database)
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext,
+    ):
+        if type(scope_context) not in {ScopeContext, NullWorkspaceScopeContext}:
+            raise TypeError("scope_context must be a trusted workspace scope")
+        self._store = _RunThreadStore(database, scope_context)
 
+    @classmethod
+    def for_default_compatibility(cls, database: AsyncDatabase) -> ThreadRepository:
+        return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
+
+    @persistence_operation(ResourceOperation.CREATE)
     async def create(self, thread: Thread) -> Thread:
         """Save a new thread and return the persisted version."""
         await self._store.create_thread(thread)
-        created = await self.get(
-            thread.thread_id,
-            tenant_id=thread.tenant_id,
-            workspace_id=thread.workspace_id,
-        )
+        created = await self.get(thread.thread_id)
         if created is None:  # pragma: no cover - insert/read transaction contract
             raise RuntimeError("created thread is unavailable in its owning scope")
         return created
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         thread_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> Thread | None:
         """Load a thread, optionally hiding scopes other than the caller's."""
-        return await self._store.get_thread(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=None if workspace_id is _UNSCOPED_WORKSPACE else workspace_id,
-            workspace_scoped=workspace_id is not _UNSCOPED_WORKSPACE,
-        )
+        return await self._store.get_thread(thread_id)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> list[Thread]:
         """Return ordered threads, optionally constrained at query time."""
-        sql = "SELECT * FROM threads"
-        predicates: list[str] = []
-        params: list[object] = []
-        if tenant_id is not None:
-            predicates.append("tenant_id = ?")
-            params.append(tenant_id)
-        if workspace_id is not _UNSCOPED_WORKSPACE:
-            if workspace_id is None:
-                predicates.append("workspace_id IS NULL")
-            else:
-                predicates.append("workspace_id = ?")
-                params.append(workspace_id)
-        if predicates:
-            sql += " WHERE " + " AND ".join(predicates)
-        sql += " ORDER BY created_at, thread_id"
-        async with self._store.database.transaction() as connection:
-            rows = await connection.fetch_all(sql, tuple(params))
+        async with self._store.threads.transaction() as threads:
+            rows = await threads.select(order_by=("created_at", "thread_id"))
         return [row_to_thread(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
         thread.updated_at = utc_now()
         await self._store.save_thread(thread)
-        updated = await self.get(
-            thread.thread_id,
-            tenant_id=thread.tenant_id,
-            workspace_id=thread.workspace_id,
-        )
+        updated = await self.get(thread.thread_id)
         if updated is None:  # pragma: no cover - update/read transaction contract
             raise RuntimeError("updated thread is unavailable in its owning scope")
         return updated
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def resolve(
         self,
         thread_id: str | None,
         *,
         graph_version_ref: str,
         deployment_ref: str,
-        tenant_id: str = "default",
-        workspace_id: str | None = None,
         participating_agent_refs: Sequence[str] | None = None,
         state_snapshot_refs: Sequence[str] | None = None,
         checkpoint_refs: Sequence[str] | None = None,
@@ -127,11 +115,13 @@ class ThreadRepository:
         if thread_id is None:
             thread_id = run_id or uuid4().hex
 
-        existing = await self.get(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
+        tenant_id = self._store.scope_context.tenant_id
+        workspace_id = (
+            self._store.scope_context.workspace_id
+            if type(self._store.scope_context) is ScopeContext
+            else None
         )
+        existing = await self.get(thread_id)
         if existing is None:
             try:
                 return await self.create(
@@ -176,37 +166,22 @@ class ThreadRepository:
             existing.status = status
         existing.updated_at = utc_now()
         await self._store.save_thread(existing)
-        resolved = await self.get(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
+        resolved = await self.get(thread_id)
         if resolved is None:  # pragma: no cover - concurrent delete guard
             raise KeyError("thread could not be resolved")
         return resolved
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def attach_run(
         self,
         thread_id: str,
         run_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> Thread:
         """Add a run to a thread and make it the active run."""
-        thread = await self.get(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
+        thread = await self.get(thread_id)
         if thread is None:
             raise KeyError(thread_id)
-        run = await self._store.get_run(
-            run_id,
-            tenant_id=thread.tenant_id,
-            workspace_id=thread.workspace_id,
-            workspace_scoped=True,
-        )
+        run = await self._store.get_run(run_id)
         if run is None:
             raise KeyError(run_id)
         if run_id not in thread.run_ids:
@@ -215,60 +190,43 @@ class ThreadRepository:
         thread.last_run_id = run_id
         thread.updated_at = utc_now()
         await self._store.save_thread(thread)
-        return await self.get(
-            thread_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-        )
+        updated = await self.get(thread_id)
+        if updated is None:  # pragma: no cover - concurrent delete guard
+            raise KeyError(thread_id)
+        return updated
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_active_run_id(
         self,
         thread_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> str | None:
         """Return the currently active run ID for a thread."""
-        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        thread = await self.get(thread_id)
         return None if thread is None else thread.active_run_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_run_id(
         self,
         thread_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> str | None:
         """Return the most recently added run ID for a thread."""
-        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        thread = await self.get(thread_id)
         return None if thread is None else thread.last_run_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def list_run_ids(
         self,
         thread_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> list[str]:
         """Return all run IDs belonging to a thread."""
-        thread = await self.get(thread_id, tenant_id=tenant_id, workspace_id=workspace_id)
+        thread = await self.get(thread_id)
         return [] if thread is None else list(thread.run_ids)
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def set_active_run_id(
         self,
         thread_id: str,
         run_id: str,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> None:
         """Mark a run as the active run for its thread."""
-        if workspace_id is _UNSCOPED_WORKSPACE:
-            await self._store.set_active_run_id(thread_id, run_id, tenant_id=tenant_id)
-        else:
-            await self._store.set_active_run_id(
-                thread_id,
-                run_id,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
+        await self._store.set_active_run_id(thread_id, run_id)

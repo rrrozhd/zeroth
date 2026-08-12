@@ -35,6 +35,8 @@ def _run(
 
 def _audit(run_id: str, cost: float, *, node_id: str = "agent") -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=f"{run_id}-{node_id}-{cost}",
         run_id=run_id,
         node_id=node_id,

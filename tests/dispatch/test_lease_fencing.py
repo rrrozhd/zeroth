@@ -26,7 +26,7 @@ WORKER_B = "worker-b"
 
 async def _pending_run(db) -> str:
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
-    return (await RunRepository(db).create(run)).run_id
+    return (await RunRepository.for_default_compatibility(db).create(run)).run_id
 
 
 async def _expire_lease(db, run_id: str) -> None:
@@ -110,7 +110,7 @@ class TestLeaseFencingDualBackend:
         )
 
         assert applied is False
-        run = await RunRepository(dual_database).get(run_id)
+        run = await RunRepository.for_default_compatibility(dual_database).get(run_id)
         assert run is not None
         assert run.current_step != "stale-step"
 
@@ -128,7 +128,7 @@ class TestLeaseFencingDualBackend:
         )
 
         assert applied is True
-        run = await RunRepository(dual_database).get(run_id)
+        run = await RunRepository.for_default_compatibility(dual_database).get(run_id)
         assert run is not None
         assert run.current_step == "live-step"
 
@@ -136,7 +136,9 @@ class TestLeaseFencingDualBackend:
         manager = LeaseManager(dual_database)
         run_id = await _pending_run(dual_database)
         await manager.claim_pending(DEPLOYMENT, WORKER_A)
-        await RunRepository(dual_database).transition(run_id, RunStatus.RUNNING)
+        await RunRepository.for_default_compatibility(dual_database).transition(
+            run_id, RunStatus.RUNNING
+        )
         await _expire_lease(dual_database, run_id)
 
         reclaimed = await manager.claim_orphaned(DEPLOYMENT, WORKER_B)
@@ -191,7 +193,7 @@ async def test_lease_loss_cancels_the_running_execution(dual_database) -> None:
     returned -- leaving the displaced worker driving the run to completion
     alongside its new owner.
     """
-    run_repo = RunRepository(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
@@ -229,7 +231,7 @@ async def test_lease_loss_does_not_mark_the_run_failed(dual_database) -> None:
     Marking FAILED here would be a stale write with real consequences: the run
     is not failed, it simply belongs to somebody else now.
     """
-    run_repo = RunRepository(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
@@ -261,7 +263,7 @@ async def test_lease_loss_does_not_mark_the_run_failed(dual_database) -> None:
 @pytest.mark.asyncio
 async def test_lease_loss_releases_the_concurrency_slot(dual_database) -> None:
     """Stopping early must not leak the slot the run was occupying."""
-    run_repo = RunRepository(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
@@ -291,7 +293,7 @@ async def test_lease_loss_releases_the_concurrency_slot(dual_database) -> None:
 @pytest.mark.asyncio
 async def test_lease_loss_is_counted_as_a_metric(dual_database) -> None:
     """R8: lease loss is distinguishable in metrics, not just in a log line."""
-    run_repo = RunRepository(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
 
@@ -409,10 +411,7 @@ async def test_commit_fenced_refuses_to_write_the_fence_columns(dual_database) -
     assert row["current_step"] != "x"
 
     # The legitimate write still works.
-    assert (
-        await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok")
-        is True
-    )
+    assert await manager.commit_fenced(run_id, WORKER_A, generation=1, current_step="ok") is True
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +431,7 @@ async def test_a_displaced_workers_run_state_write_is_fenced_out(dual_database) 
     """
     from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
 
-    repo = RunRepository(dual_database)
+    repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database)
     run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -498,10 +497,10 @@ async def test_a_fencing_rejection_leaves_a_durable_audit_record(dual_database) 
     """
     from zeroth.governance.audit import AuditRepository
 
-    repo = RunRepository(dual_database)
+    repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=60)
     orchestrator = _FencedWriteOrchestrator(repo)
-    orchestrator.audit_repository = AuditRepository(dual_database)
+    orchestrator.audit_repository = AuditRepository.for_default_compatibility(dual_database)
 
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -538,10 +537,10 @@ async def test_a_lease_loss_leaves_a_durable_audit_record(dual_database) -> None
     """AUD-008: losing the lease is durably recorded by the losing worker."""
     from zeroth.governance.audit import AuditRepository
 
-    repo = RunRepository(dual_database)
+    repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=2)
     orchestrator = _StallingOrchestrator()
-    orchestrator.audit_repository = AuditRepository(dual_database)
+    orchestrator.audit_repository = AuditRepository.for_default_compatibility(dual_database)
 
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -581,7 +580,7 @@ async def test_a_displaced_put_leaves_no_checkpoint_or_thread_write(dual_databas
     """
     from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
 
-    repo = RunRepository(dual_database)
+    repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database)
     run_id = await _pending_run(dual_database)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
@@ -622,7 +621,7 @@ async def test_graceful_shutdown_stops_the_drive_before_releasing(dual_database)
     executing — an unfenced displaced-writer window. The release now runs only
     after the drive task has been cancelled and awaited.
     """
-    repo = RunRepository(dual_database)
+    repo = RunRepository.for_default_compatibility(dual_database)
     manager = LeaseManager(dual_database, lease_duration_seconds=60)
     orchestrator = _StallingOrchestrator()
 

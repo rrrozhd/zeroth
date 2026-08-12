@@ -15,7 +15,19 @@ from zeroth.contracts.graph.models import Graph, GraphStatus
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.contracts.graph.storage import GRAPH_SCHEMA_VERSION
 from zeroth.contracts.graph.versioning import clone_graph_version
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ResourceOperation,
+    ScopeContext,
+    ScopedTable,
+)
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 if TYPE_CHECKING:
     # Annotation-only: importing the validator eagerly would put the whole
@@ -24,6 +36,7 @@ if TYPE_CHECKING:
     from zeroth.runtime.graph_validation import GraphValidator
 
 
+@persistence_surface("service.graph_versions", probe=named_isolation_probe("_drive_graph_versions"))
 class GraphRepository:
     """Persistence layer for versioned graph documents."""
 
@@ -35,6 +48,27 @@ class GraphRepository:
         self._database: AsyncDatabase = database
         self._validator: GraphValidator | None = validator
 
+    def _graphs(self, tenant_id: str | None, workspace_id: str | None) -> ScopedTable:
+        tenant = tenant_id or "default"
+        if workspace_id is None:
+            context = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant)
+            )
+        else:
+            context = (
+                ScopeContext.for_default_compatibility(workspace_id=workspace_id)
+                if tenant == "default"
+                else ScopeContext(tenant_id=tenant, workspace_id=workspace_id)
+            )
+        return ScopedTable(
+            self._database, SERVICE_SCOPE_REGISTRY, "service.graph_versions", context
+        )
+
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def save(
         self,
         graph: Graph,
@@ -54,22 +88,23 @@ class GraphRepository:
             graph = graph.model_copy(update={"tenant_id": tenant_id})
         if tenant_id is not None and workspace_id != graph.workspace_id:
             graph = graph.model_copy(update={"workspace_id": workspace_id})
-        async with self._database.transaction() as connection:
+        async with self._graphs(graph.tenant_id, graph.workspace_id).transaction(
+            write_lock=True
+        ) as graphs:
             existing = await self._fetch_row(
-                connection,
+                graphs,
                 graph.graph_id,
                 graph.version,
-                tenant_id=graph.tenant_id if scope_requested else None,
-                workspace_id=graph.workspace_id,
             )
             if existing is None:
-                await self._insert_graph(connection, graph)
+                if not await self._insert_graph(graphs, graph):
+                    raise KeyError(f"{graph.graph_id}@{graph.version}")
             else:
                 current = deserialize_graph(existing["payload"])
                 if not self._can_update(existing["status"], current, graph):
                     msg = f"graph version {graph.graph_id}@{graph.version} is immutable"
                     raise GraphLifecycleError(msg)
-                await self._update_graph(connection, graph, scoped=scope_requested)
+                await self._update_graph(graphs, graph)
         return await self.get(
             graph.graph_id,
             graph.version,
@@ -77,6 +112,7 @@ class GraphRepository:
             workspace_id=graph.workspace_id,
         )  # type: ignore[return-value]
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def create(
         self,
         graph: Graph,
@@ -87,6 +123,7 @@ class GraphRepository:
         """Create a new graph (alias for save)."""
         return await self.save(graph, tenant_id=tenant_id, workspace_id=workspace_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         graph_id: str,
@@ -101,36 +138,32 @@ class GraphRepository:
         tenant is invisible (returns ``None``) so the API can 404 without
         disclosing existence. ``None`` means no tenant filter (internal path).
         """
-        async with self._database.transaction() as connection:
+        async with self._graphs(tenant_id, workspace_id).transaction() as graphs:
             row = await self._fetch_latest_row(
-                connection,
+                graphs,
                 graph_id,
                 version,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
             )
         if row is None:
             return None
         return deserialize_graph(row["payload"])
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self, *, tenant_id: str | None = None, workspace_id: str | None = None
     ) -> list[Graph]:
         """Return the latest version for each graph id (optionally tenant-scoped)."""
-        sql = "SELECT payload FROM graph_versions"
-        params: tuple[object, ...] = ()
-        if tenant_id is not None:
-            workspace_sql, params = _scope_clause(tenant_id, workspace_id)
-            sql += f" WHERE {workspace_sql}"
-        sql += " ORDER BY graph_id, version"
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+        async with self._graphs(tenant_id, workspace_id).transaction() as graphs:
+            rows = await graphs.select(
+                columns=("payload",), order_by=("graph_id", "version")
+            )
         latest: dict[str, Graph] = {}
         for row in rows:
             graph = deserialize_graph(row["payload"])
             latest[graph.graph_id] = graph
         return list(latest.values())
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_versions(
         self,
         graph_id: str,
@@ -139,17 +172,15 @@ class GraphRepository:
         workspace_id: str | None = None,
     ) -> list[Graph]:
         """Return all versions of a specific graph, ordered oldest to newest."""
-        sql = "SELECT payload FROM graph_versions WHERE graph_id = ?"
-        params: tuple[object, ...] = (graph_id,)
-        if tenant_id is not None:
-            workspace_sql, scope_params = _scope_clause(tenant_id, workspace_id)
-            sql += f" AND {workspace_sql}"
-            params += scope_params
-        sql += " ORDER BY version"
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(sql, params)
+        async with self._graphs(tenant_id, workspace_id).transaction() as graphs:
+            rows = await graphs.select(
+                where={"graph_id": graph_id},
+                columns=("payload",),
+                order_by=("version",),
+            )
         return [deserialize_graph(row["payload"]) for row in rows]
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def publish(
         self,
         graph_id: str,
@@ -177,6 +208,7 @@ class GraphRepository:
             graph.publish(), tenant_id=graph.tenant_id, workspace_id=graph.workspace_id
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def archive(
         self,
         graph_id: str,
@@ -195,6 +227,9 @@ class GraphRepository:
             graph.archive(), tenant_id=graph.tenant_id, workspace_id=graph.workspace_id
         )
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def clone_published_to_draft(
         self,
         graph_id: str,
@@ -230,6 +265,7 @@ class GraphRepository:
             workspace_id=graph.workspace_id,
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def update_status(
         self,
         graph_id: str,
@@ -268,6 +304,7 @@ class GraphRepository:
         msg = f"unsupported graph status: {status}"
         raise GraphLifecycleError(msg)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_version(
         self,
         graph_id: str,
@@ -281,6 +318,7 @@ class GraphRepository:
             raise KeyError(graph_id)
         return graph.version
 
+    @persistence_operation(ResourceOperation.READ)
     async def diff(
         self,
         graph_id: str,
@@ -317,104 +355,60 @@ class GraphRepository:
 
     async def _fetch_row(
         self,
-        connection,
+        graphs,
         graph_id: str,
         version: int,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None = None,
     ) -> dict | None:
         """Fetch a single graph row by exact graph_id and version."""
-        sql = """
-            SELECT status, payload
-            FROM graph_versions
-            WHERE graph_id = ? AND version = ?
-        """
-        params: tuple[object, ...] = (graph_id, version)
-        if tenant_id is not None:
-            workspace_sql, scope_params = _scope_clause(tenant_id, workspace_id)
-            sql += f" AND {workspace_sql}"
-            params += scope_params
-        return await connection.fetch_one(sql, params)
+        return await graphs.select_one(
+            where={"graph_id": graph_id, "version": version},
+            columns=("status", "payload"),
+        )
 
     async def _fetch_latest_row(
         self,
-        connection,
+        graphs,
         graph_id: str,
         version: int | None,
-        *,
-        tenant_id: str | None = None,
-        workspace_id: str | None = None,
     ) -> dict | None:
         """Fetch a graph row by ID, using the latest version if none is specified."""
         if version is not None:
             return await self._fetch_row(
-                connection,
+                graphs,
                 graph_id,
                 version,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
             )
-        sql = """
-            SELECT status, payload
-            FROM graph_versions
-            WHERE graph_id = ?
-        """
-        params: tuple[object, ...] = (graph_id,)
-        if tenant_id is not None:
-            workspace_sql, scope_params = _scope_clause(tenant_id, workspace_id)
-            sql += f" AND {workspace_sql}"
-            params += scope_params
-        sql += " ORDER BY version DESC LIMIT 1"
-        return await connection.fetch_one(sql, params)
-
-    async def _insert_graph(self, connection, graph: Graph) -> None:
-        """Insert a new graph version row into the database."""
-        await connection.execute(
-            """
-            INSERT INTO graph_versions (
-                graph_id, version, status, schema_version, payload,
-                tenant_id, workspace_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                graph.graph_id,
-                graph.version,
-                graph.status.value,
-                GRAPH_SCHEMA_VERSION,
-                serialize_graph(graph),
-                graph.tenant_id,
-                graph.workspace_id,
-                graph.created_at.isoformat(),
-                graph.updated_at.isoformat(),
-            ),
+        return await graphs.select_one(
+            where={"graph_id": graph_id},
+            columns=("status", "payload"),
+            order_by_desc=("version",),
         )
 
-    async def _update_graph(self, connection, graph: Graph, *, scoped: bool) -> None:
+    async def _insert_graph(self, graphs, graph: Graph) -> bool:
+        """Insert a new graph version row into the database."""
+        return await graphs.insert_if_absent(
+            {
+                "graph_id": graph.graph_id,
+                "version": graph.version,
+                "status": graph.status.value,
+                "schema_version": GRAPH_SCHEMA_VERSION,
+                "payload": serialize_graph(graph),
+                "created_at": graph.created_at.isoformat(),
+                "updated_at": graph.updated_at.isoformat(),
+            },
+            conflict_columns=("graph_id", "version"),
+        )
+
+    async def _update_graph(self, graphs, graph: Graph) -> None:
         """Update an existing graph version row in the database."""
-        scope_sql = ""
-        scope_params: tuple[object, ...] = ()
-        if scoped:
-            workspace_sql, scope_params = _scope_clause(graph.tenant_id, graph.workspace_id)
-            scope_sql = f" AND {workspace_sql}"
-        await connection.execute(
-            f"""
-            UPDATE graph_versions
-            SET status = ?, schema_version = ?, payload = ?,
-                tenant_id = ?, workspace_id = ?, updated_at = ?
-            WHERE graph_id = ? AND version = ?{scope_sql}
-            """,
-            (
-                graph.status.value,
-                GRAPH_SCHEMA_VERSION,
-                serialize_graph(graph),
-                graph.tenant_id,
-                graph.workspace_id,
-                graph.updated_at.isoformat(),
-                graph.graph_id,
-                graph.version,
-            )
-            + scope_params,
+        await graphs.update(
+            {
+                "status": graph.status.value,
+                "schema_version": GRAPH_SCHEMA_VERSION,
+                "payload": serialize_graph(graph),
+                "updated_at": graph.updated_at.isoformat(),
+            },
+            where={"graph_id": graph.graph_id, "version": graph.version},
         )
 
     def _can_update(self, stored_status: str, current: Graph, incoming: Graph) -> bool:
@@ -434,10 +428,3 @@ def _semantic_graph_dump(graph: Graph) -> dict[str, object]:
         mode="json",
         exclude={"version", "status", "created_at", "updated_at"},
     )
-
-
-def _scope_clause(tenant_id: str, workspace_id: str | None) -> tuple[str, tuple[object, ...]]:
-    """Build an exact tenant/workspace predicate; NULL is a scope, not a wildcard."""
-    if workspace_id is None:
-        return "tenant_id = ? AND workspace_id IS NULL", (tenant_id,)
-    return "tenant_id = ? AND workspace_id = ?", (tenant_id, workspace_id)

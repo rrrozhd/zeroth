@@ -14,7 +14,7 @@
       "dependencies": ["httpx[http2]>=0.27", "websockets>=15,<16"]
     }
   },
-  "release": "0.22.4",
+  "release": "0.23.0",
   "resolved": {
     "agent_server": "0.11.1",
     "httpx": "0.28.1",
@@ -25,7 +25,7 @@
     "python_image": "python:3.12.13-slim-bookworm",
     "postgres_image": "postgres:16.9-bookworm",
     "websockets": "15.0.1",
-    "zeroth_core": "0.22.4"
+    "zeroth_core": "0.23.0"
   },
   "schema_version": 2,
   "tested": {

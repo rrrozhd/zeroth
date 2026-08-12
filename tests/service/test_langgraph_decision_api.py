@@ -14,6 +14,7 @@ from zeroth.governance.policy.registry import default_capability_registry
 from zeroth.integrations.langgraph import InventoryCoverage, SideEffectClass, ToolDecisionKind
 from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.signing import EnvHmacSigner
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.service.langgraph_gateway.context import ReservedContextClaims, ReservedContextCodec
 from zeroth.service.langgraph_gateway.enforcement import (
     ActionDescriptorV1,
@@ -101,7 +102,9 @@ def _entry(
 async def _service(sqlite_db, *, budget: Budget | None = None):
     signer = _signer()
     codec = ReservedContextCodec(signer, clock=lambda: 150)
-    repository = LangGraphEnforcementRepository(sqlite_db)
+    repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
     metrics = MetricsCollector()
     service = LangGraphEnforcementService(
         repository,
@@ -230,7 +233,9 @@ async def test_decision_admission_uses_signed_content_classification(sqlite_db) 
 
     signer = _signer()
     codec = ReservedContextCodec(signer, clock=lambda: 150)
-    repository = LangGraphEnforcementRepository(sqlite_db)
+    repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
     service = LangGraphEnforcementService(
         repository,
         codec=codec,
@@ -443,8 +448,7 @@ async def test_capability_metadata_controls_server_decision(sqlite_db) -> None:
     assert response.reason_code == "capability_denied"
 
 
-async def test_idempotent_insert_is_conflict_safe_before_read() -> None:
-    events: list[tuple[str, str]] = []
+async def test_idempotent_insert_is_conflict_safe_before_read(sqlite_db) -> None:
     response = DecisionResponseV1(
         decision_id="decision-1",
         idempotency_key="key-1",
@@ -453,57 +457,23 @@ async def test_idempotent_insert_is_conflict_safe_before_read() -> None:
         policy_version="policy-v1",
     )
 
-    class Connection:
-        async def execute(self, sql, params=()):
-            del params
-            events.append(("execute", sql))
-
-        async def fetch_one(self, sql, params=()):
-            del params
-            events.append(("fetch_one", sql))
-            return {
-                "deployment_ref": "deployment-a",
-                "action_hash": "sha256:action",
-                "response_json": response.model_dump_json(),
-            }
-
-    class Database:
-        backend = "postgres"
-
-        @asynccontextmanager
-        async def transaction(self, *, write_lock=False):
-            assert write_lock is True
-            yield Connection()
-
-    stored = await LangGraphEnforcementRepository(Database()).save_decision(
-        "tenant-a",
+    repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    stored = await repository.save_decision(
         "key-1",
         "deployment-a",
         "sha256:action",
         response,
     )
     assert stored == response
-    assert events[0][0] == "execute"
-    assert "ON CONFLICT(tenant_id, idempotency_key) DO NOTHING" in events[0][1]
-    assert events[1][0] == "fetch_one"
+    assert (
+        await repository.save_decision("key-1", "deployment-a", "sha256:action", response)
+        == response
+    )
 
 
-async def test_inventory_registration_uses_atomic_upsert() -> None:
-    statements: list[str] = []
-
-    class Connection:
-        async def execute(self, sql, params=()):
-            del params
-            statements.append(sql)
-
-    class Database:
-        backend = "postgres"
-
-        @asynccontextmanager
-        async def transaction(self, *, write_lock=False):
-            assert write_lock is True
-            yield Connection()
-
+async def test_inventory_registration_uses_atomic_upsert(sqlite_db) -> None:
     entries = (_entry(),)
     request = InventoryRegistrationV1(
         context_token="unused",
@@ -515,10 +485,17 @@ async def test_inventory_registration_uses_atomic_upsert() -> None:
         entries=entries,
         inventory_fingerprint=inventory_fingerprint(entries),
     )
-    await LangGraphEnforcementRepository(Database()).register_inventory(request)
-    assert len(statements) == 1
-    assert "ON CONFLICT" in statements[0]
-    assert "DO UPDATE SET" in statements[0]
+    repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    await repository.register_inventory(request)
+    await repository.register_inventory(request)
+    assert (
+        await repository.get_inventory(
+            "deployment-a", "graph-v1", request.adapter_version, request.inventory_fingerprint
+        )
+        is not None
+    )
 
 
 async def test_idempotency_key_conflict_is_rejected(sqlite_db) -> None:
@@ -609,11 +586,28 @@ async def test_unknown_action_fails_closed(sqlite_db) -> None:
 async def test_decisions_and_idempotency_are_tenant_scoped(sqlite_db) -> None:
     service, repository, _, codec = await _service(sqlite_db)
     first_fingerprint = await _register(service, codec, tenant="tenant-a")
-    second_fingerprint = await _register(service, codec, tenant="tenant-b")
     first = await service.decide(_request(codec, first_fingerprint, tenant="tenant-a"))
-    second = await service.decide(_request(codec, second_fingerprint, tenant="tenant-b"))
+    other_repository = LangGraphEnforcementRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-b")
+    )
+    other_service = LangGraphEnforcementService(
+        other_repository,
+        codec=codec,
+        signer=_signer(),
+        policy_guard=PolicyGuard(capability_registry=default_capability_registry()),
+        budget_checker=Budget(),
+        metrics=MetricsCollector(),
+        deployment_ref="deployment-a",
+        audience="agent-server:a",
+        expected_graph_version="graph-v1",
+        expected_inventory_fingerprint=inventory_fingerprint((_entry(),)),
+        now=lambda: NOW,
+    )
+    second_fingerprint = await _register(other_service, codec, tenant="tenant-b")
+    second = await other_service.decide(_request(codec, second_fingerprint, tenant="tenant-b"))
     assert first.decision_id != second.decision_id
-    assert await repository.count_decisions() == 2
+    assert await repository.count_decisions() == 1
+    assert await other_repository.count_decisions() == 1
 
 
 async def test_decision_and_attestation_metrics(sqlite_db) -> None:
@@ -660,26 +654,20 @@ async def test_same_correlation_distinct_signed_runs_have_isolated_attestations(
 
     first = await attest("run-1")
     with pytest.warns(DeprecationWarning):
-        sole_correlation = await repository.get_attestation(
-            "tenant-a", "deployment-a", "corr-1"
-        )
+        sole_correlation = await repository.get_attestation("deployment-a", "corr-1")
     second = await attest("run-2")
 
     assert first.run_id == "run-1"
     assert second.run_id == "run-2"
     assert sole_correlation is not None and sole_correlation["run_id"] == "run-1"
-    assert (
-        await repository.get_attestation_by_run_id("tenant-a", "deployment-a", "run-1")
-    )[
+    assert (await repository.get_attestation_by_run_id("deployment-a", "run-1"))[
         "correlation_id"
     ] == "corr-1"
-    assert (
-        await repository.get_attestation_by_run_id("tenant-a", "deployment-a", "run-2")
-    )[
+    assert (await repository.get_attestation_by_run_id("deployment-a", "run-2"))[
         "correlation_id"
     ] == "corr-1"
     with pytest.warns(DeprecationWarning):
-        assert await repository.get_attestation("tenant-a", "deployment-a", "corr-1") is None
+        assert await repository.get_attestation("deployment-a", "corr-1") is None
 
     with pytest.raises(EnforcementBoundaryError) as missing:
         await service.attest_run(

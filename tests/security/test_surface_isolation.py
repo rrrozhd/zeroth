@@ -32,6 +32,7 @@ from zeroth.integrations.execution.runner import (
 )
 from zeroth.integrations.execution.sandbox import SandboxManager
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 
 class _Input(BaseModel):
@@ -126,11 +127,16 @@ async def test_quota_same_subject_isolated_by_tenant_key(sqlite_db) -> None:
 
 
 async def test_audit_retrieve_foreign_id_matches_unknown(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
-    await repository.write(_audit("owner-audit", "tenant-a"))
+    owner_repository = AuditRepository.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    foreign_repository = AuditRepository.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-b")
+    )
+    await owner_repository.write(_audit("owner-audit", "tenant-a"))
 
-    foreign = await repository.get("owner-audit", tenant_id="tenant-b")
-    unknown = await repository.get("unknown-audit", tenant_id="tenant-b")
+    foreign = await foreign_repository.get("owner-audit")
+    unknown = await foreign_repository.get("unknown-audit")
 
     assert foreign is unknown is None
 
@@ -203,7 +209,9 @@ async def test_approval_resolve_foreign_matches_unknown_before_mutation(sqlite_d
             rationale="owner only",
         )
     )
-    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    service = ApprovalService(
+        repository=repository, run_repository=RunRepository.for_default_compatibility(sqlite_db)
+    )
     actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
 
     for approval_id in ("owner-approval-resolve", "unknown-approval"):
@@ -222,10 +230,17 @@ async def test_approval_resolve_foreign_matches_unknown_before_mutation(sqlite_d
 
 
 async def test_audit_enumerate_is_query_scoped_by_tenant_and_workspace(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
-    await repository.write(_audit("owner-workspace-audit", "tenant-a", workspace_id="workspace-a"))
+    owner_repository = AuditRepository.scoped(
+        sqlite_db, ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    )
+    foreign_repository = AuditRepository.scoped(
+        sqlite_db, ScopeContext(tenant_id="tenant-a", workspace_id="workspace-b")
+    )
+    await owner_repository.write(
+        _audit("owner-workspace-audit", "tenant-a", workspace_id="workspace-a")
+    )
 
-    foreign = await repository.list(
+    foreign = await foreign_repository.list(
         AuditQuery(
             run_id="run-tenant-a",
             tenant_id="tenant-a",
@@ -233,7 +248,7 @@ async def test_audit_enumerate_is_query_scoped_by_tenant_and_workspace(sqlite_db
             deployment_ref="deployment",
         )
     )
-    unknown = await repository.list(
+    unknown = await foreign_repository.list(
         AuditQuery(
             run_id="unknown-run",
             tenant_id="tenant-a",

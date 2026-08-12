@@ -34,7 +34,9 @@ ORDER_SCHEMA = {
 def _registry() -> ContractRegistry:
     tmp = Path(tempfile.mkdtemp())
     run_migrations(f"sqlite:///{tmp / 'contracts.db'}")
-    return ContractRegistry(AsyncSQLiteDatabase(str(tmp / "contracts.db")))
+    return ContractRegistry.for_default_compatibility(
+        AsyncSQLiteDatabase(str(tmp / "contracts.db"))
+    )
 
 
 # ---- synthesized model -------------------------------------------------------
@@ -83,9 +85,7 @@ async def test_register_schema_resolves_and_versions() -> None:
     assert model.model_validate({"order_id": "ord-1"}).model_dump() == {"order_id": "ord-1"}
 
     # Re-registering the same name creates the next version.
-    second = await registry.register_schema(
-        "contract://order", {**ORDER_SCHEMA, "required": []}
-    )
+    second = await registry.register_schema("contract://order", {**ORDER_SCHEMA, "required": []})
     assert second.version == 2
 
 
