@@ -100,6 +100,7 @@ async def _two_tenant_app(sqlite_db, *, auth_config=None):
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment_a.deployment_ref,
+        tenant_id=TENANT_A,
         auth_config=auth_config or _auth_config(),
     )
     return app, deployment_a, deployment_b
@@ -116,6 +117,7 @@ async def _single_tenant_app(sqlite_db, *, auth_config=None):
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
+        tenant_id=TENANT_A,
         auth_config=auth_config or _auth_config(),
     )
     return app, deployment
