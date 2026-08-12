@@ -238,6 +238,34 @@ def _annotation_names(node: ast.AST | None) -> set[str]:
     return names
 
 
+def _receiver_annotation_type_nodes(node: ast.AST | None) -> tuple[ast.AST, ...]:
+    annotation = _parsed_annotation(node)
+    if annotation is None:
+        return ()
+    nodes: list[ast.AST] = []
+
+    def visit(candidate: ast.AST) -> None:
+        if isinstance(candidate, ast.BinOp) and isinstance(candidate.op, ast.BitOr):
+            visit(candidate.left)
+            visit(candidate.right)
+            return
+        if isinstance(candidate, ast.Subscript):
+            base = _dotted_ast_path(candidate.value)
+            if base is not None and base[-1] == "Annotated":
+                arguments = (
+                    candidate.slice.elts
+                    if isinstance(candidate.slice, ast.Tuple)
+                    else (candidate.slice,)
+                )
+                if arguments:
+                    visit(arguments[0])
+                return
+        nodes.append(candidate)
+
+    visit(annotation)
+    return tuple(nodes)
+
+
 def _is_potential_repository_annotation(node: ast.AST | None) -> bool:
     return any(
         (path := _dotted_ast_path(candidate)) is not None and path[-1] == "AuditRepository"
@@ -356,10 +384,15 @@ def _is_lambda_body_binding(
                 *(default for default in ancestor.args.kw_defaults if default is not None),
             }
             candidate: ast.AST | None = node
+            found_in_default = False
             while candidate is not None and candidate is not ancestor:
                 if candidate in defaults:
-                    return False
+                    found_in_default = True
+                    break
                 candidate = parents.get(candidate)
+            if found_in_default:
+                ancestor = parents.get(ancestor)
+                continue
             return True
         ancestor = parents.get(ancestor)
     return False
@@ -808,17 +841,24 @@ def _binding_targets(node: ast.AST) -> tuple[ast.AST, ...]:
 
 
 def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
+    def structural_pairs(target: ast.AST, value: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
+        if (
+            isinstance(target, (ast.Tuple, ast.List))
+            and isinstance(value, (ast.Tuple, ast.List))
+            and len(target.elts) == len(value.elts)
+            and not any(isinstance(element, ast.Starred) for element in target.elts)
+        ):
+            return tuple(
+                pair
+                for target_element, value_element in zip(target.elts, value.elts, strict=True)
+                for pair in structural_pairs(target_element, value_element)
+            )
+        return ((target, value),)
+
     if isinstance(node, ast.Assign):
         pairs: list[tuple[ast.AST, ast.AST]] = []
         for target in node.targets:
-            if (
-                isinstance(target, (ast.Tuple, ast.List))
-                and isinstance(node.value, (ast.Tuple, ast.List))
-                and len(target.elts) == len(node.value.elts)
-            ):
-                pairs.extend(zip(target.elts, node.value.elts, strict=True))
-            else:
-                pairs.append((target, node.value))
+            pairs.extend(structural_pairs(target, node.value))
         return tuple(pairs)
     if isinstance(node, ast.AnnAssign) and node.value is not None:
         return ((node.target, node.value),)
@@ -945,7 +985,7 @@ def _annotation_repository_operations(
     collaborator_names: dict[str, frozenset[str]],
     module_names: dict[str, tuple[str, ...]],
 ) -> frozenset[str]:
-    annotation_types = _annotation_type_nodes(node)
+    annotation_types = _receiver_annotation_type_nodes(node)
     if any(
         _dotted_ast_path(candidate) == _AUDIT_REPOSITORY_CLASS
         or _resolved_audit_repository_name(candidate, repository_names, module_names)
@@ -1057,6 +1097,7 @@ def _audit_repository_public_call_provenance(
             }
             repository_names: set[str] = set()
             potential_local_repository_names: set[str] = set()
+            potential_imported_repository_names: set[str] = set()
             collaborator_names: dict[str, frozenset[str]] = {}
             module_names: dict[str, tuple[str, ...]] = {}
             for imported in ast.walk(tree):
@@ -1066,6 +1107,12 @@ def _audit_repository_public_call_provenance(
                         "zeroth.governance.audit.repository",
                     }:
                         potential_local_repository_names.update(
+                            alias.asname or alias.name
+                            for alias in imported.names
+                            if alias.name == "AuditRepository"
+                        )
+                    elif isinstance(imported, ast.ImportFrom):
+                        potential_imported_repository_names.update(
                             alias.asname or alias.name
                             for alias in imported.names
                             if alias.name == "AuditRepository"
@@ -1082,6 +1129,8 @@ def _audit_repository_public_call_provenance(
                             and alias.name == "AuditRepository"
                         ):
                             repository_names.add(alias.asname or alias.name)
+                        elif alias.name == "AuditRepository":
+                            potential_imported_repository_names.add(alias.asname or alias.name)
                         collaborator_operations = _AUDIT_REPOSITORY_TYPED_COLLABORATORS.get(
                             (imported.module or "", alias.name)
                         )
@@ -1179,6 +1228,7 @@ def _audit_repository_public_call_provenance(
                 set(repository_names)
                 | potential_module_repository_names
                 | potential_local_repository_names
+                | potential_imported_repository_names
             )
             for names in local_repository_names.values():
                 potential_repository_type_names.update(names)
@@ -1917,6 +1967,59 @@ def test_public_call_inventory_reports_unrelated_decomposed_assignments(tmp_path
     )
 
 
+def test_public_call_inventory_recursively_decomposes_instance_assignments(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    repo, (alias, other) = (\n"
+        "        AuditRepository.scoped(db, scope),\n"
+        "        (AuditRepository.scoped(db, scope), object()),\n"
+        "    )\n"
+        "    await repo.write(record)\n"
+        "    await alias.list_by_run(record.run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::use::list_by_run",
+            "apps/candidate.py::use::write",
+        }
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_recursively_invalidates_instance_assignments(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    repo, (alias, other) = (\n"
+        "        AuditRepository.scoped(db, scope),\n"
+        "        (AuditRepository.scoped(db, scope), object()),\n"
+        "    )\n"
+        "    repo, (alias, other) = (client, (client, object()))\n"
+        "    await repo.write(record)\n"
+        "    await alias.list_by_run(record.run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::use::list_by_run",
+            "apps/candidate.py::use::write",
+        }
+    )
+
+
 def test_public_call_inventory_tracks_current_local_type_alias(tmp_path: Path) -> None:
     module = tmp_path / "apps" / "candidate.py"
     module.parent.mkdir(parents=True)
@@ -2425,6 +2528,84 @@ def test_public_call_inventory_keeps_typed_repository_outside_lambda_walrus_scop
         {"apps/candidate.py::use::write"}
     )
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_scopes_nested_lambda_default_walrus_to_outer_lambda(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, record):\n"
+        "    callback = lambda: (lambda value=(repository := other_repository): value)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ["list[AuditRepository]", "Callable[[AuditRepository], None]"],
+)
+def test_public_call_inventory_rejects_generic_repository_type_positions(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from collections.abc import Callable\n"
+        "from zeroth.governance.audit import AuditRepository\n"
+        f"async def use(holder: {annotation}, record):\n"
+        "    await holder.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize("annotation", ["AR", "'AR'"])
+def test_public_call_inventory_reports_unresolved_imported_repository_alias(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from my_adapter import AuditRepository as AR\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_reports_local_unresolved_repository_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "async def use(record):\n"
+        "    from my_adapter import AuditRepository as AR\n"
+        "    repository: AR = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 def test_public_call_inventory_rejects_match_capture_factory_rebinding(tmp_path: Path) -> None:
