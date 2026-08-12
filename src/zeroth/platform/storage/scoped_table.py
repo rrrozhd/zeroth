@@ -342,6 +342,9 @@ class _StructuredTable:
         """Return the structural authority carried by a bound transaction."""
         return (type(self),)
 
+    def _accepts_transaction_scope_from(self, source: _StructuredTable) -> bool:
+        return self._transaction_scope_identity() == source._transaction_scope_identity()
+
     def in_transaction(
         self, connection: AsyncConnection | BoundStructuredTable
     ) -> BoundStructuredTable:
@@ -576,7 +579,7 @@ class BoundStructuredTable:
             is not table._StructuredTable__database  # noqa: SLF001
         ):
             raise ValueError("bound tables must use the same database")
-        if self.__table._transaction_scope_identity() != table._transaction_scope_identity():
+        if not table._accepts_transaction_scope_from(self.__table):
             raise ValueError("bound tables must use the same structural scope")
         return BoundStructuredTable(table, self.__connection)
 
@@ -970,6 +973,23 @@ class ScopedTable(_StructuredTable):
             self._context,
             self.__privileged_tenant_wide,
             self.__cross_tenant_maintenance,
+        )
+
+    def _accepts_transaction_scope_from(self, source: _StructuredTable) -> bool:
+        if super()._accepts_transaction_scope_from(source):
+            return True
+        if type(source) is not ScopedTable:
+            return False
+        assert isinstance(source, ScopedTable)
+        return (
+            not self._definition.workspace_scoped
+            and not self.__privileged_tenant_wide
+            and not self.__cross_tenant_maintenance
+            and not source.__privileged_tenant_wide
+            and not source.__cross_tenant_maintenance
+            and type(self._context) is NullWorkspaceScopeContext
+            and type(source._context) is ScopeContext
+            and self._context.tenant_id == source._context.tenant_id
         )
 
     def _validate_join(self, other: ScopedTable) -> None:

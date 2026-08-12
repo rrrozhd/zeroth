@@ -10,6 +10,7 @@ from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
     NullWorkspaceScopeContext,
+    ScopeContext,
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
@@ -26,7 +27,11 @@ class RetentionTransaction:
 class RetentionCoordinator:
     """Serialize retention decisions and legal-hold changes per tenant."""
 
-    def __init__(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext,
+    ) -> None:
         self._database = database
         self._scope_context = scope_context
         self._coordination = ScopedTable(

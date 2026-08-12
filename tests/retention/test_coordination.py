@@ -17,7 +17,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage.database import AsyncDatabase, CoordinationTimeoutError
-from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 
 class _BlockingPlaceRepository(LegalHoldRepository):
@@ -237,6 +237,22 @@ async def test_connection_aware_hold_rejects_foreign_tenant_transaction(
 
     assert await foreign_repository.list_for_tenant() == []
     assert await LegalHoldRepository(async_database, tenant_a).list_for_tenant() == []
+
+
+@pytest.mark.asyncio
+async def test_workspace_coordinator_can_apply_same_tenant_legal_hold(
+    async_database: AsyncSQLiteDatabase,
+) -> None:
+    workspace = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    tenant = NullWorkspaceScopeContext(tenant_id="tenant-a")
+    coordinator = RetentionCoordinator(async_database, workspace)
+    repository = LegalHoldRepository(async_database, tenant)
+
+    async with coordinator.transaction() as transaction:
+        hold = await repository.place_in_transaction(transaction, run_id="run-a")
+
+    assert hold.tenant_id == "tenant-a"
+    assert [stored.hold_id for stored in await repository.list_for_tenant()] == [hold.hold_id]
 
 
 @pytest.mark.asyncio
