@@ -60,24 +60,959 @@ _AUDIT_REPOSITORY_OPERATION_NAMES = frozenset(
         "write_many",
     }
 )
+_AUDIT_REPOSITORY_TYPED_COLLABORATORS = {
+    ("zeroth.governance.audit.delivery_state", "AuditRecordWriter"): frozenset({"write"}),
+}
+_AuditRepositoryCallSite = tuple[str, tuple[str, ...] | None, int, int]
+_AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
+    "examples/04_native_tool.py": {
+        (("main",), ("demo", "service", "audit_repository")): _AUDIT_REPOSITORY_OPERATION_NAMES,
+    },
+    "examples/21_policy_block.py": {
+        (("main",), ("demo", "service", "audit_repository")): _AUDIT_REPOSITORY_OPERATION_NAMES,
+    },
+    "examples/24_audit_query.py": {
+        (("main",), ("demo", "service", "audit_repository")): _AUDIT_REPOSITORY_OPERATION_NAMES,
+    },
+    "src/zeroth/governance/audit/verifier.py": {
+        (("AuditContinuityVerifier", "verify_deployment"), ("self", "_repository")): frozenset(
+            {"list_by_deployment"}
+        ),
+        (("AuditContinuityVerifier", "verify_run"), ("self", "_repository")): frozenset(
+            {"list_by_run"}
+        ),
+    },
+    "src/zeroth/governance/audit/delivery_worker.py": {
+        (("DeliveryWorker", "_attempt"), ("self", "_writer")): frozenset({"write"}),
+    },
+    "src/zeroth/governance/approvals/service.py": {
+        (("ApprovalService", "_record_api_audit"), ("self", "audit_repository")): frozenset(
+            {"write"}
+        ),
+        (("ApprovalService", "_record_decision_audit"), ("self", "audit_repository")): frozenset(
+            {"write"}
+        ),
+    },
+    "src/zeroth/governance/retention/erasure_service.py": {
+        (("RetentionErasureService", "erase_run"), ("self", "_audits")): frozenset(
+            {"crypto_erase_in_transaction", "list_by_run", "list_by_run_in_transaction"}
+        ),
+        (("RetentionErasureService", "purge_audits"), ("self", "_audits")): frozenset(
+            {"crypto_erase_in_transaction", "list_erasable_in_transaction"}
+        ),
+    },
+    "src/zeroth/runtime/orchestration/audit_recorder.py": {
+        **{
+            (("RuntimeAuditRecorder", owner), ("self", "audit_repository")): frozenset({"write"})
+            for owner in {
+                "record_failed_branch_execution",
+                "record_failed_execution",
+                "record_history",
+                "record_policy_rejection",
+            }
+        },
+    },
+    "src/zeroth/runtime/orchestration/parallel_executor.py": {
+        (
+            ("RuntimeParallelExecutor", "execute_fan_out", "branch_coro_factory"),
+            ("self", "audit_recorder", "audit_repository"),
+        ): frozenset({"write"}),
+    },
+    "src/zeroth/runtime/orchestration/run_worker.py": {
+        (("RunWorker", "_record_worker_audit"), ("audit_repository",)): frozenset({"write"}),
+    },
+    "src/zeroth/service/api/audit_api.py": {
+        (
+            ("register_audit_routes", "_verify_run_chain"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_run"}),
+        (
+            ("register_audit_routes", "get_deployment_evidence"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_deployment"}),
+        (
+            ("register_audit_routes", "get_deployment_timeline"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_deployment"}),
+        (
+            ("register_audit_routes", "get_run_evidence"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_run"}),
+        (
+            ("register_audit_routes", "get_run_timeline"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_run"}),
+        (("register_audit_routes", "list_audits"), ("bootstrap", "audit_repository")): frozenset(
+            {"list"}
+        ),
+    },
+    "src/zeroth/service/api/econ_analytics_api.py": {
+        (("_windowed_runs_and_audits",), ("bootstrap", "audit_repository")): frozenset({"list"}),
+    },
+    "src/zeroth/service/api/retention_api.py": {
+        (
+            ("register_retention_routes", "_erase_tenant"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_erasable"}),
+        (
+            ("register_retention_routes", "_require_run_tenant"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list"}),
+    },
+    "src/zeroth/service/api/rightsizing_api.py": {
+        (
+            ("register_rightsizing_routes", "rightsizing_opportunities"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list"}),
+        (
+            ("register_rightsizing_routes", "run_rightsizing_experiment"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list"}),
+    },
+}
 
 
 def _dotted_ast_path(node: ast.AST) -> tuple[str, ...] | None:
     if isinstance(node, ast.Name):
         return (node.id,)
+    if isinstance(node, ast.NamedExpr):
+        return _dotted_ast_path(node.target)
     if isinstance(node, ast.Attribute):
         base = _dotted_ast_path(node.value)
         return None if base is None else (*base, node.attr)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    ):
+        base = _dotted_ast_path(node.args[0])
+        return None if base is None else (*base, node.args[1].value)
     return None
 
 
+def _annotation_type_nodes(node: ast.AST | None) -> tuple[ast.AST, ...]:
+    annotation = _parsed_annotation(node)
+    if annotation is None:
+        return ()
+    nodes: list[ast.AST] = []
+
+    def visit(candidate: ast.AST) -> None:
+        if isinstance(candidate, ast.BinOp) and isinstance(candidate.op, ast.BitOr):
+            visit(candidate.left)
+            visit(candidate.right)
+            return
+        if isinstance(candidate, ast.Subscript):
+            base = _dotted_ast_path(candidate.value)
+            arguments = (
+                candidate.slice.elts
+                if isinstance(candidate.slice, ast.Tuple)
+                else (candidate.slice,)
+            )
+            if base is not None and base[-1] == "Annotated":
+                if arguments:
+                    visit(arguments[0])
+                return
+            visit(candidate.value)
+            for argument in arguments:
+                visit(argument)
+            return
+        if isinstance(candidate, (ast.Tuple, ast.List)):
+            for element in candidate.elts:
+                visit(element)
+            return
+        nodes.append(candidate)
+
+    visit(annotation)
+    return tuple(nodes)
+
+
 def _annotation_names(node: ast.AST | None) -> set[str]:
-    return {item.id for item in ast.walk(node) if isinstance(item, ast.Name)} if node else set()
+    names: set[str] = set()
+    for candidate in _annotation_type_nodes(node):
+        dotted = _dotted_ast_path(candidate)
+        if dotted is not None:
+            names.add(dotted[-1])
+    return names
 
 
-def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
-    """Conservatively inventory calls rooted in a known owner-bound repository value."""
-    inventory: set[str] = set()
+def _is_potential_repository_annotation(node: ast.AST | None) -> bool:
+    return any(
+        (path := _dotted_ast_path(candidate)) is not None and path[-1] == "AuditRepository"
+        for candidate in _annotation_type_nodes(node)
+    )
+
+
+def _ast_parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    parents: dict[ast.AST, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    return parents
+
+
+def _enclosing_function(
+    node: ast.AST, parents: dict[ast.AST, ast.AST]
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    owner: ast.AST | None = node
+    while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        owner = parents.get(owner)
+    return owner if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)) else None
+
+
+_PROVENANCE_SCOPE_NODES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
+def _enclosing_provenance_scope(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST | None:
+    owner: ast.AST | None = node
+    while owner is not None:
+        if isinstance(owner, _PROVENANCE_SCOPE_NODES):
+            if isinstance(owner, ast.Lambda):
+                defaults = {
+                    *owner.args.defaults,
+                    *(default for default in owner.args.kw_defaults if default is not None),
+                }
+                ancestor: ast.AST | None = node
+                while ancestor is not None and ancestor is not owner:
+                    if ancestor in defaults:
+                        owner = parents.get(owner)
+                        break
+                    ancestor = parents.get(ancestor)
+                else:
+                    return owner
+                continue
+            if isinstance(owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                first_iter = owner.generators[0].iter
+                ancestor: ast.AST | None = node
+                while ancestor is not None and ancestor is not owner:
+                    if ancestor is first_iter:
+                        owner = parents.get(owner)
+                        break
+                    ancestor = parents.get(ancestor)
+                else:
+                    return owner
+                continue
+            return owner
+        owner = parents.get(owner)
+    return None
+
+
+def _enclosing_class(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.ClassDef | None:
+    owner: ast.AST | None = node
+    while owner is not None and not isinstance(owner, ast.ClassDef):
+        owner = parents.get(owner)
+    return owner if isinstance(owner, ast.ClassDef) else None
+
+
+def _lexical_owner_path(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> tuple[str, ...]:
+    names: list[str] = []
+    owner: ast.AST | None = node
+    while owner is not None:
+        if isinstance(owner, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.append(owner.name)
+        owner = parents.get(owner)
+    return tuple(reversed(names))
+
+
+def _function_argument_names(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | None,
+) -> set[str]:
+    if owner is None:
+        return set()
+    names = {
+        argument.arg
+        for argument in (
+            *owner.args.posonlyargs,
+            *owner.args.args,
+            *owner.args.kwonlyargs,
+        )
+    }
+    names.update(
+        argument.arg for argument in (owner.args.vararg, owner.args.kwarg) if argument is not None
+    )
+    return names
+
+
+def _is_lambda_body_binding(
+    node: ast.AST,
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    parents: dict[ast.AST, ast.AST],
+) -> bool:
+    ancestor = parents.get(node)
+    while ancestor is not None and ancestor is not owner:
+        if isinstance(ancestor, ast.Lambda):
+            defaults = {
+                *ancestor.args.defaults,
+                *(default for default in ancestor.args.kw_defaults if default is not None),
+            }
+            candidate: ast.AST | None = node
+            while candidate is not None and candidate is not ancestor:
+                if candidate in defaults:
+                    return False
+                candidate = parents.get(candidate)
+            return True
+        ancestor = parents.get(ancestor)
+    return False
+
+
+def _parsed_annotation(node: ast.AST | None) -> ast.AST | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            return ast.parse(node.value, mode="eval").body
+        except SyntaxError:
+            return None
+    return node
+
+
+def _provenance_scope(
+    node: ast.AST,
+    path: tuple[str, ...] | None,
+    parents: dict[ast.AST, ast.AST],
+) -> ast.AST | None:
+    return _enclosing_provenance_scope(node, parents)
+
+
+def _provenance_scope_chain(
+    scope: ast.AST | None, parents: dict[ast.AST, ast.AST]
+) -> tuple[ast.AST | None, ...]:
+    chain: list[ast.AST | None] = [scope]
+    while chain[-1] is not None:
+        chain.append(_enclosing_provenance_scope(parents.get(chain[-1], chain[-1]), parents))
+    return tuple(chain)
+
+
+def _is_expression_shadowed(
+    node: ast.AST,
+    receiver: tuple[str, ...] | None,
+    parents: dict[ast.AST, ast.AST],
+) -> bool:
+    if receiver is None:
+        return False
+    owner: ast.AST | None = node
+    while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(owner, ast.Lambda) and receiver[0] in _function_argument_names(owner):
+            defaults = {
+                *owner.args.defaults,
+                *(default for default in owner.args.kw_defaults if default is not None),
+            }
+            ancestor: ast.AST | None = node
+            while ancestor is not None and ancestor is not owner:
+                if ancestor in defaults:
+                    break
+                ancestor = parents.get(ancestor)
+            else:
+                return True
+        if isinstance(owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            for generator in owner.generators:
+                if node in ast.walk(generator.iter):
+                    break
+                if receiver[0] in _bound_names(generator.target):
+                    return True
+        owner = parents.get(owner)
+    return False
+
+
+def _bound_repository_operations(
+    bound_paths: dict[tuple[ast.AST | None, tuple[str, ...]], frozenset[str]],
+    scope: ast.AST | None,
+    receiver: tuple[str, ...] | None,
+    parents: dict[ast.AST, ast.AST],
+    local_names: dict[ast.AST, set[str]] | None = None,
+    competing_names: dict[ast.AST, set[str]] | None = None,
+    invalidated_paths: set[tuple[ast.AST | None, tuple[str, ...]]] | None = None,
+) -> frozenset[str] | None:
+    if receiver is None:
+        return None
+    for candidate_scope in _provenance_scope_chain(scope, parents):
+        if isinstance(candidate_scope, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+            receiver[0] in declaration.names
+            for declaration in candidate_scope.body
+            if isinstance(declaration, ast.Global)
+        ):
+            if invalidated_paths is not None and (None, receiver) in invalidated_paths:
+                return None
+            return bound_paths.get((None, receiver))
+        if invalidated_paths is not None and (candidate_scope, receiver) in invalidated_paths:
+            return None
+        if (
+            competing_names is not None
+            and candidate_scope is not None
+            and receiver[0] in competing_names.get(candidate_scope, set())
+        ):
+            return None
+        operations = bound_paths.get((candidate_scope, receiver))
+        if operations is not None:
+            return operations
+        if (
+            local_names is not None
+            and candidate_scope is not None
+            and receiver[0] in local_names.get(candidate_scope, set())
+        ):
+            if receiver[0] == "self" and isinstance(parents.get(candidate_scope), ast.ClassDef):
+                return bound_paths.get((parents[candidate_scope], receiver))
+            return None
+    if scope is not None and receiver[0] == "self":
+        class_scope = _enclosing_class(scope, parents)
+        if class_scope is not None:
+            return bound_paths.get((class_scope, receiver))
+    return None
+
+
+def _visible_repository_names(
+    scope: ast.AST | None,
+    module_repository_names: set[str],
+    local_repository_names: dict[ast.AST, set[str]],
+    local_names: dict[ast.AST, set[str]],
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    candidates = set(module_repository_names)
+    for names in local_repository_names.values():
+        candidates.update(names)
+    visible: set[str] = set()
+    for name in candidates:
+        for candidate_scope in _provenance_scope_chain(scope, parents):
+            if candidate_scope is None:
+                if name in module_repository_names:
+                    visible.add(name)
+                break
+            if name in local_repository_names.get(candidate_scope, set()):
+                visible.add(name)
+                break
+            if name in local_names.get(candidate_scope, set()):
+                break
+    return visible
+
+
+def _resolved_scoped_factory(
+    node: ast.AST,
+    scope: ast.FunctionDef | ast.AsyncFunctionDef | None,
+    repository_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+    local_alias_events: dict[
+        ast.AST, dict[str, list[tuple[tuple[int, int], tuple[str, ...] | None]]]
+    ],
+    local_names: dict[ast.AST, set[str]],
+    parents: dict[ast.AST, ast.AST],
+) -> tuple[tuple[str, ...] | None, bool]:
+    dotted = _dotted_ast_path(node)
+    if dotted is not None:
+        module_identity = _resolved_audit_repository_name(node, repository_names, module_names)
+        for candidate_scope in _provenance_scope_chain(scope, parents):
+            if candidate_scope is None:
+                return module_identity, False
+            events = local_alias_events.get(candidate_scope, {}).get(dotted[0], [])
+            visible_events = [
+                identity
+                for position, identity in events
+                if position < (node.lineno, node.col_offset)
+            ]
+            if visible_events:
+                identity = visible_events[-1]
+                resolved_identity = (
+                    None
+                    if identity is None
+                    else _canonical_audit_repository_name((*identity, *dotted[1:]))
+                )
+                was_scoped_factory = any(
+                    identity is not None
+                    and _canonical_audit_repository_name((*identity, *dotted[1:]))
+                    == (*_AUDIT_REPOSITORY_CLASS, "scoped")
+                    for identity in visible_events
+                )
+                return (
+                    resolved_identity,
+                    resolved_identity is None and was_scoped_factory,
+                )
+            if dotted[0] in local_names.get(candidate_scope, set()):
+                return None, module_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped")
+        return module_identity, False
+    return _resolved_audit_repository_name(node, repository_names, module_names), False
+
+
+_AliasIdentity = tuple[str, ...] | None
+_AliasEvents = dict[str, list[tuple[tuple[int, int], _AliasIdentity]]]
+
+
+def _must_alias_events(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    repository_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> _AliasEvents:
+    events: _AliasEvents = {}
+
+    def resolve(value: ast.AST, state: dict[str, _AliasIdentity]) -> _AliasIdentity:
+        dotted = _dotted_ast_path(value)
+        if dotted is not None and dotted[0] in state:
+            identity = state[dotted[0]]
+            return (
+                None
+                if identity is None
+                else _canonical_audit_repository_name((*identity, *dotted[1:]))
+            )
+        return _resolved_audit_repository_name(value, repository_names, module_names)
+
+    def join(
+        left: dict[str, _AliasIdentity], right: dict[str, _AliasIdentity]
+    ) -> dict[str, _AliasIdentity]:
+        return {
+            name: left.get(name) if left.get(name) == right.get(name) else None
+            for name in left.keys() | right.keys()
+        }
+
+    def record(
+        statement: ast.Assign | ast.AnnAssign,
+        state: dict[str, _AliasIdentity],
+    ) -> None:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            target = statement.targets[0]
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            target = statement.target
+            value = statement.value
+        else:
+            return
+        if isinstance(target, ast.Name):
+            identity = resolve(value, state)
+            state[target.id] = identity
+            events.setdefault(target.id, []).append(
+                ((statement.lineno, statement.col_offset), identity)
+            )
+
+    def merge_event(statement: ast.stmt, state: dict[str, _AliasIdentity]) -> None:
+        position = (statement.end_lineno, statement.end_col_offset)
+        for name, identity in state.items():
+            events.setdefault(name, []).append((position, identity))
+
+    def invalidate(statement: ast.stmt, names: set[str], state: dict[str, _AliasIdentity]) -> None:
+        for name in names:
+            state[name] = None
+        merge_event(statement, state)
+
+    def statement_named_expression_names(statement: ast.stmt) -> set[str]:
+        names: set[str] = set()
+
+        def visit(node: ast.AST) -> None:
+            if isinstance(node, ast.NamedExpr):
+                names.update(_bound_names(node.target))
+                return
+            if isinstance(node, ast.Lambda):
+                for default in (*node.args.defaults, *node.args.kw_defaults):
+                    if default is not None:
+                        visit(default)
+                return
+            for child in ast.iter_child_nodes(node):
+                if not isinstance(child, ast.stmt):
+                    visit(child)
+
+        visit(statement)
+        return names
+
+    def walk_block(
+        statements: list[ast.stmt], state: dict[str, _AliasIdentity]
+    ) -> dict[str, _AliasIdentity]:
+        state = dict(state)
+        for statement in statements:
+            expression_names = statement_named_expression_names(statement)
+            if expression_names:
+                invalidate(statement, expression_names, state)
+            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                record(statement, state)
+            elif isinstance(statement, ast.If):
+                state = join(
+                    walk_block(statement.body, state),
+                    walk_block(statement.orelse, state),
+                )
+                merge_event(statement, state)
+            elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                loop_state = dict(state)
+                if isinstance(statement, (ast.For, ast.AsyncFor)):
+                    invalidate(statement, _bound_names(statement.target), loop_state)
+                body_state = walk_block(statement.body, loop_state)
+                else_state = walk_block(statement.orelse, join(state, body_state))
+                if any(
+                    isinstance(node, ast.Break)
+                    for body_statement in statement.body
+                    for node in ast.walk(body_statement)
+                ):
+                    state = join(body_state, else_state)
+                else:
+                    state = else_state
+                merge_event(statement, state)
+            elif isinstance(statement, (ast.Try, ast.TryStar)):
+                body_state = walk_block(statement.body, state)
+                path_states = [walk_block(statement.orelse, body_state)]
+                for handler in statement.handlers:
+                    handler_state = dict(state)
+                    if handler.name:
+                        handler_state[handler.name] = None
+                        events.setdefault(handler.name, []).append(
+                            ((handler.lineno, handler.col_offset), None)
+                        )
+                    path_states.append(walk_block(handler.body, handler_state))
+                state = path_states[0]
+                for path_state in path_states[1:]:
+                    state = join(state, path_state)
+                state = walk_block(statement.finalbody, state)
+                merge_event(statement, state)
+            elif isinstance(statement, ast.Match):
+                path_states = []
+                for case in statement.cases:
+                    case_state = dict(state)
+                    invalidate(
+                        statement,
+                        _bound_names(case.pattern),
+                        case_state,
+                    )
+                    path_states.append(walk_block(case.body, case_state))
+                if not any(
+                    isinstance(case.pattern, ast.MatchAs)
+                    and case.pattern.pattern is None
+                    and case.pattern.name is None
+                    and case.guard is None
+                    for case in statement.cases
+                ):
+                    path_states.append(state)
+                state = path_states[0]
+                for path_state in path_states[1:]:
+                    state = join(state, path_state)
+                merge_event(statement, state)
+            elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+                invalidate(
+                    statement,
+                    {alias.asname or alias.name.split(".")[0] for alias in statement.names},
+                    state,
+                )
+            elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                invalidate(statement, {statement.name}, state)
+            elif isinstance(statement, (ast.With, ast.AsyncWith)):
+                body_state = dict(state)
+                invalidate(
+                    statement,
+                    set().union(
+                        *(
+                            _bound_names(item.optional_vars)
+                            for item in statement.items
+                            if item.optional_vars is not None
+                        )
+                    ),
+                    body_state,
+                )
+                state = join(state, walk_block(statement.body, body_state))
+                merge_event(statement, state)
+        return state
+
+    walk_block(owner.body, {})
+    return events
+
+
+def _visible_annotation_repository_names(
+    node: ast.AST,
+    scope: ast.AST | None,
+    module_repository_names: set[str],
+    local_repository_names: dict[ast.AST, set[str]],
+    local_names: dict[ast.AST, set[str]],
+    local_alias_events: dict[ast.AST, _AliasEvents],
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    visible = _visible_repository_names(
+        scope,
+        module_repository_names,
+        local_repository_names,
+        local_names,
+        parents,
+    )
+    position = (node.lineno, node.col_offset)
+    shadowed_names: set[str] = set()
+    for candidate_scope in _provenance_scope_chain(scope, parents):
+        events_by_name = local_alias_events.get(candidate_scope, {})
+        candidate_names = local_names.get(candidate_scope, set()) | set(events_by_name)
+        for name in candidate_names - shadowed_names:
+            visible.discard(name)
+            visible_events = [
+                identity for event, identity in events_by_name.get(name, []) if event < position
+            ]
+            if visible_events and visible_events[-1] == _AUDIT_REPOSITORY_CLASS:
+                visible.add(name)
+            shadowed_names.add(name)
+    return visible
+
+
+def _has_potential_repository_path(
+    paths: set[tuple[ast.AST | None, tuple[str, ...]]],
+    scope: ast.AST | None,
+    receiver: tuple[str, ...] | None,
+    parents: dict[ast.AST, ast.AST],
+) -> bool:
+    return receiver is not None and any(
+        (candidate_scope, receiver) in paths
+        for candidate_scope in _provenance_scope_chain(scope, parents)
+    )
+
+
+def _bound_names(node: ast.AST) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return set().union(*(_bound_names(element) for element in node.elts))
+    if isinstance(node, ast.Starred):
+        return _bound_names(node.value)
+    if isinstance(node, ast.NamedExpr):
+        return _bound_names(node.target)
+    if isinstance(node, ast.MatchAs):
+        return ({node.name} if node.name is not None else set()) | (
+            _bound_names(node.pattern) if node.pattern is not None else set()
+        )
+    if isinstance(node, ast.MatchStar):
+        return {node.name} if node.name is not None else set()
+    if isinstance(node, ast.MatchMapping):
+        names = set().union(*(_bound_names(pattern) for pattern in node.patterns))
+        if node.rest is not None:
+            names.add(node.rest)
+        return names
+    if isinstance(node, ast.MatchSequence):
+        return set().union(*(_bound_names(pattern) for pattern in node.patterns))
+    if isinstance(node, ast.MatchClass):
+        return set().union(
+            *(_bound_names(pattern) for pattern in (*node.patterns, *node.kwd_patterns))
+        )
+    if isinstance(node, ast.MatchOr):
+        return set().union(*(_bound_names(pattern) for pattern in node.patterns))
+    return set()
+
+
+def _binding_targets(node: ast.AST) -> tuple[ast.AST, ...]:
+    if isinstance(node, ast.Assign):
+        return tuple(node.targets)
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor, ast.NamedExpr)):
+        return (node.target,)
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return tuple(item.optional_vars for item in node.items if item.optional_vars is not None)
+    if isinstance(node, ast.Match):
+        return tuple(
+            target
+            for case in node.cases
+            for target in (case.pattern, case.guard)
+            if target is not None
+        )
+    return ()
+
+
+def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
+    if isinstance(node, ast.Assign):
+        pairs: list[tuple[ast.AST, ast.AST]] = []
+        for target in node.targets:
+            if (
+                isinstance(target, (ast.Tuple, ast.List))
+                and isinstance(node.value, (ast.Tuple, ast.List))
+                and len(target.elts) == len(node.value.elts)
+            ):
+                pairs.extend(zip(target.elts, node.value.elts, strict=True))
+            else:
+                pairs.append((target, node.value))
+        return tuple(pairs)
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return ((node.target, node.value),)
+    if isinstance(node, ast.NamedExpr):
+        return ((node.target, node.value),)
+    return ()
+
+
+def _compound_body_shadowed(node: ast.AST, name: str, parents: dict[ast.AST, ast.AST]) -> bool:
+    child: ast.AST = node
+    owner = parents.get(child)
+    while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if (
+            isinstance(owner, (ast.For, ast.AsyncFor))
+            and child in owner.body
+            and name in _bound_names(owner.target)
+        ):
+            return True
+        if (
+            isinstance(owner, (ast.With, ast.AsyncWith))
+            and child in owner.body
+            and any(
+                item.optional_vars is not None and name in _bound_names(item.optional_vars)
+                for item in owner.items
+            )
+        ):
+            return True
+        child = owner
+        owner = parents.get(owner)
+    return False
+
+
+def _function_local_names(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    names = _function_argument_names(owner)
+    for node in ast.walk(owner):
+        if _is_lambda_body_binding(node, owner, parents):
+            continue
+        if (
+            node is not owner
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and _enclosing_function(parents.get(node, node), parents) is owner
+        ):
+            names.add(node.name)
+            continue
+        if _enclosing_function(node, parents) is not owner:
+            continue
+        for target in _binding_targets(node):
+            names.update(_bound_names(target))
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+    for declaration in owner.body:
+        if isinstance(declaration, (ast.Global, ast.Nonlocal)):
+            names.difference_update(declaration.names)
+    return names
+
+
+def _provenance_scope_local_names(owner: ast.AST, parents: dict[ast.AST, ast.AST]) -> set[str]:
+    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return _function_local_names(owner, parents)
+    if isinstance(owner, ast.Lambda):
+        return _function_argument_names(owner)
+    if isinstance(owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        return set().union(*(_bound_names(generator.target) for generator in owner.generators))
+    return set()
+
+
+def _function_reassigned_names(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(owner):
+        if _is_lambda_body_binding(node, owner, parents):
+            continue
+        if (
+            node is not owner
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and _enclosing_function(parents.get(node, node), parents) is owner
+        ):
+            names.add(node.name)
+            continue
+        if _enclosing_function(node, parents) is not owner:
+            continue
+        for target in _binding_targets(node):
+            names.update(_bound_names(target))
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+    return names
+
+
+def _function_competing_binding_names(
+    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    counts: dict[str, int] = {}
+    for node in ast.walk(owner):
+        if _is_lambda_body_binding(node, owner, parents):
+            continue
+        if (
+            node is not owner
+            and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and _enclosing_function(parents.get(node, node), parents) is owner
+        ):
+            counts[node.name] = counts.get(node.name, 0) + 2
+            continue
+        if _enclosing_function(node, parents) is not owner:
+            continue
+        for target in _binding_targets(node):
+            for name in _bound_names(target):
+                counts[name] = counts.get(name, 0) + 1
+    return {name for name, count in counts.items() if count > 1}
+
+
+def _annotation_repository_operations(
+    node: ast.AST | None,
+    repository_names: set[str],
+    collaborator_names: dict[str, frozenset[str]],
+    module_names: dict[str, tuple[str, ...]],
+) -> frozenset[str]:
+    annotation_types = _annotation_type_nodes(node)
+    if any(
+        _dotted_ast_path(candidate) == _AUDIT_REPOSITORY_CLASS
+        or _resolved_audit_repository_name(candidate, repository_names, module_names)
+        == _AUDIT_REPOSITORY_CLASS
+        for candidate in annotation_types
+    ):
+        return _AUDIT_REPOSITORY_OPERATION_NAMES
+    operations: set[str] = set()
+    for name in _annotation_names(node):
+        operations.update(collaborator_names.get(name, ()))
+    return frozenset(operations)
+
+
+def _binding_scope(
+    node: ast.AST,
+    target: tuple[str, ...] | None,
+    parents: dict[ast.AST, ast.AST],
+) -> ast.AST | None:
+    if target is None:
+        return _provenance_scope(node, target, parents)
+    for scope in _provenance_scope_chain(_provenance_scope(node, target, parents), parents):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return scope
+        declarations = [
+            declaration
+            for declaration in scope.body
+            if isinstance(declaration, (ast.Global, ast.Nonlocal))
+            and target[0] in declaration.names
+        ]
+        if not declarations:
+            return scope
+        if any(isinstance(declaration, ast.Global) for declaration in declarations):
+            return None
+    return None
+
+
+def _inside_unmodeled_control_flow(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    owner: ast.AST | None = parents.get(node)
+    while owner is not None and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(owner, (ast.Try, ast.TryStar, ast.Match)):
+            return True
+        owner = parents.get(owner)
+    return False
+
+
+def _annotation_class_identity(
+    node: ast.AST,
+    name: str,
+    class_identities: set[tuple[str, ...]],
+    parents: dict[ast.AST, ast.AST],
+) -> tuple[str, ...] | None:
+    owner = _enclosing_function(node, parents)
+    owner_path = _lexical_owner_path(owner, parents) if owner is not None else ()
+    for index in range(len(owner_path), -1, -1):
+        candidate = (*owner_path[:index], name)
+        if candidate in class_identities:
+            return candidate
+    candidate = (name,)
+    return candidate if candidate in class_identities else None
+
+
+def _audit_repository_public_call_provenance(
+    root: Path,
+) -> tuple[frozenset[_AuditRepositoryCallSite], frozenset[_AuditRepositoryCallSite]]:
+    """Return reviewed and potential calls with receiver and source-position identity."""
+    reviewed: set[_AuditRepositoryCallSite] = set()
+    potential: set[_AuditRepositoryCallSite] = set()
     for search_root in (
         root / "src",
         root / "release",
@@ -90,9 +1025,52 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
             if relative_path == "src/zeroth/governance/audit/repository.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            parents = _ast_parents(tree)
+            local_names = {
+                owner: _provenance_scope_local_names(owner, parents)
+                for owner in ast.walk(tree)
+                if isinstance(owner, _PROVENANCE_SCOPE_NODES)
+            }
+            competing_names = {
+                owner: _function_competing_binding_names(owner, parents)
+                for owner in ast.walk(tree)
+                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            reassigned_paths: set[
+                tuple[ast.FunctionDef | ast.AsyncFunctionDef | None, tuple[str, ...]]
+            ] = set()
+            declared_reassigned_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            for node in ast.walk(tree):
+                for target in _binding_targets(node):
+                    path_value = _dotted_ast_path(target)
+                    if path_value is not None and len(path_value) > 1:
+                        reassigned_paths.add((_enclosing_function(node, parents), path_value))
+                    elif path_value is not None:
+                        owner = _enclosing_function(node, parents)
+                        declared_scope = _binding_scope(node, path_value, parents)
+                        if declared_scope is not owner:
+                            declared_reassigned_paths.add((declared_scope, path_value))
+            reassigned_names = {
+                owner: _function_reassigned_names(owner, parents)
+                for owner in local_names
+                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
             repository_names: set[str] = set()
+            potential_local_repository_names: set[str] = set()
+            collaborator_names: dict[str, frozenset[str]] = {}
             module_names: dict[str, tuple[str, ...]] = {}
             for imported in ast.walk(tree):
+                if _enclosing_function(imported, parents) is not None:
+                    if isinstance(imported, ast.ImportFrom) and imported.module in {
+                        "zeroth.governance.audit",
+                        "zeroth.governance.audit.repository",
+                    }:
+                        potential_local_repository_names.update(
+                            alias.asname or alias.name
+                            for alias in imported.names
+                            if alias.name == "AuditRepository"
+                        )
+                    continue
                 if isinstance(imported, ast.ImportFrom):
                     for alias in imported.names:
                         if (
@@ -104,6 +1082,11 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
                             and alias.name == "AuditRepository"
                         ):
                             repository_names.add(alias.asname or alias.name)
+                        collaborator_operations = _AUDIT_REPOSITORY_TYPED_COLLABORATORS.get(
+                            (imported.module or "", alias.name)
+                        )
+                        if collaborator_operations is not None:
+                            collaborator_names[alias.asname or alias.name] = collaborator_operations
                 elif isinstance(imported, ast.Import):
                     for alias in imported.names:
                         if alias.name in {
@@ -120,6 +1103,8 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
             while changed:
                 changed = False
                 for assigned in ast.walk(tree):
+                    if _enclosing_function(assigned, parents) is not None:
+                        continue
                     if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
                         target = assigned.targets[0]
                         value = assigned.value
@@ -137,26 +1122,402 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
                     elif binding is not None and target.id not in module_names:
                         module_names[target.id] = binding
                         changed = True
-            bound_paths: set[tuple[str, ...]] = set()
+            module_binding_counts: dict[str, int] = {}
+            for assigned in ast.walk(tree):
+                if _enclosing_function(assigned, parents) is not None:
+                    continue
+                targets: tuple[ast.AST, ...] = ()
+                if isinstance(assigned, ast.Assign):
+                    targets = tuple(assigned.targets)
+                elif isinstance(assigned, ast.AnnAssign):
+                    targets = (assigned.target,)
+                for target in targets:
+                    for name in _bound_names(target):
+                        module_binding_counts[name] = module_binding_counts.get(name, 0) + 1
+            ambiguous_module_names = {
+                name for name, count in module_binding_counts.items() if count > 1
+            }
+            potential_module_repository_names = repository_names & ambiguous_module_names
+            repository_names.difference_update(ambiguous_module_names)
+            for name in ambiguous_module_names:
+                module_names.pop(name, None)
+            local_repository_names: dict[ast.AST, set[str]] = {}
+            changed = True
+            while changed:
+                changed = False
+                for assigned in ast.walk(tree):
+                    owner = _enclosing_function(assigned, parents)
+                    if owner is None:
+                        continue
+                    if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
+                        target = assigned.targets[0]
+                        value = assigned.value
+                    elif isinstance(assigned, ast.AnnAssign) and assigned.value is not None:
+                        target = assigned.target
+                        value = assigned.value
+                    else:
+                        continue
+                    if not isinstance(target, ast.Name):
+                        continue
+                    visible_repository_names = _visible_repository_names(
+                        owner,
+                        repository_names,
+                        local_repository_names,
+                        local_names,
+                        parents,
+                    )
+                    if (
+                        _resolved_audit_repository_name(
+                            value, visible_repository_names, module_names
+                        )
+                        == _AUDIT_REPOSITORY_CLASS
+                        and target.id not in local_repository_names.setdefault(owner, set())
+                    ):
+                        local_repository_names[owner].add(target.id)
+                        changed = True
+            potential_repository_type_names = (
+                set(repository_names)
+                | potential_module_repository_names
+                | potential_local_repository_names
+            )
+            for names in local_repository_names.values():
+                potential_repository_type_names.update(names)
+            local_alias_events: dict[
+                ast.AST, dict[str, list[tuple[tuple[int, int], tuple[str, ...] | None]]]
+            ] = {
+                owner: _must_alias_events(owner, repository_names, module_names)
+                for owner in local_names
+                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for aliases in local_alias_events.values():
+                for name, events in aliases.items():
+                    if _AUDIT_REPOSITORY_CLASS in {identity for _position, identity in events}:
+                        potential_repository_type_names.add(name)
+            typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
+            potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
+            potential_typed_attribute_names: dict[str, set[str]] = {}
+            class_identities: set[tuple[str, ...]] = set()
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                class_identity = _lexical_owner_path(node, parents)
+                class_identities.add(class_identity)
+                attributes: dict[str, frozenset[str]] = {}
+                for statement in node.body:
+                    if not isinstance(statement, ast.AnnAssign) or not isinstance(
+                        statement.target, ast.Name
+                    ):
+                        continue
+                    visible_repository_names = _visible_repository_names(
+                        _enclosing_function(node, parents),
+                        repository_names,
+                        local_repository_names,
+                        local_names,
+                        parents,
+                    )
+                    operations = _annotation_repository_operations(
+                        statement.annotation,
+                        visible_repository_names,
+                        collaborator_names,
+                        module_names,
+                    )
+                    if operations:
+                        attributes[statement.target.id] = operations
+                if attributes:
+                    potential_typed_attribute_names.setdefault(node.name, set()).update(attributes)
+                if isinstance(parents.get(node), ast.ClassDef):
+                    if attributes:
+                        potential_typed_repository_attributes[class_identity] = set(attributes)
+                    continue
+                if attributes:
+                    typed_repository_attributes[class_identity] = attributes
+
+            bound_paths: dict[tuple[ast.AST | None, tuple[str, ...]], frozenset[str]] = {}
+            known_provenance_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            potential_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            control_flow_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            compound_body_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            reviewed_edge_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            reviewed_edges = _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES.get(relative_path, {})
+            for owner in ast.walk(tree):
+                if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                owner_path = _lexical_owner_path(owner, parents)
+                for (reviewed_owner_path, receiver), operations in reviewed_edges.items():
+                    if owner_path == reviewed_owner_path:
+                        bound_paths[(owner, receiver)] = operations
+                        reviewed_edge_paths.add((owner, receiver))
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    visible_repository_names = _visible_annotation_repository_names(
+                        node,
+                        node,
+                        repository_names,
+                        local_repository_names,
+                        local_names,
+                        local_alias_events,
+                        parents,
+                    )
                     for argument in (
                         *node.args.posonlyargs,
                         *node.args.args,
                         *node.args.kwonlyargs,
                     ):
-                        if repository_names.intersection(_annotation_names(argument.annotation)):
-                            bound_paths.add((argument.arg,))
-                if isinstance(node, ast.AnnAssign) and repository_names.intersection(
-                    _annotation_names(node.annotation)
-                ):
+                        operations = _annotation_repository_operations(
+                            argument.annotation,
+                            visible_repository_names,
+                            collaborator_names,
+                            module_names,
+                        )
+                        if operations and argument.arg not in reassigned_names[node]:
+                            bound_paths[(node, (argument.arg,))] = operations
+                        elif potential_repository_type_names.intersection(
+                            _annotation_names(argument.annotation)
+                        ) or _is_potential_repository_annotation(argument.annotation):
+                            potential_paths.add((node, (argument.arg,)))
+                        for annotation_name in _annotation_names(argument.annotation):
+                            class_identity = _annotation_class_identity(
+                                node, annotation_name, class_identities, parents
+                            )
+                            for attribute, attribute_operations in typed_repository_attributes.get(
+                                class_identity or (), {}
+                            ).items():
+                                bound_paths[(node, (argument.arg, attribute))] = (
+                                    attribute_operations
+                                )
+                            for attribute in potential_typed_repository_attributes.get(
+                                class_identity or (), set()
+                            ) | potential_typed_attribute_names.get(annotation_name, set()):
+                                potential_paths.add((node, (argument.arg, attribute)))
+                if isinstance(node, ast.AnnAssign):
+                    annotation_scope = _enclosing_function(node, parents)
+                    visible_repository_names = _visible_annotation_repository_names(
+                        node,
+                        annotation_scope,
+                        repository_names,
+                        local_repository_names,
+                        local_names,
+                        local_alias_events,
+                        parents,
+                    )
+                    operations = _annotation_repository_operations(
+                        node.annotation,
+                        visible_repository_names,
+                        collaborator_names,
+                        module_names,
+                    )
                     target = _dotted_ast_path(node.target)
+                    if target is not None and operations:
+                        bound_paths[(_provenance_scope(node, target, parents), target)] = operations
+                    elif target is not None and (
+                        potential_repository_type_names.intersection(
+                            _annotation_names(node.annotation)
+                        )
+                        or _is_potential_repository_annotation(node.annotation)
+                    ):
+                        potential_paths.add((_provenance_scope(node, target, parents), target))
                     if target is not None:
-                        bound_paths.add(target)
-                path_value = _dotted_ast_path(node)
-                if path_value and path_value[-1] == "audit_repository":
-                    bound_paths.add(path_value)
+                        for annotation_name in _annotation_names(node.annotation):
+                            class_identity = _annotation_class_identity(
+                                node, annotation_name, class_identities, parents
+                            )
+                            for attribute, attribute_operations in typed_repository_attributes.get(
+                                class_identity or (), {}
+                            ).items():
+                                bound_paths[
+                                    (_provenance_scope(node, target, parents), (*target, attribute))
+                                ] = attribute_operations
+                            for attribute in potential_typed_repository_attributes.get(
+                                class_identity or (), set()
+                            ) | potential_typed_attribute_names.get(annotation_name, set()):
+                                potential_paths.add(
+                                    (_provenance_scope(node, target, parents), (*target, attribute))
+                                )
+            changed = True
+            while changed:
+                changed = False
+                for node in ast.walk(tree):
+                    for target_node, value in _assignment_bindings(node):
+                        target = _dotted_ast_path(target_node)
+                        source = (
+                            _dotted_ast_path(value.func)
+                            if isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                            else _dotted_ast_path(value)
+                        )
+                        if target is None:
+                            continue
+                        target_scope = _binding_scope(node, target, parents)
+                        source_scope = _provenance_scope(node, source, parents)
+                        control_flow_gated = _inside_unmodeled_control_flow(node, parents)
+                        owner = _enclosing_function(node, parents)
+                        visible_repository_names = _visible_repository_names(
+                            owner,
+                            repository_names,
+                            local_repository_names,
+                            local_names,
+                            parents,
+                        )
+                        factory_identity, shadowed_scoped_factory = (
+                            _resolved_scoped_factory(
+                                value.func,
+                                owner,
+                                repository_names,
+                                module_names,
+                                local_alias_events,
+                                local_names,
+                                parents,
+                            )
+                            if isinstance(value, ast.Call)
+                            else (None, False)
+                        )
+                        operations = _bound_repository_operations(
+                            bound_paths,
+                            owner if source and source[0] == "self" else source_scope,
+                            source,
+                            parents,
+                            local_names,
+                            competing_names,
+                        )
+                        source_is_potential = _has_potential_repository_path(
+                            potential_paths, source_scope, source, parents
+                        )
+                        if isinstance(node, ast.NamedExpr):
+                            source_is_potential = False
+                        source_is_compound_shadowed = (
+                            source is not None
+                            and (owner, source) not in reviewed_edge_paths
+                            and _compound_body_shadowed(node, source[0], parents)
+                            and (
+                                operations is not None
+                                or source_is_potential
+                                or factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped")
+                                or shadowed_scoped_factory
+                            )
+                        )
+                        if source_is_compound_shadowed:
+                            source_is_reviewed_edge = (owner, source) in reviewed_edge_paths
+                            if not source_is_reviewed_edge:
+                                operations = None
+                                source_is_potential = True
+                                bound_paths.pop((target_scope, target), None)
+                            compound_body_paths.add((target_scope, target))
+                        if (
+                            factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped")
+                            and not source_is_compound_shadowed
+                        ):
+                            operations = _AUDIT_REPOSITORY_OPERATION_NAMES
+                        ambiguous_module_factory = (
+                            isinstance(value, ast.Call)
+                            and isinstance(value.func, ast.Name)
+                            and value.func.id in ambiguous_module_names
+                        )
+                        if control_flow_gated:
+                            source_is_reviewed_edge = (owner, source) in reviewed_edge_paths
+                            if (
+                                source_is_reviewed_edge
+                                and operations
+                                and (target_scope, target) not in bound_paths
+                            ):
+                                bound_paths[(target_scope, target)] = operations
+                                changed = True
+                            if (
+                                operations
+                                or source_is_potential
+                                or shadowed_scoped_factory
+                                or ambiguous_module_factory
+                            ) and (target_scope, target) not in potential_paths:
+                                potential_paths.add((target_scope, target))
+                                if not source_is_reviewed_edge:
+                                    control_flow_paths.add((target_scope, target))
+                                changed = True
+                            continue
+                        if (
+                            operations
+                            and (target_scope, target) not in bound_paths
+                            and (target_scope, target) not in known_provenance_paths
+                        ):
+                            bound_paths[(target_scope, target)] = operations
+                            known_provenance_paths.add((target_scope, target))
+                            changed = True
+                        elif (
+                            operations is None
+                            and (target_scope, target) in known_provenance_paths
+                            and not (
+                                (target_scope, target) in reviewed_edge_paths
+                                and isinstance(value, ast.Call)
+                                and isinstance(value.func, ast.Name)
+                                and value.func.id == "getattr"
+                            )
+                        ):
+                            if bound_paths.pop((target_scope, target), None) is not None:
+                                changed = True
+                        if (
+                            source_is_potential
+                            or shadowed_scoped_factory
+                            or ambiguous_module_factory
+                        ) and (target_scope, target) not in potential_paths:
+                            potential_paths.add((target_scope, target))
+                            changed = True
+                    continue
 
+            invalidated_paths: set[tuple[ast.AST | None, tuple[str, ...]]] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                    target_node = node.targets[0]
+                    value = node.value
+                elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                    target_node = node.target
+                    value = node.value
+                else:
+                    continue
+                target = _dotted_ast_path(target_node)
+                if target is None:
+                    continue
+                target_scope = _binding_scope(node, target, parents)
+                target_key = (target_scope, target)
+                if target_key in reviewed_edge_paths:
+                    continue
+                if len(target) == 1 or target_key not in bound_paths:
+                    continue
+                source = _dotted_ast_path(value)
+                owner = _enclosing_function(node, parents)
+                operations = _bound_repository_operations(
+                    bound_paths,
+                    _provenance_scope(node, source, parents),
+                    source,
+                    parents,
+                    local_names,
+                    competing_names,
+                )
+                if isinstance(value, ast.Call):
+                    visible_repository_names = _visible_repository_names(
+                        owner,
+                        repository_names,
+                        local_repository_names,
+                        local_names,
+                        parents,
+                    )
+                    factory_identity, _shadowed = _resolved_scoped_factory(
+                        value.func,
+                        owner,
+                        visible_repository_names,
+                        module_names,
+                        local_alias_events,
+                        local_names,
+                        parents,
+                    )
+                    if factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped"):
+                        operations = _AUDIT_REPOSITORY_OPERATION_NAMES
+                if operations is None:
+                    invalidated_paths.add(target_key)
+                    potential_paths.add(target_key)
+
+            suspicious_receivers: set[tuple[ast.AST | None, tuple[str, ...]]] = {
+                (_provenance_scope(node, dotted, parents), dotted)
+                for node in ast.walk(tree)
+                if (dotted := _dotted_ast_path(node)) is not None
+                and dotted[-1] == "audit_repository"
+            }
             changed = True
             while changed:
                 changed = False
@@ -171,24 +1532,18 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
                         continue
                     target = _dotted_ast_path(target_node)
                     source = _dotted_ast_path(value)
-                    if target is None:
+                    if target is None or source is None:
                         continue
-                    factory_identity = (
-                        _resolved_audit_repository_name(value.func, repository_names, module_names)
-                        if isinstance(value, ast.Call)
-                        else None
+                    target_key = (_binding_scope(node, target, parents), target)
+                    source_scope = _provenance_scope(node, source, parents)
+                    source_is_suspicious = any(
+                        (candidate_scope, source) in suspicious_receivers
+                        for candidate_scope in _provenance_scope_chain(source_scope, parents)
                     )
-                    if (
-                        source in bound_paths
-                        or factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped")
-                    ) and target not in bound_paths:
-                        bound_paths.add(target)
+                    if source_is_suspicious and target_key not in suspicious_receivers:
+                        suspicious_receivers.add(target_key)
                         changed = True
-
-            parents: dict[ast.AST, ast.AST] = {}
-            for parent in ast.walk(tree):
-                for child in ast.iter_child_nodes(parent):
-                    parents[child] = parent
+            provenance_receiver_paths = {receiver for _scope, receiver in bound_paths}
             for node in ast.walk(tree):
                 if (
                     not isinstance(node, ast.Call)
@@ -197,20 +1552,75 @@ def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
                 ):
                     continue
                 receiver = _dotted_ast_path(node.func.value)
-                if receiver not in bound_paths:
-                    continue
-                owner: ast.AST | None = node
-                while owner is not None and not isinstance(
-                    owner, (ast.FunctionDef, ast.AsyncFunctionDef)
-                ):
-                    owner = parents.get(owner)
-                owner_name = (
-                    owner.name
-                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    else "<module>"
+                owner = _enclosing_function(node, parents)
+                owner_name = owner.name if owner is not None else "<module>"
+                call = f"{relative_path}::{owner_name}::{node.func.attr}"
+                call_site = (call, receiver, node.lineno, node.col_offset)
+                scope = _provenance_scope(node, receiver, parents)
+                operations = _bound_repository_operations(
+                    bound_paths,
+                    scope,
+                    receiver,
+                    parents,
+                    local_names,
+                    competing_names,
+                    invalidated_paths,
                 )
-                inventory.add(f"{relative_path}::{owner_name}::{node.func.attr}")
-    return frozenset(inventory)
+                declaration_scope = _binding_scope(node, receiver, parents)
+                if (
+                    (owner, receiver) in reassigned_paths
+                    or (declaration_scope, receiver) in declared_reassigned_paths
+                    or _is_expression_shadowed(node, receiver, parents)
+                    or (scope, receiver) in control_flow_paths
+                    or (scope, receiver) in compound_body_paths
+                ):
+                    operations = None
+                is_name_signaled = any(
+                    (candidate_scope, receiver) in suspicious_receivers
+                    for candidate_scope in _provenance_scope_chain(scope, parents)
+                )
+                is_reviewed_receiver = (owner, receiver) in reviewed_edge_paths
+                is_potential = (
+                    operations is not None
+                    or is_name_signaled
+                    or is_reviewed_receiver
+                    or receiver in provenance_receiver_paths
+                    or _has_potential_repository_path(potential_paths, scope, receiver, parents)
+                    or _has_potential_repository_path(
+                        known_provenance_paths, scope, receiver, parents
+                    )
+                )
+                if is_potential:
+                    potential.add(call_site)
+                has_reviewed_provenance = node.func.attr in (operations or frozenset())
+                if has_reviewed_provenance:
+                    reviewed.add(call_site)
+    return frozenset(reviewed), frozenset(potential)
+
+
+def _audit_repository_public_call_inventory(root: Path) -> frozenset[str]:
+    """Conservatively inventory calls rooted in a known owner-bound repository value."""
+    reviewed, _potential = _audit_repository_public_call_provenance(root)
+    return frozenset(call for call, _receiver, _line, _column in reviewed)
+
+
+def _unreviewed_audit_repository_public_calls(root: Path) -> frozenset[str]:
+    """Return candidate calls that lack independently reviewed provenance."""
+    reviewed, potential = _audit_repository_public_call_provenance(root)
+    unreviewed = potential - reviewed
+    return frozenset(call for call, _receiver, _line, _column in unreviewed)
+
+
+def _audit_repository_public_call_inventories(
+    root: Path,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Derive reviewed and unreviewed inventories from one production-tree scan."""
+    reviewed, potential = _audit_repository_public_call_provenance(root)
+    reviewed_inventory = frozenset(call for call, _receiver, _line, _column in reviewed)
+    unreviewed_inventory = frozenset(
+        call for call, _receiver, _line, _column in potential - reviewed
+    )
+    return reviewed_inventory, unreviewed_inventory
 
 
 _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
@@ -221,6 +1631,9 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = frozenset(
         "examples/24_audit_query.py::main::list_by_run",
         "src/zeroth/governance/approvals/service.py::_record_api_audit::write",
         "src/zeroth/governance/approvals/service.py::_record_decision_audit::write",
+        "src/zeroth/governance/audit/delivery_worker.py::_attempt::write",
+        "src/zeroth/governance/audit/verifier.py::verify_deployment::list_by_deployment",
+        "src/zeroth/governance/audit/verifier.py::verify_run::list_by_run",
         "src/zeroth/governance/retention/erasure_service.py::erase_run::crypto_erase_in_transaction",
         "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run",
         "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run_in_transaction",
@@ -255,7 +1668,9 @@ def test_production_audit_repository_public_calls_are_exhaustive_and_reviewed() 
     assert _audit_repository_binding_inventory(root) == frozenset(
         {"src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped"}
     )
-    assert _audit_repository_public_call_inventory(root) == _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY
+    reviewed, unreviewed = _audit_repository_public_call_inventories(root)
+    assert reviewed == _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY
+    assert unreviewed == frozenset()
 
 
 def test_public_call_inventory_tracks_scoped_factory_and_instance_aliases(tmp_path: Path) -> None:
@@ -275,6 +1690,1585 @@ def test_public_call_inventory_tracks_scoped_factory_and_instance_aliases(tmp_pa
     )
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_local_scoped_factory_alias_chains(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_class(record):\n"
+        "    Repo = AuditRepository\n"
+        "    repository = Repo.scoped(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def via_factory(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    alias = factory\n"
+        "    repository = alias(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_class::write",
+            "apps/candidate.py::via_factory::write",
+        }
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_rejects_rebound_local_scoped_factory(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    factory = other_factory\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_rebound_local_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate):\n"
+        "    Repo = AuditRepository\n"
+        "    Repo = OtherRepository\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_outer_rebound_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "def outer():\n"
+        "    Repo = AuditRepository\n"
+        "    Repo = OtherRepository\n"
+        "    async def use(repository: Repo):\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "rebind",
+    [
+        "    try:\n        factory = other_factory\n    except Exception:\n        pass\n",
+        "    match choice:\n        case _:\n            factory = other_factory\n",
+        "    import other as factory\n",
+        "    def factory():\n        pass\n",
+        "    async def factory():\n        pass\n",
+        "    for factory in factories:\n        pass\n",
+        "    async for factory in factories:\n        pass\n",
+        "    with resource as factory:\n        pass\n",
+        "    if factory := other_factory:\n        pass\n",
+    ],
+)
+def test_public_call_inventory_rejects_unmodeled_factory_rebinding(
+    tmp_path: Path, rebind: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(choice, factories, resource, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"{rebind}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "rebind",
+    [
+        "    for factory in factories:\n        pass\n",
+        "    with manager() as factory:\n        pass\n",
+        "    try:\n        raise ValueError\n    except Exception as factory:\n        pass\n",
+    ],
+)
+def test_public_call_inventory_rejects_binding_form_factory_rebinding(
+    tmp_path: Path, rebind: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(factories, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"{rebind}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "    for factory in factories:\n"
+        "        repository = factory(db, scope)\n"
+        "        await repository.write(record)\n",
+        "    with manager() as factory:\n"
+        "        repository = factory(db, scope)\n"
+        "        await repository.write(record)\n",
+    ],
+)
+def test_public_call_inventory_invalidates_factory_at_compound_body_entry(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(factories, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"{compound}",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_decomposes_instance_assignments(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    repo = alias = AuditRepository.scoped(db, scope)\n"
+        "    first, unrelated = (AuditRepository.scoped(db, scope), object())\n"
+        "    await repo.write(record)\n"
+        "    await alias.write(record)\n"
+        "    await first.write(record)\n"
+        "    await (walrus := AuditRepository.scoped(db, scope)).write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_reports_unrelated_decomposed_assignments(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    repo = alias = AuditRepository.scoped(db, scope)\n"
+        "    first, unrelated = (AuditRepository.scoped(db, scope), object())\n"
+        "    walrus = AuditRepository.scoped(db, scope)\n"
+        "    repo = alias = client\n"
+        "    first, unrelated = (client, object())\n"
+        "    await repo.write(record)\n"
+        "    await alias.write(record)\n"
+        "    await first.write(record)\n"
+        "    await (walrus := client).write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_current_local_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate):\n"
+        "    Repo = AuditRepository\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_does_not_leak_module_attributes_to_local_class(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    repository: AuditRepository\n"
+        "async def use(candidate):\n"
+        "    class Holder:\n"
+        "        pass\n"
+        "    holder: Holder = candidate\n"
+        "    await holder.repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize("nested", ["def", "async def"])
+def test_public_call_inventory_rejects_nested_definition_rebinding_parameter(
+    tmp_path: Path, nested: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository):\n"
+        f"    {nested} repository():\n"
+        "        pass\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "branches",
+    [
+        (
+            "    if condition:\n"
+            "        factory = other_factory\n"
+            "    else:\n"
+            "        factory = AuditRepository.scoped\n"
+        ),
+        (
+            "    if condition:\n"
+            "        factory = AuditRepository.scoped\n"
+            "    else:\n"
+            "        factory = other_factory\n"
+        ),
+    ],
+)
+def test_public_call_inventory_rejects_branch_divergent_scoped_factory(
+    tmp_path: Path, branches: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, record):\n"
+        f"{branches}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_branch_joined_scoped_factory(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, record):\n"
+        "    if condition:\n"
+        "        factory = AuditRepository.scoped\n"
+        "    else:\n"
+        "        factory = AuditRepository.scoped\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "AuditRepository | None",
+        "Annotated[AuditRepository, marker]",
+        "Annotated[unrelated.AuditRepository, marker]",
+    ],
+)
+def test_public_call_inventory_gates_unresolved_repository_type_positions(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from typing import Annotated\n"
+        "from my_adapter import AuditRepository\n"
+        "import unrelated\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "Optional[unrelated.AuditRepository]",
+        '"Optional[unrelated.AuditRepository]"',
+        "Annotated[unrelated.AuditRepository | None, marker]",
+    ],
+)
+def test_public_call_inventory_reports_nested_unresolved_repository_annotations(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from typing import Annotated, Optional\n"
+        "from zeroth.governance.audit import AuditRepository\n"
+        "import unrelated\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        "    if condition:\n        factory = AuditRepository.scoped\n",
+        "    factory = AuditRepository.scoped\n    for _ in records:\n        factory = other_factory\n",
+    ],
+)
+def test_public_call_inventory_rejects_conditionally_rebound_scoped_factory(
+    tmp_path: Path, setup: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, records, record):\n"
+        f"{setup}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        "    factory = AuditRepository.scoped\n"
+        "    try:\n"
+        "        factory = other_factory\n"
+        "    except Exception:\n"
+        "        pass\n",
+        "    for _ in records:\n"
+        "        break\n"
+        "    else:\n"
+        "        factory = AuditRepository.scoped\n",
+    ],
+)
+def test_public_call_inventory_rejects_exceptional_or_breakable_factory_state(
+    tmp_path: Path, setup: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(records, record):\n"
+        f"{setup}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_agreeing_try_factory_paths(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, record):\n"
+        "    try:\n"
+        "        if condition:\n"
+        "            factory = AuditRepository.scoped\n"
+        "        else:\n"
+        "            factory = AuditRepository.scoped\n"
+        "    finally:\n"
+        "        factory = AuditRepository.scoped\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_reports_ambiguous_try_factory_paths(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(condition, record):\n"
+        "    try:\n"
+        "        if condition:\n"
+        "            factory = AuditRepository.scoped\n"
+        "        else:\n"
+        "            factory = other_factory\n"
+        "    except Exception:\n"
+        "        factory = other_factory\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_exhaustive_scoped_match_factory_paths(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(kind, record):\n"
+        "    match kind:\n"
+        "        case 'scheduled':\n"
+        "            factory = AuditRepository.scoped\n"
+        "        case _:\n"
+        "            factory = AuditRepository.scoped\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_reports_ambiguous_match_factory_paths(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(kind, record):\n"
+        "    match kind:\n"
+        "        case 'scheduled':\n"
+        "            factory = AuditRepository.scoped\n"
+        "        case _:\n"
+        "            factory = other_factory\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ["unrelated.AuditRepository", '"unrelated.AuditRepository"'],
+)
+def test_public_call_inventory_rejects_unrelated_qualified_annotation(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "async def use(Repo, candidate):\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        "async def use(candidate):\n"
+        "        Repo = OtherRepository\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+    ],
+)
+def test_public_call_inventory_rejects_inner_type_alias_shadow(tmp_path: Path, source: str) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "def outer():\n"
+        "    Repo = AuditRepository\n"
+        f"    {source}",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_shadowed_repository_class_name(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(AuditRepository, record):\n"
+        "    repository = AuditRepository.scoped(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_rebound_module_factory_and_type_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "factory = AuditRepository.scoped\n"
+        "factory = other\n"
+        "Repo = AuditRepository\n"
+        "Repo = OtherRepository\n"
+        "async def from_factory(record):\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def from_annotation(repository: Repo):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::from_annotation::write",
+            "apps/candidate.py::from_factory::write",
+        }
+    )
+
+
+def test_public_call_inventory_rejects_import_and_except_rebinding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def imported(repository: AuditRepository):\n"
+        "    import other as repository\n"
+        "    await repository.write(record)\n"
+        "async def handled(repository: AuditRepository):\n"
+        "    try:\n"
+        "        raise ValueError\n"
+        "    except Exception as repository:\n"
+        "        pass\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::handled::write",
+            "apps/candidate.py::imported::write",
+        }
+    )
+
+
+def test_public_call_inventory_rejects_except_star_factory_rebinding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    try:\n"
+        "        raise ExceptionGroup('failure', [ValueError()])\n"
+        "    except* ValueError:\n"
+        "        factory = other_factory\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_honors_lambda_parameter_shadowing(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, records):\n"
+        "    callbacks = [lambda repository: repository.write(record)]\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_keeps_typed_repository_outside_lambda_walrus_scope(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, record):\n"
+        "    callback = lambda: (repository := other_repository)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_rejects_match_capture_factory_rebinding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(choice, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    match choice:\n"
+        "        case factory:\n"
+        "            pass\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["repository", "{'repository': repository}"],
+)
+def test_public_call_inventory_rejects_match_capture_repository_rebinding(
+    tmp_path: Path, pattern: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, candidate, record):\n"
+        "    match candidate:\n"
+        f"        case {pattern}:\n"
+        "            pass\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_match_guard_factory_rebinding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(choice, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    match choice:\n"
+        "        case _ if (factory := other_factory):\n"
+        "            pass\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_match_capture_in_guard(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, choice, record):\n"
+        "    match choice:\n"
+        "        case repository if repository.write(record):\n"
+        "            pass\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "    result = (factory := other_factory)\n",
+        "    consume(factory := other_factory)\n",
+    ],
+)
+def test_public_call_inventory_rejects_general_named_expression_factory_rebinding(
+    tmp_path: Path, expression: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"{expression}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("expression", "reviewed", "unreviewed"),
+    [
+        (
+            "    callback = lambda: (factory := other_factory)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "    callback = lambda value=(factory := other_factory): value\n",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+)
+def test_public_call_inventory_scopes_lambda_named_expression_bindings(
+    tmp_path: Path,
+    expression: str,
+    reviewed: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"{expression}"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == reviewed
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+def test_public_call_inventory_invalidates_comprehension_named_expression_binding(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(records, record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    callbacks = [(factory := other_factory) for _ in records]\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_keeps_lambda_default_provenance(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, record):\n"
+        "    callback = lambda repository=repository.write(record): repository\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "nested",
+    [
+        "    async def inner(*repository):\n        await repository.write(record)\n",
+        "    async def inner(**repository):\n        await repository.write(record)\n",
+        "    callback = lambda *repository: repository.write(record)\n",
+        "    callback = lambda **repository: repository.write(record)\n",
+    ],
+)
+def test_public_call_inventory_honors_variadic_parameter_shadowing(
+    tmp_path: Path, nested: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, record):\n" + nested,
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::inner::write"
+            if "inner" in nested
+            else "apps/candidate.py::use::write"
+        }
+    )
+
+
+def test_public_call_inventory_honors_nonlocal_and_global_bindings(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "repository = client\n"
+        "async def outer(repository: AuditRepository, record):\n"
+        "    async def captured():\n"
+        "        nonlocal repository\n"
+        "        await repository.write(record)\n"
+        "    async def globalized():\n"
+        "        global repository\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::captured::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::globalized::write"}
+    )
+
+
+def test_public_call_inventory_invalidates_global_repository_assignment(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "repository: AuditRepository\n"
+        "async def use(client, record):\n"
+        "    global repository\n"
+        "    repository = client\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_tracks_global_repository_capture(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "repository: AuditRepository\n"
+        "async def use(record):\n"
+        "    global repository\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_invalidates_nonlocal_repository_assignment(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(repository: AuditRepository, client, record):\n"
+        "    async def inner():\n"
+        "        nonlocal repository\n"
+        "        repository = client\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::inner::write"}
+    )
+
+
+def test_public_call_inventory_gates_factory_bindings_inside_and_after_with(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        "    with manager():\n"
+        "        factory = AuditRepository.scoped\n"
+        "        repository = factory(db, scope)\n"
+        "        await repository.write(record)\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "    try:\n"
+        "        factory = AuditRepository.scoped\n"
+        "        repository = factory(db, scope)\n"
+        "        await repository.write(record)\n"
+        "    except Exception:\n"
+        "        pass\n",
+        "    match choice:\n"
+        "        case _:\n"
+        "            factory = AuditRepository.scoped\n"
+        "            repository = factory(db, scope)\n"
+        "            await repository.write(record)\n",
+    ],
+)
+def test_public_call_inventory_gates_factory_bindings_inside_unmodeled_blocks(
+    tmp_path: Path, block: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(choice, record):\n"
+        f"{block}",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_honors_comprehension_target_shadowing(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, records):\n"
+        "    return [repository.write(record) for repository in records]\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_keeps_comprehension_iterable_provenance(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository):\n"
+        "    return [record for repository in repository.list()]\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::list"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_invalidates_rebound_reviewed_attribute(tmp_path: Path) -> None:
+    module = tmp_path / "src" / "zeroth" / "governance" / "audit" / "verifier.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "class AuditContinuityVerifier:\n"
+        "    async def verify_run(self, client):\n"
+        "        self._repository = client\n"
+        "        await self._repository.list_by_run(run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"src/zeroth/governance/audit/verifier.py::verify_run::list_by_run"}
+    )
+
+
+@pytest.mark.parametrize(
+    "rebind",
+    [
+        "        for self._repository in clients:\n            pass\n",
+        "        with manager() as self._repository:\n            pass\n",
+        "        self._repository += other\n",
+    ],
+)
+def test_public_call_inventory_invalidates_reviewed_attribute_binding_forms(
+    tmp_path: Path, rebind: str
+) -> None:
+    module = tmp_path / "src" / "zeroth" / "governance" / "audit" / "verifier.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "class AuditContinuityVerifier:\n"
+        "    async def verify_run(self, clients):\n"
+        f"{rebind}"
+        "        await self._repository.list_by_run(run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"src/zeroth/governance/audit/verifier.py::verify_run::list_by_run"}
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        '"AuditRepository"',
+        '"zeroth.governance.audit.AuditRepository"',
+        '"Annotated[AuditRepository, scope_marker]"',
+    ],
+)
+def test_public_call_inventory_tracks_repository_forward_references(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ["unrelated.AuditRepository", '"unrelated.AuditRepository"'],
+)
+def test_public_call_inventory_rejects_unrelated_qualified_repository_annotation(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "import unrelated\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ["zeroth.governance.audit.AuditRepository", '"zeroth.governance.audit.AuditRepository"'],
+)
+def test_public_call_inventory_tracks_fully_qualified_repository_annotation(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "import zeroth.governance.audit\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_ignores_arbitrary_annotation_strings(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        'async def use(repository: "AuditRepository client", record):\n'
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_does_not_leak_local_imported_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "def define_alias():\n"
+        "    from zeroth.governance.audit import AuditRepository as Repo\n"
+        "async def unrelated(repository: Repo):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::unrelated::write"}
+    )
+
+
+def test_public_call_inventory_does_not_transfer_nested_class_attributes(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    repository: object\n"
+        "class Outer:\n"
+        "    class Holder:\n"
+        "        repository: AuditRepository\n"
+        "async def unrelated(holder: Holder):\n"
+        "    await holder.repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::unrelated::write"}
+    )
+
+
+def test_public_call_inventory_scopes_typed_bindings_to_their_function(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def reviewed(repo: AuditRepository, record):\n"
+        "    await repo.write(record)\n"
+        "async def unrelated(repo, record):\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::reviewed::write"}
+    )
+
+
+def test_public_call_inventory_does_not_trust_attribute_name_alone(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "async def use(holder, record):\n    await holder.audit_repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_rejects_unreviewed_collaborator_calls(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "async def use(holder, record):\n    await holder.audit_repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_unreviewed_call_gate_keeps_same_function_call_sites_distinct(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(holder, record):\n"
+        "    repository = AuditRepository.scoped(db, scope)\n"
+        "    await repository.write(record)\n"
+        "    await holder.audit_repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_scopes_factory_provenance_to_its_function(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "factory = AuditRepository.scoped\n"
+        "async def trusted(record):\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def unrelated(factory, record):\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::trusted::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::unrelated::write"}
+    )
+
+
+def test_public_call_inventory_scopes_annotations_to_their_class_method(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Trusted:\n"
+        "    async def persist(self, repository: AuditRepository, record):\n"
+        "        await repository.write(record)\n"
+        "class Unrelated:\n"
+        "    async def discard(self, repository, record):\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::persist::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::discard::write"}
+    )
+
+
+def test_public_call_inventory_honors_closure_capture_and_shadowing(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(repository: AuditRepository, record):\n"
+        "    async def captured():\n"
+        "        await repository.write(record)\n"
+        "    async def shadowed(repository):\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::captured::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::shadowed::write"}
+    )
+
+
+def test_public_call_inventory_honors_nested_self_rebinding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class AuditContinuityVerifier:\n"
+        "    async def outer(self, repository: AuditRepository, record):\n"
+        "        self._repository = repository\n"
+        "        async def captured():\n"
+        "            await self._repository.write(record)\n"
+        "        async def shadowed(self):\n"
+        "            await self._repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::captured::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::shadowed::write"}
+    )
+
+
+def test_public_call_inventory_scopes_local_repository_class_aliases(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "def define_alias():\n"
+        "    Repo = AuditRepository\n"
+        "async def unrelated(repo: Repo, record):\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::unrelated::write"}
+    )
+
+
+def test_public_call_inventory_honors_local_type_alias_closure_shadowing(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(record):\n"
+        "    Repo = AuditRepository\n"
+        "    async def captured(repo: Repo):\n"
+        "        await repo.write(record)\n"
+        "    async def shadowed(Repo, repo: Repo):\n"
+        "        await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::captured::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::shadowed::write"}
+    )
+
+
+def test_public_call_inventory_treats_loop_target_as_a_local_shadow(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository, records):\n"
+        "    for repository in records:\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_rebound_repository_path(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(repository: AuditRepository):\n"
+        "    repository = holder\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_rejects_scoped_factory_shadowed_by_closure(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "factory = AuditRepository.scoped\n"
+        "async def outer(factory, record):\n"
+        "    async def inner():\n"
+        "        repository = factory(db, scope)\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::inner::write"}
+    )
+
+
+def test_public_call_inventory_scopes_reviewed_edges_to_qualified_owner(tmp_path: Path) -> None:
+    module = tmp_path / "src" / "zeroth" / "governance" / "audit" / "verifier.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "class AuditContinuityVerifier:\n"
+        "    async def verify_run(self):\n"
+        "        await self._repository.list_by_run(run_id)\n"
+        "class Unrelated:\n"
+        "    async def verify_run(self):\n"
+        "        await self._repository.list_by_run(run_id)\n",
+        encoding="utf-8",
+    )
+
+    call = "src/zeroth/governance/audit/verifier.py::verify_run::list_by_run"
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset({call})
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset({call})
+
+
+def test_unreviewed_call_gate_reports_disallowed_typed_collaborator_operation(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit.delivery_state import AuditRecordWriter\n"
+        "async def use(writer: AuditRecordWriter):\n"
+        "    await writer.list_by_run(run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::list_by_run"}
+    )
+
+
+def test_unreviewed_call_gate_reports_disallowed_reviewed_receiver_operation(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "src" / "zeroth" / "governance" / "audit" / "verifier.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "class AuditContinuityVerifier:\n"
+        "    async def verify_run(self, record):\n"
+        "        await self._repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"src/zeroth/governance/audit/verifier.py::verify_run::write"}
     )
 
 
