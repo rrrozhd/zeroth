@@ -3,6 +3,7 @@ import dramatiq
 from zeroth.econ.plane.common.worker import redis_broker  # noqa: F401
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.counterfactual.service import run_evaluation
+from zeroth.econ.plane.costing.service import PricingCatalogReader
 from zeroth.econ.plane.database import SessionLocal
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import ScopeContext, TenantWideScopeContext
@@ -22,5 +23,9 @@ def _task_scope(tenant_id: str, workspace_id: str | None):
 def run_evaluation_async(payload: dict) -> None:
     request = EvaluationRunRequest(**payload["request"])
     scope = _task_scope(str(payload["tenant_id"]), payload.get("workspace_id"))
-    with SessionLocal() as db:
-        run_evaluation(ScopedSession(db, scope), request)
+    with SessionLocal() as db, SessionLocal() as pricing_db:
+        run_evaluation(
+            ScopedSession(db, scope),
+            request,
+            pricing=PricingCatalogReader(ScopedSession(pricing_db, None)),
+        )

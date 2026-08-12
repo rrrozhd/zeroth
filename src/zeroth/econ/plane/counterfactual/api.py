@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
+from zeroth.econ.plane.auth.deps import (
+    get_current_global_db,
+    get_current_scoped_db,
+    require_roles,
+)
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.common.schemas import APIMessage
 from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest, ValueEstimateOut
 from zeroth.econ.plane.counterfactual.tasks import run_evaluation_async
 from zeroth.econ.plane.counterfactual.service import estimate_history, latest_estimate, run_evaluation
+from zeroth.econ.plane.costing.service import PricingCatalogReader
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["counterfactual"])
@@ -17,10 +22,11 @@ router = APIRouter(tags=["counterfactual"])
 def run(
     payload: EvaluationRunRequest,
     db: ScopedSession = Depends(get_current_scoped_db),
+    pricing_db: ScopedSession = Depends(get_current_global_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> ValueEstimateOut:
     try:
-        estimate = run_evaluation(db, payload)
+        estimate = run_evaluation(db, payload, pricing=PricingCatalogReader(pricing_db))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ValueEstimateOut.model_validate(estimate)
