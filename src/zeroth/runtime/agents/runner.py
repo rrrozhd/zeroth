@@ -800,14 +800,16 @@ class AgentRunner:
                             "cost_measurement": MeasurementState.UNMEASURED,
                             "usage_measurement": MeasurementState.UNMEASURED,
                         }
+                        if response is None
+                        else None
                     )
-                    if should_retry and attempt < max_attempts:
+                    if failed_attempt is not None and should_retry and attempt < max_attempts:
                         provider_measurements.append(failed_attempt)
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
                             terminal_parts = (
                                 provider_measurements
-                                if isinstance(carried_audit, Mapping)
+                                if isinstance(carried_audit, Mapping) or failed_attempt is None
                                 else [*provider_measurements, failed_attempt]
                             )
                             self._attach_cost_audit(
@@ -820,7 +822,7 @@ class AgentRunner:
                         self._attach_cost_audit(
                             error,
                             *provider_measurements,
-                            failed_attempt,
+                            *([failed_attempt] if failed_attempt is not None else []),
                             *compaction_results,
                         )
                         raise error from last_error
