@@ -680,6 +680,7 @@ def test_migration_free_sqlite_startup_accepts_unmeasured_costs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from zeroth.econ.plane import database as plane_database
+    from zeroth.econ.plane.common import bootstrap as plane_bootstrap
     from zeroth.econ.plane.instrumentation.service import ingest_execution
 
     legacy_engine = create_engine(f"sqlite:///{tmp_path / 'legacy-econ.db'}", future=True)
@@ -714,6 +715,10 @@ def test_migration_free_sqlite_startup_accepts_unmeasured_costs(
         "SessionLocal",
         sessionmaker(bind=legacy_engine, autocommit=False, autoflush=False),
     )
+    monkeypatch.setattr(plane_bootstrap, "engine", legacy_engine)
+    monkeypatch.setattr(plane_bootstrap, "SessionLocal", plane_database.SessionLocal)
+
+    plane_bootstrap.bootstrap()
 
     db_context = plane_database.get_db()
     db = next(db_context)
@@ -733,9 +738,7 @@ def test_migration_free_sqlite_startup_accepts_unmeasured_costs(
 
     assert status == "inserted"
     # A second startup is a no-op, including for the preserved custom index.
-    second_context = plane_database.get_db()
-    next(second_context)
-    second_context.close()
+    plane_bootstrap.bootstrap()
     with legacy_engine.connect() as connection:
         columns = {
             row[1]: row[3]

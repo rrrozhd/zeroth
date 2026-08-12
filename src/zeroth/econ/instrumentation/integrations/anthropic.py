@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
 
 from zeroth.econ.instrumentation.integrations._capture import (
     finalize_capture_metadata,
@@ -55,7 +56,7 @@ def _build_event(
     model_name: str,
     metadata: dict[str, Any],
 ) -> ExecutionEvent:
-    execution_id = f"an_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    execution_id = f"an_{uuid4().hex}"
     run_id = str(metadata.get("run_id") or execution_id)
     join_key = resolve_join_key(execution_id, metadata)
     enriched = finalize_capture_metadata(

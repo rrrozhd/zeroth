@@ -17,8 +17,6 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, clas
 
 
 def get_db() -> Generator[Session, None, None]:
-    Base.metadata.create_all(bind=engine)
-    _ensure_sqlite_compat()
     db = SessionLocal()
     try:
         yield db

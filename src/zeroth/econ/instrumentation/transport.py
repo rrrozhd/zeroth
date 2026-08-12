@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import httpx
 
 from zeroth.econ.instrumentation.config import InstrumentationConfig
 from zeroth.econ.instrumentation.schemas import ExecutionEvent, OutcomeEvent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -72,8 +75,8 @@ class TelemetryTransport:
             return
         with self._lock:
             if len(self._queue) >= self.config.buffer_max_events:
-                self._queue.popleft()
-                self.dropped_events += 1
+                dropped = self._queue.popleft()
+                self._record_drop(dropped, "buffer_overflow")
             self._queue.append(_QueuedEvent(endpoint=endpoint, payload=payload, next_attempt_at=time.time()))
 
     def _run(self) -> None:
@@ -81,7 +84,7 @@ class TelemetryTransport:
             try:
                 self.flush_once()
             except Exception:
-                pass
+                logger.exception("instrumentation flush failed")
             self._stop.wait(self.config.flush_interval_ms / 1000.0)
 
     def flush_once(self) -> None:
@@ -121,12 +124,21 @@ class TelemetryTransport:
                             )
                         )
                     else:
-                        self.dropped_events += 1
+                        self._record_drop(evt, "retry_exhausted")
 
         if failed:
             with self._lock:
                 for evt in failed:
                     if len(self._queue) >= self.config.buffer_max_events:
-                        self._queue.popleft()
-                        self.dropped_events += 1
+                        dropped = self._queue.popleft()
+                        self._record_drop(dropped, "retry_buffer_overflow")
                     self._queue.append(evt)
+
+    def _record_drop(self, event: _QueuedEvent, reason: str) -> None:
+        self.dropped_events += 1
+        logger.warning(
+            "instrumentation event dropped endpoint=%s reason=%s total=%d",
+            event.endpoint,
+            reason,
+            self.dropped_events,
+        )
