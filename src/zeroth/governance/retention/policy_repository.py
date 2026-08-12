@@ -11,6 +11,7 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 
 def _to_bool(value: object) -> bool:
@@ -67,11 +68,13 @@ class RetentionPolicyRepository:
         """Tenant structurally bound to policy operations."""
         return self._scope_context.tenant_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self) -> RetentionPolicy | None:
         """Return the explicit policy for a tenant, or None if it has none."""
         row = await self._policies.select_one(where={})
         return None if row is None else self._row_to_policy(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def resolve(self) -> RetentionPolicy:
         """Return the tenant's policy, falling back through the defaults chain.
 
@@ -95,6 +98,9 @@ class RetentionPolicyRepository:
             return system.model_copy(update={"tenant_id": tenant_id})
         return RetentionPolicy(tenant_id=tenant_id)
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def upsert(self, policy: RetentionPolicy) -> RetentionPolicy:
         """Insert or update a tenant's policy; returns the persisted row."""
         now = datetime.now(UTC)
@@ -121,6 +127,7 @@ class RetentionPolicyRepository:
         assert resolved is not None  # noqa: S101 - just written
         return resolved
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_for_tenant(self) -> list[RetentionPolicy]:
         """Return the explicit policy in this repository's bound tenant."""
         async with self._policies.transaction() as policies:
@@ -152,6 +159,7 @@ class EnabledPolicyMaintenanceReader:
             CrossTenantMaintenanceScopeContext.for_scheduled_maintenance(),
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
         async with self._policies.transaction() as policies:
             rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))

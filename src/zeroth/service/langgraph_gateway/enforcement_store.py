@@ -18,6 +18,7 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import from_json_value, to_json_value
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.service.langgraph_gateway.enforcement import (
     DecisionResponseV1,
     EnforcementBoundaryError,
@@ -60,6 +61,7 @@ class LangGraphEnforcementRepository:
         if tenant_id != self._scope_context.tenant_id:
             raise ValueError("tenant_id does not match bound scope")
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def save_decision(
         self,
         key: str,
@@ -88,11 +90,13 @@ class LangGraphEnforcementRepository:
                 raise EnforcementBoundaryError("zeroth.idempotency_conflict", status_code=409)
             return DecisionResponseV1.model_validate(from_json_value(row["response_json"]))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def count_decisions(self) -> int:
         async with self._decisions.transaction() as decisions:
             rows = await decisions.select(columns=("idempotency_key",))
         return len(rows)
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def register_inventory(self, request: InventoryRegistrationV1) -> None:
         self._validate_tenant(request.tenant_id)
         entries_json = to_json_value([entry.model_dump(mode="json") for entry in request.entries])
@@ -138,6 +142,7 @@ class LangGraphEnforcementRepository:
                     where=identity,
                 )
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_inventory(
         self,
         deployment_ref: str,
@@ -154,6 +159,7 @@ class LangGraphEnforcementRepository:
             }
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def heartbeat(self, request: HeartbeatV1) -> str | None:
         self._validate_tenant(request.tenant_id)
         identity = {
@@ -171,6 +177,7 @@ class LangGraphEnforcementRepository:
             )
         return str(row["coverage"])
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def save_attestation(
         self, payload: Mapping[str, Any], signature: bytes, key_id: str, algorithm: str
     ) -> None:
@@ -202,6 +209,7 @@ class LangGraphEnforcementRepository:
             if any(stored.get(key) != payload[key] for key in stable_keys):
                 raise EnforcementBoundaryError("zeroth.attestation_conflict", status_code=409)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def get_attestation(
         self, deployment_ref: str, correlation_id: str
     ) -> dict[str, Any] | None:
@@ -217,6 +225,7 @@ class LangGraphEnforcementRepository:
             )
         return rows[0] if len(rows) == 1 else None
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_attestation_by_run_id(
         self, deployment_ref: str, governance_run_id: str
     ) -> dict[str, Any] | None:
@@ -242,6 +251,7 @@ class StoredCapabilityEvidenceProvider:
         self._tenant_id = tenant_id
         self._deployment_ref = deployment_ref
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
         """Return evidence for a legacy correlation ID, if unambiguous."""
         warnings.warn(
@@ -252,6 +262,7 @@ class StoredCapabilityEvidenceProvider:
         row = await self._repository.get_attestation(self._deployment_ref, correlation_id)
         return self._evidence_from_row(row, identity="correlation_id", expected=correlation_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def evidence_for_governance_run(
         self, governance_run_id: str
     ) -> RunCapabilityEvidence | None:

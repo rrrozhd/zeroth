@@ -16,6 +16,7 @@ from zeroth.platform.storage import (
     ScopeContext,
     ScopedTable,
 )
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
@@ -161,6 +162,7 @@ class TokenSnapshotRowStore:
         if current.state in _TERMINAL_STATES and proposed.state is not current.state:
             raise TokenSnapshotTransitionError("terminal snapshot state is absorbing")
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, run_id: str) -> TokenEngineSnapshot | None:
         row = await self.snapshots.select_one(
             where={"run_id": run_id},
@@ -168,6 +170,7 @@ class TokenSnapshotRowStore:
         )
         return None if row is None else self._decode_row(row)
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def compare_and_swap(
         self,
         run_id: str,

@@ -20,6 +20,7 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import to_json_value
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 
 
 class RetentionAuditLogRepository:
@@ -43,6 +44,7 @@ class RetentionAuditLogRepository:
         """Tenant structurally bound to this audit log."""
         return self._scope_context.tenant_id
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def record(
         self,
         *,
@@ -65,6 +67,7 @@ class RetentionAuditLogRepository:
         )
         return log_id
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def record_in_transaction(
         self,
         connection: AsyncConnection,
@@ -88,11 +91,13 @@ class RetentionAuditLogRepository:
         )
         return log_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, log_id: str) -> dict[str, Any] | None:
         """Load one retention log row by id."""
         row = await self._logs.select_one(where={"log_id": log_id})
         return None if row is None else dict(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_in_transaction(
         self,
         connection: AsyncConnection,
@@ -102,6 +107,7 @@ class RetentionAuditLogRepository:
         row = await self._logs.in_transaction(connection).select_one(where={"log_id": log_id})
         return None if row is None else dict(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_for_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -113,12 +119,14 @@ class RetentionAuditLogRepository:
         )
         return [dict(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_for_tenant(self) -> list[dict[str, Any]]:
         """Return raw log rows for a tenant, oldest first."""
         async with self._logs.transaction() as logs:
             rows = await logs.select(order_by=("created_at", "log_id"))
         return [dict(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_for_run(self, run_id: str) -> list[dict[str, Any]]:
         """Return raw log rows for a single run, oldest first."""
         async with self._logs.transaction() as logs:

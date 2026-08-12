@@ -375,7 +375,13 @@ def exercise_sqlalchemy_case(engine: Engine, case: CrossTenantCase) -> None:
     with Session(engine) as raw:
         foreign = ScopedSession(raw, foreign_scope)
         if case.operation is ResourceOperation.READ:
-            assert foreign.get(model, identity_arg) is None
+            statement = select(model).where(
+                *(
+                    getattr(model, column.key) == value
+                    for column, value in zip(mapper.primary_key, identity, strict=True)
+                )
+            )
+            assert foreign.scalars(statement).one_or_none() is None
         elif case.operation is ResourceOperation.ENUMERATE:
             assert foreign.scalars(select(model)).all() == []
         elif case.operation is ResourceOperation.UPDATE:

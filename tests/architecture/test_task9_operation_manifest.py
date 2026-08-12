@@ -281,12 +281,53 @@ def test_task9_manifest_names_real_public_repository_methods() -> None:
                 assert inspect.isfunction(method), f"{repository_type.__name__}.{method_name}"
 
 
-def test_task9_guardrail_manifest_matches_production_operation_metadata() -> None:
-    for resource_name in ("service.quota_counters", "service.rate_limit_buckets"):
-        for repository_type, methods in TASK9_OPERATION_MANIFEST[resource_name].items():
+def _manifest_method_operations() -> dict[tuple[type, str], frozenset[ResourceOperation]]:
+    expected: dict[tuple[type, str], frozenset[ResourceOperation]] = {}
+    for repositories in TASK9_OPERATION_MANIFEST.values():
+        for repository_type, methods in repositories.items():
             for method_name, operations in methods.items():
-                method = vars(repository_type)[method_name]
-                assert getattr(method, "__persistence_operations__", frozenset()) == operations
+                key = (repository_type, method_name)
+                expected[key] = expected.get(key, frozenset()) | operations
+    return expected
+
+
+def _production_method_operations(
+    repository_types: set[type],
+) -> dict[tuple[type, str], frozenset[ResourceOperation]]:
+    return {
+        (repository_type, method_name): method.__persistence_operations__
+        for repository_type in repository_types
+        for method_name, method in vars(repository_type).items()
+        if not method_name.startswith("_")
+        and inspect.isfunction(method)
+        and hasattr(method, "__persistence_operations__")
+    }
+
+
+def _assert_exact_operation_metadata(
+    actual: dict[tuple[type, str], frozenset[ResourceOperation]],
+) -> None:
+    assert actual == _manifest_method_operations()
+
+
+def test_task9_manifest_exactly_matches_production_operation_metadata() -> None:
+    """Every production manifest method carries its exact semantic operation union."""
+    expected = _manifest_method_operations()
+    actual = _production_method_operations({repository_type for repository_type, _ in expected})
+    _assert_exact_operation_metadata(actual)
+
+
+def test_task9_metadata_inventory_detects_missing_and_extra_entries() -> None:
+    expected = _manifest_method_operations()
+    missing = dict(expected)
+    missing.pop(next(iter(missing)))
+    with pytest.raises(AssertionError):
+        _assert_exact_operation_metadata(missing)
+
+    extra = dict(expected)
+    extra[(RunRepository, "install_fence")] = frozenset({O.UPDATE})
+    with pytest.raises(AssertionError):
+        _assert_exact_operation_metadata(extra)
 
 
 def test_task9_manifest_covers_every_public_persistence_method() -> None:
