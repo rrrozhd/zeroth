@@ -55,9 +55,11 @@ in :mod:`~zeroth.governance.audit.capture_vocabulary`.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import re
+import secrets
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -245,12 +247,14 @@ class ContentFreeProjection:
 
     def __init__(self, scrub: Callable[[Any], Any]) -> None:
         self._scrub = scrub
+        self._hmac_key = secrets.token_bytes(32)
 
     def summarize(self, value: Any) -> dict[str, Any]:
         """Describe a dropped payload -- digest, shape and size -- without reproducing it."""
         canonical = canonicalize(value)
+        rendered = json.dumps(canonical, sort_keys=True).encode("utf-8")
         return {
-            "sha256": digest(canonical),
+            "hmac_sha256": hmac.new(self._hmac_key, rendered, hashlib.sha256).hexdigest(),
             "schema": self.schema(canonical),
             "count": entry_count(canonical),
         }

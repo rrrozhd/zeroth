@@ -31,10 +31,13 @@ from zeroth.governance.audit.capture_policy import (
 )
 from zeroth.governance.audit.capture_projection import (
     ALLOWED_METADATA_KEYS,
+    ContentFreeProjection,
     ENTRIES_KEY,
     canonicalize,
+    digest,
     key_digest,
 )
+from zeroth.governance.audit.capture_scrub import RedactionChain
 from zeroth.governance.audit.models import (
     ApprovalActionRecord,
     NodeAuditRecord,
@@ -66,6 +69,21 @@ class _LeakingClassifier:
     def classify(self, record: NodeAuditRecord) -> str:
         del record
         raise RuntimeError(f"classification failed for {SECRET}")
+
+
+def test_dropped_content_digest_is_keyed() -> None:
+    payload = {"prompt": "same content"}
+    first = ContentFreeProjection(RedactionChain().scrub)
+    second = ContentFreeProjection(RedactionChain().scrub)
+
+    initial = first.summarize(payload)
+    repeated = first.summarize(payload)
+    separate = second.summarize(payload)
+
+    assert set(initial) == {"hmac_sha256", "schema", "count"}
+    assert initial == repeated
+    assert initial["hmac_sha256"] != separate["hmac_sha256"]
+    assert initial["hmac_sha256"] != digest(canonicalize(payload))
 
 
 def _record(**overrides: object) -> NodeAuditRecord:
@@ -101,8 +119,8 @@ def test_a_container_under_an_allowlisted_key_is_summarized_not_retained() -> No
     captured = _captured(execution_metadata={"operation": ("credential", SECRET)})
 
     summary = captured.execution_metadata["operation"]
-    assert set(summary) == {"sha256", "schema", "count"}
-    assert len(summary["sha256"]) == 64
+    assert set(summary) == {"hmac_sha256", "schema", "count"}
+    assert len(summary["hmac_sha256"]) == 64
     assert SECRET not in captured.model_dump_json()
 
 
@@ -115,7 +133,7 @@ def test_every_dropped_metadata_key_is_still_counted_and_digested() -> None:
         "execution_metadata"
     ]
     assert summary["dropped_keys"] == 2
-    assert len(summary["sha256"]) == 64
+    assert len(summary["hmac_sha256"]) == 64
     assert summary["count"] == 2
 
 
@@ -125,7 +143,7 @@ def test_record_error_text_is_replaced_by_a_bounded_marker_and_a_digest() -> Non
 
     assert captured.error == "***REDACTED***"
     summary = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["error"]
-    assert len(summary["sha256"]) == 64
+    assert len(summary["hmac_sha256"]) == 64
     assert SECRET not in captured.model_dump_json()
 
 
@@ -163,7 +181,8 @@ def test_approval_metadata_is_projected_onto_the_allowlist() -> None:
     # the record still correlates two approvals by the same reviewer, and a
     # credential typed into that field is not persisted as text either.
     assert set(action.metadata) == {"reviewer"}
-    assert action.metadata["reviewer"]["sha256"] == hashlib.sha256(b'"ops"').hexdigest()
+    assert len(action.metadata["reviewer"]["hmac_sha256"]) == 64
+    assert action.metadata["reviewer"]["hmac_sha256"] != hashlib.sha256(b'"ops"').hexdigest()
     assert SECRET not in captured.model_dump_json()
 
 
@@ -187,7 +206,7 @@ def test_a_payload_with_an_unrenderable_key_still_produces_a_digest() -> None:
     captured = _captured(input_snapshot={"outer": {_LeakingKey(): "value"}})
 
     summary = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"]
-    assert len(summary["sha256"]) == 64
+    assert len(summary["hmac_sha256"]) == 64
 
 
 def test_a_string_subclass_key_is_canonicalized_without_calling_its_own_str() -> None:
@@ -292,7 +311,7 @@ def test_a_credential_in_the_client_supplied_correlation_id_is_not_persisted() -
 
     assert ROOT_KEY not in captured.model_dump_json()
     summary = captured.execution_metadata["correlation_id"]
-    assert set(summary) == {"sha256", "schema", "count"}
+    assert set(summary) == {"hmac_sha256", "schema", "count"}
 
 
 @pytest.mark.parametrize("key", sorted(ALLOWED_METADATA_KEYS))
@@ -348,11 +367,12 @@ def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None
     assert metadata["budget_check_degraded"] is False
     assert metadata["input_sha256"] == "a" * 64
     assert metadata["compatibility_fingerprint"] == "sha256:" + "b" * 64
-    assert metadata["operation"] == {
-        "sha256": hashlib.sha256(b'"threads.create"').hexdigest(),
-        "schema": "str",
-        "count": len("threads.create"),
-    }
+    assert set(metadata["operation"]) == {"hmac_sha256", "schema", "count"}
+    assert metadata["operation"]["hmac_sha256"] != hashlib.sha256(
+        b'"threads.create"'
+    ).hexdigest()
+    assert metadata["operation"]["schema"] == "str"
+    assert metadata["operation"]["count"] == len("threads.create")
 
 
 def test_the_decision_metadata_a_denial_producer_promotes_survives() -> None:
@@ -391,7 +411,11 @@ def test_an_identifier_key_still_refuses_a_value_that_is_not_identifier_shaped()
     captured = _captured(execution_metadata={"join_key": SECRET, "branch_id": "run-1:branch:0"})
 
     assert SECRET not in captured.model_dump_json()
-    assert set(captured.execution_metadata["join_key"]) == {"sha256", "schema", "count"}
+    assert set(captured.execution_metadata["join_key"]) == {
+        "hmac_sha256",
+        "schema",
+        "count",
+    }
     assert captured.execution_metadata["branch_id"] == "run-1:branch:0"
 
 
@@ -399,8 +423,16 @@ def test_a_value_of_the_wrong_kind_for_its_key_is_summarized_rather_than_kept() 
     captured = _captured(execution_metadata={"duration_ms": ROOT_KEY, "input_sha256": ROOT_KEY})
 
     assert ROOT_KEY not in captured.model_dump_json()
-    assert set(captured.execution_metadata["duration_ms"]) == {"sha256", "schema", "count"}
-    assert set(captured.execution_metadata["input_sha256"]) == {"sha256", "schema", "count"}
+    assert set(captured.execution_metadata["duration_ms"]) == {
+        "hmac_sha256",
+        "schema",
+        "count",
+    }
+    assert set(captured.execution_metadata["input_sha256"]) == {
+        "hmac_sha256",
+        "schema",
+        "count",
+    }
 
 
 def test_an_identifier_shaped_credential_used_as_a_mapping_key_never_reaches_the_schema() -> None:

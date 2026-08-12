@@ -5,17 +5,20 @@ Non-golden boundary tests for the Task 13 audit consolidation: the canonical
 ``zeroth.core.audit`` path keeps republishing, and both packages must stay
 cold-importable from a fresh interpreter in either order.
 
-The consolidation also folds the vendored governed audit emitters into the
-same canonical package: ``AuditEmitter``, ``emit_event``, and
-``RedisAuditEmitter`` must be identical through ``zeroth.governance.audit``
-and the legacy ``zeroth.core.governed.audit`` modules, per their disposition
-rows in docs/backend-import-migration.md.
+The canonical package exports the safe emitter protocol and helper. The legacy
+Redis adapter remains directly importable for reads, but is intentionally not
+part of the package-level write surface.
 """
 
 from __future__ import annotations
 
 import subprocess
 import sys
+
+import pytest
+
+from zeroth.contracts.governed.models.audit import AuditEvent
+from zeroth.contracts.governed.models.common import EventType
 
 
 def test_audit_publishes_its_whole_surface() -> None:
@@ -73,7 +76,7 @@ def test_audit_submodules_publish_their_names() -> None:
     assert hasattr(canonical_verifier, "_compute_pii_commitments")
 
 
-def test_governed_audit_emitters_are_consolidated_into_governance_audit() -> None:
+def test_governed_audit_emitter_surface_keeps_redis_direct_only() -> None:
     from zeroth.governance import audit as canonical
     from zeroth.governance.audit import emitter as canonical_emitter
     from zeroth.governance.audit import redis as canonical_redis
@@ -83,7 +86,36 @@ def test_governed_audit_emitters_are_consolidated_into_governance_audit() -> Non
     assert hasattr(canonical_redis, "RedisAuditEmitter")
     assert hasattr(canonical, "AuditEmitter")
     assert hasattr(canonical, "emit_event")
-    assert hasattr(canonical, "RedisAuditEmitter")
+    assert not hasattr(canonical, "RedisAuditEmitter")
+
+
+async def test_redis_audit_emitter_refuses_unsafe_writes() -> None:
+    from zeroth.governance.audit.redis import RedisAuditEmitter
+
+    event = AuditEvent(
+        event_id="event-1",
+        run_id="run-1",
+        workflow_name="workflow",
+        event_type=EventType.RUN_STARTED,
+    )
+
+    class _RedisClient:
+        rpush_calls = 0
+
+        async def rpush(self, *_args) -> None:
+            self.rpush_calls += 1
+            raise AssertionError("rpush must remain unreachable")
+
+        async def lrange(self, *_args):
+            return [event.model_dump_json()]
+
+    client = _RedisClient()
+    emitter = RedisAuditEmitter(redis_url="redis://unused", redis_client=client)
+
+    with pytest.raises(RuntimeError, match="disabled"):
+        await emitter.emit(event)
+    assert client.rpush_calls == 0
+    assert await emitter.events_for_run("run-1") == [event]
 
 
 def test_audit_imports_in_a_cold_interpreter() -> None:

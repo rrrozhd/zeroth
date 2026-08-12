@@ -246,9 +246,10 @@ class TestApprovalServiceEscalate:
         result = await service.escalate(original.approval_id)
 
         assert result.status == ApprovalStatus.ESCALATED
-        # Should have written original (ESCALATED) + delegate record
-        assert len(writes) == 2
-        delegate_record = writes[1]
+        # The original moves through resolve_pending's CAS; only the delegate
+        # uses the general upsert path.
+        assert len(writes) == 1
+        delegate_record = writes[0]
         assert delegate_record.escalated_from_id == original.approval_id
         assert "[Escalated]" in delegate_record.summary
 
