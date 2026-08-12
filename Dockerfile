@@ -12,7 +12,7 @@
 
 FROM python:3.12.13-slim-bookworm
 
-LABEL org.opencontainers.image.version=0.23.5 \
+LABEL org.opencontainers.image.version=0.23.5.1 \
       io.zeroth.langgraph.adapter.version=1.0 \
       io.zeroth.langgraph.compatibility.langgraph=1.2.9 \
       io.zeroth.langgraph.compatibility.agent-server=0.11.1

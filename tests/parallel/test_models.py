@@ -10,7 +10,8 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from zeroth.runtime.parallel.errors import ParallelStepLimitError
+from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelStepLimitError
+from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
     DEFAULT_MAX_BRANCHES,
     DEFAULT_MAX_CONCURRENCY,
@@ -249,3 +250,104 @@ class TestNodeBaseParallelConfig:
             agent=AgentNodeData(instruction="do stuff", model_provider="openai"),
         )
         assert node.parallel_config is None
+
+
+# ---------------------------------------------------------------------------
+# The default resolution, driven through the executor
+# ---------------------------------------------------------------------------
+
+
+class _PlainNode:
+    """A fan-out target with no ``node_type``, so only the width rule applies."""
+
+
+class TestAbsentBoundsResolveThroughTheExecutor:
+    """ZER-48 / A06-15: ``None`` is resolved to a ceiling where it is *consumed*.
+
+    The model keeps ``max_branches``/``max_concurrency`` optional -- its
+    constructor signature is pinned by the frozen protected-surface fixture -- so
+    asserting on the model can only observe that the fields are still ``None``.
+    The property that actually changed lives in ``ParallelExecutor``: an absent
+    cap resolves to the default rather than to no cap at all. These drive the
+    executor, because reverting it leaves every model assertion green.
+    """
+
+    @staticmethod
+    def _config(**overrides: object) -> ParallelConfig:
+        return ParallelConfig(split_path="items", **overrides)  # type: ignore[arg-type]
+
+    def test_a_fan_out_at_the_default_ceiling_is_allowed(self) -> None:
+        """Exactly ``DEFAULT_MAX_BRANCHES`` items is the widest accepted fan-out."""
+        payload = {"items": [{"n": index} for index in range(DEFAULT_MAX_BRANCHES)]}
+
+        contexts = ParallelExecutor().split_fan_out("run1", payload, self._config(), _PlainNode())
+
+        assert len(contexts) == DEFAULT_MAX_BRANCHES
+
+    def test_a_fan_out_past_the_default_ceiling_is_refused(self) -> None:
+        """One item past the default is rejected, so ``None`` is not "no limit".
+
+        This is the measured defect: the branch list is the preceding node's
+        output, so before the resolution a 50,000-element result produced 50,000
+        branch contexts without complaint.
+        """
+        payload = {"items": [{"n": index} for index in range(DEFAULT_MAX_BRANCHES + 1)]}
+
+        with pytest.raises(FanOutValidationError, match=str(DEFAULT_MAX_BRANCHES)):
+            ParallelExecutor().split_fan_out("run1", payload, self._config(), _PlainNode())
+
+    def test_an_explicit_branch_cap_still_wins_over_the_default(self) -> None:
+        """A configured ceiling is honoured, not silently widened to the default."""
+        payload = {"items": [{"n": index} for index in range(4)]}
+
+        with pytest.raises(FanOutValidationError, match="max_branches 3"):
+            ParallelExecutor().split_fan_out(
+                "run1", payload, self._config(max_branches=3), _PlainNode()
+            )
+
+    @staticmethod
+    async def _peak_in_flight(branches: int, config: ParallelConfig) -> tuple[int, int]:
+        """Run ``branches`` overlapping branches; return (peak in flight, results)."""
+        contexts = [
+            BranchContext(branch_index=index, branch_id=f"r:branch:{index}", input_payload={})
+            for index in range(branches)
+        ]
+        state = {"in_flight": 0, "peak": 0}
+
+        async def factory(ctx: BranchContext) -> dict:
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+            # A real suspension point: without one the branches never overlap and
+            # any ceiling would look respected. Long enough that every branch the
+            # semaphore admits is in flight before the first one wakes.
+            await asyncio.sleep(0.05)
+            state["in_flight"] -= 1
+            return {"index": ctx.branch_index}
+
+        results = await ParallelExecutor().execute_branches(contexts, factory, config)
+        return state["peak"], len(results)
+
+    @pytest.mark.asyncio
+    async def test_an_absent_throttle_caps_simultaneous_branches_at_the_default(self) -> None:
+        """With no ``max_concurrency`` the peak in flight is the default, not the width.
+
+        Asserted as equality rather than ``<=``: a factory that never suspends
+        would satisfy ``<=`` with a peak of one, which is how a throttle test
+        passes while no throttle exists.
+        """
+        branches = DEFAULT_MAX_CONCURRENCY * 2
+
+        peak, completed = await self._peak_in_flight(branches, self._config())
+
+        assert completed == branches
+        assert peak == DEFAULT_MAX_CONCURRENCY
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_throttle_still_wins_over_the_default(self) -> None:
+        """A configured throttle is applied instead of the default."""
+        branches = DEFAULT_MAX_CONCURRENCY * 2
+
+        peak, completed = await self._peak_in_flight(branches, self._config(max_concurrency=4))
+
+        assert completed == branches
+        assert peak == 4

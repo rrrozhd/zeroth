@@ -17,16 +17,28 @@ run worker.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
+import time
 
 import pytest
 from pydantic import BaseModel
 
+from zeroth.runtime.agents.tooling.base import CLIToolTimeoutError
 from zeroth.runtime.agents.tooling.cli_tool import (
     DEFAULT_CLI_TOOL_TIMEOUT_SECONDS,
     CLITool,
 )
+
+#: Where the default lives, so a test can narrow it without waiting two minutes.
+_DEADLINE_CONSTANT = "zeroth.runtime.agents.tooling.cli_tool.DEFAULT_CLI_TOOL_TIMEOUT_SECONDS"
+
+#: The narrowed deadline, and a child that comfortably outlives it. The gap has
+#: to be wide enough that "the deadline fired" and "the child finished" are
+#: distinguishable outcomes rather than a race.
+_NARROW_DEADLINE_SECONDS = 0.2
+_CHILD_LIFETIME_SECONDS = 5.0
 
 
 class _In(BaseModel):
@@ -90,10 +102,52 @@ async def test_cancellation_kills_the_child() -> None:
 @pytest.mark.asyncio
 async def test_a_timeout_still_kills_the_child() -> None:
     """The path that already worked must keep working."""
-    from zeroth.runtime.agents.tooling.base import CLIToolTimeoutError
-
     tool = _sleeper(30)
     tool.timeout_seconds = 0.1
 
     with pytest.raises(CLIToolTimeoutError):
         await tool._execute_validated(None, _In())
+
+
+# --- the default-deadline half, driven rather than asserted on the constant ---
+#
+# ``DEFAULT_CLI_TOOL_TIMEOUT_SECONDS > 0`` above is true of the constant whether
+# or not anything consumes it. The tests below run a real child that outlives a
+# narrowed default, so they fail if ``_execute_validated`` goes back to handing
+# ``self.timeout_seconds`` -- which is ``None`` -- straight to ``wait_for``.
+
+
+@pytest.mark.asyncio
+async def test_a_tool_without_a_timeout_is_stopped_by_the_default_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``timeout_seconds=None`` is resolved to the default, not to "wait forever"."""
+    monkeypatch.setattr(_DEADLINE_CONSTANT, _NARROW_DEADLINE_SECONDS)
+    tool = _sleeper(_CHILD_LIFETIME_SECONDS)
+    assert tool.timeout_seconds is None, "the tool under test must carry no deadline of its own"
+
+    started = time.perf_counter()
+    with pytest.raises(CLIToolTimeoutError):
+        await tool._execute_validated(None, _In())
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < _CHILD_LIFETIME_SECONDS / 2, (
+        f"the call lasted {elapsed:.2f}s -- the child ran to completion rather than "
+        "being stopped by the resolved deadline"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_infinite_tool_timeout_is_replaced_by_the_default_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``inf`` means "no deadline" to ``wait_for``, so it is refused the same way."""
+    monkeypatch.setattr(_DEADLINE_CONSTANT, _NARROW_DEADLINE_SECONDS)
+    tool = _sleeper(_CHILD_LIFETIME_SECONDS)
+    tool.timeout_seconds = math.inf
+
+    started = time.perf_counter()
+    with pytest.raises(CLIToolTimeoutError):
+        await tool._execute_validated(None, _In())
+
+    assert time.perf_counter() - started < _CHILD_LIFETIME_SECONDS / 2

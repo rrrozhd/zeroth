@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.5.1] - 2026-08-12
+
+### Added
+
+Evidence, not behaviour. The initial audit proved by mutation that ten registered checks passed
+identically with their fix deleted — a green suite that could not have caught the regression it
+was meant to guard. Each now fails when the fix is removed:
+
+- The econ dashboard gains its first executing test (29 cases). Nothing in the repository imported
+  the module, yet 255 lines had been rewritten and semantics changed; eight of the new tests fail
+  against the pre-rewrite bodies (R07).
+- Parallel fan-out bounds are driven through the executor rather than asserted as constants on the
+  model, with peak in-flight pinned by equality so a factory that never suspends cannot pass (R20).
+- Histogram bounding asserts both halves of its design: the retained window is capped *and*
+  `_count`/`_sum` still reflect every observation (R21).
+- ARQ wakeup failures are asserted through `caplog`, including that the enqueue path logs at
+  WARNING rather than DEBUG (R14).
+- The audit-read bound is asserted at the call sites, whose fake now records the `limit` kwarg (R08).
+- The CLI tool's default deadline is driven with a real child outliving a monkeypatched-small
+  default (R19).
+- The sidecar resolver's *application* is pinned, not just the resolver (R15).
+- The transport ratchet resolves module aliases from `ast.Import`, closing an evasion where
+  `import httpx as hx` hid four banned constructions. Three pre-existing committed sites the
+  scanner previously could not see are added to the allowlist (R30).
+
 ## [0.23.5] - 2026-08-12
 
 Fixes found by this task's own initial audit, including four regressions the
