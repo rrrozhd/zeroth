@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.2] - 2026-08-12
+
+### Fixed
+
+- Persisted dropped-content schemas now fingerprint producer-controlled string
+  keys with a projection-scoped HMAC instead of a reusable public digest.
+
 ## [0.23.0.1] - 2026-08-12
 
 ### Fixed
