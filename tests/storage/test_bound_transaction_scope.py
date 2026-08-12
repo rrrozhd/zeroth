@@ -22,6 +22,42 @@ async def test_bound_transaction_accepts_same_structural_scope(async_database) -
         assert await rebound.select(where={"thread_id": "unknown"}) == []
 
 
+async def test_workspace_transaction_can_bind_same_tenant_resource_without_workspace(
+    async_database,
+) -> None:
+    scope = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    runs = ScopedTable(async_database, SERVICE_SCOPE_REGISTRY, "service.runs", scope)
+    holds = ScopedTable(
+        async_database,
+        SERVICE_SCOPE_REGISTRY,
+        "service.legal_holds",
+        NullWorkspaceScopeContext(tenant_id="tenant-a"),
+    )
+
+    async with runs.transaction() as transaction:
+        rebound = transaction.bind(holds)
+        assert await rebound.select(where={"hold_id": "unknown"}) == []
+
+
+async def test_tenant_only_transaction_cannot_gain_workspace_authority(async_database) -> None:
+    holds = ScopedTable(
+        async_database,
+        SERVICE_SCOPE_REGISTRY,
+        "service.legal_holds",
+        NullWorkspaceScopeContext(tenant_id="tenant-a"),
+    )
+    runs = ScopedTable(
+        async_database,
+        SERVICE_SCOPE_REGISTRY,
+        "service.runs",
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+
+    async with holds.transaction() as transaction:
+        with pytest.raises(ValueError, match="same structural scope"):
+            transaction.bind(runs)
+
+
 @pytest.mark.parametrize(
     "foreign_scope",
     [

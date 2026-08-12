@@ -145,7 +145,10 @@ class RetentionErasureService:
             if tenant_id == "default"
             else NullWorkspaceScopeContext(tenant_id=tenant_id)
         )
-        self._coordinator = RetentionCoordinator(run_repository.database, self._scope_context)
+        self._coordinator = RetentionCoordinator(
+            run_repository.database,
+            run_repository.scope_context,
+        )
         self._cleanup_state = CleanupStateRepository(run_repository.database, self._scope_context)
         self._operations = SideEffectOperationStore(
             run_repository.database,
