@@ -1604,19 +1604,22 @@ def _audit_repository_public_call_provenance(
                 class_alias_events: dict[ast.ClassDef, _AliasEvents] = class_alias_events,
                 parents: dict[ast.AST, ast.AST] = parents,
             ) -> bool:
-                dotted = _dotted_ast_path(annotation) if annotation is not None else None
-                if dotted is None:
+                if annotation is None:
                     return False
                 position = (annotation.lineno, annotation.col_offset)
-                for class_owner, events in class_alias_events.items():
-                    class_path = (*_lexical_owner_path(class_owner, parents), dotted[-1])
-                    if dotted != class_path:
+                for candidate in _annotation_type_nodes(annotation):
+                    dotted = _dotted_ast_path(candidate)
+                    if dotted is None:
                         continue
-                    return any(
-                        identity == _AUDIT_REPOSITORY_CLASS
-                        for event, identity in events.get(dotted[-1], [])
-                        if event < position
-                    )
+                    for class_owner, events in class_alias_events.items():
+                        class_path = (*_lexical_owner_path(class_owner, parents), dotted[-1])
+                        if dotted != class_path:
+                            continue
+                        return any(
+                            identity == _AUDIT_REPOSITORY_CLASS
+                            for event, identity in events.get(dotted[-1], [])
+                            if event < position
+                        )
                 return False
 
             module_alias_events = _must_alias_events(tree, repository_names, module_names)
@@ -1771,6 +1774,39 @@ def _audit_repository_public_call_provenance(
                     potential_import_aliases=True,
                 )
             potential_alias_events.update(class_alias_events)
+            for owner, events in potential_alias_events.items():
+                statements = tree.body if owner is None else owner.body
+                potential_names: set[str] = set()
+                for statement in statements:
+                    if not isinstance(statement, ast.TypeAlias):
+                        continue
+                    options = _assignment_value_options(statement.value)
+                    has_potential_evidence = any(
+                        _has_repository_annotation_evidence(
+                            option, repository_names | potential_names, module_names
+                        )
+                        or _has_repository_annotation_evidence(
+                            option,
+                            potential_imported_repository_names | potential_names,
+                            {},
+                        )
+                        for option in options
+                    )
+                    is_definite_repository_alias = all(
+                        _resolved_receiver_annotation_repository_name(
+                            option, repository_names, module_names
+                        )
+                        == _AUDIT_REPOSITORY_CLASS
+                        for option in options
+                    )
+                    if has_potential_evidence and not is_definite_repository_alias:
+                        potential_names.add(statement.name.id)
+                        position = (statement.lineno, statement.col_offset)
+                        events.setdefault(statement.name.id, []).extend(
+                            ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
+                        )
+                    else:
+                        potential_names.discard(statement.name.id)
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -5029,6 +5065,63 @@ def test_public_call_inventory_reports_potential_qualified_class_type_alias(tmp_
         "class Holder:\n"
         "    type Repo = list[AuditRepository]\n"
         "async def use(candidate: Holder.Repo, record):\n"
+        "    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "type Base = list[AuditRepository]\n"
+        "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        "class Holder:\n"
+        "    type Base = list[AuditRepository]\n"
+        "    type Repo = Base\n"
+        "    async def use(self, candidate: Repo, record):\n"
+        "        await candidate.write(record)\n",
+    ],
+    ids=["module", "function", "class"],
+)
+def test_public_call_inventory_propagates_potential_type_alias_chains(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n" + definition,
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_reports_wrapped_potential_qualified_class_type_alias(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from typing import Optional\n"
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    type Repo = list[AuditRepository]\n"
+        "async def use(candidate: Optional[Holder.Repo], record):\n"
         "    await candidate.write(record)\n",
         encoding="utf-8",
     )
