@@ -2085,22 +2085,53 @@ def _audit_repository_public_call_provenance(
                         return state, exceptions
                     return state, [state]
 
-                def binding_may_raise(target: ast.AST) -> bool:
+                def target_has_late_failure(target: ast.AST) -> bool:
+                    if isinstance(target, ast.Starred):
+                        return target_has_late_failure(target.value)
+                    if isinstance(target, (ast.Tuple, ast.List)):
+                        return any(target_has_late_failure(item) for item in target.elts)
                     return not isinstance(target, ast.Name)
 
                 def target_shape_matches(value: ast.AST, target: ast.AST) -> bool:
+                    if isinstance(target, ast.Starred):
+                        return target_shape_matches(value, target.value)
                     if isinstance(target, (ast.Tuple, ast.List)):
-                        return (
-                            isinstance(value, (ast.Tuple, ast.List))
-                            and not any(isinstance(item, ast.Starred) for item in value.elts)
-                            and not any(isinstance(item, ast.Starred) for item in target.elts)
-                            and len(value.elts) == len(target.elts)
-                            and all(
+                        if not isinstance(value, (ast.Tuple, ast.List)) or any(
+                            isinstance(item, ast.Starred) for item in value.elts
+                        ):
+                            return False
+                        starred_indexes = [
+                            index
+                            for index, item in enumerate(target.elts)
+                            if isinstance(item, ast.Starred)
+                        ]
+                        if len(starred_indexes) > 1:
+                            return False
+                        if not starred_indexes:
+                            pairs = zip(value.elts, target.elts, strict=True)
+                            return len(value.elts) == len(target.elts) and all(
                                 target_shape_matches(item_value, item_target)
-                                for item_value, item_target in zip(
-                                    value.elts, target.elts, strict=True
-                                )
+                                for item_value, item_target in pairs
                             )
+                        star_index = starred_indexes[0]
+                        if len(value.elts) < len(target.elts) - 1:
+                            return False
+                        prefix = zip(
+                            value.elts[:star_index], target.elts[:star_index], strict=True
+                        )
+                        suffix_length = len(target.elts) - star_index - 1
+                        suffix = (
+                            zip(
+                                value.elts[-suffix_length:],
+                                target.elts[star_index + 1 :],
+                                strict=True,
+                            )
+                            if suffix_length
+                            else ()
+                        )
+                        return all(
+                            target_shape_matches(item_value, item_target)
+                            for item_value, item_target in (*prefix, *suffix)
                         )
                     return True
 
@@ -2109,14 +2140,25 @@ def _audit_repository_public_call_provenance(
                     target: ast.AST,
                     *,
                     known_shape: bool,
+                    may_fail_unpack: bool,
                 ) -> tuple[_PotentialState, list[_PotentialState]]:
+                    if isinstance(target, ast.Starred):
+                        return bind_target(
+                            state,
+                            target.value,
+                            known_shape=True,
+                            may_fail_unpack=False,
+                        )
                     if isinstance(target, ast.Name):
                         return bind_names(state, {target.id}), []
                     if isinstance(target, (ast.Tuple, ast.List)):
-                        exceptions = [] if known_shape else [state]
+                        exceptions = [] if known_shape or not may_fail_unpack else [state]
                         for item in target.elts:
                             state, item_exceptions = bind_target(
-                                state, item, known_shape=known_shape
+                                state,
+                                item,
+                                known_shape=known_shape,
+                                may_fail_unpack=may_fail_unpack,
                             )
                             exceptions.extend(item_exceptions)
                         return state, exceptions
@@ -2593,11 +2635,20 @@ def _audit_repository_public_call_provenance(
                                         state[name] = None
                                         record_event(name, position, None)
                             elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                                identity = (
-                                    _BUILTIN_EXCEPTION_CLASSES.get(statement.bases[0].id)
+                                base = (
+                                    resolve(statement.bases[0], state)
                                     if isinstance(statement, ast.ClassDef)
                                     and len(statement.bases) == 1
-                                    and isinstance(statement.bases[0], ast.Name)
+                                    else None
+                                )
+                                identity = (
+                                    type(
+                                        f"_cfg_{statement.lineno}_{statement.name}",
+                                        (base,),
+                                        {},
+                                    )
+                                    if isinstance(base, type)
+                                    and issubclass(base, BaseException)
                                     else None
                                 )
                                 state[statement.name] = identity
@@ -2972,6 +3023,7 @@ def _audit_repository_public_call_provenance(
                                     loop_state,
                                     statement.target,
                                     known_shape=known_target_shape,
+                                    may_fail_unpack=True,
                                 )
                                 exceptions.extend(target_exceptions)
                             body_flow = walk_potential_bindings(
@@ -3038,9 +3090,15 @@ def _audit_repository_public_call_provenance(
                                     # An earlier manager can suppress a later acquisition failure.
                                     suppressed_acquisition_states.append(acquired)
                                 if item.optional_vars is not None:
-                                    if binding_may_raise(item.optional_vars):
-                                        suppressed_acquisition_states.append(acquired)
-                                    acquired = bind_names(acquired, _bound_names(item.optional_vars))
+                                    acquired, target_exceptions = bind_target(
+                                        acquired,
+                                        item.optional_vars,
+                                        known_shape=False,
+                                        may_fail_unpack=not target_has_late_failure(
+                                            item.optional_vars
+                                        ),
+                                    )
+                                    suppressed_acquisition_states.extend(target_exceptions)
                             body_flow = walk_potential_bindings(
                                 statement.body,
                                 acquired,
@@ -3115,14 +3173,6 @@ def _audit_repository_public_call_provenance(
                             if isinstance(statement, ast.TypeAlias)
                             else statement.value
                             if isinstance(statement, (ast.Assign, ast.AnnAssign))
-                            and all(
-                                isinstance(target, ast.Name)
-                                for target in (
-                                    statement.targets
-                                    if isinstance(statement, ast.Assign)
-                                    else (statement.target,)
-                                )
-                            )
                             else statement
                         )
                         if expression_may_raise(assignment_value, continuing[2]) or (
@@ -3133,9 +3183,30 @@ def _audit_repository_public_call_provenance(
                         ):
                             exceptions.append(before)
                         if not isinstance(statement, ast.TypeAlias):
-                            continuing = bind_names(
-                                continuing, executed_binding_names(statement)
-                            )
+                            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                                targets = (
+                                    statement.targets
+                                    if isinstance(statement, ast.Assign)
+                                    else (statement.target,)
+                                )
+                                for target in targets:
+                                    continuing, target_exceptions = bind_target(
+                                        continuing,
+                                        target,
+                                        known_shape=target_shape_matches(statement.value, target),
+                                        may_fail_unpack=True,
+                                    )
+                                    exceptions.extend(target_exceptions)
+                                continuing = bind_names(
+                                    continuing,
+                                    executed_binding_names(statement) - set().union(
+                                        *(_bound_names(target) for target in targets)
+                                    ),
+                                )
+                            else:
+                                continuing = bind_names(
+                                    continuing, executed_binding_names(statement)
+                                )
                             continue
                         options = _assignment_value_options(statement.value)
                         has_potential_evidence = any(
@@ -8034,6 +8105,113 @@ def test_public_call_inventory_preserves_partial_for_target_binding(tmp_path: Pa
         "        for closure, missing.attr in ((None, None),):\n"
         "            pass\n"
         "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_distinguishes_sibling_exception_classes(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class FirstError(Exception):\n"
+        "    pass\n"
+        "class SecondError(Exception):\n"
+        "    pass\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        "        raise FirstError\n"
+        "    except SecondError:\n"
+        "        closure = None\n"
+        "    except FirstError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("target", "value", "expected"),
+    [
+        ("closure, *rest", "(None, None, None)", frozenset()),
+        ("closure, *rest", "()", frozenset({"apps/candidate.py::use::write"})),
+    ],
+    ids=["valid-starred-target", "short-starred-target"],
+)
+def test_public_call_inventory_models_starred_for_target_shapes(
+    tmp_path: Path, target: str, value: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    with suppressor:\n"
+        f"        for {target} in ({value},):\n"
+        "            pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "    with suppressor:\n"
+        "        closure, missing.attr = (None, None)\n",
+        "    with manager as (closure, missing.attr):\n"
+        "        pass\n",
+    ],
+    ids=["assignment", "with-target"],
+)
+def test_public_call_inventory_preserves_partial_assignment_target_binding(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, manager, candidate, record):\n"
+        + compound
+        + "    async def use():\n"
         "        type Base = list[AuditRepository]\n"
         "        with suppressor:\n"
         "            if closure:\n"
