@@ -13,6 +13,17 @@ from zeroth.governance.retention.policy_repository import RetentionPolicyReposit
 from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.service.webhooks.models import WebhookEventType, WebhookSubscription
 from zeroth.service.webhooks.repository import WebhookRepository
+from tests.task9_operation_driver_registry import TASK9_EXECUTABLE_DRIVERS
+
+
+@pytest.mark.parametrize(
+    ("resource_name", "operation"),
+    sorted(TASK9_EXECUTABLE_DRIVERS, key=lambda item: (item[0], item[1].value)),
+)
+async def test_task9_public_operation_isolation_driver(
+    async_database, resource_name, operation
+) -> None:
+    await TASK9_EXECUTABLE_DRIVERS[(resource_name, operation)](async_database)
 
 
 async def test_webhook_foreign_delete_is_unknown_and_owner_survives(async_database) -> None:
