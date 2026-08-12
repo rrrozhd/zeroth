@@ -614,8 +614,12 @@ class AgentRunner:
                     cap=cap,
                 )
 
-        await self._start_mcp_servers(effective_capabilities)
+        # Inside the try, not before it: ``start()`` enters one stdio_client and
+        # one ClientSession per configured server and raises out of the loop on
+        # the first failure, leaving every server it already entered running.
+        # Only the ``finally`` below closes them.
         try:
+            await self._start_mcp_servers(effective_capabilities)
             last_error: Exception | None = None
             attempts = 0
             for attempt in range(1, max_attempts + 1):

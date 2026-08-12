@@ -4,11 +4,20 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, CostProfile, GroundTruthCost, PricingCatalog
+from zeroth.econ.plane.costing.models import (
+    CalibrationMetric,
+    CostEstimate,
+    CostProfile,
+    GroundTruthCost,
+    PricingCatalog,
+)
 from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogCreate
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.statistics.service import hierarchical_interval
+
+#: Upper bound on the calibration history a summary read materialises.
+CALIBRATION_SUMMARY_ROWS = 200
 
 
 def _require_exact_scoped_session(db: object) -> ScopedSession:
@@ -113,7 +122,9 @@ def estimate_cost_for_period(
                 ) * float(price.output_per_million_usd)
                 inferred_samples.append(token_cost)
 
-    inferred_llm_mean, inferred_low, inferred_high = hierarchical_interval(inferred_samples, prior_mean=0.0)
+    inferred_llm_mean, inferred_low, inferred_high = hierarchical_interval(
+        inferred_samples, prior_mean=0.0
+    )
     inferred_llm_total = inferred_llm_mean * max(len(executions), 1)
 
     llm_total = measured_llm if measured_llm > 0 else inferred_llm_total
@@ -156,14 +167,30 @@ def estimate_cost_for_period(
 
 def latest_cost_estimate(db: ScopedSession, capability_id: str) -> CostEstimate | None:
     db = _require_exact_scoped_session(db)
-    stmt = select(CostEstimate).where(CostEstimate.capability_id == capability_id).order_by(CostEstimate.id.desc())
+    # ``.limit(1)`` is what makes "latest" a single row: without it the second
+    # estimate recorded for a capability turns every read into
+    # ``MultipleResultsFound``. The sibling services all carry the same bound.
+    stmt = (
+        select(CostEstimate)
+        .where(CostEstimate.capability_id == capability_id)
+        .order_by(CostEstimate.id.desc())
+        .limit(1)
+    )
     return db.execute(stmt).scalar_one_or_none()
 
 
 def compute_calibration_summary(db: ScopedSession) -> list[CalibrationMetric]:
     db = _require_exact_scoped_session(db)
     # Lightweight daily aggregation scaffold for MVP; real reconciler can append rows.
-    return list(db.execute(select(CalibrationMetric).order_by(CalibrationMetric.id.desc())).scalars())
+    # Bounded like every other summary read: a calibration history grows one row
+    # per reconciliation and nothing downstream renders more than a page of it.
+    return list(
+        db.execute(
+            select(CalibrationMetric)
+            .order_by(CalibrationMetric.id.desc())
+            .limit(CALIBRATION_SUMMARY_ROWS)
+        ).scalars()
+    )
 
 
 def add_ground_truth_rows(db: ScopedSession, rows: list[GroundTruthCost]) -> int:

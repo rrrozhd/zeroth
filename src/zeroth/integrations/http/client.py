@@ -162,6 +162,18 @@ class ResilientHttpClient:
         delay = base * (2**attempt) + random.uniform(0, 0.1)  # noqa: S311
         return min(delay, self._settings.retry_max_delay)
 
+    def _method_may_retry(self, method: str, config: EndpointConfig) -> bool:
+        """Decide whether *method* may be redelivered on this endpoint at all.
+
+        One rule serves both retry paths — status and transport exception — so a
+        POST cannot be replayed down one path while being refused on the other.
+        An endpoint that declares its own ``retryable_status_codes`` has had its
+        retry policy set deliberately and keeps the existing escape hatch.
+        """
+        if config.retryable_status_codes is not None:
+            return True
+        return method.upper() in _IDEMPOTENT_METHODS
+
     def _is_retryable_status(
         self,
         status_code: int,
@@ -174,7 +186,7 @@ class ResilientHttpClient:
             return status_code in config.retryable_status_codes
 
         # For non-idempotent methods, do NOT retry on status codes by default.
-        if method.upper() not in _IDEMPOTENT_METHODS:
+        if not self._method_may_retry(method, config):
             return False
 
         return status_code in self._settings.retryable_status_codes
@@ -224,12 +236,31 @@ class ResilientHttpClient:
         await breaker.check()
 
         # 5. Retry loop
-        max_retries = (
-            config.max_retries if config.max_retries is not None else self._settings.max_retries
-        )
         timeout_override = config.timeout
         if timeout_override is not None:
             kwargs["timeout"] = timeout_override
+
+        return await self._deliver(method, url, config=config, breaker=breaker, **kwargs)
+
+    async def _deliver(
+        self,
+        method: str,
+        url: str,
+        *,
+        config: EndpointConfig,
+        breaker: Any,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Run the retry loop for one already-admitted request.
+
+        Split out of :meth:`request` so the admission pipeline (rate limit,
+        capabilities, auth, breaker check) and the delivery loop each stay
+        readable on their own.
+        """
+        max_retries = (
+            config.max_retries if config.max_retries is not None else self._settings.max_retries
+        )
+        may_retry = self._method_may_retry(method, config)
 
         last_error: str = ""
         retry_count = 0
@@ -238,57 +269,74 @@ class ResilientHttpClient:
         for attempt in range(max_retries + 1):
             try:
                 response = await self._client.request(method, url, **kwargs)
-
-                retryable = self._is_retryable_status(response.status_code, method, config)
-                if retryable and attempt < max_retries:
-                    last_error = f"HTTP {response.status_code}"
-                    retry_count = attempt + 1
-                    delay = self._backoff_delay(attempt, config)
-                    await asyncio.sleep(delay)
-                    continue
-
-                if retryable:
-                    # Last attempt still returned a retryable status — exhausted.
-                    retry_count = attempt
-                    last_error = f"HTTP {response.status_code}"
-                    break
-
-                # Success (or non-retryable status)
-                await breaker.record_success()
-                elapsed_ms = (time.monotonic() - start) * 1000
-                self._call_records.append(
-                    HttpCallRecord(
-                        url=redact_url(url),
-                        method=method.upper(),
-                        status_code=response.status_code,
-                        latency_ms=round(elapsed_ms, 2),
-                        response_size_bytes=len(response.content) if response.content else None,
-                        retry_count=retry_count,
-                        circuit_breaker_state=breaker.state.value,
-                    )
-                )
-                return response
-
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            # Every transport-layer failure, not only timeout and connect:
+            # a half-closed peer (RemoteProtocolError) or a mid-stream
+            # read/write error is the same kind of endpoint failure, and used to
+            # escape raw with no retry, no breaker accounting and no audit record.
+            except httpx.TransportError as exc:
                 await breaker.record_failure()
                 last_error = f"{type(exc).__name__}: {exc}"
                 retry_count = attempt + 1
+                # Redelivering a non-idempotent request after a transport failure
+                # can duplicate a side effect the peer may already have applied.
+                # Account for it, record it, do not replay it.
+                if not may_retry:
+                    break
                 if attempt < max_retries:
-                    delay = self._backoff_delay(attempt, config)
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(self._backoff_delay(attempt, config))
+                continue
 
-        # All retries exhausted
-        elapsed_ms = (time.monotonic() - start) * 1000
+            if not self._is_retryable_status(response.status_code, method, config):
+                # Order preserved from before the split: the breaker is reset
+                # first, so the recorded state is the post-success one.
+                await breaker.record_success()
+                self._record_success(url, method, response, retry_count, breaker, start)
+                return response
+
+            # A retryable status means the endpoint answered but failed. That is
+            # an endpoint-health signal whichever attempt it lands on, so it feeds
+            # the breaker exactly like a transport error does — otherwise an
+            # endpoint that is up but returning 5xx could never trip it.
+            await breaker.record_failure()
+            last_error = f"HTTP {response.status_code}"
+            if attempt >= max_retries:
+                retry_count = attempt
+                break
+            retry_count = attempt + 1
+            await asyncio.sleep(self._backoff_delay(attempt, config))
+
         self._call_records.append(
             HttpCallRecord(
                 url=redact_url(url),
                 method=method.upper(),
-                latency_ms=round(elapsed_ms, 2),
+                latency_ms=round((time.monotonic() - start) * 1000, 2),
                 retry_count=retry_count,
                 error=last_error,
             )
         )
         raise HttpRetryExhaustedError(attempts=retry_count, last_error=last_error)
+
+    def _record_success(
+        self,
+        url: str,
+        method: str,
+        response: httpx.Response,
+        retry_count: int,
+        breaker: Any,
+        start: float,
+    ) -> None:
+        """Append the audit record for a delivered response."""
+        self._call_records.append(
+            HttpCallRecord(
+                url=redact_url(url),
+                method=method.upper(),
+                status_code=response.status_code,
+                latency_ms=round((time.monotonic() - start) * 1000, 2),
+                response_size_bytes=len(response.content) if response.content else None,
+                retry_count=retry_count,
+                circuit_breaker_state=breaker.state.value,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Convenience methods

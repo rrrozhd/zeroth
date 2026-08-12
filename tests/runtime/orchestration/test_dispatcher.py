@@ -230,6 +230,7 @@ async def test_subgraph_dispatch_seam_normalizes_child_output_and_audit() -> Non
         parent_run=parent,
         node=node,
         input_payload={"input": True},
+        step_tracker=None,
     )
 
     assert result.output == {"answer": 42}

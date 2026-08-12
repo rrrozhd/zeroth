@@ -85,7 +85,7 @@ class SubgraphExecutor:
         input_payload: dict[str, Any],
         *,
         branch_context: BranchContext | None = None,
-        step_tracker: GlobalStepTracker | None = None,
+        step_tracker: GlobalStepTracker | None,
     ) -> Run:
         """Execute a subgraph node by creating a child Run and driving it.
 
@@ -231,7 +231,7 @@ class SubgraphExecutor:
         paused_child_run_id: str,
         *,
         branch_index: int | None = None,
-        step_tracker: GlobalStepTracker | None = None,
+        step_tracker: GlobalStepTracker | None,
     ) -> Run:
         """Resume a paused child subgraph Run in place (D-11 literal).
 

@@ -1,6 +1,4 @@
-from collections import defaultdict
-
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from zeroth.econ.plane.capabilities.models import Capability
 from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, GroundTruthCost
@@ -8,6 +6,15 @@ from zeroth.econ.plane.counterfactual.models import ValueEstimate
 from zeroth.econ.plane.enforcement.models import PolicyAction
 from zeroth.econ.plane.performance.models import PerformanceSnapshot
 from zeroth.econ.plane.scoped_session import ScopedSession
+
+#: Every dashboard read is a summary over recent history, so each one carries an
+#: explicit bound. Without them these functions selected whole tables and
+#: aggregated in Python, so memory and latency grew with total history rather
+#: than with what the panel actually renders.
+LEADERBOARD_ROWS = 5
+TREND_POINTS = 500
+TIMELINE_ROWS = 200
+COMPARISON_ROWS = 20
 
 
 def _require_exact_scoped_session(db: object) -> ScopedSession:
@@ -18,12 +25,37 @@ def _require_exact_scoped_session(db: object) -> ScopedSession:
 
 def kpis(db: ScopedSession) -> dict:
     db = _require_exact_scoped_session(db)
-    estimates = list(db.execute(select(ValueEstimate)).scalars())
-    spend = sum(float(e.estimated_cost_usd) for e in estimates)
-    value = sum(float(e.estimated_value_usd) for e in estimates)
-    margin = value - spend
+    # One aggregate round trip instead of materialising every estimate ever
+    # written. ``confidence`` is per-row arithmetic, so it is expressed in SQL
+    # rather than recomputed over a fully-loaded list.
+    #
+    # Both clamps are ``case`` expressions on purpose. SQLite's ``max(a, b)`` is
+    # a two-argument scalar; PostgreSQL's ``max`` is a one-argument aggregate, so
+    # the scalar form would fail on Postgres -- and nesting it inside ``avg``
+    # would be a nested aggregate there. ``case`` means the same thing on both.
+    denominator = case(
+        (func.abs(ValueEstimate.estimated_value_usd) > 1.0, func.abs(
+            ValueEstimate.estimated_value_usd
+        )),
+        else_=1.0,
+    )
+    raw_confidence = (
+        1
+        - (ValueEstimate.credible_interval_high_usd - ValueEstimate.credible_interval_low_usd)
+        / denominator
+    )
+    confidence_expr = case((raw_confidence > 0.0, raw_confidence), else_=0.0)
+    row = db.execute(
+        select(
+            func.count(ValueEstimate.id),
+            func.coalesce(func.sum(ValueEstimate.estimated_cost_usd), 0.0),
+            func.coalesce(func.sum(ValueEstimate.estimated_value_usd), 0.0),
+            func.coalesce(func.avg(confidence_expr), 0.0),
+        )
+    ).one()
+    count, spend, value, confidence = int(row[0]), float(row[1]), float(row[2]), float(row[3])
 
-    if not estimates:
+    if not count:
         return {
             "total_ai_spend_usd": 0.0,
             "total_ai_value_usd": 0.0,
@@ -32,59 +64,95 @@ def kpis(db: ScopedSession) -> dict:
             "efficiency_index": 0.0,
         }
 
-    confidences = [
-        max(
-            0.0,
-            1
-            - (
-                (float(e.credible_interval_high_usd) - float(e.credible_interval_low_usd))
-                / max(abs(float(e.estimated_value_usd)), 1.0)
-            ),
-        )
-        for e in estimates
-    ]
     return {
         "total_ai_spend_usd": spend,
         "total_ai_value_usd": value,
-        "net_ai_margin_usd": margin,
-        "portfolio_confidence_score": sum(confidences) / len(confidences),
+        "net_ai_margin_usd": value - spend,
+        "portfolio_confidence_score": confidence,
         "efficiency_index": (value / spend) if spend else 0.0,
     }
 
 
+def _recent_estimates(db: ScopedSession) -> list[ValueEstimate]:
+    """The newest ``TREND_POINTS`` value estimates, oldest-first for plotting.
+
+    Selecting descending under a limit and reversing keeps the chart's ascending
+    order while letting the database discard the rest of the history, instead of
+    streaming every estimate ever written into the process.
+    """
+    rows = list(
+        db.execute(
+            select(ValueEstimate).order_by(ValueEstimate.id.desc()).limit(TREND_POINTS)
+        ).scalars()
+    )
+    rows.reverse()
+    return rows
+
+
+def _margin_leaderboard(db: ScopedSession, *, ascending: bool) -> list[dict]:
+    """Return the ``LEADERBOARD_ROWS`` capabilities at one end of net margin.
+
+    Grouped, ordered and truncated in SQL. The previous shape read every value
+    estimate into a ``defaultdict`` and sorted the whole thing to keep five rows,
+    and ``capital_destroyers`` re-ran that same full scan to re-sort it.
+    """
+    net_margin = func.coalesce(func.sum(ValueEstimate.net_margin_usd), 0.0)
+    order = net_margin.asc() if ascending else net_margin.desc()
+    rows = db.execute(
+        select(
+            ValueEstimate.capability_id,
+            net_margin,
+            func.coalesce(func.avg(ValueEstimate.confidence_level), 0.0),
+        )
+        .group_by(ValueEstimate.capability_id)
+        .order_by(order)
+        .limit(LEADERBOARD_ROWS)
+    ).all()
+    return [
+        {
+            "capability_id": capability_id,
+            "net_margin_usd": float(margin),
+            "confidence": float(confidence),
+        }
+        for capability_id, margin, confidence in rows
+    ]
+
+
 def top_creators(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    grouped = defaultdict(list)
-    for estimate in db.execute(select(ValueEstimate)).scalars():
-        grouped[estimate.capability_id].append(estimate)
-
-    rows = []
-    for capability_id, estimates in grouped.items():
-        net = sum(float(e.net_margin_usd) for e in estimates)
-        conf = sum(float(e.confidence_level) for e in estimates) / len(estimates)
-        rows.append({"capability_id": capability_id, "net_margin_usd": net, "confidence": conf})
-
-    return sorted(rows, key=lambda r: r["net_margin_usd"], reverse=True)[:5]
+    return _margin_leaderboard(db, ascending=False)
 
 
 def capital_destroyers(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    rows = top_creators(db)
-    return sorted(rows, key=lambda r: r["net_margin_usd"])[:5]
+    return _margin_leaderboard(db, ascending=True)
 
 
 def capability_ranking(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    latest_perf: dict[str, PerformanceSnapshot] = {}
-    for snap in db.execute(select(PerformanceSnapshot).order_by(PerformanceSnapshot.id.desc())).scalars():
-        latest_perf.setdefault(snap.capability_id, snap)
+    # "Latest per capability" is one row per capability, so select the max id
+    # per group and join back, rather than streaming the whole table and keeping
+    # the first of each with ``setdefault``.
+    latest_perf_ids = select(func.max(PerformanceSnapshot.id)).group_by(
+        PerformanceSnapshot.capability_id
+    )
+    latest_perf: dict[str, PerformanceSnapshot] = {
+        snap.capability_id: snap
+        for snap in db.execute(
+            select(PerformanceSnapshot).where(PerformanceSnapshot.id.in_(latest_perf_ids))
+        ).scalars()
+    }
 
-    latest_est: dict[str, ValueEstimate] = {}
-    for est in db.execute(select(ValueEstimate).order_by(ValueEstimate.id.desc())).scalars():
-        latest_est.setdefault(est.capability_id, est)
+    latest_est_ids = select(func.max(ValueEstimate.id)).group_by(ValueEstimate.capability_id)
+    latest_est: dict[str, ValueEstimate] = {
+        est.capability_id: est
+        for est in db.execute(
+            select(ValueEstimate).where(ValueEstimate.id.in_(latest_est_ids))
+        ).scalars()
+    }
 
     rows: list[dict] = []
-    for cap in db.execute(select(Capability)).scalars():
+    for cap in db.execute(select(Capability).where(Capability.id.in_(latest_est.keys()))).scalars():
         est = latest_est.get(cap.id)
         snap = latest_perf.get(cap.id)
         if est is None:
@@ -108,10 +176,11 @@ def implementation_compare(db: ScopedSession, capability_id: str) -> list[dict]:
             select(ValueEstimate)
             .where(ValueEstimate.capability_id == capability_id)
             .order_by(ValueEstimate.id.desc())
+            .limit(10)
         ).scalars()
     )
     out = []
-    for row in rows[:10]:
+    for row in rows:
         out.append(
             {
                 "capability_id": row.capability_id,
@@ -129,7 +198,9 @@ def implementation_compare(db: ScopedSession, capability_id: str) -> list[dict]:
 def policy_timeline(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
     out = []
-    for p in db.execute(select(PolicyAction).order_by(PolicyAction.id.desc())).scalars():
+    for p in db.execute(
+        select(PolicyAction).order_by(PolicyAction.id.desc()).limit(TIMELINE_ROWS)
+    ).scalars():
         out.append(
             {
                 "id": p.id,
@@ -147,7 +218,7 @@ def policy_timeline(db: ScopedSession) -> list[dict]:
 def confidence_trend(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
     points = []
-    for estimate in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars():
+    for estimate in _recent_estimates(db):
         points.append({"x": estimate.period_end.isoformat(), "y": float(estimate.confidence_level)})
     return points
 
@@ -155,7 +226,7 @@ def confidence_trend(db: ScopedSession) -> list[dict]:
 def efficiency_trend(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
     points = []
-    for estimate in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars():
+    for estimate in _recent_estimates(db):
         cost = float(estimate.estimated_cost_usd)
         value = float(estimate.estimated_value_usd)
         points.append({"x": estimate.period_end.isoformat(), "y": (value / cost) if cost else 0.0})
@@ -164,12 +235,30 @@ def efficiency_trend(db: ScopedSession) -> list[dict]:
 
 def estimated_vs_ground_truth_cost(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    est_rows = list(db.execute(select(CostEstimate).order_by(CostEstimate.id.desc())).scalars())
-    gt_rows = list(db.execute(select(GroundTruthCost).order_by(GroundTruthCost.id.desc())).scalars())
+    est_rows = list(
+        db.execute(
+            select(CostEstimate).order_by(CostEstimate.id.desc()).limit(COMPARISON_ROWS)
+        ).scalars()
+    )
+    # Only the ground truth for the capabilities actually rendered, summed in
+    # SQL -- the previous shape read every ground-truth row ever recorded and
+    # re-filtered it in Python once per estimate.
+    capability_ids = [row.capability_id for row in est_rows]
+    gt_totals = {
+        capability_id: float(total)
+        for capability_id, total in db.execute(
+            select(
+                GroundTruthCost.capability_id,
+                func.coalesce(func.sum(GroundTruthCost.amount_usd), 0.0),
+            )
+            .where(GroundTruthCost.capability_id.in_(capability_ids))
+            .group_by(GroundTruthCost.capability_id)
+        ).all()
+    }
 
     out = []
-    for row in est_rows[:20]:
-        gt_total = sum(float(g.amount_usd) for g in gt_rows if g.capability_id == row.capability_id)
+    for row in est_rows:
+        gt_total = gt_totals.get(row.capability_id, 0.0)
         out.append(
             {
                 "capability_id": row.capability_id,
@@ -182,37 +271,69 @@ def estimated_vs_ground_truth_cost(db: ScopedSession) -> list[dict]:
 
 def confidence_gate_status(db: ScopedSession) -> dict:
     db = _require_exact_scoped_session(db)
-    rows = list(db.execute(select(ValueEstimate)).scalars())
-    passed = sum(1 for r in rows if bool(r.confidence_gate_passed))
-    blocked = len(rows) - passed
-    return {"passed": passed, "blocked": blocked}
+    total, passed = db.execute(
+        select(
+            func.count(ValueEstimate.id),
+            func.coalesce(
+                func.sum(case((ValueEstimate.confidence_gate_passed.is_(True), 1), else_=0)), 0
+            ),
+        )
+    ).one()
+    return {"passed": int(passed), "blocked": int(total) - int(passed)}
 
 
 def data_quality_mix(db: ScopedSession) -> dict:
     db = _require_exact_scoped_session(db)
-    rows = list(db.execute(select(CostEstimate)).scalars())
-    measured = sum(1 for r in rows if r.data_quality == "measured")
-    inferred = sum(1 for r in rows if r.data_quality == "inferred")
-    mixed = sum(1 for r in rows if r.data_quality == "mixed")
-    return {"measured": measured, "inferred": inferred, "mixed": mixed}
+    counts = {
+        quality: int(total)
+        for quality, total in db.execute(
+            select(CostEstimate.data_quality, func.count(CostEstimate.id)).group_by(
+                CostEstimate.data_quality
+            )
+        ).all()
+    }
+    return {
+        "measured": counts.get("measured", 0),
+        "inferred": counts.get("inferred", 0),
+        "mixed": counts.get("mixed", 0),
+    }
 
 
 def calibration_trend(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    return [{"x": r.period, "y": float(r.mape)} for r in db.execute(select(CalibrationMetric).order_by(CalibrationMetric.id)).scalars()]
+    # Same unbounded-scan shape as the trends above, bounded the same way.
+    rows = list(
+        db.execute(
+            select(CalibrationMetric).order_by(CalibrationMetric.id.desc()).limit(TREND_POINTS)
+        ).scalars()
+    )
+    rows.reverse()
+    return [{"x": row.period, "y": float(row.mape)} for row in rows]
 
 
 def action_suppression(db: ScopedSession) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    blocked = [r for r in db.execute(select(ValueEstimate).order_by(ValueEstimate.id)).scalars() if not bool(r.confidence_gate_passed)]
-    return [{"x": r.period_end.isoformat(), "y": 1.0} for r in blocked]
+    blocked = db.execute(
+        select(ValueEstimate.period_end)
+        .where(ValueEstimate.confidence_gate_passed.is_not(True))
+        .order_by(ValueEstimate.id.desc())
+        .limit(TREND_POINTS)
+    ).scalars()
+    return [{"x": period_end.isoformat(), "y": 1.0} for period_end in reversed(list(blocked))]
 
 
 def drift_timeline(db: ScopedSession, capability_id: str) -> list[dict]:
     db = _require_exact_scoped_session(db)
-    points = []
-    for estimate in db.execute(
-        select(ValueEstimate).where(ValueEstimate.capability_id == capability_id).order_by(ValueEstimate.id)
-    ).scalars():
-        points.append({"x": estimate.period_end.isoformat(), "y": float(estimate.drift_score)})
-    return points
+    rows = list(
+        db.execute(
+            select(ValueEstimate)
+            .where(ValueEstimate.capability_id == capability_id)
+            .order_by(ValueEstimate.id.desc())
+            .limit(TREND_POINTS)
+        ).scalars()
+    )
+    rows.reverse()
+    return [
+        {"x": estimate.period_end.isoformat(), "y": float(estimate.drift_score)}
+        for estimate in rows
+    ]

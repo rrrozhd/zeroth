@@ -9,8 +9,7 @@ from fastapi.testclient import TestClient
 
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.runtime.runs import Run
-from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 
 
@@ -36,14 +35,14 @@ def _make_app(*, bootstrap: object | None = None) -> FastAPI:
 
 def _bootstrap(runs: list | None = None, audits: list | None = None):
     """A fake bootstrap: run_repository (list/get/put) + audit_repository.list."""
-
     store = {r.run_id: r for r in (runs or [])}
 
     async def _list_runs(deployment_ref, *, status=None, limit=50, offset=0):
         return list(store.values())
 
-    async def _list_audits(query):
-        return list(audits or [])
+    async def _list_audits(query, *, limit=None):
+        records = list(audits or [])
+        return records if limit is None else records[-limit:]
 
     async def _get(run_id):
         return store.get(run_id)

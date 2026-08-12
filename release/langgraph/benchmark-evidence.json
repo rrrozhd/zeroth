@@ -56,7 +56,7 @@
     "ttft_p95_ms": 3.196583
   },
   "passed": true,
-  "release": "0.23.0",
+  "release": "0.23.1",
   "sample_count": 20,
   "sample_distribution": {
     "decision_latency_ms": [

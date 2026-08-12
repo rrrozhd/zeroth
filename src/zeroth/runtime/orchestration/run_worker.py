@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -109,12 +110,52 @@ class RunWorker:
             self.worker_id,
             **self._lease_scope(),
         )
-        for run_id in orphans:
+        # Recovery obeys the same concurrency bound as the poll loop. Creating a
+        # task per orphan meant a crash with a large backlog dispatched the whole
+        # backlog at once, ignoring max_concurrency entirely.
+        if len(orphans) > self.max_concurrency:
+            logger.warning(
+                "worker %s recovering %d orphaned runs at concurrency %d; "
+                "the remainder start as slots free",
+                self.worker_id,
+                len(orphans),
+                self.max_concurrency,
+            )
+        task = asyncio.create_task(
+            self._recover_orphans(orphans),
+            name=f"recover-orphans-{self.worker_id}",
+        )
+        self._track(task)
+
+    async def _recover_orphans(self, orphans: Sequence[str]) -> None:
+        """Re-execute *orphans*, never more than ``max_concurrency`` in flight.
+
+        The gate is a local count of live recovery tasks, deliberately not the
+        worker's slot semaphore. ``_execute_leased_run`` acquires and releases
+        that semaphore itself, and it does so around a window with unguarded
+        awaits: acquiring here as well would either double-release or, if one of
+        those awaits raised, drain the semaphore and wedge this loop forever.
+        Slot ownership stays entirely with the callee.
+        """
+        in_flight: set[asyncio.Task[None]] = set()
+        for index, run_id in enumerate(orphans):
+            if self._stopping:
+                logger.info(
+                    "worker %s stopping; %d orphaned runs left for another worker",
+                    self.worker_id,
+                    len(orphans) - index,
+                )
+                break
+            while len(in_flight) >= self.max_concurrency:
+                _done, in_flight = await asyncio.wait(
+                    in_flight, return_when=asyncio.FIRST_COMPLETED
+                )
             logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
             task = asyncio.create_task(
                 self._execute_leased_run(run_id, is_recovery=True),
                 name=f"recover-{run_id}",
             )
+            in_flight.add(task)
             self._track(task)
 
     async def poll_loop(self) -> None:
@@ -576,3 +617,24 @@ class RunWorker:
     def _track(self, task: asyncio.Task) -> None:
         self._active_tasks.add(task)
         task.add_done_callback(self._active_tasks.discard)
+        task.add_done_callback(self._report_task_outcome)
+
+    @staticmethod
+    def _report_task_outcome(task: asyncio.Task) -> None:
+        """Retrieve a finished task's exception so it is logged, not swallowed.
+
+        ``discard`` was the only done-callback, so nothing ever called
+        ``task.exception()``. A run that raised outside its own error handling
+        surfaced nowhere but a garbage-collection warning, if at all.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "worker task %s failed: %s: %s",
+                task.get_name(),
+                type(exc).__name__,
+                exc,
+                exc_info=exc,
+            )

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-08-12
+
+### Fixed
+
+- Outbound HTTP retries obey one idempotency rule on both paths. A transport failure no
+  longer replays a non-idempotent request, a retryable status now records a circuit-breaker
+  failure so an endpoint that is up but answering 5xx can trip the breaker, and every
+  `httpx.TransportError` — not just timeout and connect — is retried, counted and audited
+  (ZER-48 / A07-3, A07-4, A07-5, A07-31).
+- LangGraph gateway transport, status and decode failures are logged with their cause while
+  the raised error stays opaque to callers; a run of heartbeat failures is now countable
+  instead of silent (ZER-48 / A07-9).
+- Unbounded reads carry explicit bounds: `latest_cost_estimate` returns one row instead of
+  raising `MultipleResultsFound` on a capability's second estimate, econ dashboard panels
+  aggregate in SQL, and the econ-analytics and rightsizing routes bound their audit reads
+  (ZER-48 / A01-5, A01-49, A02-14).
+- MCP servers are started inside the block that stops them, so a partially-failed startup no
+  longer leaks the servers it already entered, and the handshake and tool calls carry
+  deadlines that the agent timeout could never cover (ZER-48 / A06-9, A06-10).
+- Orphan recovery runs within `max_concurrency` rather than dispatching a whole backlog at
+  once, and a tracked worker task's exception is retrieved and logged (ZER-48 / A06-23).
+- ARQ pool and wakeup failures name the exception that caused them (ZER-48 / A08-10).
+
+### Changed
+
+- `step_tracker` has no permissive default on subgraph dispatch. It is a required keyword on
+  `dispatch_subgraph_node`, `SubgraphExecutor.execute` and `SubgraphExecutor.resume`, so a
+  nested subgraph can no longer be handed a fresh step budget by omission (ZER-48 / A06-17).
+- `AuditRepository.list` accepts a `limit` that bounds the read to the most recent records,
+  still returned oldest-first (ZER-48 / A02-14).
+
 ## [0.23.0] - 2026-08-12
 
 ### Changed

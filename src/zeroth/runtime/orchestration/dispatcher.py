@@ -80,8 +80,16 @@ async def dispatch_subgraph_node(
     parent_run: Run,
     node: SubgraphNode,
     input_payload: dict[str, Any],
+    step_tracker: Any,
 ) -> SubgraphDispatchResult:
-    """Route a subgraph through its runtime executor with durable pause replay."""
+    """Route a subgraph through its runtime executor with durable pause replay.
+
+    ``step_tracker`` is a required keyword with no default. It used to be absent
+    from this signature entirely, so the executor's own permissive
+    ``step_tracker=None`` default silently took over and a nested subgraph got a
+    fresh step budget instead of consuming the parent's. A caller that genuinely
+    has no tracker to share must now pass ``None`` and say why.
+    """
     if executor is None or orchestrator is None:
         raise NodeDispatcherError("SubgraphExecutor is required for SubgraphNode dispatch")
     pending = parent_run.metadata.get("pending_subgraph")
@@ -92,6 +100,7 @@ async def dispatch_subgraph_node(
             parent_graph=parent_graph,
             parent_run=parent_run,
             paused_child_run_id=pending["child_run_id"],
+            step_tracker=step_tracker,
         )
     else:
         child = await executor.execute(
@@ -101,6 +110,7 @@ async def dispatch_subgraph_node(
             node=node,
             node_id=node.node_id,
             input_payload=input_payload,
+            step_tracker=step_tracker,
         )
     if child.status is RunStatus.WAITING_APPROVAL:
         parent_run.status = RunStatus.WAITING_APPROVAL
