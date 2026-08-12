@@ -44,6 +44,8 @@ class RetentionPurgeWorker:
         policy = await self.policy_repository.resolve()
         if policy.tenant_id != self.tenant_id:
             raise ValueError("retention policy does not match bound tenant")
+        if not policy.enabled:
+            return
         for sweep in (
             self.erasure_service.purge_runs,
             self.erasure_service.purge_audits,
