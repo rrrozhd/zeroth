@@ -384,11 +384,7 @@ class AuditRepository:
         record: NodeAuditRecord | None = None,
     ) -> NodeAuditRecord | None:
         """Crypto-erase one audit through an existing transaction."""
-        audits = (
-            connection
-            if isinstance(connection, BoundStructuredTable)
-            else self._audits.in_transaction(connection)
-        )
+        audits = self._audits.in_transaction(connection)
         if record is None:
             row = await audits.select_one(
                 where={"audit_id": audit_id},
@@ -474,11 +470,7 @@ class AuditRepository:
         """
         if tenant_id != self._scope_context.tenant_id:
             raise ValueError("tenant_id does not match bound scope")
-        audits = (
-            connection
-            if isinstance(connection, BoundStructuredTable)
-            else self._audits.in_transaction(connection)
-        )
+        audits = self._audits.in_transaction(connection)
         excluded = tuple(dict.fromkeys(exclude_run_ids or ()))
         cutoff = older_than.astimezone(UTC).isoformat()
         rows = await audits.select(

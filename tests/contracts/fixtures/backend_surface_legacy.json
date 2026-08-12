@@ -7216,7 +7216,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "LegalHoldRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -7227,7 +7227,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionAuditLogRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -7260,7 +7260,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionPolicyRepository",
-      "signature": "(database: 'AsyncDatabase', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext | TenantWideScopeContext | CrossTenantMaintenanceScopeContext', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -7271,7 +7271,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionPurgeWorker",
-      "signature": "(erasure_service: 'RetentionErasureService', policy_repository: 'RetentionPolicyRepository', poll_interval: 'float' = 3600.0) -> None"
+      "signature": "(database: 'AsyncDatabase', erasure_service_factory: 'Callable[[str], RetentionErasureService]', poll_interval: 'float' = 3600.0) -> None"
     },
     {
       "evidence": [
@@ -7396,7 +7396,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.runs",
       "legacy_name": "RunRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -7460,7 +7460,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.runs",
       "legacy_name": "ThreadRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -9473,7 +9473,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.webhooks",
       "legacy_name": "WebhookRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [

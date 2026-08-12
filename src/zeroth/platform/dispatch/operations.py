@@ -515,6 +515,9 @@ async def erase_operations_for_run(connection: Any, run_id: str) -> int:
     neither deleting checkpoints nor redacting the run row touches them.
     Idempotent: a second call deletes nothing and returns 0.
     """
+    structured_delete = getattr(connection, "delete_side_effect_operations_for_run", None)
+    if structured_delete is not None:
+        return await structured_delete(run_id)
     rows = await connection.fetch_all(
         "SELECT operation_key FROM side_effect_operations WHERE run_id = ?",
         (run_id,),
