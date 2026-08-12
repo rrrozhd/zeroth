@@ -592,6 +592,8 @@ def _must_alias_events(
         if isinstance(value, ast.IfExp):
             identities = (resolve(value.body, state), resolve(value.orelse, state))
             return identities[0] if identities[0] == identities[1] else None
+        if isinstance(value, ast.NamedExpr):
+            return resolve(value.value, state)
         dotted = _dotted_ast_path(value)
         if dotted is not None and dotted[0] in state:
             identity = state[dotted[0]]
@@ -672,6 +674,7 @@ def _must_alias_events(
 
         def visit(node: ast.AST) -> None:
             if isinstance(node, ast.NamedExpr):
+                visit(node.value)
                 expressions.append(node)
                 return
             if isinstance(node, ast.Lambda):
@@ -2074,6 +2077,39 @@ def test_public_call_inventory_tracks_walrus_factory_and_type_aliases(tmp_path: 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
         {
             "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::write",
+        }
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_tracks_nested_walrus_factory_and_type_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_factory(record):\n"
+        "    consume(alias := (factory := AuditRepository.scoped))\n"
+        "    first = factory(db, scope)\n"
+        "    second = alias(db, scope)\n"
+        "    await first.write(record)\n"
+        "    await second.list_by_run(record.run_id)\n"
+        "async def via_type(candidate, record):\n"
+        "    consume(Alias := (Repo := AuditRepository))\n"
+        "    repository: Repo = candidate\n"
+        "    alias_repository: Alias = candidate\n"
+        "    await repository.write(record)\n"
+        "    await alias_repository.list_by_run(record.run_id)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_factory::list_by_run",
+            "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::list_by_run",
             "apps/candidate.py::via_type::write",
         }
     )
