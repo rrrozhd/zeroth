@@ -2040,7 +2040,7 @@ function RunPanel({
   }, [runId, onStates]);
 
   async function submit() {
-    runSelectionRequestRef.current += 1;
+    const request = ++runSelectionRequestRef.current;
     setError(null);
     let parsed: Record<string, unknown>;
     try {
@@ -2065,11 +2065,13 @@ function RunPanel({
         input_payload: parsed,
         thread_id: threadId.trim() || undefined,
       });
+      if (request !== runSelectionRequestRef.current) return;
       setRunId(res.run_id);
       // The service mints a thread for id-less runs — adopt it so the next
       // run from this panel continues the conversation.
       if (res.thread_id) setThreadId(res.thread_id);
     } catch (e) {
+      if (request !== runSelectionRequestRef.current) return;
       setError(errMsg(e));
       onStates({});
     } finally {

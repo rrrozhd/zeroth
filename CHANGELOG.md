@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1.4.2] - 2026-08-12
+
+### Fixed
+
+- Prevented an older pending Studio run submission from replacing a newer
+  historical run selection or its thread state.
+
 ## [0.20.1.4.1] - 2026-08-12
 
 ### Fixed

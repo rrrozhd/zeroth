@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   getHealth: vi.fn(),
   getRun: vi.fn(),
   getRunTimeline: vi.fn(),
+  submitRun: vi.fn(),
   updateWorkflow: vi.fn(),
   publishWorkflow: vi.fn(),
 }));
@@ -201,6 +202,7 @@ beforeEach(() => {
   api.getHealth.mockResolvedValue({ graph_version_ref: null });
   api.getRun.mockResolvedValue({ ...workflow, run_id: "run-1", status: "completed" });
   api.getRunTimeline.mockResolvedValue({ entries: [] });
+  api.submitRun.mockResolvedValue({ run_id: "run-1", status: "queued", thread_id: "thread-1" });
   api.updateWorkflow.mockResolvedValue(workflow);
   api.publishWorkflow.mockResolvedValue(workflow);
   container = document.createElement("div");
@@ -419,5 +421,68 @@ describe("studio editor safety", () => {
 
     expect(container.textContent).toContain("newest-state");
     expect(container.textContent).not.toContain("stale-state");
+  });
+
+  it("keeps a newer past-run selection when an older submit resolves", async () => {
+    let resolveSubmit!: (value: object) => void;
+    api.getHealth.mockResolvedValue({ graph_version_ref: "workflow-1@1" });
+    api.submitRun.mockImplementation(
+      () =>
+        new Promise<object>((resolve) => {
+          resolveSubmit = resolve;
+        }),
+    );
+    api.listRuns.mockResolvedValue({
+      runs: [
+        {
+          ...workflow,
+          run_id: "past-1",
+          status: "completed",
+          current_step: "selected-state",
+          thread_id: "selected-thread",
+        },
+      ],
+    });
+    api.getRun.mockImplementation((id: string) =>
+      Promise.resolve({
+        ...workflow,
+        run_id: id,
+        status: "completed",
+        current_step: id === "past-1" ? "selected-state" : "stale-submit-state",
+        thread_id: id === "past-1" ? "selected-thread" : "stale-submit-thread",
+      }),
+    );
+    await mountEditor();
+
+    await act(async () => buttonContaining("▶")?.click());
+    await waitFor(() => expect(button("Run")?.disabled).toBe(false));
+    await act(async () => button("Run")?.click());
+    await waitFor(() => expect(api.submitRun).toHaveBeenCalledTimes(1));
+
+    const thread = container.querySelector<HTMLInputElement>('input[placeholder="(new conversation)"]');
+    expect(thread).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        thread,
+        "newer-thread",
+      );
+      thread?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonContaining("Past runs")?.click());
+    await waitFor(() => expect(buttonContaining("past-1")).toBeTruthy());
+    await act(async () => buttonContaining("past-1")?.click());
+    await waitFor(() => expect(container.textContent).toContain("selected-state"));
+
+    await act(async () =>
+      resolveSubmit({
+        run_id: "stale-submit",
+        status: "queued",
+        thread_id: "stale-submit-thread",
+      }),
+    );
+
+    expect(container.textContent).toContain("selected-state");
+    expect(container.textContent).not.toContain("stale-submit-state");
+    expect(thread?.value).toBe("newer-thread");
   });
 });
