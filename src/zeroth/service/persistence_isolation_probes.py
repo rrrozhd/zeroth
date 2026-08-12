@@ -85,6 +85,7 @@ O = ResourceOperation  # noqa: E741 - compact operation registry alias
 
 @contextmanager
 def _raises(error_type: type[BaseException], match: str | None = None) -> Iterator[None]:
+    """Build raises data for the tenant-isolation probe."""
     try:
         yield
     except error_type as error:
@@ -96,6 +97,7 @@ def _raises(error_type: type[BaseException], match: str | None = None) -> Iterat
 
 @contextmanager
 def _warns(warning_type: type[Warning]) -> Iterator[None]:
+    """Build warns data for the tenant-isolation probe."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         yield
@@ -104,10 +106,12 @@ def _warns(warning_type: type[Warning]) -> Iterator[None]:
 
 
 def _scope(tenant: str) -> NullWorkspaceScopeContext:
+    """Build scope data for the tenant-isolation probe."""
     return NullWorkspaceScopeContext(tenant_id=tenant)
 
 
 def _run(tenant: str, *, deployment: str = "driver-deployment") -> Run:
+    """Build run data for the tenant-isolation probe."""
     return Run(
         run_id="driver-run",
         thread_id="driver-thread",
@@ -118,6 +122,7 @@ def _run(tenant: str, *, deployment: str = "driver-deployment") -> Run:
 
 
 async def _drive_runs(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise runs operations through the tenant-isolation matrix."""
     owner = RunRepository(database, _scope("driver-owner"))
     foreign = RunRepository(database, _scope("driver-foreign"))
     await owner.create(_run("driver-owner", deployment="owner-deployment"))
@@ -157,6 +162,7 @@ async def _drive_runs(database: AsyncDatabase, operation: ResourceOperation) -> 
 
 
 def _thread(tenant: str, *, deployment: str) -> Thread:
+    """Build thread data for the tenant-isolation probe."""
     return Thread(
         thread_id="driver-thread",
         graph_version_ref="driver-graph",
@@ -166,6 +172,7 @@ def _thread(tenant: str, *, deployment: str) -> Thread:
 
 
 async def _drive_threads(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise threads operations through the tenant-isolation matrix."""
     owner = ThreadRepository(database, _scope("driver-owner"))
     foreign = ThreadRepository(database, _scope("driver-foreign"))
     await owner.create(_thread("driver-owner", deployment="owner-deployment"))
@@ -195,6 +202,7 @@ async def _drive_threads(database: AsyncDatabase, operation: ResourceOperation) 
 
 
 async def _write_checkpoint(store: CheckpointRowStore, tenant: str, state: str) -> None:
+    """Write checkpoint through its scoped repository."""
     run = _run(tenant)
     run.workflow_name = state
     await store.write_row(
@@ -208,6 +216,7 @@ async def _write_checkpoint(store: CheckpointRowStore, tenant: str, state: str) 
 
 
 async def _drive_checkpoints(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise checkpoints operations through the tenant-isolation matrix."""
     owner = CheckpointRowStore(database, _scope("driver-owner"))
     foreign = CheckpointRowStore(database, _scope("driver-foreign"))
     await _write_checkpoint(owner, "driver-owner", "owner")
@@ -237,6 +246,7 @@ async def _drive_checkpoints(database: AsyncDatabase, operation: ResourceOperati
 
 
 def _snapshot(revision: int) -> TokenEngineSnapshot:
+    """Build snapshot data for the tenant-isolation probe."""
     return TokenEngineSnapshot(
         schema_version=1,
         run_id="driver-run",
@@ -247,6 +257,7 @@ def _snapshot(revision: int) -> TokenEngineSnapshot:
 
 
 async def _drive_snapshots(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise snapshots operations through the tenant-isolation matrix."""
     owner = RunRepository(database, _scope("driver-owner"))
     foreign = RunRepository(database, _scope("driver-foreign"))
     await owner.create(_run("driver-owner"))
@@ -298,6 +309,7 @@ async def _drive_snapshots(database: AsyncDatabase, operation: ResourceOperation
 
 
 def _subscription(tenant: str) -> WebhookSubscription:
+    """Build subscription data for the tenant-isolation probe."""
     return WebhookSubscription(
         subscription_id="driver-subscription",
         deployment_ref="driver-deployment",
@@ -310,6 +322,7 @@ def _subscription(tenant: str) -> WebhookSubscription:
 async def _drive_webhook_subscriptions(
     database: AsyncDatabase, operation: ResourceOperation
 ) -> None:
+    """Exercise webhook subscriptions operations through the tenant-isolation matrix."""
     owner = WebhookRepository(database, _scope("driver-owner"))
     foreign = WebhookRepository(database, _scope("driver-foreign"))
     await owner.create_subscription(_subscription("driver-owner"))
@@ -339,6 +352,7 @@ async def _drive_webhook_subscriptions(
 
 
 async def _delivery_status(database: AsyncDatabase, tenant: str) -> str | None:
+    """Build delivery status data for the tenant-isolation probe."""
     async with database.transaction() as connection:
         row = await connection.fetch_one(
             "SELECT status FROM webhook_deliveries WHERE tenant_id = ? AND delivery_id = ?",
@@ -348,6 +362,7 @@ async def _delivery_status(database: AsyncDatabase, tenant: str) -> str | None:
 
 
 async def _seed_delivery(repository: WebhookRepository, tenant: str) -> None:
+    """Seed delivery for the isolation probe."""
     await repository.create_subscription(_subscription(tenant))
     await repository.enqueue_delivery(
         WebhookDelivery(
@@ -361,6 +376,7 @@ async def _seed_delivery(repository: WebhookRepository, tenant: str) -> None:
 
 
 async def _drive_webhook_deliveries(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise webhook deliveries operations through the tenant-isolation matrix."""
     owner = WebhookRepository(database, _scope("driver-owner"))
     foreign = WebhookRepository(database, _scope("driver-foreign"))
     await _seed_delivery(owner, "driver-owner")
@@ -396,6 +412,7 @@ async def _drive_webhook_deliveries(database: AsyncDatabase, operation: Resource
 async def _drive_webhook_dead_letters(
     database: AsyncDatabase, operation: ResourceOperation
 ) -> None:
+    """Exercise webhook dead letters operations through the tenant-isolation matrix."""
     owner = WebhookRepository(database, _scope("driver-owner"))
     foreign = WebhookRepository(database, _scope("driver-foreign"))
     await _seed_delivery(owner, "driver-owner")
@@ -427,6 +444,7 @@ async def _drive_webhook_dead_letters(
 
 
 async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise policies operations through the tenant-isolation matrix."""
     owner = RetentionPolicyRepository.scoped(database, _scope("driver-owner"))
     foreign = RetentionPolicyRepository.scoped(database, _scope("driver-foreign"))
     await owner.upsert(RetentionPolicy(tenant_id="driver-owner", audit_ttl_seconds=10))
@@ -459,6 +477,7 @@ async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation)
 
 
 async def _drive_legal_holds(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise legal holds operations through the tenant-isolation matrix."""
     owner = LegalHoldRepository(database, _scope("driver-owner"))
     foreign = LegalHoldRepository(database, _scope("driver-foreign"))
     hold = await owner.place(run_id="driver-run")
@@ -482,6 +501,7 @@ async def _drive_legal_holds(database: AsyncDatabase, operation: ResourceOperati
 
 
 async def _drive_retention_audit(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise retention audit operations through the tenant-isolation matrix."""
     owner = RetentionAuditLogRepository(database, _scope("driver-owner"))
     foreign = RetentionAuditLogRepository(database, _scope("driver-foreign"))
     log_id = await owner.record(action="driver", run_id="driver-run")
@@ -499,6 +519,7 @@ async def _drive_retention_audit(database: AsyncDatabase, operation: ResourceOpe
 
 
 def _manifest(tenant: str) -> CleanupManifest:
+    """Build manifest data for the tenant-isolation probe."""
     run_id = "driver-run"
     return CleanupManifest(
         tenant_id=tenant,
@@ -526,12 +547,14 @@ def _manifest(tenant: str) -> CleanupManifest:
 def _authorization_id(tenant: str) -> str:
     # Authorization log IDs are generated globally; isolation is observed by
     # foreign access to the owner's ID and independent foreign state.
+    """Build authorization id data for the tenant-isolation probe."""
     return f"driver-authorization-{tenant}"
 
 
 async def _initialize_cleanup(
     database: AsyncDatabase, repository: CleanupStateRepository, tenant: str
 ) -> None:
+    """Initialize cleanup for the isolation probe."""
     async with database.transaction() as connection:
         await connection.execute(
             """
@@ -557,6 +580,7 @@ async def _initialize_cleanup(
 
 
 async def _drive_cleanup_state(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise cleanup state operations through the tenant-isolation matrix."""
     owner = CleanupStateRepository(database, _scope("driver-owner"))
     foreign = CleanupStateRepository(database, _scope("driver-foreign"))
     await _initialize_cleanup(database, owner, "driver-owner")
@@ -621,6 +645,7 @@ async def _drive_cleanup_state(database: AsyncDatabase, operation: ResourceOpera
 
 
 async def _drive_cleanup_operations(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise cleanup operations operations through the tenant-isolation matrix."""
     owner = CleanupStateRepository(database, _scope("driver-owner"))
     foreign = CleanupStateRepository(database, _scope("driver-foreign"))
     await _initialize_cleanup(database, owner, "driver-owner")
@@ -733,6 +758,7 @@ async def _drive_cleanup_operations(database: AsyncDatabase, operation: Resource
 
 
 async def _drive_coordination(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise coordination operations through the tenant-isolation matrix."""
     owner = RetentionCoordinator(database, _scope("driver-owner"))
     foreign = RetentionCoordinator(database, _scope("driver-foreign"))
     async with owner.transaction() as transaction:
@@ -745,6 +771,7 @@ async def _drive_coordination(database: AsyncDatabase, operation: ResourceOperat
 
 
 def _decision_response() -> DecisionResponseV1:
+    """Build decision response data for the tenant-isolation probe."""
     return DecisionResponseV1(
         decision_id="driver-decision",
         idempotency_key="driver-key",
@@ -755,6 +782,7 @@ def _decision_response() -> DecisionResponseV1:
 
 
 async def _drive_decisions(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise decisions operations through the tenant-isolation matrix."""
     owner = LangGraphEnforcementRepository(database, _scope("driver-owner"))
     foreign = LangGraphEnforcementRepository(database, _scope("driver-foreign"))
     await owner.save_decision("driver-key", "driver-deployment", "owner-hash", _decision_response())
@@ -784,6 +812,7 @@ async def _drive_decisions(database: AsyncDatabase, operation: ResourceOperation
 def _inventory(
     tenant: str, *, coverage: InventoryCoverage = InventoryCoverage.COMPLETE
 ) -> InventoryRegistrationV1:
+    """Build inventory data for the tenant-isolation probe."""
     entries = (InventoryEntryV1(name="driver-tool", fingerprint="sha256:driver"),)
     return InventoryRegistrationV1(
         context_token="unused",
@@ -798,6 +827,7 @@ def _inventory(
 
 
 async def _drive_inventories(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise inventories operations through the tenant-isolation matrix."""
     owner = LangGraphEnforcementRepository(database, _scope("driver-owner"))
     foreign = LangGraphEnforcementRepository(database, _scope("driver-foreign"))
     owner_request = _inventory("driver-owner")
@@ -832,6 +862,7 @@ async def _drive_inventories(database: AsyncDatabase, operation: ResourceOperati
 
 
 def _attestation(tenant: str) -> dict[str, object]:
+    """Build attestation data for the tenant-isolation probe."""
     return {
         "tenant_id": tenant,
         "deployment_ref": "driver-deployment",
@@ -847,6 +878,7 @@ def _attestation(tenant: str) -> dict[str, object]:
 
 
 async def _drive_attestations(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise attestations operations through the tenant-isolation matrix."""
     owner = LangGraphEnforcementRepository(database, _scope("driver-owner"))
     foreign = LangGraphEnforcementRepository(database, _scope("driver-foreign"))
     await owner.save_attestation(_attestation("driver-owner"), b"owner", "key", "hmac")
@@ -872,6 +904,7 @@ async def _drive_side_effect_operations(
     database: AsyncDatabase,
     operation: ResourceOperation,
 ) -> None:
+    """Exercise side effect operations operations through the tenant-isolation matrix."""
     owner = SideEffectOperationStore(database, _scope("driver-owner"))
     foreign = SideEffectOperationStore(database, _scope("driver-foreign"))
     claim = {
@@ -916,6 +949,7 @@ async def _drive_side_effect_operations(
 
 
 async def _drive_rate_limit_buckets(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise rate limit buckets operations through the tenant-isolation matrix."""
     owner = TokenBucketRateLimiter.scoped(database, _scope("driver-owner"))
     foreign = TokenBucketRateLimiter.scoped(database, _scope("driver-foreign"))
     await owner.check_and_consume("driver-key", capacity=1, refill_rate=0)
@@ -931,6 +965,7 @@ async def _drive_rate_limit_buckets(database: AsyncDatabase, operation: Resource
 
 
 async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise quota counters operations through the tenant-isolation matrix."""
     owner = QuotaEnforcer.scoped(database, _scope("driver-owner"))
     foreign = QuotaEnforcer.scoped(database, _scope("driver-foreign"))
     assert await owner.check_and_increment("driver-key", limit=1)
@@ -946,10 +981,12 @@ async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOper
 
 
 class _DriverContract(BaseModel):
+    """Represent the DriverContract contract used by isolation probes."""
     value: str
 
 
 async def _drive_contract_versions(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise contract versions operations through the tenant-isolation matrix."""
     owner = ContractRegistry.scoped(database, _scope("driver-owner"))
     foreign = ContractRegistry.scoped(database, _scope("driver-foreign"))
     await owner.register(_DriverContract, name="driver-contract", version=1)
@@ -971,6 +1008,7 @@ async def _drive_contract_versions(database: AsyncDatabase, operation: ResourceO
 
 
 def _approval(tenant: str, approval_id: str = "driver-approval") -> ApprovalRecord:
+    """Build approval data for the tenant-isolation probe."""
     return ApprovalRecord(
         approval_id=approval_id,
         run_id="driver-run",
@@ -984,6 +1022,7 @@ def _approval(tenant: str, approval_id: str = "driver-approval") -> ApprovalReco
 
 
 async def _drive_approvals(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise approvals operations through the tenant-isolation matrix."""
     repository = ApprovalRepository(database)
     owner = _approval("driver-owner")
     await repository.write(owner)
@@ -1009,6 +1048,7 @@ async def _drive_approvals(database: AsyncDatabase, operation: ResourceOperation
 
 
 def _decision_request(tenant: str) -> DecisionRequest:
+    """Build decision request data for the tenant-isolation probe."""
     return DecisionRequest(
         tenant_id=tenant,
         principal_id="driver-principal",
@@ -1021,6 +1061,7 @@ def _decision_request(tenant: str) -> DecisionRequest:
 
 
 async def _drive_decision_records(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise decision records operations through the tenant-isolation matrix."""
     repository = DecisionRepository(database)
     request = _decision_request("driver-owner")
     await repository.record(
@@ -1053,6 +1094,7 @@ async def _drive_decision_records(database: AsyncDatabase, operation: ResourceOp
 
 
 def _deployment(tenant: str, *, version: int = 1, ref: str = "driver-deployment") -> Deployment:
+    """Build deployment data for the tenant-isolation probe."""
     return Deployment(
         deployment_id=f"{tenant}-{version}",
         deployment_ref=ref,
@@ -1066,6 +1108,7 @@ def _deployment(tenant: str, *, version: int = 1, ref: str = "driver-deployment"
 
 
 async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise deployments operations through the tenant-isolation matrix."""
     repository = SQLiteDeploymentRepository(database)
     await repository.create(_deployment("driver-owner"), tenant_id="driver-owner")
     if operation in {O.CREATE, O.UPDATE}:
@@ -1091,6 +1134,7 @@ async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperati
 
 
 async def _drive_heartbeats(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise heartbeats operations through the tenant-isolation matrix."""
     repository = HeartbeatRepository(database)
     owner_created = await repository.record(
         Heartbeat(
@@ -1126,10 +1170,12 @@ async def _drive_heartbeats(database: AsyncDatabase, operation: ResourceOperatio
 
 
 def _graph(tenant: str, graph_id: str = "driver-graph") -> Graph:
+    """Build graph data for the tenant-isolation probe."""
     return Graph(graph_id=graph_id, name="driver", tenant_id=tenant)
 
 
 async def _drive_graph_versions(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise graph versions operations through the tenant-isolation matrix."""
     repository = GraphRepository(database)
     await repository.create(_graph("driver-owner"), tenant_id="driver-owner")
     if operation is O.CREATE:
@@ -1154,6 +1200,7 @@ async def _drive_graph_versions(database: AsyncDatabase, operation: ResourceOper
 
 
 async def _drive_memory_configs(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise memory configs operations through the tenant-isolation matrix."""
     repository = MemoryConnectorConfigRepository(database)
     await repository.upsert("driver-owner-ref", "memory", {}, tenant_id="driver-owner")
     if operation is O.CREATE:
@@ -1180,6 +1227,7 @@ async def _drive_memory_configs(database: AsyncDatabase, operation: ResourceOper
 
 
 def _signed_attestation(tenant: str) -> SignedRunAttestation:
+    """Build signed attestation data for the tenant-isolation probe."""
     now = datetime.now(UTC)
     return SignedRunAttestation(
         payload=RunAttestationPayload(
@@ -1200,6 +1248,7 @@ def _signed_attestation(tenant: str) -> SignedRunAttestation:
 
 
 async def _drive_run_attestations(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise run attestations operations through the tenant-isolation matrix."""
     repository = RunAttestationRepository(database)
     await repository.record(_signed_attestation("driver-owner"))
     if operation is O.CREATE:
@@ -1219,6 +1268,7 @@ async def _drive_run_attestations(database: AsyncDatabase, operation: ResourceOp
 
 
 def _inventory_registration(tenant: str) -> InventoryRegistration:
+    """Build inventory registration data for the tenant-isolation probe."""
     return InventoryRegistration(
         tenant_id=tenant,
         deployment_ref="driver-deployment",
@@ -1229,6 +1279,7 @@ def _inventory_registration(tenant: str) -> InventoryRegistration:
 
 
 async def _drive_tool_inventories(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise tool inventories operations through the tenant-isolation matrix."""
     repository = InventoryRegistrationRepository(database)
     owner_created = await repository.register(_inventory_registration("driver-owner"))
     assert owner_created.tenant_id == "driver-owner"

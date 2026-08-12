@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class CleanupStateRecord:
+    """Represent CleanupStateRecord within the structural tenant-isolation boundary."""
     authorization_log_id: str
     tenant_id: str
     run_id: str
@@ -41,6 +42,7 @@ class CleanupStateRecord:
 
 @dataclass(frozen=True, slots=True)
 class CleanupOperationRecord:
+    """Represent CleanupOperationRecord within the structural tenant-isolation boundary."""
     operation_id: str
     status: str
     deleted_count: int | None
@@ -79,6 +81,7 @@ class CleanupStateRepository:
     """Reads and CAS-updates the current cleanup state inside caller transactions."""
 
     def __init__(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
+        """Bind the repository or gateway to its validated scope."""
         if type(scope_context) is not NullWorkspaceScopeContext:
             raise TypeError("scope_context must be a trusted tenant scope")
         self._scope_context = scope_context
@@ -110,6 +113,7 @@ class CleanupStateRepository:
         terminal_status: str | None = None,
         terminal_log_id: str | None = None,
     ) -> None:
+        """Perform initialize within the caller-owned transaction."""
         if manifest.tenant_id != self._scope_context.tenant_id:
             raise ValueError("cleanup manifest tenant does not match bound scope")
         if any(operation.tenant_id != manifest.tenant_id for operation in manifest.operations):
@@ -154,6 +158,7 @@ class CleanupStateRepository:
         connection: AsyncConnection,
         authorization_log_id: str,
     ) -> CleanupStateRecord | None:
+        """Perform get state within the caller-owned transaction."""
         row = await self._states.in_transaction(connection).select_one(
             where={"authorization_log_id": authorization_log_id}
         )
@@ -180,6 +185,7 @@ class CleanupStateRepository:
         connection: AsyncConnection,
         authorization_log_id: str,
     ) -> list[CleanupOperationRecord]:
+        """Perform list operations within the caller-owned transaction."""
         rows = await self._operations.in_transaction(connection).select(
             where={"authorization_log_id": authorization_log_id},
             columns=("operation_id", "status", "deleted_count", "error", "revision"),
@@ -202,6 +208,7 @@ class CleanupStateRepository:
         authorization_log_id: str,
         operation_id: str,
     ) -> CleanupOperationRecord | None:
+        """Perform get operation within the caller-owned transaction."""
         row = await self._operations.in_transaction(connection).select_one(
             where={
                 "authorization_log_id": authorization_log_id,
@@ -231,6 +238,7 @@ class CleanupStateRepository:
         claim_log_id: str,
         lease_expires_at: datetime,
     ) -> CleanupStateRecord:
+        """Perform claim within the caller-owned transaction."""
         current = await self._require_state(connection, authorization_log_id)
         self._require_revision(current, expected_generation, expected_revision)
         await self._update_state_cas(
@@ -269,6 +277,7 @@ class CleanupStateRepository:
         expected_revision: int,
         lease_expires_at: datetime,
     ) -> CleanupStateRecord:
+        """Perform heartbeat within the caller-owned transaction."""
         current = await self._require_state(connection, authorization_log_id)
         self._require_revision(current, generation, expected_revision, claim_id=claim_id)
         await self._update_state_cas(
@@ -300,6 +309,7 @@ class CleanupStateRepository:
         operation: CleanupOperation,
         lease_expires_at: datetime,
     ) -> CleanupStateRecord:
+        """Perform update operation within the caller-owned transaction."""
         existing = await self.get_operation_in_transaction(
             connection,
             authorization_log_id,
@@ -340,6 +350,7 @@ class CleanupStateRepository:
         generation: int,
         expected_revision: int,
     ) -> CleanupStateRecord:
+        """Perform release within the caller-owned transaction."""
         return await self._finish_claim_in_transaction(
             connection,
             authorization_log_id=authorization_log_id,
@@ -362,6 +373,7 @@ class CleanupStateRepository:
         terminal_status: str,
         terminal_log_id: str,
     ) -> CleanupStateRecord:
+        """Perform terminal within the caller-owned transaction."""
         return await self._finish_claim_in_transaction(
             connection,
             authorization_log_id=authorization_log_id,
@@ -382,6 +394,7 @@ class CleanupStateRepository:
         expected_revision: int,
         terminal_log_id: str,
     ) -> CleanupStateRecord:
+        """Perform repair terminal within the caller-owned transaction."""
         current = await self._require_state(connection, authorization_log_id)
         self._require_revision(current, generation, expected_revision)
         if current.active_claim_id is not None:
@@ -420,6 +433,7 @@ class CleanupStateRepository:
         terminal_status: str | None,
         terminal_log_id: str | None,
     ) -> CleanupStateRecord:
+        """Resolve finish claim in transaction for structurally scoped persistence."""
         current = await self._require_state(connection, authorization_log_id)
         self._require_revision(current, generation, expected_revision, claim_id=claim_id)
         await self._update_state_cas(
@@ -458,6 +472,7 @@ class CleanupStateRepository:
         values: dict[str, object],
         where_extra: dict[str, object] | None = None,
     ) -> None:
+        """Resolve update state cas for structurally scoped persistence."""
         matched = await self._states.in_transaction(connection).update_if_matches(
             values,
             where={
@@ -479,6 +494,7 @@ class CleanupStateRepository:
         *,
         claim_id: str | None = None,
     ) -> None:
+        """Validate revision before accessing scoped persistence."""
         if state.generation != generation or state.revision != revision:
             raise RuntimeError("cleanup state compare-and-swap failed")
         if claim_id is not None and state.active_claim_id != claim_id:
@@ -489,6 +505,7 @@ class CleanupStateRepository:
         connection: AsyncConnection,
         authorization_log_id: str,
     ) -> CleanupStateRecord:
+        """Validate state before accessing scoped persistence."""
         state = await self.get_state_in_transaction(connection, authorization_log_id)
         if state is None:
             raise ValueError("cleanup authorization state disappeared")
