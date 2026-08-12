@@ -257,8 +257,10 @@ def _receiver_annotation_type_nodes(node: ast.AST | None) -> tuple[ast.AST, ...]
                     if isinstance(candidate.slice, ast.Tuple)
                     else (candidate.slice,)
                 )
-                if arguments:
-                    visit(arguments[0])
+                if base[-1] == "Annotated":
+                    arguments = arguments[:1]
+                for argument in arguments:
+                    visit(argument)
                 return
         nodes.append(candidate)
 
@@ -587,6 +589,9 @@ def _must_alias_events(
     events: _AliasEvents = {}
 
     def resolve(value: ast.AST, state: dict[str, _AliasIdentity]) -> _AliasIdentity:
+        if isinstance(value, ast.IfExp):
+            identities = (resolve(value.body, state), resolve(value.orelse, state))
+            return identities[0] if identities[0] == identities[1] else None
         dotted = _dotted_ast_path(value)
         if dotted is not None and dotted[0] in state:
             identity = state[dotted[0]]
@@ -620,6 +625,13 @@ def _must_alias_events(
         if isinstance(target, ast.Name):
             identity = resolve(value, state)
             state[target.id] = identity
+            if isinstance(value, ast.IfExp) and identity is None:
+                for branch in (value.body, value.orelse):
+                    branch_identity = resolve(branch, state)
+                    if branch_identity is not None:
+                        events.setdefault(target.id, []).append(
+                            ((statement.lineno, statement.col_offset), branch_identity)
+                        )
             events.setdefault(target.id, []).append(
                 ((statement.lineno, statement.col_offset), identity)
             )
@@ -921,15 +933,37 @@ def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
             return tuple(pairs)
         return ((target, value),)
 
+    def compositional_pairs(target: ast.AST, value: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
+        if not isinstance(value, ast.IfExp):
+            return structural_pairs(target, value)
+        body_pairs = compositional_pairs(target, value.body)
+        orelse_pairs = compositional_pairs(target, value.orelse)
+        if len(body_pairs) != len(orelse_pairs) or any(
+            body_target is not orelse_target
+            for (body_target, _body_value), (orelse_target, _orelse_value) in zip(
+                body_pairs, orelse_pairs, strict=True
+            )
+        ):
+            return ((target, value),)
+        return tuple(
+            (
+                body_target,
+                ast.IfExp(test=value.test, body=body_value, orelse=orelse_value),
+            )
+            for (body_target, body_value), (_orelse_target, orelse_value) in zip(
+                body_pairs, orelse_pairs, strict=True
+            )
+        )
+
     if isinstance(node, ast.Assign):
         pairs: list[tuple[ast.AST, ast.AST]] = []
         for target in node.targets:
-            pairs.extend(structural_pairs(target, node.value))
+            pairs.extend(compositional_pairs(target, node.value))
         return tuple(pairs)
     if isinstance(node, ast.AnnAssign) and node.value is not None:
-        return ((node.target, node.value),)
+        return compositional_pairs(node.target, node.value)
     if isinstance(node, ast.NamedExpr):
-        return ((node.target, node.value),)
+        return compositional_pairs(node.target, node.value)
     return ()
 
 
@@ -2246,6 +2280,41 @@ def test_public_call_inventory_reports_mixed_conditional_assignment(
     )
 
 
+@pytest.mark.parametrize(
+    ("target", "alternative", "trusted"),
+    [
+        ("repo, other", "AuditRepository.scoped(db, scope)", True),
+        ("repo, other", "client", False),
+        ("repo, *rest", "AuditRepository.scoped(db, scope)", True),
+        ("repo, *rest", "client", False),
+    ],
+)
+def test_public_call_inventory_composes_structured_conditional_assignments(
+    tmp_path: Path, target: str, alternative: str, trusted: bool
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        f"    {target} = (\n"
+        "        (AuditRepository.scoped(db, scope), object())\n"
+        "        if cond\n"
+        f"        else ({alternative}, object())\n"
+        "    )\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    call = "apps/candidate.py::use::write"
+    assert _audit_repository_public_call_inventory(tmp_path) == (
+        frozenset({call}) if trusted else frozenset()
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == (
+        frozenset() if trusted else frozenset({call})
+    )
+
+
 def test_public_call_inventory_tracks_current_local_type_alias(tmp_path: Path) -> None:
     module = tmp_path / "apps" / "candidate.py"
     module.parent.mkdir(parents=True)
@@ -2803,6 +2872,7 @@ def test_public_call_inventory_rejects_generic_repository_type_positions(
     [
         "typing.Optional[AuditRepository]",
         "typing.Union[AuditRepository, None]",
+        "typing.Union[None, AuditRepository]",
     ],
 )
 def test_public_call_inventory_unwraps_typing_repository_wrappers(
@@ -2822,6 +2892,78 @@ def test_public_call_inventory_unwraps_typing_repository_wrappers(
         {"apps/candidate.py::use::write"}
     )
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("assignment", "expected", "unreviewed"),
+    [
+        (
+            "factory = AuditRepository.scoped if cond else AuditRepository.scoped",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "factory = AuditRepository.scoped if cond else other_factory",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+)
+def test_public_call_inventory_joins_conditional_factory_aliases(
+    tmp_path: Path,
+    assignment: str,
+    expected: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        f"    {assignment}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == expected
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+@pytest.mark.parametrize(
+    ("assignment", "expected", "unreviewed"),
+    [
+        (
+            "Repo = AuditRepository if cond else AuditRepository",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "Repo = AuditRepository if cond else OtherRepository",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+)
+def test_public_call_inventory_joins_conditional_type_aliases(
+    tmp_path: Path,
+    assignment: str,
+    expected: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record, cond):\n"
+        f"    {assignment}\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == expected
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
 
 
 @pytest.mark.parametrize(
