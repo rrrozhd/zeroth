@@ -234,16 +234,22 @@ class RuntimeParallelExecutor:
                     ctx.metadata["subgraph_input"] = self.audit_recorder.redact(
                         dict(branch_output)
                     )
-                    child_run = await self.subgraph_executor.execute(
-                        orchestrator=self.orchestrator,
-                        parent_graph=graph,
-                        parent_run=run,
-                        node=ds_node,
-                        node_id=ds_node_id,
-                        input_payload=dict(branch_output),
-                        branch_context=ctx,
-                        step_tracker=step_tracker,
-                    )
+                    try:
+                        child_run = await self.subgraph_executor.execute(
+                            orchestrator=self.orchestrator,
+                            parent_graph=graph,
+                            parent_run=run,
+                            node=ds_node,
+                            node_id=ds_node_id,
+                            input_payload=dict(branch_output),
+                            branch_context=ctx,
+                            step_tracker=step_tracker,
+                        )
+                    except Exception as exc:
+                        await self.audit_recorder.record_failed_branch_execution(
+                            run, ds_node, ds_node_id, branch_output, exc, ctx
+                        )
+                        raise
                     if child_run.status == RunStatus.WAITING_APPROVAL:
                         # D-11: propagate via BaseException so fail-fast
                         # gather re-raises, and best-effort inspects results.
@@ -254,20 +260,32 @@ class RuntimeParallelExecutor:
                             version=ds_node.subgraph.version,
                             node_id=ds_node_id,
                         )
+                    child_cost = rollup_run_cost(child_run)
                     if child_run.status != RunStatus.COMPLETED:
                         # A failed child must fail the branch (and, under
                         # fail_fast, the fan-out) — never fan-in as {}.
                         failure = child_run.failure_state
                         detail = failure.message if failure is not None else "unknown failure"
-                        raise RuntimeError(
+                        error = RuntimeError(
                             f"branch {ctx.branch_index}: subgraph child run "
                             f"{child_run.run_id} ended {child_run.status.value}: {detail}"
                         )
+                        error.audit_record = {  # type: ignore[attr-defined]
+                            "subgraph_run_id": child_run.run_id,
+                            "subgraph_graph_ref": ds_node.subgraph.graph_ref,
+                            "subgraph_status": child_run.status.value,
+                            "cost_usd": child_cost.cost_usd,
+                            "estimated_cost_usd": child_cost.estimated_cost_usd,
+                            "cost_measurement": child_cost.cost_measurement,
+                        }
+                        await self.audit_recorder.record_failed_branch_execution(
+                            run, ds_node, ds_node_id, branch_output, error, ctx
+                        )
+                        raise error
                     child_output = child_run.final_output or {}
                     if not isinstance(child_output, dict):
                         child_output = {"result": child_output}
                     ds_output = child_output
-                    child_cost = rollup_run_cost(child_run)
                     ds_audit = {
                         "subgraph_run_id": child_run.run_id,
                         "subgraph_graph_ref": ds_node.subgraph.graph_ref,

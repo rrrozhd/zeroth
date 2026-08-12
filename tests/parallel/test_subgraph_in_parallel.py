@@ -426,6 +426,82 @@ class TestScenario1SubgraphInFanOutBranch:
         }
 
     @pytest.mark.asyncio
+    async def test_failed_child_cost_rolls_once_into_parallel_parent(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run, RunHistoryEntry
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
+            parallel_config=ParallelConfig(split_path="items"),
+        )
+        child_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-failed-child",
+            name="parent-failed-child",
+            version=1,
+            nodes=[source, child_node],
+            edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=type(
+                "Result",
+                (),
+                {"output_data": {"items": [{"v": 1}]}, "audit_record": {}},
+            )()
+        )
+        failed_child = Run(
+            run_id="child-run-0",
+            graph_version_ref="child-wf:v1",
+            deployment_ref="child-wf",
+            status=RunStatus.FAILED,
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+        subgraphs = MagicMock(spec=SubgraphExecutor)
+        subgraphs.execute = AsyncMock(return_value=failed_child)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.get = AsyncMock(return_value=None)
+        repository.write_checkpoint = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=subgraphs,
+        )
+
+        result = await orchestrator.run_graph(graph, {"input": "test"})
+
+        assert result.status is RunStatus.FAILED
+        summaries = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
+        assert len(summaries) == 1
+        assert summaries[0].cost_usd == pytest.approx(0.2)
+        assert summaries[0].cost_measurement is MeasurementState.MEASURED
+
+    @pytest.mark.asyncio
     async def test_fan_out_subgraph_approval_pause_stashes_pending(
         self,
     ) -> None:

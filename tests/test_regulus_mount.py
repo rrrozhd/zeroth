@@ -309,7 +309,12 @@ async def test_enforcer_treats_missing_cap_as_unlimited() -> None:
     def handler(request):
         return httpx.Response(
             200,
-            json={"tenant_id": "capless", "total_cost_usd": 12.5, "budget_cap_usd": None},
+            json={
+                "tenant_id": "capless",
+                "total_cost_usd": 12.5,
+                "budget_cap_usd": None,
+                "measurement_complete": True,
+            },
         )
 
     enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
@@ -318,6 +323,31 @@ async def test_enforcer_treats_missing_cap_as_unlimited() -> None:
     assert allowed is True
     assert spend == 12.5
     assert cap == float("inf")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"total_cost_usd": 12.5, "budget_cap_usd": 20.0},
+        {"measurement_complete": True, "budget_cap_usd": 20.0},
+    ],
+    ids=["missing-completeness", "missing-spend"],
+)
+async def test_enforcer_degrades_when_budget_measurement_fields_are_omitted(payload) -> None:
+    import httpx
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    status = await BudgetEnforcer(
+        "http://regulus.test/v1", _transport=handler
+    ).check_budget_status("acme")
+
+    assert status.allowed is True
+    assert status.degraded is True
+    assert status.measurement_complete is False
+    assert status.spend_usd == 0.0
 
 
 def _seed_cap_and_spend(

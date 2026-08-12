@@ -255,6 +255,42 @@ async def test_failed_fan_out_does_not_create_ordinary_in_flight_record(sqlite_d
     assert "in_flight_dispatch" not in failed.metadata
 
 
+async def test_token_fan_out_validation_failure_settles_paid_source_once(sqlite_db) -> None:
+    source = _node("source")
+    source.parallel_config = ParallelConfig(split_path="items")
+    graph = Graph(
+        graph_id="failed-token-fan-out",
+        name="failed-token-fan-out",
+        entry_step="source",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[source, _node("target")],
+        edges=[Edge(edge_id="source-target", source_node_id="source", target_node_id="target")],
+    )
+    orchestrator = _orchestrator(
+        sqlite_db,
+        {
+            "source": lambda _req: ProviderResponse(
+                content={"value": 7},
+                cost_usd=0.125,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            "target": lambda _req: ProviderResponse(content={"done": True}),
+        },
+    )
+
+    failed = await orchestrator.run_graph(graph, {"value": 7})
+
+    assert failed.status is RunStatus.FAILED
+    assert failed.failure_state is not None
+    assert failed.failure_state.reason == "parallel_execution_failed"
+    source_history = [entry for entry in failed.execution_history if entry.node_id == "source"]
+    assert len(source_history) == 1
+    assert source_history[0].cost_usd == pytest.approx(0.125)
+    assert source_history[0].audit_ref is not None
+    assert failed.audit_refs.count(source_history[0].audit_ref) == 1
+    assert "in_flight_dispatch" not in failed.metadata
+
+
 async def test_replay_rejects_in_flight_marker_for_parallel_node(sqlite_db) -> None:
     attempts = 0
 

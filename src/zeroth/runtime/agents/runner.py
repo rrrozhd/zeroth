@@ -618,7 +618,15 @@ class AgentRunner:
                 self._attach_cost_audit(error, *compaction_results)
                 raise error
 
-        await self._start_mcp_servers(effective_capabilities)
+        try:
+            await self._start_mcp_servers(effective_capabilities)
+        except Exception as exc:
+            self._attach_cost_audit(exc, *compaction_results)
+            try:
+                await self._stop_mcp_servers()
+            except Exception:
+                logger.warning("failed to clean up MCP servers after startup error", exc_info=True)
+            raise
         try:
             last_error: Exception | None = None
             attempts = 0
@@ -797,7 +805,10 @@ class AgentRunner:
                 last_error = AgentProviderError("provider call failed without a specific error")
             raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
         finally:
-            await self._stop_mcp_servers()
+            try:
+                await self._stop_mcp_servers()
+            except Exception:
+                logger.warning("failed to clean up MCP servers", exc_info=True)
 
     @staticmethod
     def _measurement_audit(*parts: Any) -> dict[str, Any]:
@@ -1282,9 +1293,10 @@ class AgentRunner:
 
     async def _stop_mcp_servers(self) -> None:
         """Stop MCP server connections and clean up."""
-        if self._mcp_manager is not None:
-            await self._mcp_manager.stop()
-            self._mcp_manager = None
+        manager = self._mcp_manager
+        self._mcp_manager = None
+        if manager is not None:
+            await manager.stop()
 
     def _effective_timeout(
         self,

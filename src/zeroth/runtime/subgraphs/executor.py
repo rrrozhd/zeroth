@@ -190,7 +190,18 @@ class SubgraphExecutor:
         try:
             result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
-            raise SubgraphExecutionError(f"subgraph '{graph_ref}' execution failed: {exc}") from exc
+            error = SubgraphExecutionError(f"subgraph '{graph_ref}' execution failed: {exc}")
+            if child_run.execution_history:
+                rollup = rollup_cost_history(child_run.execution_history)
+                error.audit_record = {  # type: ignore[attr-defined]
+                    "subgraph_run_id": child_run.run_id,
+                    "subgraph_graph_ref": graph_ref,
+                    "subgraph_status": child_run.status.value,
+                    "cost_usd": rollup.cost_usd,
+                    "estimated_cost_usd": rollup.estimated_cost_usd,
+                    "cost_measurement": rollup.cost_measurement,
+                }
+            raise error from exc
 
         # --- D-09 / W-4: cost rollup at child-return path ONLY ---
         # This is the sole writer of `total_cost_usd` on a Run's metadata.
@@ -244,9 +255,21 @@ class SubgraphExecutor:
         try:
             result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
-            raise SubgraphExecutionError(
+            error = SubgraphExecutionError(
                 f"subgraph resume for '{graph_ref}' failed: {exc}"
-            ) from exc
+            )
+            if child_run.execution_history:
+                rollup = rollup_cost_history(child_run.execution_history)
+                error.audit_record = {  # type: ignore[attr-defined]
+                    "subgraph_run_id": child_run.run_id,
+                    "subgraph_graph_ref": graph_ref,
+                    "subgraph_status": child_run.status.value,
+                    "subgraph_resumed": True,
+                    "cost_usd": rollup.cost_usd,
+                    "estimated_cost_usd": rollup.estimated_cost_usd,
+                    "cost_measurement": rollup.cost_measurement,
+                }
+            raise error from exc
 
         rollup = rollup_cost_history(result.execution_history)
         result.metadata.update(
