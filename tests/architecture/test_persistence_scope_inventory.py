@@ -1447,7 +1447,10 @@ def _audit_repository_public_call_provenance(
             while changed:
                 changed = False
                 for assigned in ast.walk(tree):
-                    if _enclosing_function(assigned, parents) is not None:
+                    if (
+                        _enclosing_function(assigned, parents) is not None
+                        or _enclosing_class(assigned, parents) is not None
+                    ):
                         continue
                     if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
                         target = assigned.targets[0]
@@ -1478,12 +1481,42 @@ def _audit_repository_public_call_provenance(
                     elif binding is not None and target.id not in module_names:
                         module_names[target.id] = binding
                         changed = True
+            class_repository_names: dict[ast.ClassDef, set[str]] = {}
+            changed = True
+            while changed:
+                changed = False
+                for alias in ast.walk(tree):
+                    if not isinstance(alias, ast.TypeAlias):
+                        continue
+                    class_owner = _enclosing_class(alias, parents)
+                    if class_owner is None or _enclosing_function(alias, parents) is not None:
+                        continue
+                    class_names = class_repository_names.setdefault(class_owner, set())
+                    type_parameter_names = _type_parameter_names(alias) | _type_parameter_names(
+                        class_owner
+                    )
+                    binding = _resolved_receiver_annotation_repository_name(
+                        alias.value,
+                        (repository_names | class_names) - type_parameter_names,
+                        {
+                            name: identity
+                            for name, identity in module_names.items()
+                            if name not in type_parameter_names
+                        },
+                    )
+                    if binding == _AUDIT_REPOSITORY_CLASS and alias.name.id not in class_names:
+                        class_names.add(alias.name.id)
+                        module_names[
+                            ".".join((*_lexical_owner_path(class_owner, parents), alias.name.id))
+                        ] = binding
+                        changed = True
             module_alias_events = _must_alias_events(tree, repository_names, module_names)
             potential_type_alias_names: set[str] = set()
             for alias in ast.walk(tree):
                 if (
                     not isinstance(alias, ast.TypeAlias)
                     or _enclosing_function(alias, parents) is not None
+                    or _enclosing_class(alias, parents) is not None
                 ):
                     continue
                 type_parameter_names = _type_parameter_names(alias)
@@ -1508,7 +1541,10 @@ def _audit_repository_public_call_provenance(
                     potential_type_alias_names.add(alias.name.id)
             module_binding_counts: dict[str, int] = {}
             for assigned in ast.walk(tree):
-                if _enclosing_function(assigned, parents) is not None:
+                if (
+                    _enclosing_function(assigned, parents) is not None
+                    or _enclosing_class(assigned, parents) is not None
+                ):
                     continue
                 targets: tuple[ast.AST, ...] = ()
                 if isinstance(assigned, ast.Assign):
@@ -1527,7 +1563,11 @@ def _audit_repository_public_call_provenance(
             repository_names.difference_update(ambiguous_module_names)
             for name in ambiguous_module_names:
                 module_names.pop(name, None)
-            local_repository_names: dict[ast.AST, set[str]] = {}
+            local_repository_names: dict[ast.AST, set[str]] = {
+                owner: set(class_repository_names.get(_enclosing_class(owner, parents), set()))
+                for owner in ast.walk(tree)
+                if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
             changed = True
             while changed:
                 changed = False
@@ -1581,8 +1621,10 @@ def _audit_repository_public_call_provenance(
                 for name, events in module_alias_events.items()
                 if _AUDIT_REPOSITORY_CLASS in {identity for _position, identity in events}
             )
-            for names in local_repository_names.values():
-                potential_repository_type_names.update(names)
+            for owner, names in local_repository_names.items():
+                potential_repository_type_names.update(
+                    names - class_repository_names.get(_enclosing_class(owner, parents), set())
+                )
             local_alias_events: dict[
                 ast.AST | None, dict[str, list[tuple[tuple[int, int], tuple[str, ...] | None]]]
             ] = {None: module_alias_events}
@@ -4738,6 +4780,62 @@ def test_public_call_inventory_treats_type_parameters_as_repository_shadows(
     )
 
 
+def test_public_call_inventory_scopes_class_type_aliases_to_their_class(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    type Repo = AuditRepository\n"
+        "async def unrelated(repository: Repo, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_distinguishes_same_named_class_type_aliases(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Trusted:\n"
+        "    type Repo = AuditRepository\n"
+        "    async def trusted(self, repository: Repo, record):\n"
+        "        await repository.write(record)\n"
+        "class Unrelated:\n"
+        "    type Repo = OtherRepository\n"
+        "    async def unrelated(self, candidate: Repo, record):\n"
+        "        await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::trusted::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_resolves_qualified_class_type_aliases(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    type Repo = AuditRepository\n"
+        "async def use(repository: Holder.Repo, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
 def test_public_call_inventory_treats_loop_target_as_a_local_shadow(tmp_path: Path) -> None:
     module = tmp_path / "apps" / "candidate.py"
     module.parent.mkdir(parents=True)
@@ -4858,6 +4956,9 @@ def _resolved_audit_repository_name(
     repository_names: set[str],
     module_names: dict[str, tuple[str, ...]],
 ) -> tuple[str, ...] | None:
+    dotted = _dotted_ast_path(node)
+    if dotted is not None and (identity := module_names.get(".".join(dotted))) is not None:
+        return identity
     if isinstance(node, ast.Name):
         if node.id in repository_names:
             return _AUDIT_REPOSITORY_CLASS
