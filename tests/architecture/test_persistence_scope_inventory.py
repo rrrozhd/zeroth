@@ -2492,9 +2492,7 @@ def _audit_repository_public_call_provenance(
                         return False
                     if isinstance(expression, ast.IfExp):
                         test_truth = literal_truth(expression.test)
-                        if test_truth is None or expression_may_raise(
-                            expression.test, bound_names
-                        ):
+                        if test_truth is None or expression_may_raise(expression.test, bound_names):
                             return True
                         return expression_may_raise(
                             expression.body if test_truth else expression.orelse,
@@ -2764,16 +2762,12 @@ def _audit_repository_public_call_provenance(
 
                             def transfer_comparators(
                                 index: int,
-                                comparison_state: dict[
-                                    str, type[BaseException] | None
-                                ],
+                                comparison_state: dict[str, type[BaseException] | None],
                             ) -> dict[str, type[BaseException] | None]:
                                 if index == len(expression_node.comparators):
                                     return comparison_state
                                 comparator = expression_node.comparators[index]
-                                comparison_state = transfer_expression(
-                                    comparator, comparison_state
-                                )
+                                comparison_state = transfer_expression(comparator, comparison_state)
                                 truth = literal_truth(
                                     ast.Compare(
                                         left=(
@@ -2788,12 +2782,8 @@ def _audit_repository_public_call_provenance(
                                 if truth is False:
                                     return comparison_state
                                 if truth is True:
-                                    return transfer_comparators(
-                                        index + 1, comparison_state
-                                    )
-                                continued = transfer_comparators(
-                                    index + 1, dict(comparison_state)
-                                )
+                                    return transfer_comparators(index + 1, comparison_state)
+                                continued = transfer_comparators(index + 1, dict(comparison_state))
                                 comparison_state = join(comparison_state, continued)
                                 merge_events(comparator, comparison_state)
                                 return comparison_state
@@ -3068,9 +3058,7 @@ def _audit_repository_public_call_provenance(
                                 state = transfer_expression(statement.test, state)
                                 truth = literal_truth(statement.test)
                                 if statement.msg is not None and truth is not True:
-                                    failed_state = transfer_expression(
-                                        statement.msg, dict(state)
-                                    )
+                                    failed_state = transfer_expression(statement.msg, dict(state))
                                     if truth is False:
                                         state = failed_state
                                         break
@@ -3294,8 +3282,7 @@ def _audit_repository_public_call_provenance(
                         return None
                     if isinstance(block[0], ast.Assert):
                         if literal_truth(block[0].test) is False and (
-                            block[0].msg is None
-                            or expression_is_provably_nonraising(block[0].msg)
+                            block[0].msg is None or expression_is_provably_nonraising(block[0].msg)
                         ):
                             return (_BUILTIN_EXCEPTION_CLASSES["AssertionError"],)
                         return None
@@ -4381,55 +4368,55 @@ def _audit_repository_public_call_inventories(
     """Derive reviewed and unreviewed inventories from one production-tree scan."""
     reviewed, potential = _audit_repository_public_call_provenance(root)
     reviewed_inventory = tuple(sorted(call for call, _receiver, _line, _column in reviewed))
-    unreviewed_inventory = tuple(sorted(
-        call for call, _receiver, _line, _column in potential - reviewed
-    ))
+    unreviewed_inventory = tuple(
+        sorted(call for call, _receiver, _line, _column in potential - reviewed)
+    )
     return reviewed_inventory, unreviewed_inventory
 
 
 _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
-        "examples/04_native_tool.py::main::list_by_run",
-        "examples/21_policy_block.py::main::list_by_run",
-        "examples/24_audit_query.py::main::list",
-        "examples/24_audit_query.py::main::list_by_run",
-        "src/zeroth/governance/approvals/service.py::_record_api_audit::write",
-        "src/zeroth/governance/approvals/service.py::_record_decision_audit::write",
-        "src/zeroth/governance/audit/delivery_worker.py::_attempt::write",
-        "src/zeroth/governance/audit/verifier.py::verify_deployment::list_by_deployment",
-        "src/zeroth/governance/audit/verifier.py::verify_run::list_by_run",
-        "src/zeroth/governance/retention/erasure_service.py::erase_run::crypto_erase_in_transaction",
-        "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run",
-        "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run_in_transaction",
-        "src/zeroth/governance/retention/erasure_service.py::purge_audits::crypto_erase_in_transaction",
-        "src/zeroth/governance/retention/erasure_service.py::purge_audits::list_erasable_in_transaction",
-        "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_branch_execution::write",
-        "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_execution::write",
-        "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
-        "src/zeroth/runtime/orchestration/audit_recorder.py::record_policy_rejection::write",
-        "src/zeroth/runtime/orchestration/parallel_executor.py::branch_coro_factory::write",
-        "src/zeroth/runtime/orchestration/run_worker.py::_record_worker_audit::write",
-        "src/zeroth/service/api/audit_api.py::_verify_run_chain::list_by_run",
-        "src/zeroth/service/api/audit_api.py::get_deployment_evidence::list_by_deployment",
-        "src/zeroth/service/api/audit_api.py::get_deployment_timeline::list_by_deployment",
-        "src/zeroth/service/api/audit_api.py::get_run_evidence::list_by_run",
-        "src/zeroth/service/api/audit_api.py::get_run_timeline::list_by_run",
-        "src/zeroth/service/api/audit_api.py::list_audits::list",
-        "src/zeroth/service/api/authentication.py::record_service_denial::write",
-        "src/zeroth/service/api/econ_analytics_api.py::_windowed_runs_and_audits::list",
-        "src/zeroth/service/api/retention_api.py::_erase_tenant::list_erasable",
-        "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
-        "src/zeroth/service/api/rightsizing_api.py::rightsizing_opportunities::list",
-        "src/zeroth/service/api/rightsizing_api.py::run_rightsizing_experiment::list",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::crypto_erase",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::list",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
-        "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "examples/04_native_tool.py::main::list_by_run",
+    "examples/21_policy_block.py::main::list_by_run",
+    "examples/24_audit_query.py::main::list",
+    "examples/24_audit_query.py::main::list_by_run",
+    "src/zeroth/governance/approvals/service.py::_record_api_audit::write",
+    "src/zeroth/governance/approvals/service.py::_record_decision_audit::write",
+    "src/zeroth/governance/audit/delivery_worker.py::_attempt::write",
+    "src/zeroth/governance/audit/verifier.py::verify_deployment::list_by_deployment",
+    "src/zeroth/governance/audit/verifier.py::verify_run::list_by_run",
+    "src/zeroth/governance/retention/erasure_service.py::erase_run::crypto_erase_in_transaction",
+    "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run",
+    "src/zeroth/governance/retention/erasure_service.py::erase_run::list_by_run_in_transaction",
+    "src/zeroth/governance/retention/erasure_service.py::purge_audits::crypto_erase_in_transaction",
+    "src/zeroth/governance/retention/erasure_service.py::purge_audits::list_erasable_in_transaction",
+    "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_branch_execution::write",
+    "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_execution::write",
+    "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
+    "src/zeroth/runtime/orchestration/audit_recorder.py::record_policy_rejection::write",
+    "src/zeroth/runtime/orchestration/parallel_executor.py::branch_coro_factory::write",
+    "src/zeroth/runtime/orchestration/run_worker.py::_record_worker_audit::write",
+    "src/zeroth/service/api/audit_api.py::_verify_run_chain::list_by_run",
+    "src/zeroth/service/api/audit_api.py::get_deployment_evidence::list_by_deployment",
+    "src/zeroth/service/api/audit_api.py::get_deployment_timeline::list_by_deployment",
+    "src/zeroth/service/api/audit_api.py::get_run_evidence::list_by_run",
+    "src/zeroth/service/api/audit_api.py::get_run_timeline::list_by_run",
+    "src/zeroth/service/api/audit_api.py::list_audits::list",
+    "src/zeroth/service/api/authentication.py::record_service_denial::write",
+    "src/zeroth/service/api/econ_analytics_api.py::_windowed_runs_and_audits::list",
+    "src/zeroth/service/api/retention_api.py::_erase_tenant::list_erasable",
+    "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
+    "src/zeroth/service/api/rightsizing_api.py::rightsizing_opportunities::list",
+    "src/zeroth/service/api/rightsizing_api.py::run_rightsizing_experiment::list",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::crypto_erase",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::get",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::list",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
 )
 
 
@@ -4497,9 +4484,7 @@ def test_public_call_scan_reuses_one_materialized_module_walk(
         "from zeroth.governance.audit import AuditRepository\n"
         "async def use(record):\n"
         "    repository_0 = AuditRepository.scoped(db, scope)\n"
-        + "".join(
-            f"    repository_{index} = repository_{index - 1}\n" for index in range(1, 21)
-        )
+        + "".join(f"    repository_{index} = repository_{index - 1}\n" for index in range(1, 21))
         + "    await repository_20.write(record)\n",
         encoding="utf-8",
     )
@@ -4531,9 +4516,7 @@ def test_public_call_reverse_alias_propagation_scales_near_linearly(
         binding_visits += 1
         return original_assignment_bindings(node)
 
-    monkeypatch.setattr(
-        sys.modules[__name__], "_assignment_bindings", counted_assignment_bindings
-    )
+    monkeypatch.setattr(sys.modules[__name__], "_assignment_bindings", counted_assignment_bindings)
 
     def scan(size: int) -> int:
         nonlocal binding_visits
@@ -4544,8 +4527,7 @@ def test_public_call_reverse_alias_propagation_scales_near_linearly(
             "from zeroth.governance.audit import AuditRepository\n"
             "async def use(record):\n"
             + "".join(
-                f"    repository_{index} = repository_{index - 1}\n"
-                for index in range(size, 0, -1)
+                f"    repository_{index} = repository_{index - 1}\n" for index in range(size, 0, -1)
             )
             + "    repository_0 = AuditRepository.scoped(db, scope)\n"
             + f"    await repository_{size}.write(record)\n",
@@ -9792,15 +9774,13 @@ def test_public_call_inventory_models_assert_message_aliases(
         (
             "",
             "assert True",
-            "    except AssertionError:\n"
-            "        closure = None\n",
+            "    except AssertionError:\n        closure = None\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
             "",
             "assert candidate",
-            "    except AssertionError:\n"
-            "        closure = None\n",
+            "    except AssertionError:\n        closure = None\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
@@ -9867,9 +9847,7 @@ def test_public_call_inventory_routes_deterministic_assertion_errors(
         + setup
         + "async def outer(suppressor, candidate, record):\n"
         "    try:\n"
-        f"        {assertion}\n"
-        + handlers
-        + "    try:\n"
+        f"        {assertion}\n" + handlers + "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
         "        closure = None\n"
