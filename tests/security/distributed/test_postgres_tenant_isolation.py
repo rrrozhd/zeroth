@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, text
 from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
 from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
 from zeroth.governance.approvals import (
     ApprovalDecision,
@@ -27,6 +28,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+from zeroth.platform.storage.scoping import ScopeContext
 from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap.migrations import run_migrations
 
@@ -77,6 +79,29 @@ def _audit(audit_id: str, *, tenant_id: str) -> NodeAuditRecord:
         started_at=datetime(2026, 8, 9, tzinfo=UTC),
         completed_at=datetime(2026, 8, 9, 0, 0, 1, tzinfo=UTC),
     )
+
+
+@requires_docker
+@pytest.mark.security_rc
+async def test_security_rc_postgres_contract_version_identity_is_tenant_local(
+    security_postgres,
+) -> None:
+    database, unique = security_postgres
+    name = f"contract://shared-{unique}"
+    tenant_a = ContractRegistry.scoped(
+        database,
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+    tenant_b = ContractRegistry.scoped(
+        database,
+        ScopeContext(tenant_id="tenant-b", workspace_id="workspace-b"),
+    )
+
+    await tenant_a.register_schema(name, {"type": "string"}, version=1)
+    await tenant_b.register_schema(name, {"type": "integer"}, version=1)
+
+    assert (await tenant_a.get(name, 1)).json_schema == {"type": "string"}
+    assert (await tenant_b.get(name, 1)).json_schema == {"type": "integer"}
 
 
 @requires_docker

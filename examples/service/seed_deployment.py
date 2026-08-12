@@ -80,7 +80,7 @@ async def main() -> int:
 
     database = await create_database(settings)
 
-    contract_registry = ContractRegistry(database)
+    contract_registry = ContractRegistry.for_default_compatibility(database)
     await contract_registry.register(Question, name="contract://question")
     await contract_registry.register(Answer, name="contract://answer")
 

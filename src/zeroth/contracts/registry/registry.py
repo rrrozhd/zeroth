@@ -25,7 +25,14 @@ from zeroth.contracts.registry.errors import (
 )
 from zeroth.contracts.registry.schema_model import check_json_schema, model_from_json_schema
 from zeroth.contracts.registry.tooling import ExecutionPlacement, RegistrableTool
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    ScopeContext,
+    ScopedTable,
+    TenantWideScopeContext,
+)
 from zeroth.platform.storage.json import from_json_value, to_json_value
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -37,6 +44,20 @@ _ARTIFACT_REF_REQUIRED: dict[str, type] = {
     "content_type": str,
     "size": int,
 }
+
+
+def contract_scope_context(
+    tenant_id: str,
+    workspace_id: str | None,
+) -> ScopeContext | TenantWideScopeContext:
+    """Build the exact storage scope for a trusted contract owner."""
+    if workspace_id is None:
+        if tenant_id == "default":
+            return TenantWideScopeContext.for_default_compatibility()
+        return TenantWideScopeContext(tenant_id=tenant_id)
+    if tenant_id == "default":
+        return ScopeContext.for_default_compatibility(workspace_id=workspace_id)
+    return ScopeContext(tenant_id=tenant_id, workspace_id=workspace_id)
 
 
 def validate_artifact_reference(data: dict[str, Any]) -> bool:
@@ -146,9 +167,60 @@ class ContractRegistry:
     """
 
     def __init__(self, database: AsyncDatabase):
-        self._database: AsyncDatabase = database
-        # Cache of (name, version) -> Python class so we don't re-import every time
-        self._runtime_types: dict[tuple[str, int], type[BaseModel]] = {}
+        """Build the immutable legacy surface over the reserved default tenant.
+
+        Production tenant-aware paths use :meth:`scoped`; this constructor is
+        retained as a compatibility wrapper for the published library surface.
+        """
+        self._bind(database, TenantWideScopeContext.for_default_compatibility())
+
+    @classmethod
+    def scoped(
+        cls,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | TenantWideScopeContext,
+    ) -> ContractRegistry:
+        """Build a registry bound to one exact trusted tenant scope."""
+        if cls is not ContractRegistry:
+            raise TypeError("scoped construction requires the canonical ContractRegistry")
+        registry = object.__new__(cls)
+        registry._bind(database, scope_context)
+        return registry
+
+    def _bind(
+        self,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | TenantWideScopeContext,
+    ) -> None:
+        if type(scope_context) not in (ScopeContext, TenantWideScopeContext):
+            raise TypeError("scope_context must be an exact ScopeContext value")
+        self._database = database
+        self._scope_context = scope_context
+        self._contracts = ScopedTable(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.contract_versions",
+            scope_context,
+        )
+        # Tenant identity is part of cache identity even though a registry is
+        # itself fixed to one tenant.  This prevents a future shared-cache
+        # optimization from making same-name contracts cross tenant boundaries.
+        self._runtime_types: dict[tuple[str, str, int], type[BaseModel]] = {}
+
+    @classmethod
+    def for_default_compatibility(cls, database: AsyncDatabase) -> ContractRegistry:
+        """Build the explicitly reserved legacy/default tenant registry."""
+        return cls(database)
+
+    def for_scope(
+        self,
+        scope_context: ScopeContext | TenantWideScopeContext,
+    ) -> ContractRegistry:
+        """Return a new registry over the same database bound to ``scope_context``."""
+        return ContractRegistry.scoped(self._database, scope_context)
+
+    def _runtime_key(self, name: str, version: int) -> tuple[str, str, int]:
+        return (self._scope_context.tenant_id, name, version)
 
     async def register(
         self,
@@ -177,41 +249,25 @@ class ContractRegistry:
             metadata=dict(metadata or {}),
             created_at=await self._now(),
         )
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(
-                """
-                SELECT 1
-                FROM contract_versions
-                WHERE contract_name = ? AND version = ?
-                """,
-                (record.name, record.version),
+        existing = await self._contracts.select_one(
+            where={"contract_name": record.name, "version": record.version},
+            columns=("contract_name",),
+        )
+        if existing is not None:
+            raise ContractVersionExistsError(
+                f"contract {record.name!r} version {record.version} already exists"
             )
-            if existing is not None:
-                raise ContractVersionExistsError(
-                    f"contract {record.name!r} version {record.version} already exists"
-                )
-            await connection.execute(
-                """
-                INSERT INTO contract_versions (
-                    contract_name,
-                    version,
-                    model_path,
-                    schema_json,
-                    metadata_json,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.name,
-                    record.version,
-                    record.model_path,
-                    to_json_value(record.json_schema),
-                    to_json_value(record.metadata),
-                    record.created_at,
-                ),
-            )
-        self._runtime_types[(record.name, record.version)] = model_type
+        await self._contracts.insert(
+            {
+                "contract_name": record.name,
+                "version": record.version,
+                "model_path": record.model_path,
+                "schema_json": to_json_value(record.json_schema),
+                "metadata_json": to_json_value(record.metadata),
+                "created_at": record.created_at,
+            }
+        )
+        self._runtime_types[self._runtime_key(record.name, record.version)] = model_type
         return record
 
     async def register_schema(
@@ -240,40 +296,24 @@ class ContractRegistry:
             metadata=dict(metadata or {}),
             created_at=await self._now(),
         )
-        async with self._database.transaction() as connection:
-            existing = await connection.fetch_one(
-                """
-                SELECT 1
-                FROM contract_versions
-                WHERE contract_name = ? AND version = ?
-                """,
-                (record.name, record.version),
+        existing = await self._contracts.select_one(
+            where={"contract_name": record.name, "version": record.version},
+            columns=("contract_name",),
+        )
+        if existing is not None:
+            raise ContractVersionExistsError(
+                f"contract {record.name!r} version {record.version} already exists"
             )
-            if existing is not None:
-                raise ContractVersionExistsError(
-                    f"contract {record.name!r} version {record.version} already exists"
-                )
-            await connection.execute(
-                """
-                INSERT INTO contract_versions (
-                    contract_name,
-                    version,
-                    model_path,
-                    schema_json,
-                    metadata_json,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.name,
-                    record.version,
-                    record.model_path,
-                    to_json_value(record.json_schema),
-                    to_json_value(record.metadata),
-                    record.created_at,
-                ),
-            )
+        await self._contracts.insert(
+            {
+                "contract_name": record.name,
+                "version": record.version,
+                "model_path": record.model_path,
+                "schema_json": to_json_value(record.json_schema),
+                "metadata_json": to_json_value(record.metadata),
+                "created_at": record.created_at,
+            }
+        )
         return record
 
     async def register_tool(
@@ -388,7 +428,8 @@ class ContractRegistry:
         Raises ContractTypeResolutionError if the class can't be imported.
         """
         record = await self.resolve(reference)
-        cached = self._runtime_types.get((record.name, record.version))
+        runtime_key = self._runtime_key(record.name, record.version)
+        cached = self._runtime_types.get(runtime_key)
         if cached is not None:
             return cached
         if not record.model_path:
@@ -397,49 +438,36 @@ class ContractRegistry:
             resolved = model_from_json_schema(record.name, record.json_schema)
         else:
             resolved = self._import_model_type(record.model_path)
-        self._runtime_types[(record.name, record.version)] = resolved
+        self._runtime_types[runtime_key] = resolved
         return resolved
 
     async def list_versions(self, name: str) -> list[ContractVersion]:
         """Return all registered versions of a contract, oldest first."""
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                """
-                SELECT contract_name, version, model_path, schema_json, metadata_json, created_at
-                FROM contract_versions
-                WHERE contract_name = ?
-                ORDER BY version ASC
-                """,
-                (name,),
-            )
-        return [self._row_to_record(row) for row in rows]
+        rows = await self._contracts.select(
+            where={"contract_name": name},
+            columns=(
+                "contract_name",
+                "version",
+                "model_path",
+                "schema_json",
+                "metadata_json",
+                "created_at",
+            ),
+        )
+        return sorted((self._row_to_record(row) for row in rows), key=lambda row: row.version)
 
     async def list_names(self) -> list[str]:
         """Return the names of all contracts in the registry, sorted alphabetically."""
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                """
-                SELECT DISTINCT contract_name
-                FROM contract_versions
-                ORDER BY contract_name ASC
-                """
-            )
-        return [str(row["contract_name"]) for row in rows]
+        rows = await self._contracts.select(columns=("contract_name",))
+        return sorted({str(row["contract_name"]) for row in rows})
 
     async def latest_version(self, name: str) -> int:
         """Return the highest version number for a contract, or 0 if it doesn't exist yet."""
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                """
-                SELECT MAX(version) AS version
-                FROM contract_versions
-                WHERE contract_name = ?
-                """,
-                (name,),
-            )
-        if row is None or row["version"] is None:
-            return 0
-        return int(row["version"])
+        rows = await self._contracts.select(
+            where={"contract_name": name},
+            columns=("version",),
+        )
+        return max((int(row["version"]) for row in rows), default=0)
 
     async def delete(self, name: str, version: int | None = None) -> None:
         """Remove a contract from the registry.
@@ -447,37 +475,30 @@ class ContractRegistry:
         If version is given, only that specific version is deleted.
         If version is None, all versions of the named contract are deleted.
         """
-        async with self._database.transaction() as connection:
-            if version is None:
-                await connection.execute(
-                    "DELETE FROM contract_versions WHERE contract_name = ?",
-                    (name,),
-                )
-                keys_to_remove = [key for key in self._runtime_types if key[0] == name]
-            else:
-                await connection.execute(
-                    """
-                    DELETE FROM contract_versions
-                    WHERE contract_name = ? AND version = ?
-                    """,
-                    (name, version),
-                )
-                keys_to_remove = [(name, version)]
+        where: dict[str, Any] = {"contract_name": name}
+        if version is not None:
+            where["version"] = version
+        await self._contracts.delete(where=where)
+        if version is None:
+            keys_to_remove = [key for key in self._runtime_types if key[1] == name]
+        else:
+            keys_to_remove = [self._runtime_key(name, version)]
         for key in keys_to_remove:
             self._runtime_types.pop(key, None)
 
     async def _fetch_row(self, name: str, version: int | None) -> Any:
         """Fetch a single contract row from the database, or None if not found."""
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                """
-                SELECT contract_name, version, model_path, schema_json, metadata_json, created_at
-                FROM contract_versions
-                WHERE contract_name = ? AND version = ?
-                """,
-                (name, version),
-            )
-        return row
+        return await self._contracts.select_one(
+            where={"contract_name": name, "version": version},
+            columns=(
+                "contract_name",
+                "version",
+                "model_path",
+                "schema_json",
+                "metadata_json",
+                "created_at",
+            ),
+        )
 
     def _row_to_record(self, row: Any) -> ContractVersion:
         """Convert a raw database row into a ContractVersion object."""
@@ -526,7 +547,5 @@ class ContractRegistry:
         return cast(type[BaseModel], target)
 
     async def _now(self) -> str:
-        """Get the current timestamp from the database (ensures consistency with the DB)."""
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one("SELECT CURRENT_TIMESTAMP AS now")
-        return str(row["now"])
+        """Return an explicit UTC timestamp for the structured insert."""
+        return utc_now().isoformat()

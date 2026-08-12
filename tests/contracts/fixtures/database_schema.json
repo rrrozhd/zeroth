@@ -87,6 +87,10 @@
     {
       "down_revision": "021",
       "revision": "022"
+    },
+    {
+      "down_revision": "022",
+      "revision": "023"
     }
   ],
   "tables": {
@@ -360,7 +364,7 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "contract_name",
+          "name": "tenant_id",
           "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
@@ -369,13 +373,22 @@
           "cid": 1,
           "default": null,
           "hidden": 0,
-          "name": "version",
+          "name": "contract_name",
           "not_null": true,
           "primary_key_position": 2,
-          "type": "INTEGER"
+          "type": "TEXT"
         },
         {
           "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "model_path",
@@ -384,7 +397,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": null,
           "hidden": 0,
           "name": "schema_json",
@@ -393,7 +406,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 4,
+          "cid": 5,
           "default": null,
           "hidden": 0,
           "name": "metadata_json",
@@ -402,7 +415,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 5,
+          "cid": 6,
           "default": "CURRENT_TIMESTAMP",
           "hidden": 0,
           "name": "created_at",
@@ -411,21 +424,23 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE contract_versions ( contract_name TEXT NOT NULL, version INTEGER NOT NULL, model_path TEXT NOT NULL, schema_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(contract_name, version) )",
+      "constraint_definition": "CREATE TABLE contract_versions ( tenant_id TEXT NOT NULL, contract_name TEXT NOT NULL, version INTEGER NOT NULL, model_path TEXT NOT NULL, schema_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT contract_versions_scope_pkey PRIMARY KEY (tenant_id, contract_name, version) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "contract_name",
             "version"
           ],
-          "name": "idx_contract_versions_name_version",
+          "name": "idx_contract_versions_tenant_name_version",
           "origin": "c",
           "partial": false,
           "unique": false
         },
         {
           "columns": [
+            "tenant_id",
             "contract_name",
             "version"
           ],

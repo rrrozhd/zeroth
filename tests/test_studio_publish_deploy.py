@@ -40,7 +40,7 @@ def _make_env(roles: list[ServiceRole] | None = None):
     db_path = tmp_path / "studio_publish.db"
     run_migrations(f"sqlite:///{db_path}")
     db = AsyncSQLiteDatabase(str(db_path))
-    registry = ContractRegistry(db)
+    registry = ContractRegistry.for_default_compatibility(db)
     repo = GraphRepository(db, validator=GraphValidator(contract_registry=registry))
     deployment_service = DeploymentService(
         graph_repository=repo,
@@ -237,8 +237,6 @@ async def test_reviewer_cannot_publish_or_deploy() -> None:
     with TestClient(app) as client:
         assert client.post("/api/studio/v1/workflows/x/publish").status_code == 403
         assert (
-            client.post(
-                "/deployments", json={"deployment_ref": "d", "graph_id": "g"}
-            ).status_code
+            client.post("/deployments", json={"deployment_ref": "d", "graph_id": "g"}).status_code
             == 403
         )

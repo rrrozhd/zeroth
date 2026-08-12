@@ -158,7 +158,7 @@ async def bootstrap_examples_service(
 
     database = AsyncSQLiteDatabase(path=str(db_path))
 
-    contract_registry = ContractRegistry(database)
+    contract_registry = ContractRegistry.for_default_compatibility(database)
     await register_contracts(contract_registry, contracts)
 
     graph_repository = GraphRepository(database)
