@@ -71,9 +71,9 @@ class InstrumentedProviderAdapter:
         elapsed_ms = int((perf_counter() - start) * 1000)
 
         # Extract token counts from response (may be None)
-        input_tokens = 0
-        output_tokens = 0
-        total_tokens = 0
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        total_tokens: int | None = None
         if response.token_usage is not None:
             input_tokens = response.token_usage.input_tokens
             output_tokens = response.token_usage.output_tokens
