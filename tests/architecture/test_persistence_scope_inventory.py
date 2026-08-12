@@ -637,10 +637,16 @@ def _must_alias_events(
         else:
             return
         if isinstance(target, ast.Name):
-            identity = resolve(value, state)
+            pre_assignment_state = dict(state)
+            identity = resolve(value, pre_assignment_state)
+            branch_identities = (
+                leaf_identities(value, pre_assignment_state)
+                if isinstance(value, ast.IfExp) and identity is None
+                else ()
+            )
             state[target.id] = identity
-            if isinstance(value, ast.IfExp) and identity is None:
-                for branch_identity in leaf_identities(value, state):
+            if branch_identities:
+                for branch_identity in branch_identities:
                     if branch_identity is not None:
                         events.setdefault(target.id, []).append(
                             ((statement.lineno, statement.col_offset), branch_identity)
@@ -3157,6 +3163,36 @@ def test_public_call_inventory_clears_joined_unresolved_repository_alias_rebindi
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("assignment", "annotation"),
+    [
+        ("Alias = Alias if cond else OtherRepository", "Alias"),
+        ("AR = AR if cond else OtherRepository", "AR"),
+    ],
+    ids=["module-alias", "direct-import-alias"],
+)
+def test_public_call_inventory_reports_self_referential_unresolved_repository_alias_join(
+    tmp_path: Path, assignment: str, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    prefix = "Alias = AR\n" if annotation == "Alias" else ""
+    module.write_text(
+        "from my_adapter import AuditRepository as AR\n"
+        f"{prefix}"
+        f"{assignment}\n"
+        "async def use(candidate, record):\n"
+        f"    repository: {annotation} = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 @pytest.mark.parametrize("annotation", ["AR", "'AR'"])
