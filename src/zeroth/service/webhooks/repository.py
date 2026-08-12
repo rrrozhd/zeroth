@@ -8,12 +8,26 @@ JSON columns, async with self._database.transaction() as connection.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage.database import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    ScopedTable,
+)
 from zeroth.platform.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_resource_operations,
+    persistence_surface,
+)
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDeadLetter,
@@ -28,6 +42,46 @@ def _new_id() -> str:
     return uuid4().hex
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedWebhookDelivery:
+    """A delivery paired with the generation that fences its completion."""
+
+    delivery: WebhookDelivery
+    generation: int
+
+
+@persistence_surface(
+    "service.webhook_subscriptions",
+    probe=named_isolation_probe("_drive_webhook_subscriptions"),
+    method_names=frozenset(
+        {
+            "create_subscription",
+            "get_subscription",
+            "list_subscriptions",
+            "list_subscriptions_for_event",
+            "deactivate_subscription",
+            "delete_subscription",
+        }
+    ),
+)
+@persistence_surface(
+    "service.webhook_deliveries",
+    probe=named_isolation_probe("_drive_webhook_deliveries"),
+    method_names=frozenset(
+        {
+            "enqueue_delivery",
+            "claim_pending_delivery",
+            "mark_delivered",
+            "mark_failed",
+            "dead_letter",
+        }
+    ),
+)
+@persistence_surface(
+    "service.webhook_dead_letters",
+    probe=named_isolation_probe("_drive_webhook_dead_letters"),
+    method_names=frozenset({"dead_letter", "list_dead_letters", "get_dead_letter"}),
+)
 class WebhookRepository:
     """Saves and loads webhook subscriptions, deliveries, and dead-letter entries.
 
@@ -35,79 +89,81 @@ class WebhookRepository:
     (enqueue, claim, mark delivered/failed, dead-letter), and dead-letter queries.
     """
 
-    def __init__(self, database: AsyncDatabase) -> None:
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext,
+    ) -> None:
+        if type(scope_context) not in {ScopeContext, NullWorkspaceScopeContext}:
+            raise TypeError("scope_context must be a trusted tenant scope")
         self._database = database
+        self._scope_context = scope_context
+        self._subscriptions = ScopedTable(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.webhook_subscriptions",
+            scope_context,
+        )
+        self._deliveries = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.webhook_deliveries", scope_context
+        )
+        self._dead_letters = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.webhook_dead_letters", scope_context
+        )
+
+    @classmethod
+    def for_default_compatibility(cls, database: AsyncDatabase) -> WebhookRepository:
+        return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
 
     # ── Subscription CRUD ──────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def create_subscription(self, sub: WebhookSubscription) -> WebhookSubscription:
         """Persist a new webhook subscription and return it."""
-        async with self._database.transaction() as conn:
-            await conn.execute(
-                """
-                INSERT INTO webhook_subscriptions (
-                    subscription_id, deployment_ref, tenant_id, target_url,
-                    secret, event_types, active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sub.subscription_id,
-                    sub.deployment_ref,
-                    sub.tenant_id,
-                    sub.target_url,
-                    sub.secret,
-                    to_json_value(list(sub.event_types)),
-                    1 if sub.active else 0,
-                    sub.created_at.isoformat(),
-                    sub.updated_at.isoformat(),
-                ),
-            )
+        if sub.tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        await self._subscriptions.insert(
+            {
+                "subscription_id": sub.subscription_id,
+                "deployment_ref": sub.deployment_ref,
+                "target_url": sub.target_url,
+                "secret": sub.secret,
+                "event_types": to_json_value(list(sub.event_types)),
+                "active": 1 if sub.active else 0,
+                "created_at": sub.created_at.isoformat(),
+                "updated_at": sub.updated_at.isoformat(),
+            }
+        )
         return sub
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_subscription(self, subscription_id: str) -> WebhookSubscription | None:
         """Look up a subscription by ID. Returns None if not found."""
-        async with self._database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT * FROM webhook_subscriptions WHERE subscription_id = ?",
-                (subscription_id,),
-            )
+        row = await self._subscriptions.select_one(where={"subscription_id": subscription_id})
         if row is None:
             return None
         return self._row_to_subscription(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_subscriptions(
         self,
         deployment_ref: str | None = None,
-        tenant_id: str | None = None,
     ) -> list[WebhookSubscription]:
         """Return subscriptions, optionally filtered by deployment and/or tenant."""
-        clauses: list[str] = []
-        params: list[str] = []
-        if deployment_ref is not None:
-            clauses.append("deployment_ref = ?")
-            params.append(deployment_ref)
-        if tenant_id is not None:
-            clauses.append("tenant_id = ?")
-            params.append(tenant_id)
-        sql = "SELECT * FROM webhook_subscriptions"
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at"
-        async with self._database.transaction() as conn:
-            rows = await conn.fetch_all(sql, tuple(params))
+        where = {"deployment_ref": deployment_ref} if deployment_ref is not None else None
+        async with self._subscriptions.transaction() as subscriptions:
+            rows = await subscriptions.select(where=where, order_by=("created_at",))
         return [self._row_to_subscription(r) for r in rows]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_subscriptions_for_event(
         self,
         deployment_ref: str,
         event_type: WebhookEventType,
     ) -> list[WebhookSubscription]:
         """Return active subscriptions for a deployment matching the given event type."""
-        async with self._database.transaction() as conn:
-            rows = await conn.fetch_all(
-                "SELECT * FROM webhook_subscriptions WHERE deployment_ref = ? AND active = 1",
-                (deployment_ref,),
-            )
+        async with self._subscriptions.transaction() as subscriptions:
+            rows = await subscriptions.select(where={"deployment_ref": deployment_ref, "active": 1})
         result: list[WebhookSubscription] = []
         for row in rows:
             sub = self._row_to_subscription(row)
@@ -115,59 +171,49 @@ class WebhookRepository:
                 result.append(sub)
         return result
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def deactivate_subscription(self, subscription_id: str) -> None:
         """Set a subscription to inactive."""
         now = utc_now().isoformat()
-        async with self._database.transaction() as conn:
-            await conn.execute(
-                "UPDATE webhook_subscriptions SET active = 0, updated_at = ? "
-                "WHERE subscription_id = ?",
-                (now, subscription_id),
-            )
+        await self._subscriptions.update(
+            {"active": 0, "updated_at": now}, where={"subscription_id": subscription_id}
+        )
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete_subscription(self, subscription_id: str) -> None:
         """Hard-delete a subscription."""
-        async with self._database.transaction() as conn:
-            await conn.execute(
-                "DELETE FROM webhook_subscriptions WHERE subscription_id = ?",
-                (subscription_id,),
-            )
+        await self._subscriptions.delete(where={"subscription_id": subscription_id})
 
     # ── Delivery lifecycle ─────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def enqueue_delivery(self, delivery: WebhookDelivery) -> WebhookDelivery:
         """Persist a new delivery with PENDING status."""
-        async with self._database.transaction() as conn:
-            await conn.execute(
-                """
-                INSERT INTO webhook_deliveries (
-                    delivery_id, subscription_id, event_type, event_id,
-                    payload_json, status, attempt_count, max_attempts,
-                    next_attempt_at, last_error, last_status_code,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    delivery.delivery_id,
-                    delivery.subscription_id,
-                    delivery.event_type.value,
-                    delivery.event_id,
-                    delivery.payload_json,
-                    delivery.status.value,
-                    delivery.attempt_count,
-                    delivery.max_attempts,
-                    delivery.next_attempt_at.isoformat(),
-                    delivery.last_error,
-                    delivery.last_status_code,
-                    delivery.created_at.isoformat(),
-                    delivery.updated_at.isoformat(),
-                ),
-            )
+        await self._deliveries.insert(
+            {
+                "delivery_id": delivery.delivery_id,
+                "subscription_id": delivery.subscription_id,
+                "event_type": delivery.event_type.value,
+                "event_id": delivery.event_id,
+                "payload_json": delivery.payload_json,
+                "status": delivery.status.value,
+                "attempt_count": delivery.attempt_count,
+                "max_attempts": delivery.max_attempts,
+                "next_attempt_at": delivery.next_attempt_at.isoformat(),
+                "last_error": delivery.last_error,
+                "last_status_code": delivery.last_status_code,
+                "created_at": delivery.created_at.isoformat(),
+                "updated_at": delivery.updated_at.isoformat(),
+            }
+        )
         return delivery
 
+    @persistence_operation(
+        ResourceOperation.ENUMERATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def claim_pending_delivery(
         self, *, lease_seconds: float = 30.0
-    ) -> WebhookDelivery | None:
+    ) -> ClaimedWebhookDelivery | None:
         """Claim the oldest delivery that is due for an attempt.
 
         Atomically leases the delivery so the polling worker cannot
@@ -175,151 +221,172 @@ class WebhookRepository:
         the chosen row is flipped to ``DELIVERING`` and its
         ``next_attempt_at`` is pushed ``lease_seconds`` into the future, so a
         subsequent claim won't see it until the lease lapses. The
-        SELECT-then-UPDATE is atomic for a single serialized poll loop;
-        concurrent workers would additionally need row-level locking (e.g.
-        ``SELECT ... FOR UPDATE SKIP LOCKED``) to keep the same guarantee.
+        The compare-and-swap predicate includes all observed lease state, so
+        concurrent transactions cannot both claim the same generation.
         A claim covers three due cases:
 
         * ``PENDING`` -- reached its first-attempt time;
         * ``FAILED``  -- its retry backoff has elapsed (the actual retry path);
         * ``DELIVERING`` -- its lease expired, i.e. a worker died mid-delivery.
 
-        Returns the claimed delivery, or ``None`` when nothing is due.
+        Returns the claimed delivery and opaque generation, or ``None``.
         """
         now = utc_now()
         now_iso = now.isoformat()
-        async with self._database.transaction() as conn:
-            row = await conn.fetch_one(
-                """
-                SELECT * FROM webhook_deliveries
-                WHERE next_attempt_at <= ?
-                  AND status IN (?, ?, ?)
-                ORDER BY next_attempt_at
-                LIMIT 1
-                """,
-                (
-                    now_iso,
-                    DeliveryStatus.PENDING.value,
-                    DeliveryStatus.FAILED.value,
-                    DeliveryStatus.DELIVERING.value,
-                ),
+        eligible = (
+            DeliveryStatus.PENDING.value,
+            DeliveryStatus.FAILED.value,
+            DeliveryStatus.DELIVERING.value,
+        )
+        async with self._deliveries.transaction(write_lock=True) as deliveries:
+            rows = await deliveries.select(
+                where_lt={"next_attempt_at": now_iso},
+                where_in={"status": eligible},
+                order_by=("next_attempt_at",),
+                limit=16,
             )
-            if row is None:
-                return None
-            delivery = self._row_to_delivery(row)
-            lease_until = now + timedelta(seconds=lease_seconds)
-            await conn.execute(
-                """
-                UPDATE webhook_deliveries
-                SET status = ?, next_attempt_at = ?, updated_at = ?
-                WHERE delivery_id = ?
-                """,
-                (
-                    DeliveryStatus.DELIVERING.value,
-                    lease_until.isoformat(),
-                    now_iso,
-                    delivery.delivery_id,
-                ),
-            )
-        return delivery
+            for row in rows:
+                generation = int(row["attempt_count"]) + 1
+                lease_until = now + timedelta(seconds=lease_seconds)
+                claimed = await deliveries.update_if_matches(
+                    {
+                        "status": DeliveryStatus.DELIVERING.value,
+                        "next_attempt_at": lease_until.isoformat(),
+                        "updated_at": now_iso,
+                    },
+                    where={
+                        "delivery_id": row["delivery_id"],
+                        "status": row["status"],
+                        "next_attempt_at": row["next_attempt_at"],
+                        "attempt_count": row["attempt_count"],
+                    },
+                    returning="delivery_id",
+                    increment=("attempt_count",),
+                )
+                if claimed:
+                    delivery = self._row_to_delivery(row).model_copy(
+                        update={
+                            "status": DeliveryStatus.DELIVERING,
+                            "attempt_count": generation,
+                            "next_attempt_at": lease_until,
+                            "updated_at": now,
+                        }
+                    )
+                    return ClaimedWebhookDelivery(delivery, generation)
+        return None
 
-    async def mark_delivered(self, delivery_id: str) -> None:
-        """Mark a delivery as successfully delivered."""
+    @persistence_operation(ResourceOperation.UPDATE)
+    async def mark_delivered(self, delivery_id: str, generation: int) -> bool:
+        """Complete only the currently leased generation."""
         now = utc_now().isoformat()
-        async with self._database.transaction() as conn:
-            await conn.execute(
-                "UPDATE webhook_deliveries SET status = ?, updated_at = ? WHERE delivery_id = ?",
-                (DeliveryStatus.DELIVERED.value, now, delivery_id),
+        async with self._deliveries.transaction(write_lock=True) as deliveries:
+            return await deliveries.update_if_matches(
+                {"status": DeliveryStatus.DELIVERED.value, "updated_at": now},
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
             )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def mark_failed(
         self,
         delivery_id: str,
+        generation: int,
         *,
         error: str,
         status_code: int | None,
         retry_delay: float,
-    ) -> None:
+    ) -> bool:
         """Mark a delivery as failed and schedule the next retry.
 
-        Increments attempt_count and schedules ``next_attempt_at`` at
-        ``retry_delay`` seconds from now, then records the error details.
+        The claim already incremented ``attempt_count``; this fenced transition
+        schedules the next retry without allowing an older worker to overwrite it.
         ``retry_delay`` is the final, already-jittered backoff in seconds:
         the delivery worker owns the backoff policy (see ``next_retry_delay``)
         and this method persists it verbatim rather than re-deriving it.
         """
         now = utc_now()
-        async with self._database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT attempt_count FROM webhook_deliveries WHERE delivery_id = ?",
-                (delivery_id,),
-            )
-            if row is None:
-                return
-            new_count = row["attempt_count"] + 1
-            next_at = now + timedelta(seconds=retry_delay)
-            await conn.execute(
-                """
-                UPDATE webhook_deliveries
-                SET status = ?, attempt_count = ?, next_attempt_at = ?,
-                    last_error = ?, last_status_code = ?, updated_at = ?
-                WHERE delivery_id = ?
-                """,
-                (
-                    DeliveryStatus.FAILED.value,
-                    new_count,
-                    next_at.isoformat(),
-                    error,
-                    status_code,
-                    now.isoformat(),
-                    delivery_id,
-                ),
+        next_at = now + timedelta(seconds=retry_delay)
+        async with self._deliveries.transaction(write_lock=True) as deliveries:
+            return await deliveries.update_if_matches(
+                {
+                    "status": DeliveryStatus.FAILED.value,
+                    "next_attempt_at": next_at.isoformat(),
+                    "last_error": error,
+                    "last_status_code": status_code,
+                    "updated_at": now.isoformat(),
+                },
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
             )
 
-    async def dead_letter(self, delivery_id: str) -> None:
+    @persistence_resource_operations(
+        "service.webhook_deliveries", ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    @persistence_resource_operations("service.webhook_dead_letters", ResourceOperation.CREATE)
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    async def dead_letter(self, delivery_id: str, generation: int) -> bool:
         """Move a delivery to the dead-letter table.
 
         Inserts into webhook_dead_letters from delivery data, then updates
         the delivery status to DEAD_LETTER.
         """
         now = utc_now()
-        async with self._database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT * FROM webhook_deliveries WHERE delivery_id = ?",
-                (delivery_id,),
+        async with self._deliveries.transaction(write_lock=True) as deliveries:
+            dead_letters = deliveries.bind(self._dead_letters)
+            row = await deliveries.select_one(
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                }
             )
             if row is None:
-                return
+                return False
+            transitioned = await deliveries.update_if_matches(
+                {
+                    "status": DeliveryStatus.DEAD_LETTER.value,
+                    "updated_at": now.isoformat(),
+                },
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
+            )
+            if not transitioned:
+                return False
             dead_letter_id = _new_id()
-            await conn.execute(
-                """
-                INSERT INTO webhook_dead_letters (
-                    dead_letter_id, delivery_id, subscription_id, event_type,
-                    event_id, payload_json, attempt_count, last_error,
-                    last_status_code, created_at, dead_lettered_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    dead_letter_id,
-                    row["delivery_id"],
-                    row["subscription_id"],
-                    row["event_type"],
-                    row["event_id"],
-                    row["payload_json"],
-                    row["attempt_count"],
-                    row["last_error"],
-                    row["last_status_code"],
-                    row["created_at"],
-                    now.isoformat(),
-                ),
+            await dead_letters.insert(
+                {
+                    "dead_letter_id": dead_letter_id,
+                    "delivery_id": row["delivery_id"],
+                    "subscription_id": row["subscription_id"],
+                    "event_type": row["event_type"],
+                    "event_id": row["event_id"],
+                    "payload_json": row["payload_json"],
+                    "attempt_count": row["attempt_count"],
+                    "last_error": row["last_error"],
+                    "last_status_code": row["last_status_code"],
+                    "created_at": row["created_at"],
+                    "dead_lettered_at": now.isoformat(),
+                }
             )
-            await conn.execute(
-                "UPDATE webhook_deliveries SET status = ?, updated_at = ? WHERE delivery_id = ?",
-                (DeliveryStatus.DEAD_LETTER.value, now.isoformat(), delivery_id),
-            )
+            return True
 
     # ── Dead-letter queries ────────────────────────────────────────────
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_dead_letters(
         self,
         subscription_id: str | None = None,
@@ -333,35 +400,26 @@ class WebhookRepository:
         Python after a global LIMIT would silently hide a deployment's own rows
         behind newer foreign ones.
         """
-        if subscription_id is not None:
-            sql = (
-                "SELECT * FROM webhook_dead_letters "
-                "WHERE subscription_id = ? ORDER BY dead_lettered_at DESC LIMIT ?"
+        where = {"subscription_id": subscription_id} if subscription_id is not None else None
+        if subscription_ids is not None and not subscription_ids:
+            return []
+        async with self._dead_letters.transaction() as dead_letters:
+            rows = await dead_letters.select(
+                where=where,
+                where_in=(
+                    {"subscription_id": tuple(subscription_ids)}
+                    if subscription_ids is not None
+                    else None
+                ),
+                order_by_desc=("dead_lettered_at",),
+                limit=limit,
             )
-            params: tuple = (subscription_id, limit)
-        elif subscription_ids is not None:
-            if not subscription_ids:
-                return []
-            placeholders = ",".join("?" for _ in subscription_ids)
-            sql = (
-                f"SELECT * FROM webhook_dead_letters WHERE subscription_id IN ({placeholders}) "
-                "ORDER BY dead_lettered_at DESC LIMIT ?"
-            )
-            params = (*subscription_ids, limit)
-        else:
-            sql = "SELECT * FROM webhook_dead_letters ORDER BY dead_lettered_at DESC LIMIT ?"
-            params = (limit,)
-        async with self._database.transaction() as conn:
-            rows = await conn.fetch_all(sql, params)
         return [self._row_to_dead_letter(r) for r in rows]
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_dead_letter(self, dead_letter_id: str) -> WebhookDeadLetter | None:
         """Look up a single dead-letter entry by ID."""
-        async with self._database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT * FROM webhook_dead_letters WHERE dead_letter_id = ?",
-                (dead_letter_id,),
-            )
+        row = await self._dead_letters.select_one(where={"dead_letter_id": dead_letter_id})
         if row is None:
             return None
         return self._row_to_dead_letter(row)

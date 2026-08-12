@@ -23,8 +23,8 @@ async def _make_run(run_repo: RunRepository) -> Run:
 def _make_approval_service(sqlite_db) -> ApprovalService:
     return ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
 
 
@@ -40,7 +40,7 @@ def _actor() -> ActorIdentity:
 async def test_schedule_continuation_transitions_run_to_pending(
     sqlite_db,
 ) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     approval_service = _make_approval_service(sqlite_db)
 
     run = await _make_run(run_repo)
@@ -73,7 +73,7 @@ async def test_schedule_continuation_transitions_run_to_pending(
 
 
 async def test_schedule_continuation_reject_marks_failed(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     approval_service = _make_approval_service(sqlite_db)
 
     run = await _make_run(run_repo)
@@ -103,7 +103,7 @@ async def test_schedule_continuation_reject_marks_failed(sqlite_db) -> None:
 
 
 async def test_lease_is_cleared_after_schedule_continuation(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     approval_service = _make_approval_service(sqlite_db)
 

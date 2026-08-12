@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, Index, Numeric, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import ResourceOperation, ResourceScope, ResourceScopeDefinition
+
+_ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
 class PricingCatalog(Base):
     __tablename__ = "pricing_catalog"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.pricing_catalog",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+        scope=ResourceScope.GLOBAL,
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     provider: Mapped[str] = mapped_column(String(64), index=True)
@@ -28,6 +38,12 @@ class PricingCatalog(Base):
 
 class ToolPricingCatalog(Base):
     __tablename__ = "tool_pricing_catalog"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.tool_pricing_catalog",
+        table_name=__tablename__,
+        operations=_ALL_OPERATIONS,
+        scope=ResourceScope.GLOBAL,
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tool_name: Mapped[str] = mapped_column(String(128), index=True)
@@ -39,8 +55,12 @@ class ToolPricingCatalog(Base):
 
 class CostProfile(Base):
     __tablename__ = "cost_profiles"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.cost_profile", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     requests_per_period: Mapped[int] = mapped_column(default=0)
     avg_input_tokens: Mapped[float] = mapped_column(default=0.0)
@@ -56,9 +76,13 @@ class CostProfile(Base):
 
 class CostEstimate(Base):
     __tablename__ = "cost_estimates"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.cost_estimate", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (Index("ix_cost_estimates_capability_period", "capability_id", "period_start"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     execution_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     implementation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -80,8 +104,12 @@ class CostEstimate(Base):
 
 class GroundTruthCost(Base):
     __tablename__ = "ground_truth_costs"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.ground_truth_cost", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     period_start: Mapped[datetime] = mapped_column(DateTime, index=True)
     period_end: Mapped[datetime] = mapped_column(DateTime, index=True)
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -91,8 +119,12 @@ class GroundTruthCost(Base):
 
 class CalibrationMetric(Base):
     __tablename__ = "calibration_metrics"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.calibration_metric", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     period: Mapped[str] = mapped_column(String(32), index=True)
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
     mape: Mapped[float] = mapped_column(default=0.0)

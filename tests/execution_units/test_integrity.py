@@ -142,8 +142,8 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=runner,
     )
@@ -151,7 +151,7 @@ async def test_executable_unit_admission_denials_are_recorded_in_audit(
     run = await orchestrator.run_graph(graph, {"value": 1})
 
     assert run.status is RunStatus.FAILED
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
     assert audits[0].execution_metadata["admitted"] is False

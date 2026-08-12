@@ -10,8 +10,20 @@ from typing import Any
 
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
 from zeroth.platform.signing import SigningKeyProvider
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    ScopedTable,
+)
 from zeroth.platform.storage.json import from_json_value, to_json_value
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.service.langgraph_gateway.enforcement import (
     DecisionResponseV1,
     EnforcementBoundaryError,
@@ -21,39 +33,81 @@ from zeroth.service.langgraph_gateway.enforcement import (
 )
 
 
+@persistence_surface(
+    "service.langgraph_decisions",
+    probe=named_isolation_probe("_drive_decisions"),
+    method_names=frozenset({"save_decision", "count_decisions"}),
+)
+@persistence_surface(
+    "service.langgraph_inventories",
+    probe=named_isolation_probe("_drive_inventories"),
+    method_names=frozenset({"register_inventory", "get_inventory", "heartbeat"}),
+)
+@persistence_surface(
+    "service.langgraph_run_attestations",
+    probe=named_isolation_probe("_drive_attestations"),
+    method_names=frozenset({"save_attestation", "get_attestation", "get_attestation_by_run_id"}),
+)
 class LangGraphEnforcementRepository:
     """Transactional persistence for decisions, inventories, and attestations."""
 
-    def __init__(self, database: AsyncDatabase) -> None:
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        scope_context: ScopeContext | NullWorkspaceScopeContext,
+    ) -> None:
+        if type(scope_context) not in {ScopeContext, NullWorkspaceScopeContext}:
+            raise TypeError("scope_context must be a trusted tenant scope")
         self._database = database
+        self._scope_context = scope_context
+        self._decisions = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.langgraph_decisions", scope_context
+        )
+        self._inventories = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.langgraph_inventories", scope_context
+        )
+        self._attestations = ScopedTable(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.langgraph_run_attestations",
+            scope_context,
+        )
 
+    @classmethod
+    def for_default_compatibility(cls, database: AsyncDatabase) -> LangGraphEnforcementRepository:
+        return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
+
+    @property
+    def scope_context(self) -> ScopeContext | NullWorkspaceScopeContext:
+        """Trusted tenant scope structurally bound to every repository query."""
+        return self._scope_context
+
+    def _validate_tenant(self, tenant_id: object) -> None:
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def save_decision(
         self,
-        tenant_id: str,
         key: str,
         deployment_ref: str,
         action_hash: str,
         response: DecisionResponseV1,
     ) -> DecisionResponseV1:
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                "INSERT INTO langgraph_decisions "
-                "(tenant_id, idempotency_key, deployment_ref, action_hash, "
-                "response_json, created_at) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(tenant_id, idempotency_key) DO NOTHING",
-                (
-                    tenant_id,
-                    key,
-                    deployment_ref,
-                    action_hash,
-                    to_json_value(response.model_dump(mode="json")),
-                    datetime.now(tz=UTC).isoformat(),
-                ),
+        async with self._decisions.transaction(write_lock=True) as decisions:
+            await decisions.insert_if_absent(
+                {
+                    "idempotency_key": key,
+                    "deployment_ref": deployment_ref,
+                    "action_hash": action_hash,
+                    "response_json": to_json_value(response.model_dump(mode="json")),
+                    "created_at": datetime.now(tz=UTC).isoformat(),
+                },
+                conflict_columns=("tenant_id", "idempotency_key"),
             )
-            row = await connection.fetch_one(
-                "SELECT deployment_ref, action_hash, response_json FROM langgraph_decisions "
-                "WHERE tenant_id = ? AND idempotency_key = ?",
-                (tenant_id, key),
+            row = await decisions.select_one(
+                where={"idempotency_key": key},
+                columns=("deployment_ref", "action_hash", "response_json"),
             )
             if row is None:
                 raise RuntimeError("idempotent decision row was not persisted")
@@ -61,111 +115,116 @@ class LangGraphEnforcementRepository:
                 raise EnforcementBoundaryError("zeroth.idempotency_conflict", status_code=409)
             return DecisionResponseV1.model_validate(from_json_value(row["response_json"]))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def count_decisions(self) -> int:
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one("SELECT COUNT(*) AS count FROM langgraph_decisions")
-        return int(row["count"] if row else 0)
+        async with self._decisions.transaction() as decisions:
+            return await decisions.count(where={})
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def register_inventory(self, request: InventoryRegistrationV1) -> None:
+        self._validate_tenant(request.tenant_id)
         entries_json = to_json_value([entry.model_dump(mode="json") for entry in request.entries])
         now = datetime.now(tz=UTC).isoformat()
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                "INSERT INTO langgraph_inventories "
-                "(tenant_id, deployment_ref, graph_version, adapter_version, "
-                "inventory_fingerprint, coverage, entries_json, registered_at, heartbeat_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(tenant_id, deployment_ref, graph_version, adapter_version, "
-                "inventory_fingerprint) DO UPDATE SET coverage = excluded.coverage, "
-                "entries_json = excluded.entries_json, registered_at = excluded.registered_at, "
-                "heartbeat_at = excluded.heartbeat_at",
-                (
-                    request.tenant_id,
-                    request.deployment_ref,
-                    request.graph_version,
-                    request.adapter_version,
-                    request.inventory_fingerprint,
-                    request.coverage.value,
-                    entries_json,
-                    now,
-                    now,
+        values = {
+            "deployment_ref": request.deployment_ref,
+            "graph_version": request.graph_version,
+            "adapter_version": request.adapter_version,
+            "inventory_fingerprint": request.inventory_fingerprint,
+            "coverage": request.coverage.value,
+            "entries_json": entries_json,
+            "registered_at": now,
+            "heartbeat_at": now,
+        }
+        identity = {
+            key: values[key]
+            for key in (
+                "deployment_ref",
+                "graph_version",
+                "adapter_version",
+                "inventory_fingerprint",
+            )
+        }
+        async with self._inventories.transaction(write_lock=True) as inventories:
+            inserted = await inventories.insert_if_absent(
+                values,
+                conflict_columns=(
+                    "tenant_id",
+                    "deployment_ref",
+                    "graph_version",
+                    "adapter_version",
+                    "inventory_fingerprint",
                 ),
             )
+            if not inserted:
+                await inventories.update(
+                    {
+                        "coverage": values["coverage"],
+                        "entries_json": entries_json,
+                        "registered_at": now,
+                        "heartbeat_at": now,
+                    },
+                    where=identity,
+                )
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_inventory(
         self,
-        tenant_id: str,
         deployment_ref: str,
         graph_version: str,
         adapter_version: str,
         fingerprint: str,
     ) -> dict[str, Any] | None:
-        async with self._database.transaction() as connection:
-            return await connection.fetch_one(
-                "SELECT * FROM langgraph_inventories WHERE tenant_id = ? AND deployment_ref = ? "
-                "AND graph_version = ? AND adapter_version = ? AND inventory_fingerprint = ?",
-                (tenant_id, deployment_ref, graph_version, adapter_version, fingerprint),
-            )
+        return await self._inventories.select_one(
+            where={
+                "deployment_ref": deployment_ref,
+                "graph_version": graph_version,
+                "adapter_version": adapter_version,
+                "inventory_fingerprint": fingerprint,
+            }
+        )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def heartbeat(self, request: HeartbeatV1) -> str | None:
-        async with self._database.transaction(write_lock=True) as connection:
-            row = await connection.fetch_one(
-                "SELECT coverage FROM langgraph_inventories WHERE tenant_id = ? "
-                "AND deployment_ref = ? AND graph_version = ? AND adapter_version = ? "
-                "AND inventory_fingerprint = ?",
-                (
-                    request.tenant_id,
-                    request.deployment_ref,
-                    request.graph_version,
-                    request.adapter_version,
-                    request.inventory_fingerprint,
-                ),
-            )
+        self._validate_tenant(request.tenant_id)
+        identity = {
+            "deployment_ref": request.deployment_ref,
+            "graph_version": request.graph_version,
+            "adapter_version": request.adapter_version,
+            "inventory_fingerprint": request.inventory_fingerprint,
+        }
+        async with self._inventories.transaction(write_lock=True) as inventories:
+            row = await inventories.select_one(where=identity, columns=("coverage",))
             if row is None:
                 return None
-            await connection.execute(
-                "UPDATE langgraph_inventories SET heartbeat_at = ? WHERE tenant_id = ? "
-                "AND deployment_ref = ? AND graph_version = ? AND adapter_version = ? "
-                "AND inventory_fingerprint = ?",
-                (
-                    datetime.now(tz=UTC).isoformat(),
-                    request.tenant_id,
-                    request.deployment_ref,
-                    request.graph_version,
-                    request.adapter_version,
-                    request.inventory_fingerprint,
-                ),
+            await inventories.update(
+                {"heartbeat_at": datetime.now(tz=UTC).isoformat()}, where=identity
             )
         return str(row["coverage"])
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def save_attestation(
         self, payload: Mapping[str, Any], signature: bytes, key_id: str, algorithm: str
     ) -> None:
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                "INSERT INTO langgraph_run_attestations "
-                "(tenant_id, deployment_ref, run_id, correlation_id, payload_json, signature, "
-                "signing_key_id, algorithm) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(tenant_id, deployment_ref, run_id) DO NOTHING",
-                (
-                    payload["tenant_id"],
-                    payload["deployment_ref"],
-                    payload["run_id"],
-                    payload["correlation_id"],
-                    to_json_value(dict(payload)),
-                    base64.b64encode(signature).decode("ascii"),
-                    key_id,
-                    algorithm,
-                ),
+        self._validate_tenant(payload.get("tenant_id"))
+        async with self._attestations.transaction(write_lock=True) as attestations:
+            await attestations.insert_if_absent(
+                {
+                    "deployment_ref": payload["deployment_ref"],
+                    "run_id": payload["run_id"],
+                    "correlation_id": payload["correlation_id"],
+                    "payload_json": to_json_value(dict(payload)),
+                    "signature": base64.b64encode(signature).decode("ascii"),
+                    "signing_key_id": key_id,
+                    "algorithm": algorithm,
+                },
+                conflict_columns=("tenant_id", "deployment_ref", "run_id"),
             )
-            row = await connection.fetch_one(
-                "SELECT payload_json FROM langgraph_run_attestations WHERE tenant_id = ? "
-                "AND deployment_ref = ? AND run_id = ?",
-                (
-                    payload["tenant_id"],
-                    payload["deployment_ref"],
-                    payload["run_id"],
-                ),
+            row = await attestations.select_one(
+                where={
+                    "deployment_ref": payload["deployment_ref"],
+                    "run_id": payload["run_id"],
+                },
+                columns=("payload_json",),
             )
             if row is None:
                 raise RuntimeError("run attestation was not persisted")
@@ -174,8 +233,9 @@ class LangGraphEnforcementRepository:
             if any(stored.get(key) != payload[key] for key in stable_keys):
                 raise EnforcementBoundaryError("zeroth.attestation_conflict", status_code=409)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def get_attestation(
-        self, tenant_id: str, deployment_ref: str, correlation_id: str
+        self, deployment_ref: str, correlation_id: str
     ) -> dict[str, Any] | None:
         """Return the sole attestation for a legacy correlation ID, if unambiguous."""
         warnings.warn(
@@ -183,26 +243,27 @@ class LangGraphEnforcementRepository:
             DeprecationWarning,
             stacklevel=2,
         )
-        async with self._database.transaction() as connection:
-            rows = await connection.fetch_all(
-                "SELECT * FROM langgraph_run_attestations WHERE tenant_id = ? "
-                "AND deployment_ref = ? AND correlation_id = ? LIMIT 2",
-                (tenant_id, deployment_ref, correlation_id),
+        async with self._attestations.transaction() as attestations:
+            rows = await attestations.select(
+                where={"deployment_ref": deployment_ref, "correlation_id": correlation_id},
+                limit=2,
             )
         return rows[0] if len(rows) == 1 else None
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_attestation_by_run_id(
-        self, tenant_id: str, deployment_ref: str, governance_run_id: str
+        self, deployment_ref: str, governance_run_id: str
     ) -> dict[str, Any] | None:
         """Return evidence for an exact signed governance run ID."""
-        async with self._database.transaction() as connection:
-            return await connection.fetch_one(
-                "SELECT * FROM langgraph_run_attestations WHERE tenant_id = ? "
-                "AND deployment_ref = ? AND run_id = ?",
-                (tenant_id, deployment_ref, governance_run_id),
-            )
+        return await self._attestations.select_one(
+            where={"deployment_ref": deployment_ref, "run_id": governance_run_id}
+        )
 
 
+@persistence_surface(
+    "service.langgraph_run_attestations",
+    method_names=frozenset({"evidence_for_run", "evidence_for_governance_run"}),
+)
 class StoredCapabilityEvidenceProvider:
     """Verify stored server signatures before returning capability evidence."""
 
@@ -214,11 +275,14 @@ class StoredCapabilityEvidenceProvider:
         tenant_id: str,
         deployment_ref: str,
     ) -> None:
+        if repository.scope_context.tenant_id != tenant_id:
+            raise ValueError("tenant_id does not match repository scope")
         self._repository = repository
         self._signer = signer
         self._tenant_id = tenant_id
         self._deployment_ref = deployment_ref
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def evidence_for_run(self, correlation_id: str) -> RunCapabilityEvidence | None:
         """Return evidence for a legacy correlation ID, if unambiguous."""
         warnings.warn(
@@ -226,17 +290,16 @@ class StoredCapabilityEvidenceProvider:
             DeprecationWarning,
             stacklevel=2,
         )
-        row = await self._repository.get_attestation(
-            self._tenant_id, self._deployment_ref, correlation_id
-        )
+        row = await self._repository.get_attestation(self._deployment_ref, correlation_id)
         return self._evidence_from_row(row, identity="correlation_id", expected=correlation_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def evidence_for_governance_run(
         self, governance_run_id: str
     ) -> RunCapabilityEvidence | None:
         """Return evidence for an exact signed governance run ID."""
         row = await self._repository.get_attestation_by_run_id(
-            self._tenant_id, self._deployment_ref, governance_run_id
+            self._deployment_ref, governance_run_id
         )
         return self._evidence_from_row(row, identity="run_id", expected=governance_run_id)
 
@@ -255,6 +318,8 @@ class StoredCapabilityEvidenceProvider:
             valid = (
                 self._signer.verify(_canonical(payload), signature, row["signing_key_id"]) is True
                 and payload.get(identity) == expected
+                and payload.get("tenant_id") == self._tenant_id
+                and payload.get("deployment_ref") == self._deployment_ref
             )
         except Exception:
             valid = False

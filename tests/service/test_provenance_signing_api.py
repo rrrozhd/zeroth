@@ -15,13 +15,12 @@ from tests.service.helpers import (
     deploy_service,
 )
 from zeroth.contracts.graph import GraphRepository
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.service.bootstrap import bootstrap_app
-from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app, bootstrap_scoped_service
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 _KEY = EnvHmacSigner(key_id="k1", keys={"k1": b"provenance-endpoint-key"})
@@ -42,7 +41,10 @@ async def _signed_setup(
     """
     graph = agent_graph(graph_id="graph-prov")
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.scoped(
+        sqlite_db,
+        contract_scope_context(tenant_id, None),
+    )
     await contract_registry.register(RunInputPayload, name="contract://input")
     await contract_registry.register(RunInputPayload, name="contract://output")
     graph = graph.model_copy(update={"tenant_id": tenant_id})
@@ -69,8 +71,12 @@ async def _signed_setup(
     )
 
     resolved_auth = auth_config or default_service_auth_config()
-    service = await bootstrap_service(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=resolved_auth
+    service = await bootstrap_scoped_service(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+        auth_config=resolved_auth,
     )
     # Inject the signer into the already-built surface (the settings-built signer
     # is None in tests because no key is configured in the process env).
@@ -78,8 +84,12 @@ async def _signed_setup(
     service.audit_repository._signer = signer
     service.deployment_service.signer = signer
 
-    app = await bootstrap_app(
-        sqlite_db, deployment_ref=deployment.deployment_ref, auth_config=resolved_auth
+    app = await bootstrap_scoped_app(
+        sqlite_db,
+        deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+        auth_config=resolved_auth,
     )
     app.state.bootstrap = service
     return service, deployment, app
@@ -280,3 +290,22 @@ async def test_cross_tenant_verify_endpoints_return_404(sqlite_db) -> None:
     assert run_denied.json()["detail"] in {"deployment not found", "run not found"}
     assert post_denied.status_code == 404
     assert att_denied.status_code == 404
+
+
+async def test_named_tenant_attestation_reload_uses_the_bound_deployment_scope(sqlite_db) -> None:
+    """Reload the served snapshot from its persisted tenant, not the reserved default."""
+    shared_ref = "shared-attestation-ref"
+    _, tenant_deployment, app = await _signed_setup(
+        sqlite_db,
+        tenant_id="tenant-a",
+        auth_config=_cross_tenant_auth(),
+        deployment_ref=shared_ref,
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            f"/deployments/{shared_ref}/attestation",
+            headers={"X-API-Key": "tenant-a-reviewer-key"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["graph_id"] == tenant_deployment.graph_id

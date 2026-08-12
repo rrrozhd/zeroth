@@ -71,9 +71,7 @@ class FlakyReceiver:
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = request.content or b""
         signature = request.headers.get("X-Zeroth-Signature", "")
-        expected = hmac.new(
-            self.secret.encode("utf-8"), body, hashlib.sha256
-        ).hexdigest()
+        expected = hmac.new(self.secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature.removeprefix("sha256="), expected):
             return httpx.Response(401, json={"error": "bad signature"})
 
@@ -106,7 +104,7 @@ async def main() -> int:
     run_migrations(f"sqlite:///{tmp}")
     database = AsyncSQLiteDatabase(path=str(tmp))
 
-    repository = WebhookRepository(database)
+    repository = WebhookRepository.for_default_compatibility(database)
     service = WebhookService(repository=repository)
 
     try:
@@ -165,9 +163,7 @@ async def main() -> int:
             tenant_id="default",
             data={"run_id": "demo-2", "status": "completed"},
         )
-        flaky_client = httpx.AsyncClient(
-            transport=httpx.MockTransport(flaky_receiver.handler)
-        )
+        flaky_client = httpx.AsyncClient(transport=httpx.MockTransport(flaky_receiver.handler))
         flaky_worker = WebhookDeliveryWorker(
             repository=repository,
             http_client=flaky_client,

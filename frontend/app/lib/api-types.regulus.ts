@@ -1814,18 +1814,6 @@ export interface components {
             /** Total Ai Value Usd */
             total_ai_value_usd: number;
         };
-        /** LoginRequest */
-        LoginRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Roles */
-            roles: string[];
-            /** Sub */
-            sub: string;
-        };
         /** OutcomeBatchIngestRequest */
         OutcomeBatchIngestRequest: {
             /** Events */
@@ -2019,6 +2007,45 @@ export interface components {
              */
             status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
         };
+        /** ScopedLoginRequest */
+        ScopedLoginRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Roles */
+            roles: string[];
+            /** Sub */
+            sub: string;
+            /**
+             * Tenant Id
+             * @default default
+             */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
+        /** ScopedUserClaims */
+        ScopedUserClaims: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Exp */
+            exp: number;
+            /** Iss */
+            iss: string;
+            /** Roles */
+            roles: string[];
+            /** Sub */
+            sub: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
         /** TenantBudgetUpsert */
         TenantBudgetUpsert: {
             /** Budget Cap Usd */
@@ -2040,22 +2067,6 @@ export interface components {
             x: string;
             /** Y */
             y: number;
-        };
-        /** UserClaims */
-        UserClaims: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Exp */
-            exp: number;
-            /** Iss */
-            iss: string;
-            /** Roles */
-            roles: string[];
-            /** Sub */
-            sub: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2219,7 +2230,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserClaims"];
+                    "application/json": components["schemas"]["ScopedUserClaims"];
                 };
             };
         };
@@ -2233,7 +2244,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LoginRequest"];
+                "application/json": components["schemas"]["ScopedLoginRequest"];
             };
         };
         responses: {

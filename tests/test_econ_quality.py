@@ -24,12 +24,17 @@ def _run(
         parent_run_id=parent,
     )
     if verdict is not None:
-        r.metadata = {**(r.metadata or {}), "quality_verdict": {"verdict": verdict, "source": source}}
+        r.metadata = {
+            **(r.metadata or {}),
+            "quality_verdict": {"verdict": verdict, "source": source},
+        }
     return r
 
 
 def _audit(run_id: str, cost: float) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=f"{run_id}-{cost}",
         run_id=run_id,
         node_id="agent",
@@ -109,9 +114,13 @@ def test_read_quality_verdict_is_defensive():
     assert read_quality_verdict(good).verdict == "good"
     # Absent, garbage, and wrong-shape all return None — never raise, never default good.
     assert read_quality_verdict(_run("n", RunStatus.COMPLETED)) is None
-    garbage = Run(run_id="x", graph_version_ref="g", deployment_ref="default", status=RunStatus.COMPLETED)
+    garbage = Run(
+        run_id="x", graph_version_ref="g", deployment_ref="default", status=RunStatus.COMPLETED
+    )
     garbage.metadata = {"quality_verdict": "not-a-dict"}
     assert read_quality_verdict(garbage) is None
-    wrong = Run(run_id="y", graph_version_ref="g", deployment_ref="default", status=RunStatus.COMPLETED)
+    wrong = Run(
+        run_id="y", graph_version_ref="g", deployment_ref="default", status=RunStatus.COMPLETED
+    )
     wrong.metadata = {"quality_verdict": {"verdict": "excellent", "source": "x"}}  # invalid literal
     assert read_quality_verdict(wrong) is None

@@ -194,6 +194,27 @@ async def test_failed_execution_preserves_a_carried_audit_record_as_rejected() -
     assert record.cost_usd == 0.25
 
 
+async def test_failed_branch_record_carries_both_run_owner_fields() -> None:
+    repository = _CollectingAuditRepository()
+    recorder = RuntimeAuditRecorder(audit_repository=repository)
+    run = _run().model_copy(update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"})
+    node = _node()
+    context = BranchContext(branch_id="branch-a", branch_index=0, input_payload={"value": 1})
+
+    await recorder.record_failed_branch_execution(
+        run,
+        node,
+        node.node_id,
+        {"value": 1},
+        RuntimeError("failed"),
+        context,
+    )
+
+    assert len(repository.records) == 1
+    assert repository.records[0].tenant_id == "tenant-a"
+    assert repository.records[0].workspace_id == "workspace-a"
+
+
 async def test_failed_execution_merges_carried_operation_facts() -> None:
     """ZER26-AUD-008: a timeout's operation facts must reach the durable record.
 

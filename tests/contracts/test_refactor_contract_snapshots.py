@@ -32,6 +32,7 @@ from zeroth.governance.retention.cleanup_manifest import (
 )
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunHistoryEntry, Thread, ThreadMemoryBinding
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap import run_migrations
@@ -202,8 +203,8 @@ def test_alembic_order_and_actual_sqlite_schema_match_snapshot(tmp_path: Path) -
 
 
 async def test_persisted_run_thread_and_checkpoint_models_round_trip(sqlite_db) -> None:
-    run_repository = RunRepository(sqlite_db)
-    thread_repository = ThreadRepository(sqlite_db)
+    run_repository = RunRepository.for_default_compatibility(sqlite_db)
+    thread_repository = ThreadRepository.for_default_compatibility(sqlite_db)
     run = Run(
         run_id="run-contract",
         thread_id="thread-contract",
@@ -265,9 +266,11 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
         started_at=_FIXED_TIME,
         updated_at=_FIXED_TIME,
     )
-    await RunRepository(sqlite_db).create(run)
+    await RunRepository.for_default_compatibility(sqlite_db).create(run)
 
     audit = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="audit-contract",
         run_id=run.run_id,
         thread_id=run.thread_id,
@@ -280,7 +283,7 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
         started_at=_FIXED_TIME,
         completed_at=_FIXED_TIME,
     )
-    persisted_audit = await AuditRepository(sqlite_db).write(audit)
+    persisted_audit = await AuditRepository.for_default_compatibility(sqlite_db).write(audit)
     assert persisted_audit is not None
     # The durable write is the capture boundary, so what round-trips is exactly
     # what the capture policy produced -- not what the producer submitted. The
@@ -343,24 +346,25 @@ async def test_persisted_cleanup_manifest_round_trip(sqlite_db) -> None:
         ),
         operations=[artifact_operation, econ_operation],
     )
-    log_repository = RetentionAuditLogRepository(sqlite_db)
+    scope_context = NullWorkspaceScopeContext(tenant_id=tenant_id)
+    log_repository = RetentionAuditLogRepository(sqlite_db, scope_context)
+    cleanup_repository = CleanupStateRepository(sqlite_db, scope_context)
     authorization_log_id = await log_repository.record(
-        tenant_id=tenant_id,
         run_id=run_id,
         action="erasure_authorized",
         reason="manual",
         detail={"manifest": manifest.model_dump(mode="json")},
     )
     async with sqlite_db.transaction(write_lock=True) as connection:
-        await CleanupStateRepository.initialize_in_transaction(
+        await cleanup_repository.initialize_in_transaction(
             connection,
             authorization_log_id=authorization_log_id,
             manifest=manifest,
         )
-        state = await CleanupStateRepository.get_state_in_transaction(
+        state = await cleanup_repository.get_state_in_transaction(
             connection, authorization_log_id
         )
-        operations = await CleanupStateRepository.list_operations_in_transaction(
+        operations = await cleanup_repository.list_operations_in_transaction(
             connection, authorization_log_id
         )
 

@@ -87,6 +87,22 @@
     {
       "down_revision": "021",
       "revision": "022"
+    },
+    {
+      "down_revision": "022",
+      "revision": "023"
+    },
+    {
+      "down_revision": "023",
+      "revision": "024"
+    },
+    {
+      "down_revision": "024",
+      "revision": "025"
+    },
+    {
+      "down_revision": "025",
+      "revision": "026"
     }
   ],
   "tables": {
@@ -307,13 +323,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "run_id",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": null,
           "hidden": 0,
           "name": "head_digest",
@@ -322,7 +347,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": "1",
           "hidden": 0,
           "name": "next_sequence",
@@ -331,7 +356,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": null,
           "hidden": 0,
           "name": "updated_at",
@@ -340,11 +365,12 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE audit_chain_heads ( run_id TEXT PRIMARY KEY, head_digest TEXT, next_sequence INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE audit_chain_heads ( tenant_id TEXT NOT NULL, run_id TEXT NOT NULL, head_digest TEXT, next_sequence INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, CONSTRAINT audit_chain_heads_scope_pkey PRIMARY KEY (tenant_id, run_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "run_id"
           ],
           "name": "sqlite_autoindex_audit_chain_heads_1",
@@ -360,7 +386,7 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "contract_name",
+          "name": "tenant_id",
           "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
@@ -369,13 +395,22 @@
           "cid": 1,
           "default": null,
           "hidden": 0,
-          "name": "version",
+          "name": "contract_name",
           "not_null": true,
           "primary_key_position": 2,
-          "type": "INTEGER"
+          "type": "TEXT"
         },
         {
           "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "version",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "model_path",
@@ -384,7 +419,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": null,
           "hidden": 0,
           "name": "schema_json",
@@ -393,7 +428,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 4,
+          "cid": 5,
           "default": null,
           "hidden": 0,
           "name": "metadata_json",
@@ -402,7 +437,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 5,
+          "cid": 6,
           "default": "CURRENT_TIMESTAMP",
           "hidden": 0,
           "name": "created_at",
@@ -411,21 +446,23 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE contract_versions ( contract_name TEXT NOT NULL, version INTEGER NOT NULL, model_path TEXT NOT NULL, schema_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(contract_name, version) )",
+      "constraint_definition": "CREATE TABLE contract_versions ( tenant_id TEXT NOT NULL, contract_name TEXT NOT NULL, version INTEGER NOT NULL, model_path TEXT NOT NULL, schema_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT contract_versions_scope_pkey PRIMARY KEY (tenant_id, contract_name, version) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "contract_name",
             "version"
           ],
-          "name": "idx_contract_versions_name_version",
+          "name": "idx_contract_versions_tenant_name_version",
           "origin": "c",
           "partial": false,
           "unique": false
         },
         {
           "columns": [
+            "tenant_id",
             "contract_name",
             "version"
           ],
@@ -1606,10 +1643,10 @@
         },
         {
           "cid": 6,
-          "default": "'default'",
+          "default": null,
           "hidden": 0,
           "name": "tenant_id",
-          "not_null": false,
+          "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
         },
@@ -1647,7 +1684,7 @@
           "name": "cost_usd",
           "not_null": false,
           "primary_key_position": 0,
-          "type": "FLOAT"
+          "type": "REAL"
         },
         {
           "cid": 11,
@@ -1668,11 +1705,13 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE node_audits ( audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, created_at TEXT NOT NULL, record_json TEXT NOT NULL , cost_usd FLOAT, cost_event_id TEXT, chain_sequence INTEGER)",
+      "constraint_definition": "CREATE TABLE node_audits ( audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT, node_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, created_at TEXT NOT NULL, record_json TEXT NOT NULL, cost_usd REAL, cost_event_id TEXT, chain_sequence INTEGER )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "deployment_ref",
             "created_at",
             "audit_id"
@@ -1684,6 +1723,8 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "graph_version_ref",
             "created_at",
             "audit_id"
@@ -1695,22 +1736,13 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_id",
             "node_id",
             "created_at",
             "audit_id"
           ],
           "name": "idx_node_audits_node_id",
-          "origin": "c",
-          "partial": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "run_id",
-            "created_at",
-            "audit_id"
-          ],
-          "name": "idx_node_audits_run_id",
           "origin": "c",
           "partial": false,
           "unique": false
@@ -1727,6 +1759,20 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "run_id",
+            "created_at",
+            "audit_id"
+          ],
+          "name": "idx_node_audits_tenant_run",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
             "thread_id",
             "created_at",
             "audit_id"
@@ -1747,10 +1793,11 @@
         },
         {
           "columns": [
+            "tenant_id",
             "run_id",
             "chain_sequence"
           ],
-          "name": "uq_node_audits_run_chain_sequence",
+          "name": "uq_node_audits_tenant_run_chain_sequence",
           "origin": "c",
           "partial": false,
           "unique": true
@@ -1763,13 +1810,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "counter_key",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "counter_key",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": "0",
           "hidden": 0,
           "name": "value",
@@ -1778,7 +1834,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "window_start",
@@ -1787,7 +1843,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": "86400",
           "hidden": 0,
           "name": "window_seconds",
@@ -1796,11 +1852,12 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE quota_counters ( counter_key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, window_seconds INTEGER NOT NULL DEFAULT 86400 )",
+      "constraint_definition": "CREATE TABLE quota_counters ( tenant_id TEXT NOT NULL, counter_key TEXT NOT NULL, value INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, window_seconds INTEGER NOT NULL DEFAULT 86400, PRIMARY KEY (tenant_id, counter_key))",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "counter_key"
           ],
           "name": "sqlite_autoindex_quota_counters_1",
@@ -1816,13 +1873,22 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "bucket_key",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "bucket_key",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
           "default": null,
           "hidden": 0,
           "name": "token_count",
@@ -1831,7 +1897,7 @@
           "type": "REAL"
         },
         {
-          "cid": 2,
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "last_refill_at",
@@ -1840,7 +1906,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": "10.0",
           "hidden": 0,
           "name": "capacity",
@@ -1849,7 +1915,7 @@
           "type": "REAL"
         },
         {
-          "cid": 4,
+          "cid": 5,
           "default": "1.0",
           "hidden": 0,
           "name": "refill_rate",
@@ -1858,11 +1924,12 @@
           "type": "REAL"
         }
       ],
-      "constraint_definition": "CREATE TABLE rate_limit_buckets ( bucket_key TEXT PRIMARY KEY, token_count REAL NOT NULL, last_refill_at TEXT NOT NULL, capacity REAL NOT NULL DEFAULT 10.0, refill_rate REAL NOT NULL DEFAULT 1.0 )",
+      "constraint_definition": "CREATE TABLE rate_limit_buckets ( tenant_id TEXT NOT NULL, bucket_key TEXT NOT NULL, token_count REAL NOT NULL, last_refill_at TEXT NOT NULL, capacity REAL NOT NULL DEFAULT 10.0, refill_rate REAL NOT NULL DEFAULT 1.0, PRIMARY KEY (tenant_id, bucket_key))",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "bucket_key"
           ],
           "name": "sqlite_autoindex_rate_limit_buckets_1",
@@ -2036,9 +2103,18 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "VARCHAR"
         }
       ],
-      "constraint_definition": "CREATE TABLE retention_cleanup_operations ( authorization_log_id TEXT NOT NULL REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE, operation_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')), deleted_count INTEGER, error TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0), updated_at TEXT NOT NULL, PRIMARY KEY (authorization_log_id, operation_id) )",
+      "constraint_definition": "CREATE TABLE \"retention_cleanup_operations\" ( authorization_log_id TEXT NOT NULL REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE, operation_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')), deleted_count INTEGER, error TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0), updated_at TEXT NOT NULL, tenant_id VARCHAR NOT NULL, PRIMARY KEY (authorization_log_id, operation_id) )",
       "foreign_keys": [
         {
           "from": "authorization_log_id",
@@ -2598,7 +2674,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT NOT NULL, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT run_checkpoints_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, checkpoint_id) )",
+      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT NOT NULL, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT run_checkpoints_task9_checked_pkey PRIMARY KEY (tenant_id, workspace_scope, checkpoint_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -2646,8 +2722,8 @@
           "default": null,
           "hidden": 0,
           "name": "run_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 3,
           "type": "TEXT"
         },
         {
@@ -2886,11 +2962,11 @@
         },
         {
           "cid": 27,
-          "default": "'default'",
+          "default": null,
           "hidden": 0,
           "name": "tenant_id",
-          "not_null": false,
-          "primary_key_position": 0,
+          "not_null": true,
+          "primary_key_position": 1,
           "type": "TEXT"
         },
         {
@@ -2906,16 +2982,16 @@
           "cid": 29,
           "default": null,
           "hidden": 0,
-          "name": "submitted_by",
-          "not_null": false,
-          "primary_key_position": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
           "type": "TEXT"
         },
         {
           "cid": 30,
           "default": null,
           "hidden": 0,
-          "name": "lease_worker_id",
+          "name": "submitted_by",
           "not_null": false,
           "primary_key_position": 0,
           "type": "TEXT"
@@ -2924,7 +3000,7 @@
           "cid": 31,
           "default": null,
           "hidden": 0,
-          "name": "lease_acquired_at",
+          "name": "lease_worker_id",
           "not_null": false,
           "primary_key_position": 0,
           "type": "TEXT"
@@ -2933,13 +3009,22 @@
           "cid": 32,
           "default": null,
           "hidden": 0,
-          "name": "lease_expires_at",
+          "name": "lease_acquired_at",
           "not_null": false,
           "primary_key_position": 0,
           "type": "TEXT"
         },
         {
           "cid": 33,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 34,
           "default": "0",
           "hidden": 0,
           "name": "failure_count",
@@ -2948,7 +3033,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 34,
+          "cid": 35,
           "default": null,
           "hidden": 0,
           "name": "recovery_checkpoint_id",
@@ -2957,8 +3042,8 @@
           "type": "TEXT"
         },
         {
-          "cid": 35,
-          "default": "'0'",
+          "cid": 36,
+          "default": "0",
           "hidden": 0,
           "name": "token_snapshot_write_disabled",
           "not_null": true,
@@ -2966,7 +3051,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 36,
+          "cid": 37,
           "default": "0",
           "hidden": 0,
           "name": "lease_generation",
@@ -2975,11 +3060,12 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE runs ( run_id TEXT PRIMARY KEY, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT DEFAULT 'default', workspace_id TEXT, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT , token_snapshot_write_disabled INTEGER DEFAULT '0' NOT NULL, lease_generation INTEGER NOT NULL DEFAULT 0)",
+      "constraint_definition": "CREATE TABLE runs ( run_id TEXT NOT NULL, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT, token_snapshot_write_disabled INTEGER NOT NULL DEFAULT 0, lease_generation INTEGER NOT NULL DEFAULT 0, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT runs_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, run_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "deployment_ref",
             "status",
             "lease_expires_at"
@@ -3004,17 +3090,8 @@
         },
         {
           "columns": [
-            "deployment_ref",
-            "status",
-            "started_at"
-          ],
-          "name": "ix_runs_pending_claim",
-          "origin": "c",
-          "partial": true,
-          "unique": false
-        },
-        {
-          "columns": [
+            "tenant_id",
+            "workspace_scope",
             "run_id"
           ],
           "name": "sqlite_autoindex_runs_1",
@@ -3084,8 +3161,8 @@
           "default": null,
           "hidden": 0,
           "name": "operation_key",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 3,
           "type": "TEXT"
         },
         {
@@ -3204,13 +3281,42 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE side_effect_operations ( operation_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, target_ref TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, support TEXT NOT NULL DEFAULT 'at_least_once', receipt TEXT, error TEXT, ambiguity_reason TEXT, reconciliation_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE side_effect_operations ( operation_key TEXT NOT NULL, run_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, target_ref TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, support TEXT NOT NULL DEFAULT 'at_least_once', receipt TEXT, error TEXT, ambiguity_reason TEXT, reconciliation_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , PRIMARY KEY (tenant_id, workspace_scope, operation_key) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "run_id",
             "state"
           ],
@@ -3221,6 +3327,8 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "operation_key"
           ],
           "name": "sqlite_autoindex_side_effect_operations_1",
@@ -3377,7 +3485,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT threads_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, thread_id) )",
+      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT threads_task9_checked_pkey PRIMARY KEY (tenant_id, workspace_scope, thread_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3411,13 +3519,40 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "run_id",
-          "not_null": false,
+          "name": "tenant_id",
+          "not_null": true,
           "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "run_id",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
           "default": null,
           "hidden": 0,
           "name": "revision",
@@ -3426,7 +3561,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 2,
+          "cid": 5,
           "default": null,
           "hidden": 0,
           "name": "schema_version",
@@ -3435,7 +3570,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 3,
+          "cid": 6,
           "default": null,
           "hidden": 0,
           "name": "next_token_ordinal",
@@ -3444,7 +3579,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 4,
+          "cid": 7,
           "default": null,
           "hidden": 0,
           "name": "snapshot_json",
@@ -3453,7 +3588,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 5,
+          "cid": 8,
           "default": null,
           "hidden": 0,
           "name": "updated_at",
@@ -3462,15 +3597,35 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE token_engine_snapshots ( run_id TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE token_engine_snapshots ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, run_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , PRIMARY KEY (tenant_id, workspace_scope, run_id), FOREIGN KEY (tenant_id, workspace_scope, run_id) REFERENCES runs (tenant_id, workspace_scope, run_id) ON DELETE CASCADE )",
       "foreign_keys": [
+        {
+          "from": "tenant_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "runs",
+          "to": "tenant_id"
+        },
+        {
+          "from": "workspace_scope",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "CASCADE",
+          "on_update": "NO ACTION",
+          "seq": 1,
+          "table": "runs",
+          "to": "workspace_scope"
+        },
         {
           "from": "run_id",
           "id": 0,
           "match": "NONE",
           "on_delete": "CASCADE",
           "on_update": "NO ACTION",
-          "seq": 0,
+          "seq": 2,
           "table": "runs",
           "to": "run_id"
         }
@@ -3478,6 +3633,8 @@
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "run_id"
           ],
           "name": "sqlite_autoindex_token_engine_snapshots_1",
@@ -3621,8 +3778,8 @@
           "default": null,
           "hidden": 0,
           "name": "dead_letter_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 2,
           "type": "TEXT"
         },
         {
@@ -3647,16 +3804,16 @@
           "cid": 3,
           "default": null,
           "hidden": 0,
-          "name": "event_type",
+          "name": "tenant_id",
           "not_null": true,
-          "primary_key_position": 0,
+          "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 4,
           "default": null,
           "hidden": 0,
-          "name": "event_id",
+          "name": "event_type",
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
@@ -3665,7 +3822,7 @@
           "cid": 5,
           "default": null,
           "hidden": 0,
-          "name": "payload_json",
+          "name": "event_id",
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
@@ -3674,13 +3831,22 @@
           "cid": 6,
           "default": null,
           "hidden": 0,
+          "name": "payload_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
           "name": "attempt_count",
           "not_null": true,
           "primary_key_position": 0,
           "type": "INTEGER"
         },
         {
-          "cid": 7,
+          "cid": 8,
           "default": null,
           "hidden": 0,
           "name": "last_error",
@@ -3689,7 +3855,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 8,
+          "cid": 9,
           "default": null,
           "hidden": 0,
           "name": "last_status_code",
@@ -3698,7 +3864,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 9,
+          "cid": 10,
           "default": null,
           "hidden": 0,
           "name": "created_at",
@@ -3707,7 +3873,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 10,
+          "cid": 11,
           "default": null,
           "hidden": 0,
           "name": "dead_lettered_at",
@@ -3716,11 +3882,12 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE webhook_dead_letters ( dead_letter_id TEXT PRIMARY KEY, delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, attempt_count INTEGER NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, dead_lettered_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE webhook_dead_letters ( dead_letter_id TEXT NOT NULL, delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, tenant_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, attempt_count INTEGER NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, dead_lettered_at TEXT NOT NULL, PRIMARY KEY (tenant_id, dead_letter_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "subscription_id",
             "dead_lettered_at"
           ],
@@ -3731,6 +3898,7 @@
         },
         {
           "columns": [
+            "tenant_id",
             "dead_letter_id"
           ],
           "name": "sqlite_autoindex_webhook_dead_letters_1",
@@ -3747,8 +3915,8 @@
           "default": null,
           "hidden": 0,
           "name": "delivery_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 2,
           "type": "TEXT"
         },
         {
@@ -3764,16 +3932,16 @@
           "cid": 2,
           "default": null,
           "hidden": 0,
-          "name": "event_type",
+          "name": "tenant_id",
           "not_null": true,
-          "primary_key_position": 0,
+          "primary_key_position": 1,
           "type": "TEXT"
         },
         {
           "cid": 3,
           "default": null,
           "hidden": 0,
-          "name": "event_id",
+          "name": "event_type",
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
@@ -3782,13 +3950,22 @@
           "cid": 4,
           "default": null,
           "hidden": 0,
-          "name": "payload_json",
+          "name": "event_id",
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
         },
         {
           "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "payload_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
           "default": "'pending'",
           "hidden": 0,
           "name": "status",
@@ -3797,7 +3974,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 6,
+          "cid": 7,
           "default": "0",
           "hidden": 0,
           "name": "attempt_count",
@@ -3806,7 +3983,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 7,
+          "cid": 8,
           "default": "5",
           "hidden": 0,
           "name": "max_attempts",
@@ -3815,7 +3992,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 8,
+          "cid": 9,
           "default": null,
           "hidden": 0,
           "name": "next_attempt_at",
@@ -3824,7 +4001,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 9,
+          "cid": 10,
           "default": null,
           "hidden": 0,
           "name": "last_error",
@@ -3833,7 +4010,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 10,
+          "cid": 11,
           "default": null,
           "hidden": 0,
           "name": "last_status_code",
@@ -3842,7 +4019,7 @@
           "type": "INTEGER"
         },
         {
-          "cid": 11,
+          "cid": 12,
           "default": null,
           "hidden": 0,
           "name": "created_at",
@@ -3851,7 +4028,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 12,
+          "cid": 13,
           "default": null,
           "hidden": 0,
           "name": "updated_at",
@@ -3860,15 +4037,25 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE webhook_deliveries ( delivery_id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(subscription_id) )",
+      "constraint_definition": "CREATE TABLE webhook_deliveries ( delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, tenant_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (tenant_id, delivery_id), FOREIGN KEY (tenant_id, subscription_id) REFERENCES webhook_subscriptions (tenant_id, subscription_id) )",
       "foreign_keys": [
+        {
+          "from": "tenant_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "webhook_subscriptions",
+          "to": "tenant_id"
+        },
         {
           "from": "subscription_id",
           "id": 0,
           "match": "NONE",
           "on_delete": "NO ACTION",
           "on_update": "NO ACTION",
-          "seq": 0,
+          "seq": 1,
           "table": "webhook_subscriptions",
           "to": "subscription_id"
         }
@@ -3876,6 +4063,7 @@
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "status",
             "next_attempt_at"
           ],
@@ -3886,6 +4074,7 @@
         },
         {
           "columns": [
+            "tenant_id",
             "delivery_id"
           ],
           "name": "sqlite_autoindex_webhook_deliveries_1",
@@ -3902,8 +4091,8 @@
           "default": null,
           "hidden": 0,
           "name": "subscription_id",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 2,
           "type": "TEXT"
         },
         {
@@ -3917,11 +4106,11 @@
         },
         {
           "cid": 2,
-          "default": "'default'",
+          "default": null,
           "hidden": 0,
           "name": "tenant_id",
           "not_null": true,
-          "primary_key_position": 0,
+          "primary_key_position": 1,
           "type": "TEXT"
         },
         {
@@ -3979,11 +4168,12 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE webhook_subscriptions ( subscription_id TEXT PRIMARY KEY, deployment_ref TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', target_url TEXT NOT NULL, secret TEXT NOT NULL, event_types TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE webhook_subscriptions ( subscription_id TEXT NOT NULL, deployment_ref TEXT NOT NULL, tenant_id TEXT NOT NULL, target_url TEXT NOT NULL, secret TEXT NOT NULL, event_types TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (tenant_id, subscription_id) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
             "deployment_ref",
             "active"
           ],
@@ -3994,6 +4184,7 @@
         },
         {
           "columns": [
+            "tenant_id",
             "subscription_id"
           ],
           "name": "sqlite_autoindex_webhook_subscriptions_1",

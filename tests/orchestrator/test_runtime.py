@@ -192,8 +192,8 @@ print(json.dumps({"value": payload["value"] * 2}))
         ],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": start_runner, "finish": finish_runner},
         executable_unit_runner=eu_runner,
     )
@@ -205,7 +205,7 @@ print(json.dumps({"value": payload["value"] * 2}))
     assert [entry.node_id for entry in run.execution_history] == ["start", "double", "finish"]
     assert run.audit_refs == ["audit:1", "audit:2", "audit:3"]
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert [audit.node_id for audit in audits] == ["start", "double", "finish"]
     assert audits[0].status == "completed"
     assert audits[1].execution_metadata["backend"] == "local"
@@ -313,7 +313,7 @@ async def test_runtime_orchestrator_resolves_conditional_branch(sqlite_db) -> No
         ],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"decide": decide_runner},
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
     )
@@ -348,7 +348,7 @@ async def test_runtime_orchestrator_stops_cycle_with_max_total_steps(sqlite_db) 
         edges=[Edge(edge_id="edge-loop", source_node_id="loop", target_node_id="loop")],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": loop_runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -377,12 +377,12 @@ async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
     )
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -401,8 +401,8 @@ async def test_runtime_orchestrator_pauses_on_human_approval(sqlite_db) -> None:
 async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_db) -> None:
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
     )
     graph = Graph(
         graph_id="graph-approval",
@@ -429,8 +429,8 @@ async def test_runtime_orchestrator_continues_after_approval_resolution(sqlite_d
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             "finish": _agent_runner(
                 output_model=NumberOutput,
@@ -494,8 +494,8 @@ async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sq
         )
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             "agent": _agent_runner(
                 output_model=NumberOutput,
@@ -516,7 +516,7 @@ async def test_runtime_orchestrator_blocks_policy_violation_and_records_audit(sq
     assert run.status is RunStatus.FAILED
     assert run.failure_state is not None
     assert run.failure_state.reason == "policy_violation"
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "rejected"
     assert audits[0].error is not None
@@ -540,8 +540,8 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             "agent": _agent_runner(
                 output_model=NumberOutput,
@@ -556,7 +556,7 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
     assert run.status is RunStatus.FAILED
     assert run.failure_state is not None
     assert run.failure_state.reason == "node_execution_failed"
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     assert audits[0].status == "failed"
     assert audits[0].node_id == "agent"
@@ -568,7 +568,9 @@ async def test_runtime_orchestrator_records_failed_audit_for_provider_error(sqli
 @pytest.mark.legacy_engine
 async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
     store = RepositoryThreadStateStore(sqlite_db, tenant_id="default", workspace_id=None)
-    thread_resolver = RepositoryThreadResolver(ThreadRepository(sqlite_db))
+    thread_resolver = RepositoryThreadResolver(
+        ThreadRepository.for_default_compatibility(sqlite_db)
+    )
     runner = AgentRunner(
         AgentConfig(
             name="stateful",
@@ -605,7 +607,7 @@ async def test_runtime_orchestrator_resumes_persisted_run(sqlite_db) -> None:
         ],
         edges=[],
     )
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository.for_default_compatibility(sqlite_db)
     seeded = await repository.create(
         Run(
             graph_version_ref="graph-resume:v1",

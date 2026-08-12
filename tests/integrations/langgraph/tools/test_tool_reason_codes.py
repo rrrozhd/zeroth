@@ -31,6 +31,7 @@ import inspect
 import pytest
 
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.governance.audit.capture_vocabulary import (
     _DENIAL_REASON_CODES,
     _ZEROTH_FAILURE_CODES,
@@ -77,7 +78,7 @@ def _record(error: BaseException, *, audit_id: str) -> NodeAuditRecord:
 
 async def _persisted_reason_code(database, error: BaseException, *, audit_id: str) -> object:
     """Write a bare-error record and read back the ``reason_code`` that survived."""
-    repository = AuditRepository(database)
+    repository = AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
     await repository.write(_record(error, audit_id=audit_id))
     stored = await repository.list_by_run("run-tool-denial")
     match = [record for record in stored if record.audit_id == audit_id]
@@ -180,7 +181,7 @@ async def test_content_smuggled_alongside_the_reason_code_never_reaches_storage(
     # puts it there: an unallowlisted "prompt" key riding next to the reason
     # code, which NodeAuditRecord accepts at construction and the capture
     # boundary has to strip on the way into storage.
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.scoped(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
     record = _record(_tool_errors.PolicyViolation(SECRET), audit_id="audit:no-message")
     smuggled = record.model_copy(
         update={"execution_metadata": {**record.execution_metadata, "prompt": SECRET}}

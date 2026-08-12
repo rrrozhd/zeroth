@@ -227,7 +227,7 @@ async def test_budget_fails_open_on_bad_token_but_sends_headers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
+async def test_tenant_budget_cap_persists_and_trips_the_enforcer(monkeypatch) -> None:
     """End-to-end budget closure: a cap set on the bundled econ plane, plus an
     ingested execution that exceeds it, makes the REAL /budget/status payload
     deny — parsed by the actual BudgetEnforcer, not a hand-mocked contract.
@@ -236,12 +236,17 @@ async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
     /dashboard/kpis reading fields that endpoint never returned.
     """
     import httpx
+    from zeroth.econ.plane.config import settings as ecp_settings
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "acme")
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
     headers = provider()
 
     with TestClient(app) as client:
+        capability_id, implementation_id = _seed_execution_registry(
+            client, headers, suffix="budget_trip"
+        )
         # Set a one-cent cap for tenant "acme" on the mounted econ plane.
         put = client.put(
             "/regulus/v1/budget/tenants/acme",
@@ -259,8 +264,8 @@ async def test_tenant_budget_cap_persists_and_trips_the_enforcer() -> None:
             json={
                 "execution_id": "exec_budget_trip",
                 "timestamp": datetime.now(UTC).isoformat(),
-                "capability_id": "node-agent",
-                "implementation_id": "openai/gpt-4o-mini",
+                "capability_id": capability_id,
+                "implementation_id": implementation_id,
                 "model_version": "gpt-4o-mini",
                 "token_cost_usd": "0.02",
                 "tool_cost_usd": "0.0",
@@ -320,6 +325,38 @@ async def test_enforcer_treats_missing_cap_as_unlimited() -> None:
     assert cap == float("inf")
 
 
+def _seed_execution_registry(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    suffix: str,
+) -> tuple[str, str]:
+    """Create the tenant-owned capability and implementation required by ingestion."""
+    capability_id = f"node-agent-{suffix}"
+    implementation_id = f"model-{suffix}"
+    capability = client.post(
+        "/regulus/v1/capabilities",
+        headers=headers,
+        json={
+            "id": capability_id,
+            "name": f"Agent {suffix}",
+            "category": "CostReduction",
+        },
+    )
+    assert capability.status_code == 200, capability.text
+    implementation = client.post(
+        f"/regulus/v1/capabilities/{capability_id}/implementations",
+        headers=headers,
+        json={
+            "id": implementation_id,
+            "name": f"Model {suffix}",
+            "model_version": "gpt-4o-mini",
+        },
+    )
+    assert implementation.status_code == 200, implementation.text
+    return capability_id, implementation_id
+
+
 def _seed_cap_and_spend(
     client: TestClient,
     headers: dict[str, str],
@@ -330,6 +367,7 @@ def _seed_cap_and_spend(
     exec_id: str,
 ) -> None:
     """PUT a tenant cap and ingest one execution of ``spend_usd`` for ``tenant_id``."""
+    capability_id, implementation_id = _seed_execution_registry(client, headers, suffix=exec_id)
     put = client.put(
         f"/regulus/v1/budget/tenants/{tenant_id}",
         headers=headers,
@@ -342,8 +380,8 @@ def _seed_cap_and_spend(
         json={
             "execution_id": exec_id,
             "timestamp": datetime.now(UTC).isoformat(),
-            "capability_id": "node-agent",
-            "implementation_id": "openai/gpt-4o-mini",
+            "capability_id": capability_id,
+            "implementation_id": implementation_id,
             "model_version": "gpt-4o-mini",
             "token_cost_usd": str(spend_usd),
             "tool_cost_usd": "0.0",
@@ -358,7 +396,7 @@ def _seed_cap_and_spend(
 
 
 @pytest.mark.asyncio
-async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
+async def test_budget_cap_trips_through_mounted_plane_asgi(monkeypatch) -> None:
     """HEADLINE: the cap trips through the ACTUAL mounted econ plane in-process.
 
     Constructs ``BudgetEnforcer(asgi_app=<mounted econ_plane app>)`` — no
@@ -368,7 +406,9 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
     of ingested spend makes the enforcer deny.
     """
     from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "acme")
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
     headers = provider()
@@ -394,28 +434,35 @@ async def test_budget_cap_trips_through_mounted_plane_asgi() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_cap_isolation() -> None:
+async def test_cross_tenant_cap_isolation(monkeypatch) -> None:
     """A cap seeded for tenant A only denies A after over-spend while tenant B
     (no cap) stays unlimited — caps do not leak across tenants."""
     from zeroth.econ.plane.main import app as econ_plane_app
+    from zeroth.econ.plane.config import settings as ecp_settings
 
     app = create_app(_GatedBootstrap())
     provider = app.state.regulus_self_auth_headers
-    headers = provider()
 
     with TestClient(app) as client:
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_a")
+        headers = provider()
         _seed_cap_and_spend(
             client, headers, "tenant_a", cap_usd=0.01, spend_usd=0.05, exec_id="exec_iso_a"
         )
         # tenant_b: no cap set, only spend ingested.
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_b")
+        headers = provider()
+        capability_id, implementation_id = _seed_execution_registry(
+            client, headers, suffix="exec_iso_b"
+        )
         ingest_b = client.post(
             "/regulus/v1/instrumentation/executions",
             headers=headers,
             json={
                 "execution_id": "exec_iso_b",
                 "timestamp": datetime.now(UTC).isoformat(),
-                "capability_id": "node-agent",
-                "implementation_id": "openai/gpt-4o-mini",
+                "capability_id": capability_id,
+                "implementation_id": implementation_id,
                 "model_version": "gpt-4o-mini",
                 "token_cost_usd": "0.05",
                 "tool_cost_usd": "0.0",
@@ -428,11 +475,17 @@ async def test_cross_tenant_cap_isolation() -> None:
         )
         assert ingest_b.status_code == 200, ingest_b.text
 
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_a")
     enforcer = BudgetEnforcer(
         asgi_app=econ_plane_app,
         headers_provider=make_self_auth_headers_provider(_ZEROTH_KEY),
     )
     a_allowed, a_spend, a_cap = await enforcer.check_budget("tenant_a")
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "tenant_b")
+    enforcer = BudgetEnforcer(
+        asgi_app=econ_plane_app,
+        headers_provider=make_self_auth_headers_provider(_ZEROTH_KEY),
+    )
     b_allowed, _, b_cap = await enforcer.check_budget("tenant_b")
 
     assert a_allowed is False  # A is capped and over.
@@ -496,6 +549,7 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     assert RegulusSettings().enabled is True
 
     tenant = "g1_default_tenant"
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant)
     app = create_app(_GatedBootstrap())
 
     # Entering the TestClient runs the lifespan. The OLD guard raised RuntimeError
@@ -583,3 +637,44 @@ def test_costing_writes_require_econ_role() -> None:
             json=pricing,
         )
         assert authorized.status_code not in (401, 403)
+
+
+def test_mounted_reconciliation_requires_econ_auth_and_persists_claimed_tenant(
+    monkeypatch,
+) -> None:
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.costing.models import GroundTruthCost
+    from zeroth.econ.plane.database import SessionLocal
+
+    tenant_id = "mounted-reconciliation"
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant_id)
+    app = create_app(_GatedBootstrap())
+    body = {
+        "rows": [
+            {
+                "period_start": "2026-08-01T00:00:00Z",
+                "period_end": "2026-08-31T00:00:00Z",
+                "capability_id": "mounted-cap",
+                "component": "llm",
+                "amount_usd": 3.5,
+            }
+        ]
+    }
+
+    with TestClient(app) as client:
+        unauthenticated = client.post(
+            "/regulus/v1/reconciliation/ground-truth-import",
+            headers={"X-API-Key": _ZEROTH_KEY},
+            json=body,
+        )
+        authenticated = client.post(
+            "/regulus/v1/reconciliation/ground-truth-import",
+            headers=app.state.regulus_self_auth_headers(),
+            json=body,
+        )
+
+    assert unauthenticated.status_code in {401, 403}
+    assert authenticated.status_code == 200, authenticated.text
+    with SessionLocal() as db:
+        row = db.query(GroundTruthCost).filter(GroundTruthCost.capability_id == "mounted-cap").one()
+        assert row.tenant_id == tenant_id

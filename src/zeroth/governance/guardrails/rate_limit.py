@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from datetime import datetime
 
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ResourceOperation,
+    ScopedTable,
+    persistence_operation,
+)
+from zeroth.platform.storage.scoping import named_isolation_probe, persistence_surface
 
 
 def guardrail_identity_key(
@@ -29,17 +36,9 @@ def guardrail_identity_key(
     return f"guardrail:{kind}:v1:{digest}"
 
 
-def _for_update(backend: str) -> str:
-    """Row-lock suffix for the read side of a check-and-update.
-
-    ``write_lock=True`` gives SQLite an exclusive BEGIN IMMEDIATE, but on
-    PostgreSQL it only sets ``lock_timeout`` — the row itself must be locked with
-    ``SELECT ... FOR UPDATE`` (mirrors ``coordination.ensure_and_lock_row``).
-    """
-    return " FOR UPDATE" if backend == "postgres" else ""
-
-
-@dataclass(slots=True)
+@persistence_surface(
+    "service.rate_limit_buckets", probe=named_isolation_probe("_drive_rate_limit_buckets")
+)
 class TokenBucketRateLimiter:
     """Per-key token bucket backed by an async database.
 
@@ -48,8 +47,33 @@ class TokenBucketRateLimiter:
     if so, deducts it.  Returns True on success, False when the bucket is empty.
     """
 
-    database: AsyncDatabase
+    def __init__(self, database: AsyncDatabase) -> None:
+        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
 
+    def _bind(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
+        self.database = database
+        self.scope_context = scope_context
+        self._buckets = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.rate_limit_buckets", self.scope_context
+        )
+
+    @classmethod
+    def scoped(
+        cls, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext
+    ) -> TokenBucketRateLimiter:
+        if type(scope_context) is not NullWorkspaceScopeContext:
+            raise TypeError("scope_context must be a NullWorkspaceScopeContext")
+        instance = cls.__new__(cls)
+        instance._bind(database, scope_context)
+        return instance
+
+    @persistence_operation(ResourceOperation.READ)
+    async def get(self, bucket_key: str) -> dict[str, object] | None:
+        return await self._buckets.select_one(where={"bucket_key": bucket_key})
+
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def check_and_consume(
         self,
         bucket_key: str,
@@ -69,15 +93,14 @@ class TokenBucketRateLimiter:
         """
         now = utc_now()
         now_iso = now.isoformat()
-        lock = _for_update(self.database.backend)
         # write_lock serializes the read-modify-write. Without it two concurrent
         # callers interleave between the SELECT and the UPDATE and both consume the
         # same token, letting N requests through a capacity-1 bucket (audit S4).
-        async with self.database.transaction(write_lock=True) as conn:
-            row = await conn.fetch_one(
-                "SELECT token_count, last_refill_at FROM rate_limit_buckets "
-                f"WHERE bucket_key = ?{lock}",
-                (bucket_key,),
+        async with self._buckets.transaction(write_lock=True) as buckets:
+            row = await buckets.select_one(
+                where={"bucket_key": bucket_key},
+                columns=("token_count", "last_refill_at"),
+                for_update=True,
             )
             if row is None:
                 # Cold start: create the bucket full, then fall through to the
@@ -85,20 +108,22 @@ class TokenBucketRateLimiter:
                 # token exactly like every later one). ON CONFLICT DO NOTHING so
                 # concurrent first-requests can't collide on the UNIQUE key (a
                 # plain INSERT raised IntegrityError -> 500); re-read the locked row.
-                await conn.execute(
-                    """
-                    INSERT INTO rate_limit_buckets
-                        (bucket_key, token_count, last_refill_at, capacity, refill_rate)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(bucket_key) DO NOTHING
-                    """,
-                    (bucket_key, capacity, now_iso, capacity, refill_rate),
+                await buckets.insert_if_absent(
+                    {
+                        "bucket_key": bucket_key,
+                        "token_count": capacity,
+                        "last_refill_at": now_iso,
+                        "capacity": capacity,
+                        "refill_rate": refill_rate,
+                    },
+                    conflict_columns=("tenant_id", "bucket_key"),
                 )
-                row = await conn.fetch_one(
-                    "SELECT token_count, last_refill_at FROM rate_limit_buckets "
-                    f"WHERE bucket_key = ?{lock}",
-                    (bucket_key,),
+                row = await buckets.select_one(
+                    where={"bucket_key": bucket_key},
+                    columns=("token_count", "last_refill_at"),
+                    for_update=True,
                 )
+            assert row is not None
 
             last_refill = datetime.fromisoformat(row["last_refill_at"])
             elapsed = max(0.0, (now - last_refill).total_seconds())
@@ -106,22 +131,20 @@ class TokenBucketRateLimiter:
 
             if refilled < 1.0:
                 # Update tokens without consuming (no bucket should go negative).
-                await conn.execute(
-                    "UPDATE rate_limit_buckets"
-                    " SET token_count = ?, last_refill_at = ? WHERE bucket_key = ?",
-                    (refilled, now_iso, bucket_key),
+                await buckets.update(
+                    {"token_count": refilled, "last_refill_at": now_iso},
+                    where={"bucket_key": bucket_key},
                 )
                 return False
 
-            await conn.execute(
-                "UPDATE rate_limit_buckets"
-                " SET token_count = ?, last_refill_at = ? WHERE bucket_key = ?",
-                (refilled - 1.0, now_iso, bucket_key),
+            await buckets.update(
+                {"token_count": refilled - 1.0, "last_refill_at": now_iso},
+                where={"bucket_key": bucket_key},
             )
             return True
 
 
-@dataclass(slots=True)
+@persistence_surface("service.quota_counters", probe=named_isolation_probe("_drive_quota_counters"))
 class QuotaEnforcer:
     """Per-key rolling-window quota enforcer backed by an async database.
 
@@ -130,8 +153,33 @@ class QuotaEnforcer:
     increments it.  Returns True when within quota, False when exceeded.
     """
 
-    database: AsyncDatabase
+    def __init__(self, database: AsyncDatabase) -> None:
+        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
 
+    def _bind(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
+        self.database = database
+        self.scope_context = scope_context
+        self._counters = ScopedTable(
+            database, SERVICE_SCOPE_REGISTRY, "service.quota_counters", self.scope_context
+        )
+
+    @classmethod
+    def scoped(
+        cls, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext
+    ) -> QuotaEnforcer:
+        if type(scope_context) is not NullWorkspaceScopeContext:
+            raise TypeError("scope_context must be a NullWorkspaceScopeContext")
+        instance = cls.__new__(cls)
+        instance._bind(database, scope_context)
+        return instance
+
+    @persistence_operation(ResourceOperation.READ)
+    async def get(self, counter_key: str) -> dict[str, object] | None:
+        return await self._counters.select_one(where={"counter_key": counter_key})
+
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def check_and_increment(
         self,
         counter_key: str,
@@ -151,15 +199,14 @@ class QuotaEnforcer:
         """
         now = utc_now()
         now_iso = now.isoformat()
-        lock = _for_update(self.database.backend)
         # write_lock serializes the check-and-increment. Without it two concurrent
         # requests at value=limit-1 both pass the ceiling check and both increment,
         # silently overshooting the daily quota (audit S3).
-        async with self.database.transaction(write_lock=True) as conn:
-            row = await conn.fetch_one(
-                "SELECT value, window_start, window_seconds"
-                f" FROM quota_counters WHERE counter_key = ?{lock}",
-                (counter_key,),
+        async with self._counters.transaction(write_lock=True) as counters:
+            row = await counters.select_one(
+                where={"counter_key": counter_key},
+                columns=("value", "window_start", "window_seconds"),
+                for_update=True,
             )
             if row is None:
                 # Cold start: create the counter at zero, then fall through to the
@@ -167,33 +214,43 @@ class QuotaEnforcer:
                 # and gated exactly like every later one). ON CONFLICT DO NOTHING so
                 # concurrent first-requests can't collide on the UNIQUE key; re-read
                 # the locked row.
-                await conn.execute(
-                    "INSERT INTO quota_counters"
-                    " (counter_key, value, window_start, window_seconds) VALUES (?, 0, ?, ?)"
-                    " ON CONFLICT(counter_key) DO NOTHING",
-                    (counter_key, now_iso, window_seconds),
+                await counters.insert_if_absent(
+                    {
+                        "counter_key": counter_key,
+                        "value": 0,
+                        "window_start": now_iso,
+                        "window_seconds": window_seconds,
+                    },
+                    conflict_columns=("tenant_id", "counter_key"),
                 )
-                row = await conn.fetch_one(
-                    "SELECT value, window_start, window_seconds"
-                    f" FROM quota_counters WHERE counter_key = ?{lock}",
-                    (counter_key,),
+                row = await counters.select_one(
+                    where={"counter_key": counter_key},
+                    columns=("value", "window_start", "window_seconds"),
+                    for_update=True,
                 )
+            assert row is not None
 
             window_start = datetime.fromisoformat(row["window_start"])
             if (now - window_start).total_seconds() > row["window_seconds"]:
                 # Window expired: reset.
-                await conn.execute(
-                    "UPDATE quota_counters"
-                    " SET value = 1, window_start = ?, window_seconds = ? WHERE counter_key = ?",
-                    (now_iso, window_seconds, counter_key),
+                await counters.update(
+                    {"value": 1, "window_start": now_iso, "window_seconds": window_seconds},
+                    where={"counter_key": counter_key},
                 )
                 return True
 
             if row["value"] >= limit:
                 return False
 
-            await conn.execute(
-                "UPDATE quota_counters SET value = value + 1 WHERE counter_key = ?",
-                (counter_key,),
+            await counters.update(
+                {"value": int(row["value"]) + 1}, where={"counter_key": counter_key}
             )
             return True
+
+
+# These two constructors predate postponed annotations and their immutable public
+# signatures therefore expose the real ``None`` singleton rather than the string
+# produced by ``from __future__ import annotations``. Preserve that exact surface
+# while keeping the module's annotations postponed everywhere else.
+TokenBucketRateLimiter.__init__.__annotations__["return"] = None
+QuotaEnforcer.__init__.__annotations__["return"] = None

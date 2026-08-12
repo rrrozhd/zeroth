@@ -21,15 +21,19 @@ from zeroth.governance.retention.coordination import RetentionCoordinator
 from zeroth.governance.retention.claims import CleanupClaims
 from zeroth.governance.retention.errors import StaleCleanupClaimError
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
+from zeroth.platform.storage import NullWorkspaceScopeContext
+
+
+DEFAULT_SCOPE = NullWorkspaceScopeContext.for_default_compatibility()
 
 
 @pytest.fixture
 def claims(env) -> CleanupClaims:
     """A collaborator wired to the same database as the service under test."""
     return CleanupClaims(
-        coordinator=RetentionCoordinator(env.database),
+        coordinator=RetentionCoordinator(env.database, DEFAULT_SCOPE),
         log=env.log_repo,
-        cleanup_state=CleanupStateRepository(),
+        cleanup_state=CleanupStateRepository(env.database, DEFAULT_SCOPE),
         lease_seconds=30.0,
         replay=replay_cleanup_state,
     )
@@ -87,9 +91,9 @@ async def test_the_injected_replay_is_what_materializes_a_legacy_row(env, claims
         return replay_cleanup_state(authorization, entries)
 
     injected = CleanupClaims(
-        coordinator=RetentionCoordinator(env.database),
+        coordinator=RetentionCoordinator(env.database, DEFAULT_SCOPE),
         log=env.log_repo,
-        cleanup_state=CleanupStateRepository(),
+        cleanup_state=CleanupStateRepository(env.database, DEFAULT_SCOPE),
         lease_seconds=30.0,
         replay=recording_replay,
     )
@@ -109,9 +113,9 @@ async def test_a_materialized_row_is_read_without_replaying_the_log(env, claims)
         raise AssertionError("replay must not run when the state row exists")
 
     injected = CleanupClaims(
-        coordinator=RetentionCoordinator(env.database),
+        coordinator=RetentionCoordinator(env.database, DEFAULT_SCOPE),
         log=env.log_repo,
-        cleanup_state=CleanupStateRepository(),
+        cleanup_state=CleanupStateRepository(env.database, DEFAULT_SCOPE),
         lease_seconds=30.0,
         replay=exploding_replay,
     )

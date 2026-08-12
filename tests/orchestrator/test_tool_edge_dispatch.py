@@ -131,7 +131,7 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
         input_model=NumberInput,
         output_model=NumberOutput,
     )
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(NumberInput, name="contract://number-in")
     await contract_registry.register(NumberOutput, name="contract://number-out")
 
@@ -155,8 +155,8 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
     assert attachments[0].parameters_schema["properties"]["value"]["type"] == "integer"
 
     orchestrator = RuntimeOrchestrator(
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
     )
@@ -168,7 +168,7 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
     # The attached unit ran inside the agent turn, not as a graph step.
     assert [entry.node_id for entry in run.execution_history] == ["agent"]
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     tool_calls = audits[0].tool_calls
     assert len(tool_calls) == 1

@@ -51,6 +51,12 @@ auth — independent of Zeroth's. Set at least:
 ```bash
 ECP_DATABASE_URL=sqlite+pysqlite:////var/lib/zeroth/econ_plane.db
 ECP_JWT_SECRET=<a-strong-secret>
+ECP_SERVICE_PRINCIPAL_TENANT_ID=<the-tenant-served-by-this-instance>
+# Optional workspace partition and identity metadata:
+ECP_SERVICE_PRINCIPAL_WORKSPACE_ID=<workspace-id>
+ECP_SERVICE_PRINCIPAL_SUBJECT=zeroth-service
+ECP_SERVICE_PRINCIPAL_EMAIL=zeroth-service@example.com
+ECP_SERVICE_PRINCIPAL_ROLES=Admin
 ```
 
 ## Topology A — in-process mount (recommended)
@@ -95,6 +101,7 @@ services:
     command: uvicorn zeroth.econ.plane.main:app --host 0.0.0.0 --port 8000
     environment:
       ECP_JWT_SECRET: "${ECP_JWT_SECRET}"
+      ECP_SERVICE_PRINCIPAL_TENANT_ID: "${TENANT_ID}"
 ```
 
 ## Verify
@@ -121,13 +128,32 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
   self-calls carry only the Bearer; in the gated in-process topology that yields
   `401` → fail-open (events drop), so configure a service key for in-process use.
   (`ZEROTH_REGULUS__API_KEY` remains unused — the bundled flow does not need it.)
+- **Trusted tenant claims.** The internal JWT takes its subject, roles,
+  tenant, and optional workspace only from the `ECP_SERVICE_PRINCIPAL_*`
+  settings above. Protected persistence is bound to those claims. A body,
+  query parameter, or event-metadata tenant must match; it cannot select a
+  different tenant.
+- **Standalone token issuer.** `POST /v1/auth/token` is absent by default. For
+  deliberately insecure local compatibility only,
+  `ECP_INSECURE_PUBLIC_TOKEN_ISSUER_ENABLED=true` exposes the legacy issuer.
+  Never enable it in a shared or production environment. It remains restricted
+  to subjects already provisioned in the asserted tenant; request-selected
+  roles are accepted only because the flag explicitly opts into the legacy
+  development behavior.
+- **Resource scope.** Operational data is tenant-scoped. The only global shared
+  references are roles, user-role links, pricing catalog, and tool-pricing
+  catalog. Authorization (G02) grants an operation; structural tenancy (G04)
+  limits the rows that operation can reach.
 - **Reaching `/regulus` externally** requires Zeroth's `X-API-Key` (no bypass);
   econ's open token issuer is therefore *not* internet-exposed by enabling the
   mount.
 - **Settings isolation.** Zeroth uses the `ZEROTH_` prefix; the bundled backend
   uses `ECP_`. They do not collide.
-- **Migrations.** SQLite needs none (schema is created at startup). The Alembic
-  chain under `src/zeroth/econ/plane/_migrations` is for offline Postgres ops only.
+- **Migrations.** Startup compatibility handles SQLite. Managed deployments
+  should apply the Alembic chain under `src/zeroth/econ/plane/_migrations`;
+  revision `20260811_04` backfills historical auth subjects to the reserved
+  `default` tenant, makes `users.tenant_id` non-null, and adds the optional
+  workspace column.
 
 ## Related references
 

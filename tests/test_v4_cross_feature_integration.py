@@ -140,7 +140,7 @@ def _make_orchestrator(
 ) -> RuntimeOrchestrator:
     """Build a RuntimeOrchestrator with cross-feature config."""
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=agent_runners,
         executable_unit_runner=ExecutableUnitRunner(),
         audit_repository=audit_repository,

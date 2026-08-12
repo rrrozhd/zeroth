@@ -134,7 +134,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        run = await bootstrap.run_repository.get(resolved.run_id, tenant_id=deployment.tenant_id)
+        run = await bootstrap.run_repository.get(resolved.run_id)
         if run is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
 
@@ -160,9 +160,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
 
                     for _ in range(100):  # up to ~5 s
                         await _asyncio.sleep(0.05)
-                        current = await bootstrap.run_repository.get(
-                            run.run_id, tenant_id=deployment.tenant_id
-                        )
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None and current.status not in {
                             RunStatus.PENDING,
                             RunStatus.RUNNING,
@@ -170,9 +168,7 @@ def register_approval_routes(app: FastAPI | APIRouter) -> None:
                             run = current
                             break
                     else:
-                        current = await bootstrap.run_repository.get(
-                            run.run_id, tenant_id=deployment.tenant_id
-                        )
+                        current = await bootstrap.run_repository.get(run.run_id)
                         if current is not None:
                             run = current
                 else:

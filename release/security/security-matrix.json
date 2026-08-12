@@ -69,10 +69,10 @@
       ],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_read_foreign_matches_unknown",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_write_foreign_matches_unknown",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_enumerate_matches_empty_unknown_tenant",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_delete_foreign_matches_unknown"
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:read]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:update]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:enumerate]",
+        "tests/service/test_studio_workspace_isolation.py::test_same_tenant_other_workspace_cannot_operate_on_workflows"
       ]
     },
     {
@@ -83,9 +83,9 @@
       ],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_read_foreign_matches_unknown",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_enumerate_matches_empty_unknown_scope",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_create_collision_preserves_owner"
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.deployment_versions:read]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.deployment_versions:enumerate]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.deployment_versions:create]"
       ]
     },
     {
@@ -109,8 +109,8 @@
       ],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/integrations/persistence/runs/test_run_repository.py::test_create_rejects_foreign_tenant_same_id_without_overwriting_owner",
-        "tests/integrations/persistence/runs/test_run_repository.py::test_racing_tenants_get_exactly_one_same_run_id_winner",
+        "tests/integrations/persistence/runs/test_run_repository.py::test_create_preserves_both_owners_when_tenants_share_a_run_id",
+        "tests/integrations/persistence/runs/test_run_repository.py::test_racing_tenants_can_create_the_same_run_id",
         "tests/integrations/persistence/runs/test_run_repository.py::test_replayed_same_run_id_is_refused_without_mutating_owner"
       ]
     },
@@ -198,9 +198,9 @@
       ],
       "coverage": "behavioral",
       "test_nodes": [
-        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_enumerate_matches_empty_unknown_tenant",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_write_collision_preserves_owner",
-        "tests/service/test_cross_tenant_leak_matrix.py::test_connector_delete_foreign_matches_unknown",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.memory_connector_configs:enumerate]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.memory_connector_configs:update]",
+        "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.memory_connector_configs:delete]",
         "tests/security/test_api_surface_isolation.py::test_connector_enumerate_api_foreign_matches_unknown_tenant",
         "tests/security/test_api_surface_isolation.py::test_connector_write_api_foreign_matches_unknown_tenant",
         "tests/security/test_api_surface_isolation.py::test_connector_delete_api_foreign_id_matches_unknown"
@@ -400,8 +400,8 @@
   ],
   "claims": {
     "protected_surfaces": {
-      "workflows": "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_read_foreign_matches_unknown",
-      "deployments": "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_read_foreign_matches_unknown",
+      "workflows": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:read]",
+      "deployments": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.deployment_versions:read]",
       "runs": "tests/security/test_api_surface_isolation.py::test_run_read_api_foreign_id_matches_unknown",
       "threads": "tests/integrations/persistence/runs/test_thread_repository.py::test_scoped_get_hides_foreign_thread_like_unknown",
       "artifacts": "tests/artifacts/test_tenant_scoped_store.py::test_artifact_read_foreign_matches_unknown",
@@ -416,16 +416,16 @@
       "execution-results": "tests/security/test_api_surface_isolation.py::test_execution_result_api_foreign_id_matches_unknown"
     },
     "operations": {
-      "read": "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_read_foreign_matches_unknown",
-      "write": "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_write_foreign_matches_unknown",
+      "read": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:read]",
+      "write": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:update]",
       "execute": "tests/security/test_api_surface_isolation.py::test_run_execute_api_foreign_matches_unknown_tenant",
-      "enumerate": "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_enumerate_matches_empty_unknown_tenant",
+      "enumerate": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.graph_versions:enumerate]",
       "approve": "tests/security/test_api_surface_isolation.py::test_approval_resolve_api_foreign_id_matches_unknown",
       "retrieve": "tests/artifacts/test_tenant_scoped_store.py::test_artifact_retrieve_foreign_matches_unknown",
-      "delete": "tests/service/test_cross_tenant_leak_matrix.py::test_workflow_delete_foreign_matches_unknown"
+      "delete": "tests/service/test_studio_workspace_isolation.py::test_same_tenant_other_workspace_cannot_operate_on_workflows"
     },
     "persistence_boundaries": {
-      "SQL": "tests/service/test_cross_tenant_leak_matrix.py::test_deployment_create_collision_preserves_owner",
+      "SQL": "tests/service/test_cross_tenant_leak_matrix.py::test_registry_generated_cross_tenant_case[service.deployment_versions:create]",
       "Redis": "tests/security/distributed/test_redis_memory_isolation.py::test_security_rc_memory_same_key_isolated_after_client_reconnect[redis-kv]",
       "artifact-store": "tests/artifacts/test_tenant_scoped_store.py::test_artifact_write_same_key_is_scoped",
       "LangGraph-checkpointer": "tests/agent_runtime/test_thread_store.py::test_thread_state_checkpoint_owner_survives_shadow_id_and_restart",

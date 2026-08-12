@@ -1,77 +1,556 @@
-"""WS-B: THE cross-tenant leak matrix — the falsifiable isolation proof.
-
-Each dimension is exercised at the layer where enforcement actually lives:
-
-* memory (SHARED scope)      — connector/resolver: write as A, read as B -> None
-* graphs                     — studio API: foreign-tenant graph_id -> 404
-* deployments                — repository: tenant-scoped get/list
-* audits                     — AuditQuery: tenant filter on node_audits
-* memory connector configs   — repository: A's DSN-bearing ref invisible to B
-* runs                       — repository defense-in-depth (the API 404 path is
-                               covered by tests/service/test_tenant_isolation.py)
-
-"Write as A / read as B -> denied" is the shape of every case.
-"""
+"""Registry-generated cross-tenant isolation proof for physical resources."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
+import httpx
+import sqlite3
+import tempfile
+from pathlib import Path
+import importlib
+import pkgutil
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from zeroth.integrations.memory.governed.models import MemoryScope
+from sqlalchemy import ForeignKey, String, create_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.graph.test_models import build_graph
-from tests.service.helpers import approval_resume_graph, deploy_service
-from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
-from zeroth.service.deployments.repository import SQLiteDeploymentRepository
+from tests.service.cross_tenant_resource_factory import (
+    exercise_relational_case,
+    exercise_sqlalchemy_case,
+    generated_cross_tenant_cases,
+    generated_sqlalchemy_cases,
+    physical_table_names,
+    seed_sqlalchemy_mapping,
+    validate_resource_inventory,
+)
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
-from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
-from zeroth.integrations.memory.models import ConnectorManifest
-from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
-from zeroth.runtime.runs import Run
-from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    ResourceOperation,
+    ResourceScopeDefinition,
+    ResourceScopeRegistry,
+)
 from zeroth.service.api.studio_api import router as studio_router
+from zeroth.service.bootstrap.migrations import run_migrations
+from zeroth.platform.artifacts.errors import ArtifactNotFoundError
+from zeroth.platform.artifacts.store import FilesystemArtifactStore
+from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+from zeroth.platform.secrets.vault import TenantScopedVaultDriver, VaultSecretProvider
+from zeroth.platform.storage.scoped_resource import ScopedResourceDriver
+from zeroth.econ.plane import __path__ as econ_plane_paths
+from zeroth.econ.plane.database import Base as EconBase
+from zeroth.econ.plane import scoped_session as scoped_session_module
+from zeroth.platform.storage.scoped_table import _StructuredTable
+from zeroth.platform.storage.service_surfaces import (
+    executable_probe_for,
+    load_service_persistence_surfaces,
+    surface_operation_pairs,
+)
+from zeroth.platform.storage import validate_persistence_surface
 
-# ---------------------------------------------------------------------------
-# memory — SHARED scope, resolver singleton, one physical connector
-# ---------------------------------------------------------------------------
 
-
-@pytest.mark.asyncio
-async def test_memory_shared_scope_does_not_leak() -> None:
-    raw = KeyValueMemoryConnector()
-    registry = InMemoryConnectorRegistry()
-    registry.register(
-        "memory://kv",
-        ConnectorManifest(connector_type="key_value", scope=MemoryScope.SHARED),
-        raw,
+def _econ_models() -> tuple[type, ...]:
+    for module in pkgutil.walk_packages(econ_plane_paths, prefix="zeroth.econ.plane."):
+        if module.name.endswith(".models"):
+            importlib.import_module(module.name)
+    return tuple(
+        mapper.class_
+        for mapper in EconBase.registry.mappers
+        if mapper.class_.__module__.startswith("zeroth.econ.plane.")
+        and mapper.class_.__module__.endswith(".models")
     )
-    resolver = MemoryConnectorResolver(registry=registry, workflow_name="wf")
-
-    a = (await resolver.resolve(["memory://kv"], runtime_context={"tenant_id": "tenant-a"}))[
-        0
-    ].connector
-    b = (await resolver.resolve(["memory://kv"], runtime_context={"tenant_id": "tenant-b"}))[
-        0
-    ].connector
-
-    await a.write("k", {"v": "a"}, MemoryScope.SHARED)
-    assert await b.read("k", MemoryScope.SHARED) is None
-    assert await b.search({"text": "a"}, MemoryScope.SHARED) == []
 
 
-# ---------------------------------------------------------------------------
-# graphs — studio API returns 404 (no existence disclosure) across tenants
-# ---------------------------------------------------------------------------
+_ECON_MODELS = _econ_models()
+_ECON_COLLECTION_ENGINE = create_engine("sqlite://")
+EconBase.metadata.create_all(_ECON_COLLECTION_ENGINE)
+ECON_CASES = generated_sqlalchemy_cases(_ECON_MODELS, _ECON_COLLECTION_ENGINE)
+
+_SERVICE_SCHEMA_DIRECTORY = tempfile.TemporaryDirectory(prefix="zeroth-cross-tenant-matrix-")
+_SERVICE_SCHEMA_PATH = Path(_SERVICE_SCHEMA_DIRECTORY.name) / "service.db"
+run_migrations(f"sqlite:///{_SERVICE_SCHEMA_PATH}")
+with sqlite3.connect(_SERVICE_SCHEMA_PATH) as _connection:
+    _SERVICE_PHYSICAL_TABLES = {
+        str(row[0])
+        for row in _connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+SERVICE_CASES = generated_cross_tenant_cases(SERVICE_SCOPE_REGISTRY, _SERVICE_PHYSICAL_TABLES)
+SERVICE_SURFACES = load_service_persistence_surfaces()
+SERVICE_REPOSITORY_PAIRS = surface_operation_pairs(SERVICE_SURFACES)
 
 
+def test_physical_resource_registration_generates_crud_parameter_ids_without_case_edit() -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+
+    ids = {case.parameter_id for case in generated_sqlalchemy_cases([Widget], engine)}
+
+    assert ids == {f"meta.widgets:{operation.value}" for operation in ResourceOperation}
+    executed: set[str] = set()
+    for operation in ResourceOperation:
+        case_engine = create_engine("sqlite://")
+        MetaBase.metadata.create_all(case_engine)
+        case = next(
+            item
+            for item in generated_sqlalchemy_cases([Widget], case_engine)
+            if item.operation is operation
+        )
+        exercise_sqlalchemy_case(case_engine, case)
+        executed.add(case.parameter_id)
+    assert executed == ids
+
+
+def test_temporary_mapper_execution_detects_a_broken_read_predicate(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_execution_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.execution_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.READ
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_seed_generation_recursively_satisfies_foreign_keys() -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Parent(MetaBase):
+        __tablename__ = "meta_parents"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.parents",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        parent_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    class Child(MetaBase):
+        __tablename__ = "meta_children"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.children",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        child_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+        parent_id: Mapped[str] = mapped_column(ForeignKey("meta_parents.parent_id"))
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    values = seed_sqlalchemy_mapping(engine, Child, tenant_id="tenant-a", token="child")
+
+    assert values["parent_id"] == "matrix-child-parent_id"
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Parent, Child], engine)
+        if item.definition.resource_name == "meta.children"
+        and item.operation is ResourceOperation.READ
+    )
+    exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_create_case_detects_disabled_ownership_injection(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_create_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.create_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.CREATE
+    )
+    monkeypatch.setattr(scoped_session_module, "_fill_or_verify", lambda *args, **kwargs: None)
+
+    with pytest.raises(IntegrityError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_update_case_detects_disabled_tenant_predicate(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_update_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.update_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.UPDATE
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (ResourceOperation.READ, ResourceOperation.ENUMERATE, ResourceOperation.DELETE),
+    ids=lambda operation: operation.value,
+)
+def test_sqlalchemy_query_case_detects_disabled_tenant_predicate(operation, monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_query_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.query_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item for item in generated_sqlalchemy_cases([Widget], engine) if item.operation is operation
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_create_case_requires_a_retrievable_foreign_row() -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_create_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.create_widgets",
+            table_name=__tablename__,
+            operations=frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+        )
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.CREATE
+    )
+
+    exercise_sqlalchemy_case(engine, case)
+
+
+@pytest.mark.parametrize("operation", list(ResourceOperation), ids=lambda item: item.value)
+async def test_scoped_child_crud_uses_server_generated_composite_parent_key(
+    tmp_path, operation
+) -> None:
+    from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+
+    database = AsyncSQLiteDatabase(str(tmp_path / f"generated-fk-{operation.value}.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE generated_parents (
+                tenant_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+                PRIMARY KEY (tenant_id, parent_id)
+            );
+            CREATE TABLE generated_children (
+                tenant_id TEXT NOT NULL,
+                child_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, child_id),
+                FOREIGN KEY (tenant_id, parent_id)
+                    REFERENCES generated_parents (tenant_id, parent_id)
+            );
+            """
+        )
+    definitions = (
+        ResourceScopeDefinition(
+            resource_name="meta.generated_parents",
+            table_name="generated_parents",
+            operations=frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+        ),
+        ResourceScopeDefinition(
+            resource_name="meta.generated_children",
+            table_name="generated_children",
+            operations=frozenset(ResourceOperation),
+        ),
+    )
+    registry = ResourceScopeRegistry(definitions)
+    case = next(
+        item
+        for item in generated_cross_tenant_cases(
+            registry, {"generated_parents", "generated_children"}
+        )
+        if item.definition.resource_name == "meta.generated_children"
+        and item.operation is operation
+    )
+
+    await exercise_relational_case(database, registry, case)
+    async with database.transaction() as connection:
+        generated_parent = await connection.fetch_one(
+            "SELECT parent_id FROM generated_parents WHERE tenant_id = ? LIMIT 1",
+            ("matrix-owner",),
+        )
+    assert generated_parent is not None
+    assert generated_parent["parent_id"]
+
+
+def test_definition_without_physical_resource_fails_inventory() -> None:
+    registry = ResourceScopeRegistry(
+        [
+            ResourceScopeDefinition(
+                resource_name="meta.bare",
+                table_name="missing_table",
+                operations=frozenset({ResourceOperation.READ}),
+            )
+        ]
+    )
+
+    with pytest.raises(AssertionError, match="missing physical tenant resources"):
+        validate_resource_inventory(registry, set())
+
+
+async def test_registry_matches_physical_service_inventory(async_database) -> None:
+    validate_resource_inventory(SERVICE_SCOPE_REGISTRY, await physical_table_names(async_database))
+
+
+def test_non_relational_production_drivers_expose_immutable_real_operation_sets(tmp_path) -> None:
+    artifact = TenantScopedArtifactStore(FilesystemArtifactStore(tmp_path), tenant_id="tenant-a")
+    vault = TenantScopedVaultDriver(
+        VaultSecretProvider(
+            addr="https://vault.test",
+            token="token",
+            transport=httpx.MockTransport(lambda _: httpx.Response(404)),
+        ),
+        tenant_id="tenant-a",
+    )
+
+    assert isinstance(artifact, ScopedResourceDriver)
+    assert isinstance(vault, ScopedResourceDriver)
+    assert set(artifact.operations) == {
+        ResourceOperation.CREATE,
+        ResourceOperation.READ,
+        ResourceOperation.UPDATE,
+        ResourceOperation.DELETE,
+    }
+    assert set(vault.operations) == {ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    with pytest.raises(TypeError):
+        artifact.operations[ResourceOperation.READ] = artifact.retrieve  # type: ignore[index]
+
+
+async def test_artifact_scoped_resource_driver_invokes_production_methods(tmp_path) -> None:
+    backend = FilesystemArtifactStore(tmp_path)
+    owner = TenantScopedArtifactStore(backend, tenant_id="tenant-a")
+    foreign = TenantScopedArtifactStore(backend, tenant_id="tenant-b")
+
+    await owner.operations[ResourceOperation.CREATE]("run/key", b"owner", "text/plain")
+    assert await owner.operations[ResourceOperation.READ]("run/key") == b"owner"
+    assert await owner.operations[ResourceOperation.UPDATE]("run/key", 120) is True
+    with pytest.raises(ArtifactNotFoundError):
+        await foreign.operations[ResourceOperation.READ]("run/key")
+    assert (
+        await foreign.operations[ResourceOperation.DELETE](
+            "run/key", idempotency_key="foreign-delete"
+        )
+        is False
+    )
+    assert await owner.retrieve("run/key") == b"owner"
+
+
+async def test_vault_scoped_resource_driver_invokes_bound_production_methods() -> None:
+    values = {
+        "/v1/secret/data/tenants/tenant-a/shared": "owner",
+        "/v1/secret/data/tenants/tenant-b/shared": "foreign",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        value = values.get(request.url.path)
+        return (
+            httpx.Response(404)
+            if value is None
+            else httpx.Response(200, json={"data": {"data": {"value": value}}})
+        )
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test", token="token", async_transport=httpx.MockTransport(handler)
+    )
+    owner = TenantScopedVaultDriver(provider, tenant_id="tenant-a")
+    foreign = TenantScopedVaultDriver(provider, tenant_id="tenant-b")
+    try:
+        assert await owner.operations[ResourceOperation.READ]("shared") == "owner"
+        assert await foreign.operations[ResourceOperation.READ]("shared") == "foreign"
+        assert await foreign.operations[ResourceOperation.ENUMERATE](["shared", "missing"]) == {
+            "shared": "foreign"
+        }
+    finally:
+        await provider.aclose()
+
+
+@pytest.mark.parametrize("case", SERVICE_CASES, ids=lambda case: case.parameter_id)
+async def test_registry_generated_cross_tenant_case(async_database, case) -> None:
+    await _exercise_service_case(async_database, case)
+
+
+async def _exercise_service_case(database, case) -> None:
+    pair = (case.definition.resource_name, case.operation)
+    probe = executable_probe_for(SERVICE_SURFACES, *pair)
+    await probe(database, operation=case.operation)
+
+
+def test_production_repository_surfaces_match_registry_and_public_metadata() -> None:
+    for surface in SERVICE_SURFACES:
+        definition = SERVICE_SCOPE_REGISTRY.definition_for_resource(surface.resource_name)
+        validate_persistence_surface(surface, definition)
+    assert {
+        (case.definition.resource_name, case.operation) for case in SERVICE_CASES
+    } == SERVICE_REPOSITORY_PAIRS
+
+
+def test_repository_driver_completeness_rejects_a_missing_probe(monkeypatch) -> None:
+    case = next(
+        case
+        for case in SERVICE_CASES
+        if (case.definition.resource_name, case.operation) in SERVICE_REPOSITORY_PAIRS
+    )
+    surfaces = tuple(
+        item for item in SERVICE_SURFACES if item.resource_name != case.definition.resource_name
+    )
+    with pytest.raises(AssertionError, match="exactly one executable probe"):
+        executable_probe_for(surfaces, case.definition.resource_name, case.operation)
+
+
+@pytest.mark.parametrize("case", ECON_CASES, ids=lambda case: case.parameter_id)
+def test_registry_generated_sqlalchemy_cross_tenant_case(case) -> None:
+    engine = create_engine("sqlite://")
+    EconBase.metadata.create_all(engine)
+    exercise_sqlalchemy_case(engine, case)
+
+
+@pytest.mark.parametrize("operation", list(ResourceOperation), ids=lambda item: item.value)
+async def test_each_disabled_gateway_predicate_is_detected(
+    tmp_path, operation, monkeypatch
+) -> None:
+    from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+
+    database = AsyncSQLiteDatabase(str(tmp_path / f"mutation-{operation.value}.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            CREATE TABLE matrix_rows (
+                row_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, row_id)
+            );
+            """
+        )
+    definition = ResourceScopeDefinition(
+        resource_name="meta.matrix_rows",
+        table_name="matrix_rows",
+        operations=frozenset(ResourceOperation),
+    )
+    registry = ResourceScopeRegistry([definition])
+    case = next(
+        item
+        for item in generated_cross_tenant_cases(registry, {"matrix_rows"})
+        if item.operation is operation
+    )
+
+    if operation is ResourceOperation.CREATE:
+        original_validate = _StructuredTable._validate_values
+
+        def without_create_binding(self, values, *, create, definition):
+            return original_validate(self, values, create=False, definition=definition)
+
+        monkeypatch.setattr(_StructuredTable, "_validate_values", without_create_binding)
+    else:
+        original_where = _StructuredTable._where
+
+        def without_scope(self, where, *, qualifier=None, include_scope=True, definition):
+            return original_where(
+                self,
+                where,
+                qualifier=qualifier,
+                include_scope=False,
+                definition=definition,
+            )
+
+        monkeypatch.setattr(_StructuredTable, "_where", without_scope)
+
+    expected_failure = Exception if operation is ResourceOperation.CREATE else AssertionError
+    match = "tenant_id" if operation is ResourceOperation.CREATE else None
+    with pytest.raises(expected_failure, match=match):
+        await exercise_relational_case(database, registry, case)
+
+
+# API masking remains supplemental: the generated matrix proves persistence
+# boundaries, while these cases prove the public surface does not disclose
+# whether a hidden workflow exists.
 def _studio_app(repo: GraphRepository, tenant_id: str) -> FastAPI:
     app = FastAPI()
-    bootstrap = type("B", (), {})()
+    bootstrap = type("Bootstrap", (), {})()
     bootstrap.graph_repository = repo
     bootstrap.audit_repository = None
     app.state.bootstrap = bootstrap
@@ -91,313 +570,42 @@ def _studio_app(repo: GraphRepository, tenant_id: str) -> FastAPI:
     return app
 
 
-@pytest.mark.asyncio
-async def test_graph_foreign_tenant_is_404_across_studio_api(sqlite_db) -> None:
-    repo = GraphRepository(sqlite_db)
-    app_a = _studio_app(repo, "tenant-a")
-    app_b = _studio_app(repo, "tenant-b")
-
-    with TestClient(app_a) as client_a, TestClient(app_b) as client_b:
-        created = client_a.post("/api/studio/v1/workflows", json={"name": "A's flow"})
-        assert created.status_code == 201
-        graph_id = created.json()["id"]
-
-        # Owner can read it; the other tenant gets 404 (not 403 — no disclosure).
-        assert client_a.get(f"/api/studio/v1/workflows/{graph_id}").status_code == 200
-        foreign = client_b.get(f"/api/studio/v1/workflows/{graph_id}")
-        assert foreign.status_code == 404
-
-        # And it never appears in tenant B's listing.
-        b_list = client_b.get("/api/studio/v1/workflows").json()
-        assert all(item["id"] != graph_id for item in b_list)
-        # Foreign-tenant publish/delete/clone are equally hidden.
-        assert client_b.post(f"/api/studio/v1/workflows/{graph_id}/publish").status_code == 404
-        assert client_b.delete(f"/api/studio/v1/workflows/{graph_id}").status_code == 404
-
-
 def _assert_masked(foreign, unknown) -> None:
     assert foreign.status_code == unknown.status_code == 404
     assert foreign.json() == unknown.json()
 
 
-@pytest.mark.asyncio
-async def test_workflow_read_foreign_matches_unknown(sqlite_db) -> None:
+@pytest.mark.parametrize("operation", ["read", "update", "delete"])
+async def test_workflow_foreign_identity_matches_unknown(sqlite_db, operation) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+    ):
         graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
+        if operation == "read":
+            request = foreign.get
+        elif operation == "update":
+
+            def request(path: str):
+                return foreign.post(f"{path}/publish")
+        else:
+            request = foreign.delete
         _assert_masked(
-            foreign.get(f"/api/studio/v1/workflows/{graph_id}"),
-            foreign.get("/api/studio/v1/workflows/unknown-workflow"),
+            request(f"/api/studio/v1/workflows/{graph_id}"),
+            request("/api/studio/v1/workflows/unknown-workflow"),
         )
 
 
-@pytest.mark.asyncio
-async def test_workflow_write_foreign_matches_unknown(sqlite_db) -> None:
+async def test_workflow_foreign_enumeration_matches_unknown_tenant(sqlite_db) -> None:
     repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
-        graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
-        _assert_masked(
-            foreign.post(f"/api/studio/v1/workflows/{graph_id}/publish"),
-            foreign.post("/api/studio/v1/workflows/unknown-workflow/publish"),
-        )
-
-
-@pytest.mark.asyncio
-async def test_workflow_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
-    repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign, TestClient(_studio_app(repo, "tenant-unknown")) as unknown:
+    with (
+        TestClient(_studio_app(repo, "tenant-a")) as owner,
+        TestClient(_studio_app(repo, "tenant-b")) as foreign,
+        TestClient(_studio_app(repo, "tenant-unknown")) as unknown,
+    ):
         owner.post("/api/studio/v1/workflows", json={"name": "private"})
-        assert foreign.get("/api/studio/v1/workflows").json() == unknown.get(
-            "/api/studio/v1/workflows"
-        ).json()
-
-
-@pytest.mark.asyncio
-async def test_workflow_delete_foreign_matches_unknown(sqlite_db) -> None:
-    repo = GraphRepository(sqlite_db)
-    with TestClient(_studio_app(repo, "tenant-a")) as owner, TestClient(
-        _studio_app(repo, "tenant-b")
-    ) as foreign:
-        graph_id = owner.post("/api/studio/v1/workflows", json={"name": "private"}).json()["id"]
-        _assert_masked(
-            foreign.delete(f"/api/studio/v1/workflows/{graph_id}"),
-            foreign.delete("/api/studio/v1/workflows/unknown-workflow"),
+        assert (
+            foreign.get("/api/studio/v1/workflows").json()
+            == unknown.get("/api/studio/v1/workflows").json()
         )
-
-
-@pytest.mark.asyncio
-async def test_cloned_draft_stays_owned_by_source_tenant(sqlite_db) -> None:
-    # The clone path routes through clone_graph_version + save; a dropped tenant
-    # would land the clone under 'default' and leak it to a shared-backend
-    # default/other tenant. Prove the clone keeps its source tenant.
-    repo = GraphRepository(sqlite_db)
-    await repo.save(build_graph().model_copy(update={"graph_id": "g-clone"}), tenant_id="tenant-a")
-    await repo.publish("g-clone")
-    clone = await repo.clone_published_to_draft("g-clone")
-
-    assert clone.tenant_id == "tenant-a"
-    assert await repo.get("g-clone", version=clone.version, tenant_id="tenant-a") is not None
-    assert await repo.get("g-clone", version=clone.version, tenant_id="tenant-b") is None
-    assert await repo.get("g-clone", version=clone.version, tenant_id="default") is None
-
-
-# ---------------------------------------------------------------------------
-# deployments — repository get/list are tenant-scoped
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_deployment_repository_is_tenant_scoped(sqlite_db) -> None:
-    await deploy_service(
-        sqlite_db,
-        approval_resume_graph(graph_id="g-dep-a").model_copy(
-            update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
-        ),
-        deployment_ref="dep-a",
-        tenant_id="tenant-a",
-        workspace_id="workspace-a",
-    )
-    await deploy_service(
-        sqlite_db,
-        approval_resume_graph(graph_id="g-dep-b").model_copy(
-            update={"tenant_id": "tenant-b", "workspace_id": "workspace-b"}
-        ),
-        deployment_ref="dep-b",
-        tenant_id="tenant-b",
-        workspace_id="workspace-b",
-    )
-    repo = SQLiteDeploymentRepository(sqlite_db)
-
-    assert await repo.get("dep-a", tenant_id="tenant-a", workspace_id="workspace-b") is None
-    assert await repo.get("dep-a", tenant_id="tenant-a", workspace_id=None) is None
-    assert await repo.get("dep-a", tenant_id="tenant-b", workspace_id="workspace-a") is None
-    owned = await repo.get("dep-a", tenant_id="tenant-a", workspace_id="workspace-a")
-    assert owned is not None
-    a_refs = {
-        d.deployment_ref for d in await repo.list(tenant_id="tenant-a", workspace_id="workspace-a")
-    }
-    assert a_refs == {"dep-a"}
-    assert await repo.list(tenant_id="tenant-a", workspace_id="workspace-b") == []
-    assert await repo.next_version("dep-a", tenant_id="tenant-a", workspace_id="workspace-a") == 2
-    assert await repo.next_version("dep-a", tenant_id="tenant-a", workspace_id="workspace-b") == 1
-
-    foreign_collision = owned.model_copy(
-        update={
-            "deployment_id": "foreign-collision",
-            "version": 2,
-            "tenant_id": "tenant-b",
-            "workspace_id": "workspace-b",
-        }
-    )
-    with pytest.raises(KeyError):
-        await repo.create(
-            foreign_collision,
-            tenant_id="tenant-b",
-            workspace_id="workspace-b",
-        )
-    assert await repo.list("dep-a", tenant_id="tenant-a", workspace_id="workspace-a") == [owned]
-
-
-async def _seed_scoped_deployment(sqlite_db, deployment_ref: str = "dep-split"):
-    await deploy_service(
-        sqlite_db,
-        approval_resume_graph(graph_id=f"graph-{deployment_ref}").model_copy(
-            update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
-        ),
-        deployment_ref=deployment_ref,
-        tenant_id="tenant-a",
-        workspace_id="workspace-a",
-    )
-    repository = SQLiteDeploymentRepository(sqlite_db)
-    owner = await repository.get(
-        deployment_ref, tenant_id="tenant-a", workspace_id="workspace-a"
-    )
-    assert owner is not None
-    return repository, owner
-
-
-@pytest.mark.asyncio
-async def test_deployment_read_foreign_matches_unknown(sqlite_db) -> None:
-    repository, _ = await _seed_scoped_deployment(sqlite_db)
-    foreign = await repository.get(
-        "dep-split", tenant_id="tenant-b", workspace_id="workspace-b"
-    )
-    unknown = await repository.get(
-        "unknown-deployment", tenant_id="tenant-b", workspace_id="workspace-b"
-    )
-    assert foreign is unknown is None
-
-
-@pytest.mark.asyncio
-async def test_deployment_enumerate_matches_empty_unknown_scope(sqlite_db) -> None:
-    repository, _ = await _seed_scoped_deployment(sqlite_db)
-    foreign = await repository.list(tenant_id="tenant-b", workspace_id="workspace-b")
-    unknown = await repository.list(tenant_id="tenant-unknown", workspace_id="workspace-unknown")
-    assert foreign == unknown == []
-
-
-@pytest.mark.asyncio
-async def test_deployment_create_collision_preserves_owner(sqlite_db) -> None:
-    repository, owner = await _seed_scoped_deployment(sqlite_db)
-    collision = owner.model_copy(
-        update={
-            "deployment_id": "foreign-collision-split",
-            "version": 2,
-            "tenant_id": "tenant-b",
-            "workspace_id": "workspace-b",
-        }
-    )
-    with pytest.raises(KeyError):
-        await repository.create(collision, tenant_id="tenant-b", workspace_id="workspace-b")
-    assert await repository.get(
-        "dep-split", tenant_id="tenant-a", workspace_id="workspace-a"
-    ) == owner
-
-
-# ---------------------------------------------------------------------------
-# audits — AuditQuery.tenant_id filters node_audits
-# ---------------------------------------------------------------------------
-
-
-def _audit(audit_id: str, tenant_id: str) -> NodeAuditRecord:
-    return NodeAuditRecord(
-        audit_id=audit_id,
-        run_id=f"run-{tenant_id}",
-        node_id="n1",
-        graph_version_ref="graph:v1",
-        deployment_ref="dep",
-        tenant_id=tenant_id,
-        status="completed",
-        started_at=datetime(2026, 3, 19, tzinfo=UTC),
-        completed_at=datetime(2026, 3, 19, 0, 0, 1, tzinfo=UTC),
-    )
-
-
-@pytest.mark.asyncio
-async def test_audit_query_is_tenant_scoped(sqlite_db) -> None:
-    repo = AuditRepository(sqlite_db)
-    await repo.write(_audit("a1", "tenant-a"))
-    await repo.write(_audit("b1", "tenant-b"))
-
-    a_records = await repo.list(AuditQuery(tenant_id="tenant-a"))
-    assert {r.audit_id for r in a_records} == {"a1"}
-    b_records = await repo.list(AuditQuery(tenant_id="tenant-b"))
-    assert {r.audit_id for r in b_records} == {"b1"}
-
-
-# ---------------------------------------------------------------------------
-# memory connector configs — A's DSN-bearing ref invisible to B
-# (distinct refs per tenant: ``ref`` is still the PK, so a shared ref would
-#  trip an IntegrityError rather than prove READ isolation — see 007 notes.)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_connector_config_repository_is_tenant_scoped(sqlite_db) -> None:
-    repo = MemoryConnectorConfigRepository(sqlite_db)
-    await repo.upsert("kv-a", "key_value", {"dsn": "postgres://a-secret"}, tenant_id="tenant-a")
-    await repo.upsert("kv-b", "key_value", {"dsn": "postgres://b-secret"}, tenant_id="tenant-b")
-
-    # Tenant B cannot see or read tenant A's DSN-bearing config.
-    assert await repo.get("kv-a", tenant_id="tenant-b") is None
-    assert {c.ref for c in await repo.list(tenant_id="tenant-b")} == {"kv-b"}
-    assert await repo.delete("kv-a", tenant_id="tenant-b") is False
-    # The owner still sees it.
-    assert (await repo.get("kv-a", tenant_id="tenant-a")).params == {"dsn": "postgres://a-secret"}
-
-
-@pytest.mark.asyncio
-async def test_connector_enumerate_matches_empty_unknown_tenant(sqlite_db) -> None:
-    repository = MemoryConnectorConfigRepository(sqlite_db)
-    await repository.upsert("private-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
-    assert await repository.list(tenant_id="tenant-b") == await repository.list(
-        tenant_id="tenant-unknown"
-    ) == []
-
-
-@pytest.mark.asyncio
-async def test_connector_write_collision_preserves_owner(sqlite_db) -> None:
-    repository = MemoryConnectorConfigRepository(sqlite_db)
-    await repository.upsert("shared-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
-    with pytest.raises(KeyError):
-        await repository.upsert(
-            "shared-ref", "key_value", {"secret": "foreign"}, tenant_id="tenant-b"
-        )
-    owner = await repository.get("shared-ref", tenant_id="tenant-a")
-    assert owner is not None and owner.params == {"secret": "owner"}
-
-
-@pytest.mark.asyncio
-async def test_connector_delete_foreign_matches_unknown(sqlite_db) -> None:
-    repository = MemoryConnectorConfigRepository(sqlite_db)
-    await repository.upsert("private-ref", "key_value", {"secret": "owner"}, tenant_id="tenant-a")
-    assert await repository.delete("private-ref", tenant_id="tenant-b") is False
-    assert await repository.delete("unknown-ref", tenant_id="tenant-b") is False
-
-
-# ---------------------------------------------------------------------------
-# runs — repository defense-in-depth (API 404 covered elsewhere)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_run_repository_optional_tenant_filter(sqlite_db) -> None:
-    repo = RunRepository(sqlite_db)
-    await repo.create(
-        Run(
-            run_id="run-a",
-            graph_version_ref="graph:v1",
-            deployment_ref="dep",
-            tenant_id="tenant-a",
-        )
-    )
-    # Foreign tenant cannot fetch it; no-filter (internal) path still can.
-    assert await repo.get("run-a", tenant_id="tenant-b") is None
-    assert await repo.get("run-a", tenant_id="tenant-a") is not None
-    assert await repo.get("run-a") is not None

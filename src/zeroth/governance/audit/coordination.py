@@ -4,33 +4,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
 
 from zeroth.governance.audit.models import NodeAuditRecord
-from zeroth.platform.storage.coordination import ensure_and_lock_row
-from zeroth.platform.storage.database import AsyncConnection
+from zeroth.platform.storage.database import AsyncConnection  # noqa: F401 - public surface
 from zeroth.platform.storage.json import load_typed_value
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 
 # Keep the common pure-sequence path indexable. In particular, do not replace
 # these with a CASE expression that forces SQLite to build a temporary B-tree.
 SEQUENCED_RUN_ROWS_SQL = """
     SELECT record_json, chain_sequence
     FROM node_audits
-    WHERE run_id = ? AND chain_sequence IS NOT NULL
+    WHERE tenant_id = ? AND run_id = ? AND chain_sequence IS NOT NULL
     ORDER BY chain_sequence
 """
 
 LEGACY_RUN_ROWS_SQL = """
     SELECT record_json, chain_sequence
     FROM node_audits
-    WHERE run_id = ? AND chain_sequence IS NULL
+    WHERE tenant_id = ? AND run_id = ? AND chain_sequence IS NULL
     ORDER BY created_at, audit_id
 """
 
 LEGACY_RUN_EXISTS_SQL = """
     SELECT 1
     FROM node_audits
-    WHERE run_id = ? AND chain_sequence IS NULL
+    WHERE tenant_id = ? AND run_id = ? AND chain_sequence IS NULL
     LIMIT 1
 """
 
@@ -55,19 +54,35 @@ def hydrate_audit_row(row: dict[str, object]) -> NodeAuditRecord:
 
 
 async def _fetch_sequenced_records(
-    connection: AsyncConnection, run_id: str
+    audits: BoundStructuredTable, run_id: str
 ) -> list[NodeAuditRecord]:
-    rows = await connection.fetch_all(SEQUENCED_RUN_ROWS_SQL, (run_id,))
+    rows = await audits.select(
+        where={"run_id": run_id},
+        where_not_null=("chain_sequence",),
+        columns=("record_json", "chain_sequence"),
+        order_by=("chain_sequence",),
+    )
     return [hydrate_audit_row(row) for row in rows]
 
 
-async def _fetch_legacy_records(connection: AsyncConnection, run_id: str) -> list[NodeAuditRecord]:
-    rows = await connection.fetch_all(LEGACY_RUN_ROWS_SQL, (run_id,))
+async def _fetch_legacy_records(audits: BoundStructuredTable, run_id: str) -> list[NodeAuditRecord]:
+    rows = await audits.select(
+        where={"run_id": run_id},
+        where_null=("chain_sequence",),
+        columns=("record_json", "chain_sequence"),
+        order_by=("created_at", "audit_id"),
+    )
     return [hydrate_audit_row(row) for row in rows]
 
 
-async def _has_legacy_records(connection: AsyncConnection, run_id: str) -> bool:
-    return await connection.fetch_one(LEGACY_RUN_EXISTS_SQL, (run_id,)) is not None
+async def _has_legacy_records(audits: BoundStructuredTable, run_id: str) -> bool:
+    return bool(
+        await audits.select(
+            where={"run_id": run_id},
+            where_null=("chain_sequence",),
+            columns=("audit_id",),
+        )
+    )
 
 
 def _reconstruct_linked_chain(records: list[NodeAuditRecord]) -> list[NodeAuditRecord]:
@@ -141,49 +156,50 @@ def order_audit_records(
 
 
 async def load_ordered_run_records(
-    connection: AsyncConnection,
+    audits: BoundStructuredTable,
     run_id: str,
     *,
     strict: bool = False,
 ) -> list[NodeAuditRecord]:
     """Load one run via index-friendly sequence and legacy fallback queries."""
-    sequenced = await _fetch_sequenced_records(connection, run_id)
-    if not await _has_legacy_records(connection, run_id):
+    sequenced = await _fetch_sequenced_records(audits, run_id)
+    if not await _has_legacy_records(audits, run_id):
         return sequenced
-    legacy = await _fetch_legacy_records(connection, run_id)
+    legacy = await _fetch_legacy_records(audits, run_id)
     if not sequenced:
         return legacy
     return order_audit_records([*sequenced, *legacy], strict=strict)
 
 
 async def lock_audit_chain(
-    connection: AsyncConnection,
+    audits: BoundStructuredTable,
+    heads: BoundStructuredTable,
     *,
-    backend: Literal["sqlite", "postgres"],
     run_id: str,
 ) -> AuditChainHead:
     """Lock one run head and recover tails written by rolling legacy workers."""
-    row = await ensure_and_lock_row(
-        connection,
-        backend=backend,
-        table="audit_chain_heads",
-        key_column="run_id",
-        key=run_id,
+    await heads.insert_if_absent(
+        {"run_id": run_id, "updated_at": datetime.now(UTC).isoformat()},
+        conflict_columns=("tenant_id", "run_id"),
+    )
+    row = await heads.select_one(
+        where={"run_id": run_id},
+        for_update=True,
     )
     if row is None:  # pragma: no cover - INSERT + SELECT is atomic by contract
         raise RuntimeError(f"audit chain head for {run_id!r} was not created")
 
     digest = row["head_digest"]
     next_sequence = int(row["next_sequence"])
-    has_legacy = await _has_legacy_records(connection, run_id)
+    has_legacy = await _has_legacy_records(audits, run_id)
     if not has_legacy and (digest is not None or next_sequence != 1):
         return AuditChainHead(
             digest=str(digest) if digest is not None else None,
             next_sequence=next_sequence,
         )
 
-    sequenced = await _fetch_sequenced_records(connection, run_id)
-    legacy = await _fetch_legacy_records(connection, run_id) if has_legacy else []
+    sequenced = await _fetch_sequenced_records(audits, run_id)
+    legacy = await _fetch_legacy_records(audits, run_id) if has_legacy else []
     existing = (
         order_audit_records([*sequenced, *legacy], strict=True)
         if sequenced and legacy
@@ -201,18 +217,18 @@ async def lock_audit_chain(
 
 
 async def advance_audit_chain(
-    connection: AsyncConnection,
+    heads: BoundStructuredTable,
     *,
     run_id: str,
     digest: str,
     next_sequence: int,
 ) -> None:
     """Persist the new digest and following sequence in the current transaction."""
-    await connection.execute(
-        """
-        UPDATE audit_chain_heads
-        SET head_digest = ?, next_sequence = ?, updated_at = ?
-        WHERE run_id = ?
-        """,
-        (digest, next_sequence, datetime.now(UTC).isoformat(), run_id),
+    await heads.update(
+        {
+            "head_digest": digest,
+            "next_sequence": next_sequence,
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+        where={"run_id": run_id},
     )

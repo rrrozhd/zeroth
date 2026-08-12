@@ -70,12 +70,9 @@ class WebhookService:
     async def list_subscriptions(
         self,
         deployment_ref: str | None = None,
-        tenant_id: str | None = None,
     ) -> list[WebhookSubscription]:
         """List subscriptions, optionally filtered."""
-        return await self.repository.list_subscriptions(
-            deployment_ref=deployment_ref, tenant_id=tenant_id
-        )
+        return await self.repository.list_subscriptions(deployment_ref=deployment_ref)
 
     async def deactivate_subscription(self, subscription_id: str) -> None:
         """Soft-delete a subscription by marking it inactive."""

@@ -278,8 +278,8 @@ async def test_live_sequential_two_agents(sqlite_db) -> None:
         edges=[Edge(edge_id="ab", source_node_id="a", target_node_id="b")],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners={"a": a, "b": b},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -342,7 +342,7 @@ async def test_live_conditional_branch(sqlite_db) -> None:
         ],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"decide": decide},
         executable_unit_runner=ExecutableUnitRunner(registry),
     )
@@ -386,7 +386,7 @@ async def test_live_bounded_cycle_fails_closed(sqlite_db) -> None:
         edges=[Edge(edge_id="edge-loop", source_node_id="loop", target_node_id="loop")],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"loop": loop},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -467,7 +467,7 @@ async def test_live_subgraph_with_live_child_agent(sqlite_db) -> None:
     )
     resolver = SubgraphResolver(deployment_service=_FakeDeploymentService({"child-g": deployment}))
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={
             # Top-level parent -> child depth is 1, no parallel branch, so the
             # executor's namespaced node id is "subgraph:child-g:1:c1". This is the
@@ -520,7 +520,7 @@ async def test_live_agent_to_executable_unit(sqlite_db) -> None:
         edges=[Edge(edge_id="e1", source_node_id="extract", target_node_id="double")],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"extract": extract},
         executable_unit_runner=ExecutableUnitRunner(registry),
     )
@@ -562,13 +562,13 @@ async def test_live_human_approval_pause_resume(sqlite_db) -> None:
     )
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orch = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=AuditRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"finish": finish},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -638,7 +638,7 @@ async def test_live_parallel_fanout(sqlite_db) -> None:
         edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"source": source, "sink": sink},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -700,7 +700,7 @@ async def test_live_retrieval_then_agent(sqlite_db) -> None:
         edges=[Edge(edge_id="e1", source_node_id="retrieve", target_node_id="answer")],
     )
     orch = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"answer": answerer},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         memory_resolver=resolver,

@@ -291,7 +291,7 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
     regulus = _RegulusClient()
     tool_runner = _ToolRunner()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": prototype},
         executable_unit_runner=tool_runner,
         memory_resolver=resolver,
@@ -389,7 +389,7 @@ async def test_callable_fork_protocol_wins_over_instance_run_override(sqlite_db)
         agent=AgentNodeData(instruction="test", model_provider="provider://test"),
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": prototype},
         executable_unit_runner=_ToolRunner(),
     )
@@ -451,7 +451,7 @@ async def test_fallback_runner_restores_state_when_tool_setup_fails(sqlite_db) -
     templates.register("tenant-template", 1, "instruction for {{ input.tenant }}")
     graph, node = _graph("tenant-fallback")
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": runner},
         executable_unit_runner=_ToolRunner(),
         memory_resolver=object(),

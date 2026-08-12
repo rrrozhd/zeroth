@@ -12,7 +12,7 @@ from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
 
 async def _create_linkable_run(database, run_id: str) -> None:
-    await RunRepository(database).create(
+    await RunRepository.for_default_compatibility(database).create(
         Run(
             run_id=run_id,
             thread_id=f"origin-{run_id}",
@@ -25,7 +25,7 @@ async def _create_linkable_run(database, run_id: str) -> None:
 async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -> None:
     fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
     monkeypatch.setattr(thread_repository_module, "utc_now", lambda: fixed)
-    repository = ThreadRepository(runs_db)
+    repository = ThreadRepository.for_default_compatibility(runs_db)
     thread = await repository.create(
         Thread(graph_version_ref="graph:v1", deployment_ref="deployment:v1")
     )
@@ -37,7 +37,7 @@ async def test_thread_repository_consumes_platform_clock(runs_db, monkeypatch) -
 
 
 async def test_run_repository_crud_round_trip(runs_db) -> None:
-    repo = RunRepository(runs_db)
+    repo = RunRepository.for_default_compatibility(runs_db)
     run = await repo.create(
         Run(
             graph_version_ref="graph:v1",
@@ -59,7 +59,7 @@ async def test_run_repository_crud_round_trip(runs_db) -> None:
 
 
 async def test_run_repository_transitions_and_validation(runs_db) -> None:
-    repo = RunRepository(runs_db)
+    repo = RunRepository.for_default_compatibility(runs_db)
     run = await repo.create(
         Run(
             graph_version_ref="graph:v1",
@@ -86,7 +86,7 @@ async def test_run_repository_transitions_and_validation(runs_db) -> None:
 
 
 async def test_run_repository_terminal_failure_state_round_trip(runs_db) -> None:
-    repo = RunRepository(runs_db)
+    repo = RunRepository.for_default_compatibility(runs_db)
     run = await repo.create(
         Run(
             graph_version_ref="graph:v1",
@@ -105,7 +105,7 @@ async def test_run_repository_terminal_failure_state_round_trip(runs_db) -> None
 
 
 async def test_run_repository_checkpoint_semantics(runs_db) -> None:
-    repo = RunRepository(runs_db)
+    repo = RunRepository.for_default_compatibility(runs_db)
     run = await repo.create(
         Run(
             graph_version_ref="graph:v1",
@@ -123,7 +123,7 @@ async def test_run_repository_checkpoint_semantics(runs_db) -> None:
 
 
 async def test_thread_repository_create_and_continue(runs_db) -> None:
-    repo = ThreadRepository(runs_db)
+    repo = ThreadRepository.for_default_compatibility(runs_db)
     created = await repo.resolve(
         None,
         graph_version_ref="graph:v1",
@@ -155,7 +155,7 @@ async def test_thread_repository_create_and_continue(runs_db) -> None:
 
 
 async def test_thread_repository_attach_run_updates_existing_thread(runs_db) -> None:
-    repo = ThreadRepository(runs_db)
+    repo = ThreadRepository.for_default_compatibility(runs_db)
     thread = await repo.create(
         Thread(
             graph_version_ref="graph:v1",
@@ -172,7 +172,7 @@ async def test_thread_repository_attach_run_updates_existing_thread(runs_db) -> 
 
 
 async def test_thread_repository_thread_aware_run_indexing(runs_db) -> None:
-    repo = ThreadRepository(runs_db)
+    repo = ThreadRepository.for_default_compatibility(runs_db)
     thread = await repo.create(
         Thread(
             graph_version_ref="graph:v1",

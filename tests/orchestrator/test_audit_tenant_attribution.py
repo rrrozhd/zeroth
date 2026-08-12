@@ -9,6 +9,9 @@ per-record visibility filter in the audit API.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel
 
@@ -24,6 +27,7 @@ from zeroth.runtime.agents import (
 )
 from zeroth.runtime.orchestration import RuntimeOrchestrator
 from zeroth.runtime.runs import Run, RunStatus
+from zeroth.platform.storage import ScopeContext
 
 
 class _In(BaseModel):
@@ -65,8 +69,14 @@ def _orchestrator(sqlite_db, provider_responses: list[ProviderResponse]) -> Runt
         DeterministicProviderAdapter(provider_responses),
     )
     return RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository.scoped(
+            sqlite_db,
+            ScopeContext(tenant_id="acme", workspace_id="ws-1"),
+        ),
+        run_repository=RunRepository(
+            sqlite_db,
+            ScopeContext(tenant_id="acme", workspace_id="ws-1"),
+        ),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -99,7 +109,9 @@ async def test_success_audit_carries_run_tenant(sqlite_db) -> None:
     run = await _drive_run_for_tenant(orchestrator, _graph())
     assert run.status is RunStatus.COMPLETED
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.scoped(
+        sqlite_db, ScopeContext(tenant_id="acme", workspace_id="ws-1")
+    ).list_by_run(run.run_id)
     assert audits, "expected at least one node audit record"
     for record in audits:
         assert record.tenant_id == "acme"
@@ -116,13 +128,34 @@ async def test_failure_audit_carries_run_tenant(sqlite_db) -> None:
     node = graph.nodes[0]
     error = RuntimeError("boom")
     error.audit_record = {"input": {"value": 1}}  # gate: only errors carrying one are audited
-    await orchestrator._record_failed_execution_audit(
-        run, node, node.node_id, {"value": 1}, error
-    )
+    await orchestrator._record_failed_execution_audit(run, node, node.node_id, {"value": 1}, error)
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.scoped(
+        sqlite_db, ScopeContext(tenant_id="acme", workspace_id="ws-1")
+    ).list_by_run(run.run_id)
     rejected = [r for r in audits if r.status == "rejected"]
     assert rejected, "expected the failed-execution audit record"
     for record in rejected:
         assert record.tenant_id == "acme"
         assert record.workspace_id == "ws-1"
+
+
+def test_failed_branch_record_passes_both_owner_fields() -> None:
+    """Removing either owner keyword from the failed branch is a regression."""
+    from zeroth.runtime.orchestration import audit_recorder
+
+    tree = ast.parse(Path(audit_recorder.__file__).read_text())
+    failed_branch = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+        and node.name == "record_failed_branch_execution"
+    )
+    record_call = next(
+        node
+        for node in ast.walk(failed_branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "NodeAuditRecord"
+    )
+    assert {keyword.arg for keyword in record_call.keywords} >= {"tenant_id", "workspace_id"}

@@ -109,7 +109,7 @@ async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
     # (e.g. its renew_lease DB transaction hit "database is locked"), the finally
     # block must still release the lease and the concurrency slot. Before the fix
     # the re-raised exception escaped the finally, permanently leaking the slot.
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -140,7 +140,7 @@ async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
 
 
 async def test_worker_drives_pending_run_to_completed(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -165,7 +165,7 @@ async def test_worker_drives_pending_run_to_completed(sqlite_db) -> None:
 
 async def test_worker_respects_concurrency_semaphore(sqlite_db) -> None:
     """With max_concurrency=1, the second run should wait for the first."""
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -193,7 +193,7 @@ async def test_worker_respects_concurrency_semaphore(sqlite_db) -> None:
 async def test_worker_marks_failed_on_orchestrator_exception(
     sqlite_db,
 ) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo, fail=True)
     graph = _FakeGraph()
@@ -215,7 +215,7 @@ async def test_worker_marks_failed_on_orchestrator_exception(
 
 
 async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -250,7 +250,7 @@ async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
 async def test_worker_does_not_claim_more_runs_than_available_capacity(
     sqlite_db,
 ) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _BlockingOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -301,7 +301,7 @@ async def test_worker_does_not_claim_more_runs_than_available_capacity(
 @pytest.mark.asyncio
 async def test_handle_wakeup_claims_and_dispatches(sqlite_db: AsyncSQLiteDatabase) -> None:
     """handle_wakeup should claim a pending run and dispatch it."""
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -329,7 +329,7 @@ async def test_handle_wakeup_releases_semaphore_on_no_work(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """When no work is available, handle_wakeup should release the semaphore."""
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -360,7 +360,7 @@ async def test_graceful_shutdown_waits_for_active_tasks(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """graceful_shutdown should wait for tasks and release leases on timeout."""
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _BlockingOrchestrator(run_repo)
     graph = _FakeGraph()
@@ -398,7 +398,7 @@ async def test_graceful_shutdown_waits_for_active_tasks(
 async def test_graceful_shutdown_stops_token_snapshot_before_releasing_run(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _BlockingOrchestrator(run_repo)
     worker = RunWorker(
@@ -434,7 +434,7 @@ async def test_graceful_shutdown_stops_token_snapshot_before_releasing_run(
 async def test_recovery_resumes_stopped_token_snapshot_before_driving(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     worker = RunWorker(
@@ -499,7 +499,7 @@ async def test_extract_run_id_from_task_name() -> None:
 @pytest.mark.asyncio
 async def test_stopping_flag_exits_poll_loop(sqlite_db: AsyncSQLiteDatabase) -> None:
     """Setting _stopping = True should make poll_loop exit without claiming."""
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)
     orchestrator = _FakeOrchestrator(run_repo)
     graph = _FakeGraph()

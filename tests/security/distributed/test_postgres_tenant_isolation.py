@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, text
 from tests.conftest import requires_docker
 from tests.graph.test_models import build_graph
 from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.governance.audit import AuditQuery, AuditRepository, NodeAuditRecord
 from zeroth.governance.approvals import (
     ApprovalDecision,
@@ -27,6 +28,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
+from zeroth.platform.storage.scoping import NullWorkspaceScopeContext, ScopeContext
 from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap.migrations import run_migrations
 
@@ -81,6 +83,49 @@ def _audit(audit_id: str, *, tenant_id: str) -> NodeAuditRecord:
 
 @requires_docker
 @pytest.mark.security_rc
+async def test_security_rc_postgres_contract_version_identity_is_tenant_local(
+    security_postgres,
+) -> None:
+    database, unique = security_postgres
+    name = f"contract://shared-{unique}"
+    tenant_a = ContractRegistry.scoped(
+        database,
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+    tenant_b = ContractRegistry.scoped(
+        database,
+        ScopeContext(tenant_id="tenant-b", workspace_id="workspace-b"),
+    )
+
+    await tenant_a.register_schema(name, {"type": "string"}, version=1)
+    await tenant_b.register_schema(name, {"type": "integer"}, version=1)
+
+    assert (await tenant_a.get(name, 1)).json_schema == {"type": "string"}
+    assert (await tenant_b.get(name, 1)).json_schema == {"type": "integer"}
+
+
+@requires_docker
+@pytest.mark.security_rc
+async def test_security_rc_postgres_contract_registration_allocates_sequential_versions(
+    security_postgres,
+) -> None:
+    database, unique = security_postgres
+    name = f"contract://concurrent-{unique}"
+    scope = ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    registries = [ContractRegistry.scoped(database, scope) for _ in range(8)]
+
+    records = await asyncio.gather(
+        *(registry.register_schema(name, {"type": "string"}) for registry in registries)
+    )
+
+    assert sorted(record.version for record in records) == list(range(1, 9))
+    assert [record.version for record in await registries[0].list_versions(name)] == list(
+        range(1, 9)
+    )
+
+
+@requires_docker
+@pytest.mark.security_rc
 async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
     repository = GraphRepository(database)
@@ -96,22 +141,25 @@ async def test_security_rc_postgres_graph_scope_predicate(security_postgres) -> 
 @pytest.mark.security_rc
 async def test_security_rc_postgres_run_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
-    repository = RunRepository(database)
+    owner = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    foreign = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     run_id = f"security-run-scope-{unique}"
-    await repository.create(_run(run_id, tenant_id="tenant-a", suffix=unique))
-    assert await repository.get(run_id, tenant_id="tenant-b") is None
-    assert await repository.get("unknown-run", tenant_id="tenant-b") is None
+    await owner.create(_run(run_id, tenant_id="tenant-a", suffix=unique))
+    assert await foreign.get(run_id) is None
+    assert await foreign.get("unknown-run") is None
+    assert await owner.get(run_id) is not None
 
 
 @requires_docker
 @pytest.mark.security_rc
 async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> None:
     database, unique = security_postgres
-    repository = AuditRepository(database)
-    await repository.write(_audit(f"a-{unique}", tenant_id="tenant-a"))
-    await repository.write(_audit(f"b-{unique}", tenant_id="tenant-b"))
+    repository_a = AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    repository_b = AuditRepository.scoped(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+    await repository_a.write(_audit(f"a-{unique}", tenant_id="tenant-a"))
+    await repository_b.write(_audit(f"b-{unique}", tenant_id="tenant-b"))
     assert {
-        record.audit_id for record in await repository.list(AuditQuery(tenant_id="tenant-a"))
+        record.audit_id for record in await repository_a.list(AuditQuery(tenant_id="tenant-a"))
     } == {f"a-{unique}"}
 
 
@@ -120,17 +168,16 @@ async def test_security_rc_postgres_audit_scope_predicate(security_postgres) -> 
 async def test_security_rc_postgres_same_id_tenant_race(security_postgres) -> None:
     database, unique = security_postgres
     run_id = f"security-run-race-{unique}"
+    tenant_a = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    tenant_b = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     raced = await asyncio.gather(
-        RunRepository(database).create(_run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")),
-        RunRepository(database).create(_run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")),
+        tenant_a.create(_run(run_id, tenant_id="tenant-a", suffix=f"a-{unique}")),
+        tenant_b.create(_run(run_id, tenant_id="tenant-b", suffix=f"b-{unique}")),
         return_exceptions=True,
     )
-    assert sum(isinstance(result, Run) for result in raced) == 1
-    assert sum(isinstance(result, KeyError) for result in raced) == 1
-    winner = await RunRepository(database).get(run_id)
-    assert winner is not None
-    loser = "tenant-b" if winner.tenant_id == "tenant-a" else "tenant-a"
-    assert await RunRepository(database).get(run_id, tenant_id=loser) is None
+    assert all(isinstance(result, Run) for result in raced)
+    assert (await tenant_a.get(run_id)).thread_id == f"thread-a-{unique}"
+    assert (await tenant_b.get(run_id)).thread_id == f"thread-b-{unique}"
 
 
 @requires_docker
@@ -144,21 +191,37 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
         await GraphRepository(first).save(
             build_graph().model_copy(update={"graph_id": graph_id}), tenant_id="tenant-a"
         )
-        await RunRepository(first).create(_run(run_id, tenant_id="tenant-a", suffix=unique))
-        await AuditRepository(first).write(_audit(f"restart-{unique}", tenant_id="tenant-a"))
+        await RunRepository(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).create(
+            _run(run_id, tenant_id="tenant-a", suffix=unique)
+        )
+        await AuditRepository.scoped(first, NullWorkspaceScopeContext(tenant_id="tenant-a")).write(
+            _audit(f"restart-{unique}", tenant_id="tenant-a")
+        )
     finally:
         await first.close()
 
     restarted = await AsyncPostgresDatabase.create(dsn, min_size=1, max_size=2)
     try:
         assert await GraphRepository(restarted).get(graph_id, tenant_id="tenant-b") is None
-        assert await RunRepository(restarted).get(run_id, tenant_id="tenant-b") is None
+        foreign_runs = RunRepository(restarted, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+        assert await foreign_runs.get(run_id) is None
+        assert await foreign_runs.get("unknown-run") is None
+        assert (
+            await RunRepository(restarted, NullWorkspaceScopeContext(tenant_id="tenant-a")).get(
+                run_id
+            )
+            is not None
+        )
         foreign_ids = {
             record.audit_id
-            for record in await AuditRepository(restarted).list(AuditQuery(tenant_id="tenant-b"))
+            for record in await AuditRepository.scoped(
+                restarted, NullWorkspaceScopeContext(tenant_id="tenant-b")
+            ).list(AuditQuery(tenant_id="tenant-b"))
         }
         assert f"restart-{unique}" not in foreign_ids
-        owner = await AuditRepository(restarted).get(f"restart-{unique}", tenant_id="tenant-a")
+        owner = await AuditRepository.scoped(
+            restarted, NullWorkspaceScopeContext(tenant_id="tenant-a")
+        ).get(f"restart-{unique}")
         assert owner is not None
     finally:
         await restarted.close()
@@ -168,31 +231,25 @@ async def test_security_rc_postgres_pool_restart_preserves_scope(postgres_contai
 @pytest.mark.security_rc
 async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) -> None:
     database, unique = security_postgres
-    store = CheckpointRowStore(database)
+    owner_store = CheckpointRowStore(database, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    foreign_store = CheckpointRowStore(database, NullWorkspaceScopeContext(tenant_id="tenant-b"))
     checkpoint_id = f"security-checkpoint-{unique}"
     owner = _run(f"checkpoint-a-{unique}", tenant_id="tenant-a", suffix=f"a-{unique}")
     foreign = _run(f"checkpoint-b-{unique}", tenant_id="tenant-b", suffix=f"b-{unique}")
 
-    async def write(run: Run) -> None:
+    async def write(store: CheckpointRowStore, run: Run) -> None:
         await store.write_row(
             checkpoint_id=checkpoint_id,
             run_id=run.run_id,
             thread_id=run.thread_id,
-            tenant_id=run.tenant_id,
-            workspace_id=run.workspace_id,
             checkpoint_order=0,
             state_json=to_json_value(run.model_dump(mode="json")),
             created_at=run.updated_at.isoformat(),
         )
 
-    await asyncio.gather(write(owner), write(foreign))
-    assert (
-        await store.get(checkpoint_id, tenant_id="tenant-a", workspace_id=None)
-    ).run_id == owner.run_id
-    assert (
-        await store.get(checkpoint_id, tenant_id="tenant-b", workspace_id=None)
-    ).run_id == foreign.run_id
-    assert await store.get(checkpoint_id) is None
+    await asyncio.gather(write(owner_store, owner), write(foreign_store, foreign))
+    assert (await owner_store.get(checkpoint_id)).run_id == owner.run_id
+    assert (await foreign_store.get(checkpoint_id)).run_id == foreign.run_id
 
 
 @requires_docker
@@ -200,12 +257,12 @@ async def test_security_rc_postgres_checkpoint_owner_scope(security_postgres) ->
 def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_container) -> None:
     database_url = postgres_container.get_connection_url().replace("psycopg2", "psycopg")
     config = _migration_config(database_url)
-    command.upgrade(config, "022")
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE run_checkpoints"))
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
     engine.dispose()
-    command.downgrade(config, "021")
+    command.upgrade(config, "021")
     unique = uuid4().hex
     thread_id = f"migration-thread-{unique}"
     checkpoint_id = f"migration-checkpoint-{unique}"
@@ -251,6 +308,7 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
         assert owner == ("tenant-a", "null")
     finally:
         engine.dispose()
+        command.upgrade(config, "head")
 
 
 @requires_docker
@@ -258,7 +316,9 @@ def test_security_rc_postgres_checkpoint_migration_backfills_owner(postgres_cont
 async def test_security_rc_postgres_approval_opposite_decision_race(security_postgres) -> None:
     database, unique = security_postgres
     repository = ApprovalRepository(database)
-    service = ApprovalService(repository=repository, run_repository=RunRepository(database))
+    service = ApprovalService(
+        repository=repository, run_repository=RunRepository.for_default_compatibility(database)
+    )
     record = await repository.write(
         ApprovalRecord(
             approval_id=f"approval-race-{unique}",

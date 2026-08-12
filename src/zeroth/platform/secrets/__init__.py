@@ -12,7 +12,7 @@ from zeroth.platform.secrets.provider import (
     resolve_secret_async,
 )
 from zeroth.platform.secrets.redaction import SecretRedactor
-from zeroth.platform.secrets.vault import VaultSecretProvider
+from zeroth.platform.secrets.vault import TenantScopedVaultDriver, VaultSecretProvider
 
 __all__ = [
     "EnvSecretProvider",
@@ -21,6 +21,7 @@ __all__ = [
     "SecretRedactor",
     "SecretResolutionError",
     "SecretResolver",
+    "TenantScopedVaultDriver",
     "VaultSecretProvider",
     "build_secret_provider",
     "normalize_secret_name",

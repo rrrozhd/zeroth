@@ -28,6 +28,7 @@ from zeroth.governance.retention.erasure_service import (
     _harvest_artifact_keys,
 )
 from zeroth.platform.artifacts.models import generate_artifact_key
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run
 
 
@@ -70,15 +71,15 @@ class _TenantRecordingEconEraser:
 async def test_econ_cleanup_is_tenant_scoped_and_ignores_nested_untrusted_join_keys(env) -> None:
     eraser = _TenantRecordingEconEraser()
     service = RetentionErasureService(
-        audit_repository=env.audit_repo,
-        run_repository=env.run_repo,
-        policy_repository=env.policy_repo,
-        legal_hold_repository=env.hold_repo,
-        log_repository=env.log_repo,
+        audit_repository=env.audit_repo_for("tenant-a"),
+        run_repository=env.run_repo_for("tenant-a"),
+        policy_repository=env.policy_repo_for("tenant-a"),
+        legal_hold_repository=env.hold_repo_for("tenant-a"),
+        log_repository=env.log_repo_for("tenant-a"),
         artifact_store=env.artifact_store,
         econ_eraser=eraser,
     )
-    await env.run_repo.put(
+    await env.run_repo_for("tenant-a").put(
         Run(
             run_id="run-econ-safe",
             graph_version_ref="graph:v1",
@@ -98,7 +99,7 @@ async def test_econ_cleanup_is_tenant_scoped_and_ignores_nested_untrusted_join_k
             "validation_results": {"nested": {"join_key": "tenant-b-secret"}},
         }
     )
-    await env.audit_repo.write(record)
+    await env.audit_repo_for("tenant-a").write(record)
 
     await service.erase_run("run-econ-safe", "rte", tenant_id="tenant-a")
 
@@ -179,7 +180,6 @@ async def test_erasure_field_schemas_are_centralized_and_consistent() -> None:
 
 async def test_retry_rejects_malformed_versioned_manifest_before_cleanup(env) -> None:
     log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-malformed",
         action="erasure_authorized",
         reason="rte",
@@ -216,7 +216,6 @@ async def test_retry_rejects_manifest_operation_outside_authorized_identity(env)
         ],
     }
     log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-authorized",
         action="erasure_authorized",
         reason="rte",
@@ -290,7 +289,6 @@ async def test_complete_manifest_without_terminal_is_repaired(env) -> None:
         operations=operations,
     )
     log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-repair",
         action="erasure_authorized",
         reason="rte",
@@ -307,7 +305,7 @@ async def test_complete_manifest_without_terminal_is_repaired(env) -> None:
 
 class _FailTerminalOnceLog(RetentionAuditLogRepository):
     def __init__(self, database: Any) -> None:
-        super().__init__(database)
+        super().__init__(database, NullWorkspaceScopeContext.for_default_compatibility())
         self.fail_once = True
 
     async def record_in_transaction(self, connection, *, action: str, **kwargs: Any) -> str:
@@ -379,7 +377,6 @@ async def test_manifest_invariants_reject_ambiguous_authorization(env, mutate) -
     ).model_dump(mode="json")
     mutate(detail)
     log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-invalid",
         action="erasure_authorized",
         reason="rte",
@@ -424,7 +421,6 @@ async def _record_pending_artifact_authorization(env, key: str) -> str:
         operations=operations,
     )
     return await env.log_repo.record(
-        tenant_id="default",
         run_id="run-claim",
         action="erasure_authorized",
         reason="rte",
@@ -476,7 +472,6 @@ async def test_stale_generation_cannot_release_or_progress_new_claim(env) -> Non
     expired = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     future = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
     await env.log_repo.record(
-        tenant_id="default",
         run_id="run-claim",
         action="external_cleanup_claimed",
         reason="rte",
@@ -489,7 +484,6 @@ async def test_stale_generation_cannot_release_or_progress_new_claim(env) -> Non
         },
     )
     claim_b_log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-claim",
         action="external_cleanup_claimed",
         reason="rte",
@@ -561,14 +555,13 @@ async def test_long_operation_heartbeats_renew_claim_lease(env) -> None:
 
 class _FailCompletedProgressLog(RetentionAuditLogRepository):
     def __init__(self, database: Any) -> None:
-        super().__init__(database)
+        super().__init__(database, NullWorkspaceScopeContext.for_default_compatibility())
         self.fail_once = True
 
     async def record_in_transaction(
         self,
         connection,
         *,
-        tenant_id: str,
         action: str,
         run_id: str | None = None,
         reason: str | None = None,
@@ -584,7 +577,6 @@ class _FailCompletedProgressLog(RetentionAuditLogRepository):
             raise RuntimeError("crash after external operation")
         return await super().record_in_transaction(
             connection,
-            tenant_id=tenant_id,
             action=action,
             run_id=run_id,
             reason=reason,
@@ -658,7 +650,7 @@ async def test_compatibility_log_failure_does_not_block_external_cleanup(env) ->
         run_repository=env.run_repo,
         policy_repository=env.policy_repo,
         legal_hold_repository=env.hold_repo,
-        log_repository=_CompatibilityFailLog(env.database),
+        log_repository=_CompatibilityFailLog.for_default_compatibility(env.database),
         artifact_store=env.artifact_store,
     )
 
@@ -706,7 +698,6 @@ async def test_operation_progress_events_are_constant_size_deltas(env, monkeypat
         operations=operations,
     )
     log_id = await env.log_repo.record(
-        tenant_id="default",
         run_id="run-linear",
         action="erasure_authorized",
         reason="rte",

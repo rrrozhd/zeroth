@@ -1800,33 +1800,6 @@
         "title": "KPIResponse",
         "type": "object"
       },
-      "LoginRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "roles": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Roles",
-            "type": "array"
-          },
-          "sub": {
-            "title": "Sub",
-            "type": "string"
-          }
-        },
-        "required": [
-          "sub",
-          "email",
-          "roles"
-        ],
-        "title": "LoginRequest",
-        "type": "object"
-      },
       "OutcomeBatchIngestRequest": {
         "properties": {
           "events": {
@@ -2334,6 +2307,102 @@
         "title": "RetryOutboxResponse",
         "type": "object"
       },
+      "ScopedLoginRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          },
+          "tenant_id": {
+            "default": "default",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "sub",
+          "email",
+          "roles"
+        ],
+        "title": "ScopedLoginRequest",
+        "type": "object"
+      },
+      "ScopedUserClaims": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "exp": {
+            "title": "Exp",
+            "type": "integer"
+          },
+          "iss": {
+            "title": "Iss",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "sub",
+          "email",
+          "roles",
+          "tenant_id",
+          "exp",
+          "iss"
+        ],
+        "title": "ScopedUserClaims",
+        "type": "object"
+      },
       "TenantBudgetUpsert": {
         "properties": {
           "budget_cap_usd": {
@@ -2382,43 +2451,6 @@
           "y"
         ],
         "title": "TrendPoint",
-        "type": "object"
-      },
-      "UserClaims": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "exp": {
-            "title": "Exp",
-            "type": "integer"
-          },
-          "iss": {
-            "title": "Iss",
-            "type": "string"
-          },
-          "roles": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Roles",
-            "type": "array"
-          },
-          "sub": {
-            "title": "Sub",
-            "type": "string"
-          }
-        },
-        "required": [
-          "sub",
-          "email",
-          "roles",
-          "exp",
-          "iss"
-        ],
-        "title": "UserClaims",
         "type": "object"
       },
       "ValidationError": {
@@ -2691,6 +2723,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Metrics"
       }
     },
@@ -2702,7 +2739,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserClaims"
+                  "$ref": "#/components/schemas/ScopedUserClaims"
                 }
               }
             },
@@ -2727,7 +2764,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LoginRequest"
+                "$ref": "#/components/schemas/ScopedLoginRequest"
               }
             }
           },
@@ -4558,6 +4595,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Metrics",
         "tags": [
           "connectors",
@@ -4816,6 +4858,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Calibration Summary",
         "tags": [
           "reconciliation"
@@ -4861,6 +4908,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Import Ground Truth",
         "tags": [
           "reconciliation"

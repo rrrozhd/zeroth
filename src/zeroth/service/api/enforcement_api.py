@@ -240,7 +240,9 @@ def _component(bootstrap: Any, name: str) -> Any:
     return component
 
 
-async def _scoped_deployment(request: Request, bootstrap: Any, deployment_ref: str) -> Any:
+async def _scoped_deployment(
+    request: Request, bootstrap: Any, deployment_ref: str, principal: Any
+) -> Any:
     """Resolve a submitted deployment ref to a deployment the caller may use.
 
     Unknown and out-of-scope answer identically. ``require_deployment_scope``
@@ -250,7 +252,11 @@ async def _scoped_deployment(request: Request, bootstrap: Any, deployment_ref: s
     """
     service = _component(bootstrap, "deployment_service")
     try:
-        deployment = await service.get(deployment_ref)
+        deployment = await service.get(
+            deployment_ref,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
     except Exception as exc:  # storage faults must not leak
         raise _fail(status.HTTP_503_SERVICE_UNAVAILABLE, _UNAVAILABLE) from exc
     if deployment is None:
@@ -292,7 +298,7 @@ def _register_decision_routes(app: FastAPI | APIRouter) -> None:
         """
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref, principal)
         service = _component(bootstrap, "tool_decision_service")
         decision_request = DecisionRequest(
             schema_version=body.schema_version,
@@ -336,7 +342,7 @@ def _register_inventory_routes(app: FastAPI | APIRouter) -> None:
         """Record the tool inventory an adapter declares for one deployment."""
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref, principal)
         repository = _component(bootstrap, "inventory_registration_repository")
         # ``inventory_fingerprint`` and ``tool_count`` are not passed and
         # cannot be: the model derives both from ``tools``. That is what stops
@@ -441,7 +447,7 @@ def _register_attestation_routes(app: FastAPI | APIRouter) -> None:
         """
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref, principal)
         repository = _component(bootstrap, "run_attestation_repository")
         registrations = _component(bootstrap, "inventory_registration_repository")
         try:
@@ -600,7 +606,7 @@ def _register_heartbeat_routes(app: FastAPI | APIRouter) -> None:
         """Append one liveness ping for a deployment."""
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, body.deployment_ref, principal)
         repository = _component(bootstrap, "enforcement_heartbeat_repository")
         heartbeat = Heartbeat(
             tenant_id=principal.tenant_id,
@@ -640,7 +646,7 @@ def _register_status_routes(app: FastAPI | APIRouter) -> None:
         """
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, deployment_ref, principal)
         repository = _component(bootstrap, "enforcement_heartbeat_repository")
         resolver = DeploymentStatusResolver(
             heartbeats=repository,
@@ -677,7 +683,7 @@ def _register_status_routes(app: FastAPI | APIRouter) -> None:
         """
         principal = await require_permission(request, Permission.ENFORCEMENT_REPORT)
         bootstrap = _bootstrap(request)
-        deployment = await _scoped_deployment(request, bootstrap, deployment_ref)
+        deployment = await _scoped_deployment(request, bootstrap, deployment_ref, principal)
         provider = PersistedCapabilityEvidenceProvider(
             attestations=_component(bootstrap, "run_attestation_repository"),
             registrations=_component(bootstrap, "inventory_registration_repository"),

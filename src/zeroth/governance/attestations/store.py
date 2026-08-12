@@ -44,7 +44,18 @@ from zeroth.governance.attestations.payload import (
     SignedRunAttestation,
 )
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ResourceOperation,
+    ScopedTable,
+)
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 _REGISTRATION_COLUMNS = (
     "registration_id, tenant_id, deployment_ref, graph_version, adapter_version, "
@@ -194,12 +205,30 @@ def _row_to_registration(row: dict[str, Any]) -> InventoryRegistration:
     )
 
 
+@persistence_surface(
+    "service.tool_inventory_registrations",
+    probe=named_isolation_probe("_drive_tool_inventories"),
+)
 class InventoryRegistrationRepository:
     """Append and read tool-inventory registrations, scoped per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    def _registrations(self, tenant_id: str) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
+        return ScopedTable(
+            self._database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.tool_inventory_registrations",
+            context,
+        )
+
+    @persistence_operation(ResourceOperation.CREATE)
     async def register(self, registration: InventoryRegistration) -> InventoryRegistration:
         """Append one registration event for a deployment.
 
@@ -212,35 +241,30 @@ class InventoryRegistrationRepository:
             The registration exactly as stored, so a caller that relied on the
             defaults learns the identity it was given.
         """
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                f"""
-                INSERT INTO tool_inventory_registrations ({_REGISTRATION_COLUMNS})
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    registration.registration_id,
-                    registration.tenant_id,
-                    registration.deployment_ref,
-                    registration.graph_version,
-                    registration.adapter_version,
-                    registration.inventory_fingerprint,
-                    registration.coverage,
-                    registration.tool_count,
-                    # ``tools_json`` keeps its 016 shape -- the bare names --
-                    # because the column is NOT NULL and the names remain
-                    # useful for inspection. It is never read back: the
-                    # identities the digest is computed over live in
-                    # ``tool_identities_json``.
-                    json.dumps([tool.name for tool in registration.tools]),
-                    registration.registered_at.isoformat(),
-                    json.dumps(
-                        [tool.model_dump(mode="json") for tool in registration.tools]
-                    ),
+        await self._registrations(registration.tenant_id).insert(
+            {
+                "registration_id": registration.registration_id,
+                "deployment_ref": registration.deployment_ref,
+                "graph_version": registration.graph_version,
+                "adapter_version": registration.adapter_version,
+                "inventory_fingerprint": registration.inventory_fingerprint,
+                "coverage": registration.coverage,
+                "tool_count": registration.tool_count,
+                # ``tools_json`` keeps its 016 shape -- the bare names --
+                # because the column is NOT NULL and the names remain
+                # useful for inspection. It is never read back: the
+                # identities the digest is computed over live in
+                # ``tool_identities_json``.
+                "tools_json": json.dumps([tool.name for tool in registration.tools]),
+                "registered_at": registration.registered_at.isoformat(),
+                "tool_identities_json": json.dumps(
+                    [tool.model_dump(mode="json") for tool in registration.tools]
                 ),
-            )
+            }
+        )
         return registration
 
+    @persistence_operation(ResourceOperation.READ)
     async def latest_for_deployment(
         self,
         tenant_id: str,
@@ -256,10 +280,11 @@ class InventoryRegistrationRepository:
             The newest registration, or ``None`` when this tenant has never
             registered an inventory for that deployment.
         """
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                _SELECT_LATEST_REGISTRATION,
-                (tenant_id, deployment_ref),
+        async with self._registrations(tenant_id).transaction() as registrations:
+            row = await registrations.select_one(
+                where={"deployment_ref": deployment_ref},
+                columns=tuple(column.strip() for column in _REGISTRATION_COLUMNS.split(",")),
+                order_by_desc=("registered_at",),
             )
         return None if row is None else _row_to_registration(row)
 
@@ -339,12 +364,29 @@ def _row_to_attestation(row: dict[str, Any]) -> SignedRunAttestation:
     )
 
 
+@persistence_surface(
+    "service.run_attestations", probe=named_isolation_probe("_drive_run_attestations")
+)
 class RunAttestationRepository:
     """Append and read signed run-start attestations, scoped per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    def _attestations(self, tenant_id: str) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
+        return ScopedTable(
+            self._database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.run_attestations",
+            context,
+        )
+
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def record(self, signed: SignedRunAttestation) -> AttestationRecordOutcome:
         """Store an attestation unless the run already has one.
 
@@ -411,37 +453,41 @@ class RunAttestationRepository:
         """
         payload = signed.payload
         candidate_id = uuid4().hex
-        async with self._database.transaction(write_lock=True) as connection:
-            await connection.execute(
-                f"""
-                INSERT INTO run_attestations ({_ATTESTATION_COLUMNS})
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (tenant_id, correlation_id) DO NOTHING
-                """,
-                (
-                    candidate_id,
-                    payload.tenant_id,
-                    payload.correlation_id,
-                    payload.deployment_ref,
-                    payload.graph_version,
-                    payload.adapter_version,
-                    payload.inventory_fingerprint,
-                    payload.inventory_coverage,
-                    payload.tool_count,
-                    payload.claimed_level,
-                    payload.model_dump_json(),
-                    signed.digest,
-                    signed.signature,
-                    signed.signing_key_id,
-                    signed.signing_algorithm,
-                    payload.issued_at.isoformat(),
-                    payload.expires_at.isoformat(),
-                    utc_now().isoformat(),
-                ),
+        async with self._attestations(payload.tenant_id).transaction(
+            write_lock=True
+        ) as attestations:
+            await attestations.insert_if_absent(
+                {
+                    "attestation_id": candidate_id,
+                    "correlation_id": payload.correlation_id,
+                    "deployment_ref": payload.deployment_ref,
+                    "graph_version": payload.graph_version,
+                    "adapter_version": payload.adapter_version,
+                    "inventory_fingerprint": payload.inventory_fingerprint,
+                    "inventory_coverage": payload.inventory_coverage,
+                    "tool_count": payload.tool_count,
+                    "claimed_level": payload.claimed_level,
+                    "payload_json": payload.model_dump_json(),
+                    "digest": signed.digest,
+                    "signature": signed.signature,
+                    "signing_key_id": signed.signing_key_id,
+                    "signing_algorithm": signed.signing_algorithm,
+                    "issued_at": payload.issued_at.isoformat(),
+                    "expires_at": payload.expires_at.isoformat(),
+                    "created_at": utc_now().isoformat(),
+                },
+                conflict_columns=("tenant_id", "correlation_id"),
             )
-            winner = await connection.fetch_one(
-                _SELECT_ATTESTATION,
-                (payload.tenant_id, payload.correlation_id),
+            winner = await attestations.select_one(
+                where={"correlation_id": payload.correlation_id},
+                columns=(
+                    "attestation_id",
+                    "payload_json",
+                    "digest",
+                    "signature",
+                    "signing_key_id",
+                    "signing_algorithm",
+                ),
             )
         # Read back rather than trusting a rowcount: ``ON CONFLICT DO NOTHING``
         # reports zero affected rows on some drivers even for a successful
@@ -460,6 +506,7 @@ class RunAttestationRepository:
             ),
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_by_correlation(
         self,
         tenant_id: str,
@@ -476,10 +523,20 @@ class RunAttestationRepository:
             attestation under that correlation. A correlation belonging to a
             different tenant reads as absent, never as another tenant's row.
         """
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(_SELECT_ATTESTATION, (tenant_id, correlation_id))
+        row = await self._attestations(tenant_id).select_one(
+            where={"correlation_id": correlation_id},
+            columns=(
+                "attestation_id",
+                "payload_json",
+                "digest",
+                "signature",
+                "signing_key_id",
+                "signing_algorithm",
+            ),
+        )
         return None if row is None else _row_to_attestation(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_for_deployment(
         self,
         tenant_id: str,
@@ -534,11 +591,17 @@ class RunAttestationRepository:
             deployment's attestation reads as absent, never as this one's, and
             so does an attestation whose signed payload names another run.
         """
-        async with self._database.transaction() as connection:
-            row = await connection.fetch_one(
-                _SELECT_ATTESTATION_FOR_DEPLOYMENT,
-                (tenant_id, correlation_id, deployment_ref),
-            )
+        row = await self._attestations(tenant_id).select_one(
+            where={"correlation_id": correlation_id, "deployment_ref": deployment_ref},
+            columns=(
+                "attestation_id",
+                "payload_json",
+                "digest",
+                "signature",
+                "signing_key_id",
+                "signing_algorithm",
+            ),
+        )
         if row is None:
             return None
         attestation = _row_to_attestation(row)

@@ -165,6 +165,8 @@ def _seeded_record(audit_id: str = "audit-seeded", **overrides: Any) -> NodeAudi
         node_id="node-1",
         graph_version_ref="graph:v1",
         deployment_ref="deployment-1",
+        tenant_id="default",
+        workspace_id=None,
         status="completed",
         input_snapshot={
             "prompt": f"summarise the ledger using {API_KEY}",
@@ -213,7 +215,7 @@ def _seeded_record(audit_id: str = "audit-seeded", **overrides: Any) -> NodeAudi
 
 def _repository(sqlite_db: Any, classifier: Any = None) -> AuditRepository:
     """Build a repository, opting into a capture posture only when one is given."""
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     if classifier is not None:
         repository.configure_capture(classifier)
     return repository
@@ -243,9 +245,14 @@ async def test_a_pass_through_policy_cannot_be_installed_on_the_durable_write(
     # argument and the seeded prompt is persisted verbatim. No parameter, on
     # either the repository or the delivery stage, takes one.
     with pytest.raises(TypeError):
-        AuditRepository(sqlite_db, capture_policy=_PassThroughCapturePolicy())
+        AuditRepository.for_default_compatibility(
+            sqlite_db, capture_policy=_PassThroughCapturePolicy()
+        )
     with pytest.raises(TypeError):
-        AuditDeliveryQueue(AuditRepository(sqlite_db), capture_policy=_PassThroughCapturePolicy())
+        AuditDeliveryQueue(
+            AuditRepository.for_default_compatibility(sqlite_db),
+            capture_policy=_PassThroughCapturePolicy(),
+        )
 
     stored = await _store_one(sqlite_db, _seeded_record())
     assert stored.input_snapshot == {}
@@ -441,7 +448,7 @@ async def test_a_repository_given_no_capture_configuration_still_redacts_before_
     sqlite_db: Any,
 ) -> None:
     # The fail-closed default: "nothing was configured" must not mean "store raw".
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
 
     await repository.write(_seeded_record())
 
@@ -477,7 +484,7 @@ async def test_a_content_classification_still_masks_registered_secret_values() -
 
     captured = policy.apply(_seeded_record())
 
-    assert captured.input_snapshot["prompt"] == "summarise the ledger using [REDACTED:llm_key]"
+    assert captured.input_snapshot["prompt"] == "summarise the ledger using [REDACTED:LLM_KEY]"
     assert API_KEY not in captured.model_dump_json()
 
 

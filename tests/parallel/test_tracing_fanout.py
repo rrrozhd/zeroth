@@ -86,7 +86,7 @@ async def test_fanout_branch_node_spans_nest_under_fanout_span(otel_spans, sqlit
         edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"source": source_runner, "sink": sink_runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -99,9 +99,7 @@ async def test_fanout_branch_node_spans_nest_under_fanout_span(otel_spans, sqlit
     # the downstream "sink" node runs once per branch; those node spans must be
     # children of the fan-out span (proves trace context crossed the asyncio tasks)
     sink_node_spans = [
-        s
-        for s in spans
-        if s.name == "zeroth.node" and s.attributes.get("zeroth.node_id") == "sink"
+        s for s in spans if s.name == "zeroth.node" and s.attributes.get("zeroth.node_id") == "sink"
     ]
     assert len(sink_node_spans) == 2
     for span in sink_node_spans:

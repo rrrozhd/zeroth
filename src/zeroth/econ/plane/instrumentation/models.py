@@ -1,23 +1,34 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import ClassVar
 
 from sqlalchemy import DateTime, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zeroth.econ.plane.database import Base
+from zeroth.platform.storage.scoping import ResourceOperation, ResourceScopeDefinition
+
+_ALL_OPERATIONS = frozenset(ResourceOperation)
 
 
 class ExecutionEvent(Base):
     __tablename__ = "execution_events"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.execution_event", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (
-        UniqueConstraint("execution_id", name="uq_execution_events_execution_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "execution_id",
+            name="uq_execution_events_tenant_execution_id",
+        ),
         Index("ix_execution_events_tenant_time_capability", "tenant_id", "timestamp", "capability_id"),
         Index("ix_execution_events_tenant_join_key", "tenant_id", "join_key"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     execution_id: Mapped[str] = mapped_column(String(128), index=True)
     join_key: Mapped[str] = mapped_column(String(128), index=True, default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -34,13 +45,16 @@ class ExecutionEvent(Base):
 
 class OutcomeEvent(Base):
     __tablename__ = "outcome_events"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.outcome_event", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
     __table_args__ = (
         Index("ix_outcome_events_tenant_time_capability", "tenant_id", "occurred_at", "capability_id"),
         Index("ix_outcome_events_tenant_join_key", "tenant_id", "join_key"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     join_key: Mapped[str] = mapped_column(String(128), index=True)
     execution_id: Mapped[str] = mapped_column(String(128), index=True, default="")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -58,6 +72,9 @@ class EconErasureReceipt(Base):
     """Durable exactly-once receipt for tenant-scoped erasure operations."""
 
     __tablename__ = "econ_erasure_receipts"
+    scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
+        resource_name="econ.erasure_receipt", table_name=__tablename__, operations=_ALL_OPERATIONS
+    )
 
     operation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)

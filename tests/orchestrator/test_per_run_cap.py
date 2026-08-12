@@ -80,8 +80,8 @@ async def test_per_run_cap_halts_run_on_next_node(sqlite_db) -> None:
     """
     runners = {nid: _CostingRunner(0.02) for nid in ("n1", "n2", "n3")}
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=None,
         # Regulus disabled: no budget_enforcer, cap enforced locally.
@@ -104,8 +104,8 @@ async def test_per_run_cap_none_is_noop(sqlite_db) -> None:
     """With per_run_cap_usd=None the run completes regardless of cost."""
     runners = {nid: _CostingRunner(1.0) for nid in ("n1", "n2", "n3")}
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=None,
         per_run_cap_usd=None,

@@ -2,11 +2,13 @@ import logging
 import random
 import time
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import PlainTextResponse
 from starlette.requests import Request
 
 from zeroth.econ.plane.auth.api import router as auth_router
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.capabilities.api import router as capabilities_router
 from zeroth.econ.plane.common.bootstrap import bootstrap
 from zeroth.econ.plane.config import settings
@@ -19,7 +21,7 @@ from zeroth.econ.plane.enforcement.api import router as enforcement_router
 from zeroth.econ.plane.instrumentation.api import router as instrumentation_router
 from zeroth.econ.plane.performance.api import router as performance_router
 from zeroth.econ.plane.reconciliation.api import router as reconciliation_router
-from zeroth.econ.plane.database import SessionLocal
+from zeroth.econ.plane.scoped_session import ScopedSession
 
 app = FastAPI(title="AI Economic Control Plane", version="0.1.0")
 
@@ -67,8 +69,10 @@ def health() -> dict[str, str]:
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
-def metrics() -> str:
+def metrics(
+    db: ScopedSession = Depends(get_current_scoped_db),
+    _user: UserClaims = Depends(require_roles("Admin", "Analyst", "Approver", "Viewer")),
+) -> str:
     if not settings.prometheus_enabled:
         return ""
-    with SessionLocal() as db:
-        return render_prometheus_metrics(db)
+    return render_prometheus_metrics(db)

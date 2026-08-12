@@ -172,6 +172,10 @@ class ApprovalService:
         graph_version_ref: str | None = None,
     ) -> ApprovalRecord | None:
         """Fetch a single approval record by its ID. Returns None if not found."""
+        if tenant_id is None and workspace_id is _UNSCOPED:
+            bound = self._run_scope()
+            tenant_id = bound["tenant_id"]
+            workspace_id = bound["workspace_id"]
         return await self.repository.get(
             approval_id,
             tenant_id=tenant_id,
@@ -223,7 +227,15 @@ class ApprovalService:
             graph_version_ref=graph_version_ref,
         )
 
-    async def escalate(self, approval_id: str) -> ApprovalRecord:
+    async def escalate(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> ApprovalRecord:
         """Escalate an overdue approval based on its configured escalation action.
 
         Supports three actions:
@@ -233,7 +245,13 @@ class ApprovalService:
 
         If the approval is already ESCALATED, this is a no-op (prevents double-escalation).
         """
-        record = await self._require(approval_id)
+        record = await self._require(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
         if record.status is ApprovalStatus.ESCALATED:
             return record  # already escalated, no-op per pitfall 3
 
@@ -290,6 +308,10 @@ class ApprovalService:
                 approval_id,
                 decision=ApprovalDecision.REJECT,
                 actor=system_actor,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
+                deployment_ref=record.deployment_ref,
+                graph_version_ref=record.graph_version_ref,
             )
 
         else:  # "alert" or unknown
@@ -394,7 +416,7 @@ class ApprovalService:
         The worker will call ``resume_graph`` on the next poll tick.
         Only call this from the approval HTTP endpoint when the durable worker is active.
         """
-        record = await self._require(approval_id)
+        record = await self._require(approval_id, **self._run_scope())
         if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
             raise ValueError("approval must be resolved before continuation")
         run = await self.run_repository.get(record.run_id)
@@ -444,7 +466,7 @@ class ApprovalService:
         If APPROVE or EDIT_AND_APPROVE, the run is handed back to the
         orchestrator to continue executing from the approval node onward.
         """
-        record = await self._require(approval_id)
+        record = await self._require(approval_id, **self._run_scope())
         if record.status is not ApprovalStatus.RESOLVED or record.resolution is None:
             raise ValueError("approval must be resolved before continuation")
         run = await self.run_repository.get(record.run_id)
@@ -526,6 +548,14 @@ class ApprovalService:
         if record is None:
             raise KeyError(approval_id)
         return record
+
+    def _run_scope(self) -> dict[str, str | None]:
+        """Return the trusted owner already bound to this service's run repository."""
+        scope = self.run_repository.scope_context
+        return {
+            "tenant_id": scope.tenant_id,
+            "workspace_id": getattr(scope, "workspace_id", None),
+        }
 
     async def _record_api_audit(self, record: ApprovalRecord) -> None:
         """Write an audit log entry for the API-level approval resolution."""

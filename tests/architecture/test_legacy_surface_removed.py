@@ -64,6 +64,21 @@ def test_the_retired_trees_are_absent_from_the_source_checkout() -> None:
         assert not (REPO_ROOT / tree).exists(), f"{tree} still exists"
 
 
+def test_cross_tenant_maintenance_authority_is_exact_and_read_only() -> None:
+    result = _cold(
+        "import zeroth.platform.storage as storage\n"
+        "context = storage.CrossTenantMaintenanceScopeContext.for_scheduled_maintenance()\n"
+        "assert context.allowed_resource_names == frozenset({"
+        "'service.retention_policies', 'service.runs', 'service.node_audits'})\n"
+        "assert hasattr(storage.ResourceScopeRegistry, "
+        "'validate_cross_tenant_maintenance_binding')\n"
+        "assert hasattr(storage.ScopedTable, 'for_cross_tenant_maintenance')\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (REPO_ROOT / "src/zeroth/governance/retention/workspace_reader.py").exists()
+
+
 def test_backend_domains_cold_import_without_loading_a_retired_module() -> None:
     """Each canonical package stands up cold, touching nothing retired.
 
@@ -155,7 +170,7 @@ def test_alembic_upgrades_a_scratch_database_to_head(tmp_path: Path) -> None:
             for row in connection.execute("select name from sqlite_master where type='table'")
         }
 
-    assert applied == ["022"]
+    assert applied == ["026"]
     assert "runs" in tables
     assert "side_effect_operations" in tables
 

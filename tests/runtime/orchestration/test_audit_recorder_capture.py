@@ -25,6 +25,7 @@ from zeroth.governance.audit.repository import AuditRepository
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run
+from zeroth.platform.storage import ScopeContext
 
 SECRET = "sk-proj-SEEDED-RUNTIME-PROBE-71ca09"
 
@@ -35,6 +36,7 @@ def _run() -> Run:
         graph_version_ref="graph:v1",
         deployment_ref="deployment-1",
         tenant_id="tenant-a",
+        workspace_id="workspace-a",
         thread_id="thread-1",
         current_node_ids=[],
         pending_node_ids=[],
@@ -51,7 +53,12 @@ def _node() -> AgentNode:
 
 def _recorder(sqlite_db: Any) -> RuntimeAuditRecorder:
     """The default runtime shape: an audit repository and no secret resolver."""
-    return RuntimeAuditRecorder(audit_repository=AuditRepository(sqlite_db))
+    return RuntimeAuditRecorder(
+        audit_repository=AuditRepository.scoped(
+            sqlite_db,
+            ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+        )
+    )
 
 
 async def _stored(recorder: RuntimeAuditRecorder) -> list[Any]:

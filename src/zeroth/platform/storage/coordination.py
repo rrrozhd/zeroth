@@ -8,7 +8,6 @@ from typing import Literal
 from zeroth.platform.storage.database import AsyncConnection
 
 _COORDINATION_KEYS = {
-    ("audit_chain_heads", "run_id"),
     ("retention_coordination", "tenant_id"),
 }
 

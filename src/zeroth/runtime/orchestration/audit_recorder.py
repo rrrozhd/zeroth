@@ -443,6 +443,8 @@ class RuntimeAuditRecorder:
                 audit_id=audit_ref,
                 run_id=run.run_id,
                 thread_id=run.thread_id,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
                 node_id=node_id,
                 node_version=node.node_version,
                 graph_version_ref=run.graph_version_ref,
