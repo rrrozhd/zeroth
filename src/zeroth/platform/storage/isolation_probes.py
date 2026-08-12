@@ -1094,21 +1094,23 @@ async def _drive_deployments(database: AsyncDatabase, operation: ResourceOperati
 
 async def _drive_heartbeats(database: AsyncDatabase, operation: ResourceOperation) -> None:
     repository = HeartbeatRepository(database)
-    await repository.record(
+    owner_created = await repository.record(
         Heartbeat(
             tenant_id="driver-owner",
             deployment_ref="driver-deployment",
             reported_level="observed",
         )
     )
+    assert owner_created.tenant_id == "driver-owner"
     if operation is O.CREATE:
-        await repository.record(
+        foreign_created = await repository.record(
             Heartbeat(
                 tenant_id="driver-foreign",
                 deployment_ref="driver-deployment",
                 reported_level="unknown",
             )
         )
+        assert foreign_created.tenant_id == "driver-foreign"
     else:
         assert await repository.latest_for_deployment("driver-foreign", "driver-deployment") is None
         assert (
@@ -1230,9 +1232,11 @@ def _inventory_registration(tenant: str) -> InventoryRegistration:
 
 async def _drive_tool_inventories(database: AsyncDatabase, operation: ResourceOperation) -> None:
     repository = InventoryRegistrationRepository(database)
-    await repository.register(_inventory_registration("driver-owner"))
+    owner_created = await repository.register(_inventory_registration("driver-owner"))
+    assert owner_created.tenant_id == "driver-owner"
     if operation is O.CREATE:
-        await repository.register(_inventory_registration("driver-foreign"))
+        foreign_created = await repository.register(_inventory_registration("driver-foreign"))
+        assert foreign_created.tenant_id == "driver-foreign"
     else:
         assert await repository.latest_for_deployment("driver-foreign", "driver-deployment") is None
         assert (

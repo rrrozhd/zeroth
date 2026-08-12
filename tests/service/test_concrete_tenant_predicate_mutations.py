@@ -56,7 +56,9 @@ _PREDICATE_MECHANISMS = (
         "service.enforcement_heartbeats",
         "zeroth.governance.attestations.heartbeat",
         "_SELECT_LATEST_HEARTBEAT",
-        "cr",
+        # ``record`` does not execute this lookup; CREATE ownership binding is
+        # covered by the generated ScopedTable gateway mutation instead.
+        "r",
     ),
     (
         "service.memory_connector_configs",
@@ -74,7 +76,8 @@ _PREDICATE_MECHANISMS = (
         "service.tool_inventory_registrations",
         "zeroth.governance.attestations.store",
         "_SELECT_LATEST_REGISTRATION",
-        "cr",
+        # ``register`` is append-only and does not execute the latest-row SQL.
+        "r",
     ),
 )
 
@@ -126,9 +129,7 @@ async def test_each_concrete_repository_predicate_bypass_is_detected(
         await probe(async_database, operation=operation)
 
 
-async def test_audit_chain_read_predicate_bypass_is_detected(
-    async_database, monkeypatch
-) -> None:
+async def test_audit_chain_read_predicate_bypass_is_detected(async_database, monkeypatch) -> None:
     original_where = _StructuredTable._where
 
     def without_chain_head_scope(
@@ -150,9 +151,7 @@ async def test_audit_chain_read_predicate_bypass_is_detected(
         )
 
     monkeypatch.setattr(_StructuredTable, "_where", without_chain_head_scope)
-    probe = executable_probe_for(
-        _SURFACES, "service.audit_chain_heads", ResourceOperation.READ
-    )
+    probe = executable_probe_for(_SURFACES, "service.audit_chain_heads", ResourceOperation.READ)
 
     with pytest.raises(AssertionError):
         await probe(async_database, operation=ResourceOperation.READ)
