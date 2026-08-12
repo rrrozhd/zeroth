@@ -72,11 +72,11 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-@dataclass(slots=True)
 @persistence_surface(
     "service.side_effect_operations",
     probe=named_isolation_probe("_drive_side_effect_operations"),
 )
+@dataclass(slots=True)
 class SideEffectOperationStore:
     """Persists one row per logical operation and converges duplicate reports."""
 

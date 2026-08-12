@@ -35,8 +35,8 @@ _TERMINAL_STATES = {
 }
 
 
-@dataclass(slots=True)
 @persistence_surface("service.token_engine_snapshots")
+@dataclass(slots=True)
 class TokenSnapshotRowStore:
     """Owns the one-row-per-run ``token_engine_snapshots`` table."""
 
