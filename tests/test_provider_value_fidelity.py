@@ -372,6 +372,70 @@ async def test_terminal_provider_failure_after_paid_attempt_is_unmeasured(
     assert raised.value.audit_record["usage_measurement"] is MeasurementState.UNMEASURED
 
 
+@pytest.mark.parametrize(
+    ("post_response", "expected_state", "expected_cost"),
+    [
+        (True, MeasurementState.MEASURED, 0.2),
+        (False, MeasurementState.UNMEASURED, None),
+    ],
+)
+async def test_operational_failure_measurement_matches_provider_response(
+    monkeypatch: pytest.MonkeyPatch,
+    post_response: bool,
+    expected_state: MeasurementState,
+    expected_cost: float | None,
+) -> None:
+    class Input(BaseModel):
+        query: str
+
+    class Output(BaseModel):
+        answer: str
+
+    provider = DeterministicProviderAdapter(
+        [
+            ProviderResponse(
+                content='{"answer":"ok"}',
+                token_usage=TokenUsage(
+                    input_tokens=2, output_tokens=3, total_tokens=5, model_name="m"
+                ),
+                cost_usd=0.2,
+                cost_measurement=MeasurementState.MEASURED,
+            )
+            if post_response
+            else RuntimeError("provider failed")
+        ]
+    )
+    runner = AgentRunner(
+        AgentConfig(
+            name="fidelity-operational-failure",
+            instruction="answer",
+            model_name="m",
+            input_model=Input,
+            output_model=Output,
+        ),
+        provider,
+    )
+    if post_response:
+        monkeypatch.setattr(
+            runner,
+            "_store_memory",
+            AsyncMock(side_effect=RuntimeError("memory store failed")),
+        )
+
+    with pytest.raises(AgentProviderError) as raised:
+        await runner.run({"query": "hi"})
+
+    audit = raised.value.audit_record
+    assert audit.get("cost_usd") == expected_cost
+    assert audit["cost_measurement"] is expected_state
+    assert audit["usage_measurement"] is expected_state
+    assert audit.get("token_usage") == (
+        {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5, "model_name": "m"}
+        if post_response
+        else None
+    )
+
+
 async def test_runner_preserves_degraded_budget_status() -> None:
     budget = AsyncMock(spec=BudgetEnforcer)
     status = BudgetCheckResult(
