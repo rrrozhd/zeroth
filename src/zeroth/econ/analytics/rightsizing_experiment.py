@@ -567,7 +567,7 @@ async def run_experiment(
         if not o.is_incumbent and o.meets_bar and o.est_cost_per_1k_calls_usd is not None
     ]
     if eligible:
-        best = min(eligible, key=lambda o: o.est_cost_per_1k_calls_usd or float("inf"))
+        best = min(eligible, key=lambda o: o.est_cost_per_1k_calls_usd)
         report.recommended_model = f"{best.provider}/{best.model}" if best.provider else best.model
         if report.cases >= min_cases:
             report.verdict = "confirmed"

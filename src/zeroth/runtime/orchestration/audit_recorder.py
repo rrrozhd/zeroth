@@ -25,6 +25,7 @@ from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
 from zeroth.platform.secrets import SecretResolver
+from zeroth.runtime.agents.errors import AgentProviderError
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run, RunHistoryEntry
 
@@ -304,15 +305,13 @@ class RuntimeAuditRecorder:
     ) -> None:
         """Persist an audit record for execution failures that happen before completion."""
         carried_audit = getattr(error, "audit_record", None)
-        # Errors that attach an audit_record (content blocks, integrity rejections,
-        # paid-then-failed calls) are governance rejections. Bare infrastructure
-        # errors (provider auth/network failures, dispatcher errors) carry nothing,
-        # but still must leave a trail — a failed node with no audit record is
-        # indistinguishable from a node that never ran.
-        is_rejection = isinstance(carried_audit, Mapping)
-        audit_record: dict[str, Any] = (
-            dict(carried_audit) if is_rejection else bare_error_audit_record(error)
-        )
+        # Provider failures now carry measurement fidelity too, but remain failed
+        # infrastructure attempts rather than governance rejections.
+        has_carried_audit = isinstance(carried_audit, Mapping)
+        is_rejection = has_carried_audit and not isinstance(error, AgentProviderError)
+        audit_record = dict(carried_audit) if has_carried_audit else {}
+        if not is_rejection:
+            audit_record = {**bare_error_audit_record(error), **audit_record}
         # ZER-26/AUD-008: a timed-out side effect attaches its operation facts
         # as ``operation_audit`` — the state is AMBIGUOUS and the effect may
         # have landed. Merging (not replacing) keeps the rejection/bare-error
@@ -436,17 +435,16 @@ class RuntimeAuditRecorder:
     ) -> None:
         """Persist a branch-scoped audit record for a failed branch-node dispatch.
 
-        Mirrors record_failed_execution: errors that attach an audit_record
-        (content blocks, integrity rejections, paid-then-failed calls) are
-        governance rejections; bare infrastructure errors still must leave a
-        trail — a failed branch node with no audit record is indistinguishable
-        from a node that never ran.
+        Mirrors record_failed_execution: governance errors carrying audit data
+        are rejections, while provider failures remain failed infrastructure
+        attempts even when they carry measurement fidelity.
         """
         carried_audit = getattr(error, "audit_record", None)
-        is_rejection = isinstance(carried_audit, Mapping)
-        audit_record: dict[str, Any] = (
-            dict(carried_audit) if is_rejection else bare_error_audit_record(error)
-        )
+        has_carried_audit = isinstance(carried_audit, Mapping)
+        is_rejection = has_carried_audit and not isinstance(error, AgentProviderError)
+        audit_record = dict(carried_audit) if has_carried_audit else {}
+        if not is_rejection:
+            audit_record = {**bare_error_audit_record(error), **audit_record}
         # Same ZER-26/AUD-008 merge as the non-branch path: a branch can run a
         # side-effect node, and its timeout facts must not be lost either.
         operation_audit = getattr(error, "operation_audit", None)

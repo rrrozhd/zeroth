@@ -359,14 +359,32 @@ class GraphDriver:
             # paused due to an approval inside a subgraph branch.
             pending_psg = run.metadata.get("pending_parallel_subgraph")
             if pending_psg and pending_psg.get("node_id") == node_id:
-                fan_in_resume = await self.parallel_runtime.execute_fan_out_resume(
-                    graph,
-                    run,
-                    node,
-                    node_id,
-                    pending_psg,
-                    step_tracker=step_tracker,
-                )
+                try:
+                    fan_in_resume = await self.parallel_runtime.execute_fan_out_resume(
+                        graph,
+                        run,
+                        node,
+                        node_id,
+                        pending_psg,
+                        step_tracker=step_tracker,
+                    )
+                except Exception as exc:
+                    source_output = pending_psg.get("split_input", dict(input_payload))
+                    await self.audit_recorder.record_history(
+                        run,
+                        node,
+                        node_id,
+                        pending_psg.get("source_input", input_payload),
+                        source_output,
+                        pending_psg.get("source_audit")
+                        or {"resumed_parallel_fan_out": True},
+                        started_at=node_started_at,
+                    )
+                    self.increment_node_visit(run, node_id)
+                    del run.metadata["pending_parallel_subgraph"]
+                    return await self.fail_run(
+                        run, "parallel_execution_failed", str(exc)
+                    )
                 if fan_in_resume.pause_state is not None:
                     # Nested approval inside the resumed branch (audit B8). Persist
                     # the pause durably via the SAME handler as the first pause,
