@@ -24,7 +24,7 @@ from zeroth.contracts.graph import (
     HumanApprovalNode,
     HumanApprovalNodeData,
 )
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.runs import Run
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
@@ -192,7 +192,10 @@ async def deploy_service(
     workspace_id: str | None = None,
 ):
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.scoped(
+        sqlite_db,
+        contract_scope_context(tenant_id, workspace_id),
+    )
     await contract_registry.register(RunInputPayload, name="contract://input")
     await contract_registry.register(RunInputPayload, name="contract://output")
     for contract_ref, model in (extra_contract_models or {}).items():

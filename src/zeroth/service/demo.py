@@ -78,7 +78,7 @@ async def seed_demo(
     Idempotent: re-running against a database that already holds the demo
     contracts or deployment reuses what exists instead of failing.
     """
-    registry = ContractRegistry(database)
+    registry = ContractRegistry.for_default_compatibility(database)
     for model_type, name in (
         (DemoQuestion, DEMO_INPUT_CONTRACT),
         (DemoAnswer, DEMO_OUTPUT_CONTRACT),

@@ -29,7 +29,7 @@ async def test_seed_demo_creates_published_graph_and_deployment(sqlite_db):
     assert deployment.graph_id == DEMO_GRAPH_ID
     assert deployment.graph_version_ref == f"{DEMO_GRAPH_ID}@1"
 
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     assert await registry.latest_version(DEMO_INPUT_CONTRACT) == 1
     assert await registry.latest_version(DEMO_OUTPUT_CONTRACT) == 1
 
@@ -43,7 +43,7 @@ async def test_seed_demo_is_idempotent(sqlite_db):
 
 
 async def test_factory_builds_runner_from_agent_node_data(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await registry.register(DemoQuestion, name=DEMO_INPUT_CONTRACT)
     await registry.register(DemoAnswer, name=DEMO_OUTPUT_CONTRACT)
 
@@ -59,7 +59,7 @@ async def test_factory_builds_runner_from_agent_node_data(sqlite_db):
 
 
 async def test_factory_preserves_declared_mcp_servers(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await registry.register(DemoQuestion, name=DEMO_INPUT_CONTRACT)
     await registry.register(DemoAnswer, name=DEMO_OUTPUT_CONTRACT)
 
@@ -76,7 +76,7 @@ async def test_factory_preserves_declared_mcp_servers(sqlite_db):
 
 
 async def test_factory_raises_actionable_error_for_unregistered_contract(sqlite_db):
-    registry = ContractRegistry(sqlite_db)
+    registry = ContractRegistry.for_default_compatibility(sqlite_db)
     graph = build_hello_graph()
 
     with pytest.raises(AgentRunnerFactoryError, match="agent"):

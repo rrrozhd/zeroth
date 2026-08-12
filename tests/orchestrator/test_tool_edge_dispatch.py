@@ -131,7 +131,7 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
         input_model=NumberInput,
         output_model=NumberOutput,
     )
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(NumberInput, name="contract://number-in")
     await contract_registry.register(NumberOutput, name="contract://number-out")
 

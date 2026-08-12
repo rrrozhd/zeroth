@@ -11,7 +11,7 @@ from zeroth.contracts.graph import GraphRepository
 from zeroth.contracts.graph.serialization import hydrate_deployed_graph
 from zeroth.contracts.graph.versioning import graph_version_ref
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.governance.approvals import ApprovalRepository, ApprovalService
 from zeroth.governance.approvals.notifications import build_approval_notifier
@@ -131,22 +131,25 @@ async def bootstrap_service(
     secret_provider: SecretProvider | None = None,
 ) -> ServiceBootstrap:
     """Build the service wrapper wiring for a specific deployment."""
-    # Phase 43-02 (D-15): wire GraphValidator into GraphRepository so
-    # publish() rejects graphs with invalid parallel configs BEFORE the
-    # DRAFT -> PUBLISHED state transition.
-    _contract_registry = ContractRegistry(database)
+    deployment_repository = SQLiteDeploymentRepository(database)
+    deployment = await deployment_repository.get(deployment_ref)
+    if deployment is None:
+        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
+
+    # The persisted deployment is the trusted bootstrap boundary: it fixes the
+    # tenant whose contracts this deployment may resolve before any registry
+    # or graph validator is constructed.
+    _contract_registry = ContractRegistry.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
     _graph_validator = GraphValidator(contract_registry=_contract_registry)
     graph_repository = GraphRepository(database, validator=_graph_validator)
-    deployment_repository = SQLiteDeploymentRepository(database)
     deployment_service = DeploymentService(
         graph_repository=graph_repository,
         deployment_repository=deployment_repository,
         contract_registry=_contract_registry,
     )
-    deployment = await deployment_service.get(deployment_ref)
-    if deployment is None:
-        raise DeploymentBootstrapError(f"deployment {deployment_ref!r} not found")
-
     try:
         graph = hydrate_deployed_graph(deployment)
     except Exception as exc:  # pragma: no cover - defensive wrapper
@@ -857,7 +860,10 @@ async def build_runners_for_deployment(
     if deployment is None:
         return None
     graph = hydrate_deployed_graph(deployment)
-    registry = ContractRegistry(database)
+    registry = ContractRegistry.scoped(
+        database,
+        contract_scope_context(deployment.tenant_id, deployment.workspace_id),
+    )
     return await build_agent_runners(
         graph,
         registry,

@@ -35,6 +35,7 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.contracts.graph.validation_errors import GraphValidationError
+from zeroth.contracts.registry import contract_scope_context
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
 from zeroth.service.api.authorization import Permission, require_permission
 from zeroth.service.api.studio_schemas import (
@@ -617,8 +618,10 @@ async def publish_workflow(workflow_id: str, request: Request) -> WorkflowDetail
 @router.get("/contracts", response_model=list[StudioContractResponse])
 async def list_contracts(request: Request) -> list[StudioContractResponse]:
     """List registered contracts (latest version each) for contract-ref pickers."""
-    _principal = await require_permission(request, Permission.WORKFLOW_READ)
-    registry = request.app.state.bootstrap.contract_registry
+    principal = await require_permission(request, Permission.WORKFLOW_READ)
+    registry = request.app.state.bootstrap.contract_registry.for_scope(
+        contract_scope_context(principal.tenant_id, principal.workspace_id)
+    )
     contracts: list[StudioContractResponse] = []
     for name in await registry.list_names():
         record = await registry.get(name)
@@ -643,10 +646,12 @@ async def create_contract(
     honors it exactly. Re-registering an existing name creates the next
     version (the picker lists the latest).
     """
-    _principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
+    principal = await require_permission(request, Permission.WORKFLOW_ADMIN)
     from jsonschema.exceptions import SchemaError
 
-    registry = request.app.state.bootstrap.contract_registry
+    registry = request.app.state.bootstrap.contract_registry.for_scope(
+        contract_scope_context(principal.tenant_id, principal.workspace_id)
+    )
     try:
         record = await registry.register_schema(
             body.name,

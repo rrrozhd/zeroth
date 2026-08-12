@@ -15,7 +15,7 @@ from tests.service.helpers import (
     deploy_service,
 )
 from zeroth.contracts.graph import GraphRepository
-from zeroth.contracts.registry import ContractRegistry
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
@@ -42,7 +42,10 @@ async def _signed_setup(
     """
     graph = agent_graph(graph_id="graph-prov")
     graph_repository = GraphRepository(sqlite_db)
-    contract_registry = ContractRegistry(sqlite_db)
+    contract_registry = ContractRegistry.scoped(
+        sqlite_db,
+        contract_scope_context(tenant_id, None),
+    )
     await contract_registry.register(RunInputPayload, name="contract://input")
     await contract_registry.register(RunInputPayload, name="contract://output")
     graph = graph.model_copy(update={"tenant_id": tenant_id})

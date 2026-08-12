@@ -1183,25 +1183,6 @@ service/webhooks/repository.py::mark_failed::transaction#1
 
 _RAW_ASYNC_REPOSITORY_ALLOWLIST |= frozenset(
     """
-contracts/registry/registry.py::_fetch_row::fetch_one#1
-contracts/registry/registry.py::_fetch_row::transaction#1
-contracts/registry/registry.py::_now::fetch_one#1
-contracts/registry/registry.py::_now::transaction#1
-contracts/registry/registry.py::delete::execute#1
-contracts/registry/registry.py::delete::execute#2
-contracts/registry/registry.py::delete::transaction#1
-contracts/registry/registry.py::latest_version::fetch_one#1
-contracts/registry/registry.py::latest_version::transaction#1
-contracts/registry/registry.py::list_names::fetch_all#1
-contracts/registry/registry.py::list_names::transaction#1
-contracts/registry/registry.py::list_versions::fetch_all#1
-contracts/registry/registry.py::list_versions::transaction#1
-contracts/registry/registry.py::register::execute#1
-contracts/registry/registry.py::register::fetch_one#1
-contracts/registry/registry.py::register::transaction#1
-contracts/registry/registry.py::register_schema::execute#1
-contracts/registry/registry.py::register_schema::fetch_one#1
-contracts/registry/registry.py::register_schema::transaction#1
 governance/attestations/store.py::find_by_correlation::fetch_one#1
 governance/attestations/store.py::find_by_correlation::transaction#1
 governance/attestations/store.py::find_for_deployment::fetch_one#1
@@ -1279,6 +1260,126 @@ service/langgraph_gateway/enforcement_store.py::save_decision::transaction#1
 
 def test_raw_async_repository_allowlist_is_exact_and_shrink_only() -> None:
     assert _raw_async_repository_violations(_SOURCE_ROOT) == _RAW_ASYNC_REPOSITORY_ALLOWLIST
+
+
+_CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
+    {
+        "examples/10_serve_in_python.py::seed_deployment::default_compatibility",
+        "examples/20_approval_gate.py::seed_and_build_app::default_compatibility",
+        "examples/_common.py::bootstrap_examples_service::default_compatibility",
+        "examples/service/seed_deployment.py::main::default_compatibility",
+        "src/zeroth/contracts/registry/registry.py::for_scope::scoped",
+        "src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped",
+        "src/zeroth/service/bootstrap/factory.py::build_runners_for_deployment::scoped",
+        "src/zeroth/service/demo.py::seed_demo::default_compatibility",
+    }
+)
+
+
+def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
+    inventory: set[str] = set()
+    for search_root in (root / "src", root / "examples"):
+        for path in search_root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            registry_names = {"ContractRegistry"}
+            registry_modules: set[str] = set()
+            for imported in ast.walk(tree):
+                if isinstance(imported, ast.ImportFrom):
+                    for alias in imported.names:
+                        if alias.name == "ContractRegistry":
+                            registry_names.add(alias.asname or alias.name)
+                elif isinstance(imported, ast.Import):
+                    for alias in imported.names:
+                        if alias.name == "zeroth.contracts.registry":
+                            registry_modules.add(alias.asname or alias.name.split(".")[0])
+            changed = True
+            while changed:
+                changed = False
+                for assigned in ast.walk(tree):
+                    if not isinstance(assigned, ast.Assign) or len(assigned.targets) != 1:
+                        continue
+                    target = assigned.targets[0]
+                    source_is_registry = (
+                        isinstance(assigned.value, ast.Name) and assigned.value.id in registry_names
+                    ) or (
+                        isinstance(assigned.value, ast.Attribute)
+                        and assigned.value.attr == "ContractRegistry"
+                        and isinstance(assigned.value.value, ast.Name)
+                        and assigned.value.value.id in registry_modules
+                    )
+                    if (
+                        isinstance(target, ast.Name)
+                        and source_is_registry
+                        and target.id not in registry_names
+                    ):
+                        registry_names.add(target.id)
+                        changed = True
+            parents: dict[ast.AST, ast.AST] = {}
+            for parent in ast.walk(tree):
+                for child in ast.iter_child_nodes(parent):
+                    parents[child] = parent
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                kind: str | None = None
+                registry_receiver = isinstance(node.func, ast.Attribute) and (
+                    (isinstance(node.func.value, ast.Name) and node.func.value.id in registry_names)
+                    or (
+                        isinstance(node.func.value, ast.Attribute)
+                        and node.func.value.attr == "ContractRegistry"
+                        and isinstance(node.func.value.value, ast.Name)
+                        and node.func.value.value.id in registry_modules
+                    )
+                )
+                direct_constructor = (
+                    isinstance(node.func, ast.Name) and node.func.id in registry_names
+                ) or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "ContractRegistry"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in registry_modules
+                )
+                if direct_constructor:
+                    raise AssertionError(
+                        f"production legacy ContractRegistry constructor at {path}:{node.lineno}"
+                    )
+                elif (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "for_default_compatibility"
+                    and registry_receiver
+                ):
+                    kind = "default_compatibility"
+                elif (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "scoped"
+                    and registry_receiver
+                ):
+                    kind = "scoped"
+                    if len(node.args) < 2 and not any(
+                        keyword.arg == "scope_context" for keyword in node.keywords
+                    ):
+                        raise AssertionError(
+                            f"scope-free ContractRegistry.scoped at {path}:{node.lineno}"
+                        )
+                if kind is None:
+                    continue
+                owner: ast.AST | None = node
+                while owner is not None and not isinstance(
+                    owner, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    owner = parents.get(owner)
+                owner_name = (
+                    owner.name
+                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    else "<module>"
+                )
+                inventory.add(f"{path.relative_to(root).as_posix()}::{owner_name}::{kind}")
+    return frozenset(inventory)
+
+
+def test_contract_registry_production_bindings_are_explicit_and_reviewed() -> None:
+    root = Path(__file__).resolve().parents[2]
+    assert _contract_registry_binding_inventory(root) == _CONTRACT_REGISTRY_BINDING_INVENTORY
 
 
 def test_async_persistence_registry_covers_named_non_repository_stores() -> None:
