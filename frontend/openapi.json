@@ -3345,7 +3345,6 @@
             "title": "Supersedes Audit Id"
           },
           "tenant_id": {
-            "default": "default",
             "title": "Tenant Id",
             "type": "string"
           },
@@ -3400,6 +3399,7 @@
           "node_id",
           "graph_version_ref",
           "deployment_ref",
+          "tenant_id",
           "status"
         ],
         "title": "NodeAuditRecord",
