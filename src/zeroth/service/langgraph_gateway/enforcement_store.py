@@ -18,7 +18,12 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import from_json_value, to_json_value
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.service.langgraph_gateway.enforcement import (
     DecisionResponseV1,
     EnforcementBoundaryError,
@@ -28,6 +33,21 @@ from zeroth.service.langgraph_gateway.enforcement import (
 )
 
 
+@persistence_surface(
+    "service.langgraph_decisions",
+    probe=named_isolation_probe("_drive_decisions"),
+    method_names=frozenset({"save_decision", "count_decisions"}),
+)
+@persistence_surface(
+    "service.langgraph_inventories",
+    probe=named_isolation_probe("_drive_inventories"),
+    method_names=frozenset({"register_inventory", "get_inventory", "heartbeat"}),
+)
+@persistence_surface(
+    "service.langgraph_run_attestations",
+    probe=named_isolation_probe("_drive_attestations"),
+    method_names=frozenset({"save_attestation", "get_attestation", "get_attestation_by_run_id"}),
+)
 class LangGraphEnforcementRepository:
     """Transactional persistence for decisions, inventories, and attestations."""
 
@@ -235,6 +255,10 @@ class LangGraphEnforcementRepository:
         )
 
 
+@persistence_surface(
+    "service.langgraph_run_attestations",
+    method_names=frozenset({"evidence_for_run", "evidence_for_governance_run"}),
+)
 class StoredCapabilityEvidenceProvider:
     """Verify stored server signatures before returning capability evidence."""
 

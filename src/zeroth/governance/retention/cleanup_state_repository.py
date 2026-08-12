@@ -13,7 +13,12 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 if TYPE_CHECKING:
     from zeroth.governance.retention.cleanup_manifest import CleanupManifest, CleanupOperation
@@ -43,6 +48,33 @@ class CleanupOperationRecord:
     revision: int
 
 
+@persistence_surface(
+    "service.retention_cleanup_state",
+    probe=named_isolation_probe("_drive_cleanup_state"),
+    method_names=frozenset(
+        {
+            "initialize_in_transaction",
+            "get_state_in_transaction",
+            "claim_in_transaction",
+            "heartbeat_in_transaction",
+            "release_in_transaction",
+            "terminal_in_transaction",
+            "repair_terminal_in_transaction",
+        }
+    ),
+)
+@persistence_surface(
+    "service.retention_cleanup_operations",
+    probe=named_isolation_probe("_drive_cleanup_operations"),
+    method_names=frozenset(
+        {
+            "initialize_in_transaction",
+            "get_operation_in_transaction",
+            "list_operations_in_transaction",
+            "update_operation_in_transaction",
+        }
+    ),
+)
 class CleanupStateRepository:
     """Reads and CAS-updates the current cleanup state inside caller transactions."""
 

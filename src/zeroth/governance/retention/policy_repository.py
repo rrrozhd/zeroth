@@ -11,13 +11,19 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
 def _to_bool(value: object) -> bool:
     return bool(value)
 
 
+@persistence_surface("service.retention_policies", probe=named_isolation_probe("_drive_policies"))
 class RetentionPolicyRepository:
     """CRUD over ``retention_policies`` with system-default fallback.
 
@@ -146,6 +152,7 @@ class RetentionPolicyRepository:
         )
 
 
+@persistence_surface("service.retention_policies")
 class EnabledPolicyMaintenanceReader:
     """The complete read-only surface for scheduled cross-tenant policy discovery."""
 

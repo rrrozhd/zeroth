@@ -27,7 +27,12 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 # The support vocabulary mirrors zeroth.contracts.graph.SideEffectSupport. It is
 # duplicated as plain strings, not imported, because platform may not depend on
@@ -68,6 +73,10 @@ def _utc_now() -> str:
 
 
 @dataclass(slots=True)
+@persistence_surface(
+    "service.side_effect_operations",
+    probe=named_isolation_probe("_drive_side_effect_operations"),
+)
 class SideEffectOperationStore:
     """Persists one row per logical operation and converges duplicate reports."""
 

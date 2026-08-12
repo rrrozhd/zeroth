@@ -24,7 +24,6 @@ from tests.service.cross_tenant_resource_factory import (
     seed_sqlalchemy_mapping,
     validate_resource_inventory,
 )
-from tests.task9_operation_driver_registry import semantic_driver_for
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.platform.storage import (
@@ -45,6 +44,7 @@ from zeroth.econ.plane.database import Base as EconBase
 from zeroth.econ.plane import scoped_session as scoped_session_module
 from zeroth.platform.storage.scoped_table import _StructuredTable
 from zeroth.platform.storage.service_surfaces import (
+    executable_probe_for,
     load_service_persistence_surfaces,
     surface_operation_pairs,
 )
@@ -455,14 +455,8 @@ async def test_registry_generated_cross_tenant_case(async_database, case) -> Non
 
 async def _exercise_service_case(database, case) -> None:
     pair = (case.definition.resource_name, case.operation)
-    driver = semantic_driver_for(*pair) if pair in SERVICE_REPOSITORY_PAIRS else None
-    if driver is not None:
-        await driver(database)
-        return
-    assert pair not in SERVICE_REPOSITORY_PAIRS, (
-        f"production repository case {case.parameter_id} fell back to raw ScopedTable"
-    )
-    await exercise_relational_case(database, SERVICE_SCOPE_REGISTRY, case)
+    probe = executable_probe_for(SERVICE_SURFACES, *pair)
+    await probe(database, operation=case.operation)
 
 
 def test_production_repository_surfaces_match_registry_and_public_metadata() -> None:
@@ -474,17 +468,17 @@ def test_production_repository_surfaces_match_registry_and_public_metadata() -> 
     } == SERVICE_REPOSITORY_PAIRS
 
 
-async def test_repository_driver_completeness_rejects_raw_fallback(
-    async_database, monkeypatch
-) -> None:
+def test_repository_driver_completeness_rejects_a_missing_probe(monkeypatch) -> None:
     case = next(
         case
         for case in SERVICE_CASES
         if (case.definition.resource_name, case.operation) in SERVICE_REPOSITORY_PAIRS
     )
-    monkeypatch.setitem(_exercise_service_case.__globals__, "semantic_driver_for", lambda *_: None)
-    with pytest.raises(AssertionError, match="fell back to raw ScopedTable"):
-        await _exercise_service_case(async_database, case)
+    surfaces = tuple(
+        item for item in SERVICE_SURFACES if item.resource_name != case.definition.resource_name
+    )
+    with pytest.raises(AssertionError, match="exactly one executable probe"):
+        executable_probe_for(surfaces, case.definition.resource_name, case.operation)
 
 
 @pytest.mark.parametrize("case", ECON_CASES, ids=lambda case: case.parameter_id)

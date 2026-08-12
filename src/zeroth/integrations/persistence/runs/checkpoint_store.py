@@ -22,7 +22,12 @@ from zeroth.platform.storage import (
 )
 from zeroth.platform.storage.json import load_typed_value
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.runs import Run
 
 
@@ -32,6 +37,11 @@ def new_checkpoint_id() -> str:
 
 
 @dataclass(slots=True)
+@persistence_surface(
+    "service.run_checkpoints",
+    probe=named_isolation_probe("_drive_checkpoints"),
+    non_persistence_public_methods=frozenset({"encrypt_state_json", "decrypt_state_json"}),
+)
 class CheckpointRowStore:
     """Reads and writes ``run_checkpoints`` rows for a single database."""
 
