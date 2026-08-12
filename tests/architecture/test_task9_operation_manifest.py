@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import inspect
-import re
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
@@ -29,6 +27,7 @@ from zeroth.service.langgraph_gateway.enforcement_store import (
     StoredCapabilityEvidenceProvider,
 )
 from zeroth.service.webhooks.repository import WebhookRepository
+from tests.task9_operation_driver_registry import TASK9_EXECUTABLE_DRIVERS
 
 O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 
@@ -285,50 +284,19 @@ def test_task9_manifest_detects_a_removed_real_operation() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("resource_name", "driver"),
-    [
-        ("service.runs", "tests/runs/test_tenant_scope.py"),
-        ("service.threads", "tests/runs/test_tenant_scope.py"),
-        ("service.run_checkpoints", "tests/integrations/persistence/runs/test_checkpoint_store.py"),
-        (
-            "service.token_engine_snapshots",
-            "tests/integrations/persistence/runs/test_token_snapshot_store.py",
-        ),
-        ("service.webhook_subscriptions", "tests/test_webhook_repository.py"),
-        ("service.webhook_deliveries", "tests/test_webhook_repository.py"),
-        ("service.webhook_dead_letters", "tests/test_webhook_repository.py"),
-        ("service.retention_policies", "tests/retention/test_repository_scope.py"),
-        ("service.legal_holds", "tests/retention/test_repository_scope.py"),
-        ("service.retention_audit_log", "tests/retention/test_repository_scope.py"),
-        ("service.retention_cleanup_state", "tests/governance/retention/test_claims.py"),
-        ("service.retention_cleanup_operations", "tests/governance/retention/test_claims.py"),
-        ("service.retention_coordination", "tests/retention/test_coordination.py"),
-        ("service.langgraph_decisions", "tests/langgraph_gateway/test_repository_scope.py"),
-        ("service.langgraph_inventories", "tests/langgraph_gateway/test_repository_scope.py"),
-        ("service.langgraph_run_attestations", "tests/langgraph_gateway/test_repository_scope.py"),
-    ],
-)
-def test_task9_manifest_has_production_repository_isolation_driver(
-    resource_name: str, driver: str
-) -> None:
-    """Every Task 9 resource is exercised through production repositories."""
-    root = Path(__file__).resolve().parents[2]
-    driver_source = (root / driver).read_text()
-    repository_names = {item.__name__ for item in TASK9_OPERATION_MANIFEST[resource_name]}
-    assert any(name in driver_source for name in repository_names), (resource_name, driver)
-    source = "\n".join(
-        path.read_text()
-        for path in root.joinpath("tests").rglob("test_*.py")
-        if path != Path(__file__)
-    )
-    missing_operations = {
-        operation
+def _manifest_operation_pairs() -> set[tuple[str, ResourceOperation]]:
+    return {
+        (resource_name, operation)
+        for resource_name in TASK9_OPERATION_MANIFEST
         for operation in _manifest_operations(resource_name)
-        if not any(
-            operation in operations and re.search(rf"\.{re.escape(method_name)}\s*\(", source)
-            for methods in TASK9_OPERATION_MANIFEST[resource_name].values()
-            for method_name, operations in methods.items()
-        )
     }
-    assert not missing_operations, (resource_name, driver, missing_operations)
+
+
+def test_task9_executable_driver_keys_exactly_match_manifest_pairs() -> None:
+    assert set(TASK9_EXECUTABLE_DRIVERS) == _manifest_operation_pairs()
+
+
+def test_task9_driver_completeness_rejects_one_removed_key() -> None:
+    drivers = dict(TASK9_EXECUTABLE_DRIVERS)
+    drivers.pop(next(iter(drivers)), None)
+    assert set(drivers) != _manifest_operation_pairs()
