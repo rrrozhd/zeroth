@@ -1776,12 +1776,28 @@ def _audit_repository_public_call_provenance(
             potential_alias_events.update(class_alias_events)
             for owner, events in potential_alias_events.items():
                 statements = tree.body if owner is None else owner.body
+                nested_type_aliases: list[ast.TypeAlias] = []
+
+                def collect_type_aliases(
+                    node: ast.AST, aliases: list[ast.TypeAlias] = nested_type_aliases
+                ) -> None:
+                    for child in ast.iter_child_nodes(node):
+                        if isinstance(
+                            child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+                        ):
+                            continue
+                        if isinstance(child, ast.TypeAlias):
+                            aliases.append(child)
+                        collect_type_aliases(child)
+
+                for statement in statements:
+                    if isinstance(statement, ast.TypeAlias):
+                        nested_type_aliases.append(statement)
+                    collect_type_aliases(statement)
                 potential_declaration_names: set[str] = set()
                 while True:
                     prior_declaration_names = set(potential_declaration_names)
-                    for statement in statements:
-                        if not isinstance(statement, ast.TypeAlias):
-                            continue
+                    for statement in nested_type_aliases:
                         options = _assignment_value_options(statement.value)
                         has_potential_evidence = any(
                             _has_repository_annotation_evidence(
@@ -1807,45 +1823,88 @@ def _audit_repository_public_call_provenance(
                             potential_declaration_names.add(statement.name.id)
                     if potential_declaration_names == prior_declaration_names:
                         break
-                potential_names: set[str] = set()
-                invalidated_names: set[str] = set()
-                for statement in statements:
-                    if not isinstance(statement, ast.TypeAlias):
-                        for target in _binding_targets(statement):
-                            bound_names = _bound_names(target)
-                            invalidated_names.update(bound_names)
-                            potential_names.difference_update(bound_names)
-                        continue
-                    options = _assignment_value_options(statement.value)
-                    has_potential_evidence = any(
-                        _has_repository_annotation_evidence(
-                            option, repository_names | potential_names, module_names
+
+                def walk_potential_bindings(
+                    block: list[ast.stmt],
+                    potential_names: set[str],
+                    invalidated_names: set[str],
+                    repository_names: set[str] = repository_names,
+                    module_names: dict[str, tuple[str, ...]] = module_names,
+                    potential_imported_repository_names: set[
+                        str
+                    ] = potential_imported_repository_names,
+                    potential_declaration_names: set[str] = potential_declaration_names,
+                    events: _AliasEvents = events,
+                ) -> tuple[set[str], set[str]]:
+                    potential_names = set(potential_names)
+                    invalidated_names = set(invalidated_names)
+                    for statement in block:
+                        if isinstance(statement, ast.If):
+                            body_state = walk_potential_bindings(
+                                statement.body, potential_names, invalidated_names
+                            )
+                            else_state = walk_potential_bindings(
+                                statement.orelse, potential_names, invalidated_names
+                            )
+                            potential_names = body_state[0] | else_state[0]
+                            invalidated_names = body_state[1] & else_state[1]
+                            continue
+                        if isinstance(statement, (ast.Try, ast.TryStar)):
+                            path_states = [
+                                walk_potential_bindings(
+                                    statement.body, potential_names, invalidated_names
+                                ),
+                                *(
+                                    walk_potential_bindings(
+                                        handler.body, potential_names, invalidated_names
+                                    )
+                                    for handler in statement.handlers
+                                ),
+                            ]
+                            potential_names = set().union(*(state[0] for state in path_states))
+                            invalidated_names = set.intersection(
+                                *(state[1] for state in path_states)
+                            )
+                            continue
+                        if not isinstance(statement, ast.TypeAlias):
+                            for target in _binding_targets(statement):
+                                bound_names = _bound_names(target)
+                                invalidated_names.update(bound_names)
+                                potential_names.difference_update(bound_names)
+                            continue
+                        options = _assignment_value_options(statement.value)
+                        has_potential_evidence = any(
+                            _has_repository_annotation_evidence(
+                                option, repository_names | potential_names, module_names
+                            )
+                            or _has_repository_annotation_evidence(
+                                option,
+                                potential_imported_repository_names
+                                | potential_names
+                                | (potential_declaration_names - invalidated_names),
+                                {},
+                            )
+                            for option in options
                         )
-                        or _has_repository_annotation_evidence(
-                            option,
-                            potential_imported_repository_names
-                            | potential_names
-                            | (potential_declaration_names - invalidated_names),
-                            {},
+                        is_definite_repository_alias = all(
+                            _resolved_receiver_annotation_repository_name(
+                                option, repository_names, module_names
+                            )
+                            == _AUDIT_REPOSITORY_CLASS
+                            for option in options
                         )
-                        for option in options
-                    )
-                    is_definite_repository_alias = all(
-                        _resolved_receiver_annotation_repository_name(
-                            option, repository_names, module_names
-                        )
-                        == _AUDIT_REPOSITORY_CLASS
-                        for option in options
-                    )
-                    if has_potential_evidence and not is_definite_repository_alias:
-                        potential_names.add(statement.name.id)
-                        invalidated_names.discard(statement.name.id)
-                        position = (statement.lineno, statement.col_offset)
-                        events.setdefault(statement.name.id, []).extend(
-                            ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
-                        )
-                    else:
-                        potential_names.discard(statement.name.id)
+                        if has_potential_evidence and not is_definite_repository_alias:
+                            potential_names.add(statement.name.id)
+                            invalidated_names.discard(statement.name.id)
+                            position = (statement.lineno, statement.col_offset)
+                            events.setdefault(statement.name.id, []).extend(
+                                ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
+                            )
+                        else:
+                            potential_names.discard(statement.name.id)
+                    return potential_names, invalidated_names
+
+                walk_potential_bindings(statements, set(), set())
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -5242,6 +5301,87 @@ def test_public_call_inventory_clears_rebound_potential_type_aliases(
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "if cond:\n"
+        "    type Repo = Base\n"
+        "    type Base = list[AuditRepository]\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        "try:\n"
+        "    type Repo = Base\n"
+        "    type Base = list[AuditRepository]\n"
+        "except Exception:\n"
+        "    pass\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+    ],
+    ids=["if", "try"],
+)
+def test_public_call_inventory_propagates_nested_forward_potential_type_aliases(
+    tmp_path: Path, definition: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n" + definition,
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "rebind",
+    [
+        "if cond:\n    Base = OtherRepository\nelse:\n    Base = AnotherRepository\n",
+        "try:\n    Base = OtherRepository\nexcept Exception:\n    Base = AnotherRepository\n",
+    ],
+    ids=["if", "try"],
+)
+def test_public_call_inventory_clears_potential_after_every_compound_rebind(
+    tmp_path: Path, rebind: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n" + rebind + "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_mixed_compound_potential_rebind_unreviewed(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        "if cond:\n"
+        "    Base = OtherRepository\n"
+        "type Repo = Base\n"
+        "async def use(candidate: Repo, record):\n"
+        "    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 def test_public_call_inventory_treats_loop_target_as_a_local_shadow(tmp_path: Path) -> None:
