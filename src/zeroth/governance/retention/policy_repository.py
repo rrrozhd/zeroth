@@ -171,3 +171,24 @@ class RetentionPolicyRepository:
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
         )
+
+
+@persistence_surface("service.retention_policies")
+class EnabledPolicyMaintenanceReader:
+    """Read-only discovery of tenants with an explicit enabled policy."""
+
+    def __init__(self, database: AsyncDatabase) -> None:
+        from zeroth.platform.storage import CrossTenantMaintenanceScopeContext
+
+        self._policies = ScopedTable.for_cross_tenant_maintenance(
+            database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.retention_policies",
+            CrossTenantMaintenanceScopeContext.for_scheduled_maintenance(),
+        )
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
+        async with self._policies.transaction() as policies:
+            rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))
+        return [RetentionPolicyRepository._row_to_policy(row) for row in rows]

@@ -66,7 +66,7 @@ from zeroth.platform.signing import (
     build_signing_provider_async,
     build_verification_provider_async,
 )
-from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext
+from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.provider import ProviderAdapter
@@ -418,11 +418,12 @@ async def bootstrap_scoped_service(
             f"Unknown artifact store backend: {artifact_settings.backend!r}. "
             "Must be 'filesystem' or 'redis'."
         )
-    if artifact_store is not None:
+    artifact_backend = artifact_store
+    if artifact_backend is not None:
         from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
         artifact_store = TenantScopedArtifactStore(
-            artifact_store,
+            artifact_backend,
             tenant_id=deployment.tenant_id,
             workspace_id=deployment.workspace_id,
         )
@@ -552,11 +553,14 @@ async def bootstrap_scoped_service(
     # The econ-event eraser is intentionally left unwired here (None) — see
     # docs/retention-and-erasure.md for the run->join_key deferral.
     from zeroth.governance.retention import (
+        EnabledPolicyMaintenanceReader,
         LegalHoldRepository,
         RetentionAuditLogRepository,
         RetentionErasureService,
+        RetentionOwnerMaintenanceReader,
         RetentionPolicyRepository,
         RetentionPurgeWorker,
+        RetentionWorkspaceMaintenanceReader,
     )
 
     retention_default_policy = None
@@ -595,9 +599,52 @@ async def bootstrap_scoped_service(
     )
     retention_worker_obj: object | None = None
     if settings.retention.enabled:
-        retention_worker_obj = RetentionPurgeWorker(
-            erasure_service=retention_erasure_service,
-            policy_repository=retention_policy_repository,
+
+        def policy_repository_for(tenant_id: str) -> RetentionPolicyRepository:
+            scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            return RetentionPolicyRepository.scoped(
+                database, scope, default_policy=retention_default_policy
+            )
+
+        def retention_service_for(
+            tenant_scope: ScopeContext | NullWorkspaceScopeContext,
+        ) -> RetentionErasureService:
+            tenant_id = tenant_scope.tenant_id
+            workspace_id = tenant_scope.workspace_id if type(tenant_scope) is ScopeContext else None
+            null_scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            tenant_artifacts = None
+            if artifact_backend is not None:
+                from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+
+                tenant_artifacts = TenantScopedArtifactStore(
+                    artifact_backend, tenant_id=tenant_id, workspace_id=workspace_id
+                )
+            return RetentionErasureService(
+                audit_repository=AuditRepository.scoped(database, tenant_scope, signer),
+                run_repository=RunRepository(database, tenant_scope),
+                policy_repository=policy_repository_for(tenant_id),
+                legal_hold_repository=LegalHoldRepository(database, null_scope),
+                log_repository=RetentionAuditLogRepository(database, null_scope),
+                artifact_store=tenant_artifacts,
+                econ_eraser=None,
+            )
+
+        retention_worker_obj = RetentionPurgeWorker.for_shared_database(
+            policy_reader=EnabledPolicyMaintenanceReader(database),
+            tenant_reader=RetentionOwnerMaintenanceReader(database),
+            policy_repository_factory=policy_repository_for,
+            workspace_reader_factory=lambda tenant_id: RetentionWorkspaceMaintenanceReader(
+                database, tenant_id
+            ),
+            erasure_service_factory=retention_service_for,
             poll_interval=settings.retention.worker_poll_interval,
         )
 

@@ -33,7 +33,7 @@ async def test_bootstrap_seeds_policy_repository_default_from_settings(
     assert await bootstrap.retention_policy_repository.get() is None
 
 
-async def test_bootstrap_retention_worker_uses_current_deployment_scope_and_defaults(
+async def test_bootstrap_retention_worker_uses_shared_scheduler_and_scoped_defaults(
     sqlite_db, monkeypatch
 ) -> None:
     monkeypatch.setenv("ZEROTH_RETENTION__ENABLED", "true")
@@ -53,7 +53,10 @@ async def test_bootstrap_retention_worker_uses_current_deployment_scope_and_defa
 
     worker = bootstrap.retention_worker
     assert worker is not None
-    assert worker.policy_repository is bootstrap.retention_policy_repository
-    assert worker.erasure_service._policies is bootstrap.retention_policy_repository
-    assert worker.policy_repository.tenant_id == bootstrap.deployment.tenant_id
-    assert (await worker.policy_repository.resolve()).run_ttl_seconds == 172800
+    assert worker.policy_reader is not None
+    assert worker.tenant_reader is not None
+    assert worker.policy_repository_factory is not None
+    assert worker.workspace_reader_factory is not None
+    repository = worker.policy_repository_factory(bootstrap.deployment.tenant_id)
+    assert repository.tenant_id == bootstrap.deployment.tenant_id
+    assert (await repository.resolve()).run_ttl_seconds == 172800
