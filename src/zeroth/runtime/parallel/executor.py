@@ -281,6 +281,7 @@ class ParallelExecutor:
             error.branch_histories = [  # type: ignore[attr-defined]
                 (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
             ]
+            error.pause_signals = pause_signals  # type: ignore[attr-defined]
             raise error
 
         pause_signal = pause_signals[0] if pause_signals else None
@@ -350,6 +351,7 @@ class ParallelExecutor:
                 error.branch_histories = [  # type: ignore[attr-defined]
                     (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
                 ]
+                error.pause_signals = pause_signals  # type: ignore[attr-defined]
                 raise error from pause
             # Partition: completed-before-pause vs cancelled in-flight.
             completed_before_pause: list[BranchResult] = []

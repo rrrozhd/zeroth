@@ -214,6 +214,171 @@ async def test_worker_marks_failed_on_orchestrator_exception(
     assert final.status is RunStatus.FAILED
 
 
+async def test_worker_persists_failed_parallel_resume_accounting(sqlite_db) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from zeroth.contracts.graph import (
+        AgentNode,
+        AgentNodeData,
+        Edge,
+        ExecutionSettings,
+        Graph,
+        SubgraphNode,
+    )
+    from zeroth.integrations.execution import ExecutableUnitRunner
+    from zeroth.platform.measurement import MeasurementState
+    from zeroth.runtime.orchestration import RuntimeOrchestrator
+    from zeroth.runtime.runs import RunFailureState, RunHistoryEntry
+    from zeroth.runtime.runs.costs import rollup_run_cost
+    from zeroth.runtime.subgraphs import SubgraphExecutor, SubgraphNodeData
+    from zeroth.runtime.parallel.models import ParallelConfig
+
+    run_repo = RunRepository(sqlite_db)
+    source = AgentNode(
+        node_id="source",
+        graph_version_ref="g:v1",
+        agent=AgentNodeData(instruction="x", model_provider="source"),
+        parallel_config=ParallelConfig(split_path="items"),
+    )
+    child_node = SubgraphNode(
+        node_id="child-node",
+        graph_version_ref="g:v1",
+        subgraph=SubgraphNodeData(graph_ref="child-wf"),
+    )
+    graph = Graph(
+        graph_id="g",
+        name="g",
+        version=1,
+        nodes=[source, child_node],
+        edges=[Edge(edge_id="e", source_node_id="source", target_node_id="child-node")],
+        entry_step="source",
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
+    )
+
+    def history(node_id: str, cost: float, audit_ref: str) -> dict:
+        return RunHistoryEntry(
+            node_id=node_id,
+            status="completed",
+            audit_ref=audit_ref,
+            cost_usd=cost,
+            cost_measurement=MeasurementState.MEASURED,
+        ).model_dump(mode="json")
+
+    run_id = "worker-parallel-resume"
+    run = await run_repo.create(
+        Run(
+            run_id=run_id,
+            graph_version_ref="g:v1",
+            deployment_ref=DEPLOYMENT,
+            status=RunStatus.WAITING_APPROVAL,
+            pending_node_ids=["source"],
+            metadata={
+                "approval_resolved_id": "approval-1",
+                "node_payloads": {"source": {}},
+                "pending_parallel_subgraph": {
+                    "node_id": "source",
+                    "split_input": {"items": [{"v": 0}, {"v": 1}, {"v": 2}]},
+                    "source_input": {},
+                    "source_audit": {
+                        "cost_usd": 0.1,
+                        "cost_measurement": MeasurementState.MEASURED,
+                    },
+                    "completed_branches": [
+                        {
+                            "branch_index": 0,
+                            "output": {"done": True},
+                            "cost_usd": 0.2,
+                            "cost_measurement": MeasurementState.MEASURED,
+                            "audit_refs": [f"{run_id}:branch:0:audit:1"],
+                            "execution_history": [
+                                history("completed-sibling", 0.2, f"{run_id}:branch:0:audit:1")
+                            ],
+                        }
+                    ],
+                    "paused_branch": {
+                        "branch_index": 1,
+                        "child_run_id": "child-run-1",
+                        "graph_ref": "child-wf",
+                        "node_id": "child-node",
+                        "branch_context": {
+                            "branch_index": 1,
+                            "branch_id": f"{run_id}:branch:1",
+                            "input_payload": {"v": 1},
+                            "audit_refs": [f"{run_id}:branch:1:audit:1"],
+                            "execution_history": [
+                                history("paused-prior", 0.05, f"{run_id}:branch:1:audit:1")
+                            ],
+                            "metadata": {"subgraph_input": {"v": 1}},
+                        },
+                    },
+                    "cancelled_branches": [
+                        {
+                            "branch_index": 2,
+                            "branch_id": f"{run_id}:branch:2",
+                            "input_payload": {"v": 2},
+                            "audit_refs": [f"{run_id}:branch:2:audit:1"],
+                            "execution_history": [
+                                history(
+                                    "cancelled-sibling",
+                                    0.15,
+                                    f"{run_id}:branch:2:audit:1",
+                                )
+                            ],
+                            "metadata": {"subgraph_input": {"v": 2}},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    failed_child = Run(
+        run_id="child-run-1",
+        graph_version_ref="child-wf:v1",
+        deployment_ref="child-wf",
+        status=RunStatus.FAILED,
+        failure_state=RunFailureState(reason="child_failed", message="boom"),
+        execution_history=[
+            RunHistoryEntry(
+                node_id="paid-child",
+                status="failed",
+                cost_usd=0.3,
+                cost_measurement=MeasurementState.MEASURED,
+            )
+        ],
+    )
+    subgraphs = MagicMock(spec=SubgraphExecutor)
+    subgraphs.resume = AsyncMock(return_value=failed_child)
+    orchestrator = RuntimeOrchestrator(
+        run_repository=run_repo,
+        agent_runners={},
+        executable_unit_runner=ExecutableUnitRunner(),
+        subgraph_executor=subgraphs,
+    )
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=graph,
+        lease_manager=LeaseManager(sqlite_db),
+    )
+
+    await worker._execute_leased_run(run.run_id, is_recovery=False)
+
+    final = await run_repo.get(run.run_id)
+    assert final is not None
+    assert final.status is RunStatus.FAILED
+    by_node = [(entry.node_id, entry.status, entry.cost_usd) for entry in final.execution_history]
+    assert by_node.count(("source", "completed", 0.1)) == 1
+    assert by_node.count(("completed-sibling", "completed", 0.2)) == 1
+    assert by_node.count(("paused-prior", "completed", 0.05)) == 1
+    assert by_node.count(("cancelled-sibling", "completed", 0.15)) == 1
+    assert by_node.count(("child-node", "rejected", 0.3)) == 1
+    assert by_node.count(("child-node", "cancelled", None)) == 1
+    cost = rollup_run_cost(final)
+    assert cost.cost_usd == pytest.approx(0.8)
+    assert cost.cost_measurement is MeasurementState.UNMEASURED
+
+
 async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
     run_repo = RunRepository(sqlite_db)
     lease_manager = LeaseManager(sqlite_db)

@@ -29,6 +29,7 @@ from zeroth.runtime.agents.provider import (
 from zeroth.runtime.agents.errors import (
     AgentOutputValidationError,
     AgentProviderError,
+    AgentTimeoutError,
     BudgetExceededError,
 )
 from zeroth.runtime.agents.models import AgentConfig, RetryPolicy
@@ -319,6 +320,56 @@ async def test_failed_provider_retry_keeps_measurement_incomplete() -> None:
     assert result.audit_record["cost_usd"] == 0.2
     assert result.audit_record["cost_measurement"] is MeasurementState.UNMEASURED
     assert result.audit_record["usage_measurement"] is MeasurementState.UNMEASURED
+
+
+@pytest.mark.parametrize(
+    ("terminal_error", "expected_error"),
+    [
+        (TimeoutError(), AgentTimeoutError),
+        (RuntimeError("provider unavailable"), AgentProviderError),
+    ],
+)
+async def test_terminal_provider_failure_after_paid_attempt_is_unmeasured(
+    terminal_error: Exception,
+    expected_error: type[Exception],
+) -> None:
+    class Input(BaseModel):
+        query: str
+
+    class Output(BaseModel):
+        answer: str
+
+    runner = AgentRunner(
+        AgentConfig(
+            name="fidelity-terminal-failure",
+            instruction="answer",
+            model_name="m",
+            input_model=Input,
+            output_model=Output,
+            retry_policy=RetryPolicy(max_retries=1, use_exponential_backoff=False),
+        ),
+        DeterministicProviderAdapter(
+            [
+                ProviderResponse(
+                    content='{"wrong":"shape"}',
+                    token_usage=TokenUsage(
+                        input_tokens=2, output_tokens=3, total_tokens=5, model_name="m"
+                    ),
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+                terminal_error,
+            ]
+        ),
+    )
+
+    with pytest.raises(expected_error) as raised:
+        await runner.run({"query": "hi"})
+
+    assert raised.value.audit_record["cost_usd"] == pytest.approx(0.2)
+    assert raised.value.audit_record["cost_measurement"] is MeasurementState.UNMEASURED
+    assert raised.value.audit_record["token_usage"]["total_tokens"] == 5
+    assert raised.value.audit_record["usage_measurement"] is MeasurementState.UNMEASURED
 
 
 async def test_runner_preserves_degraded_budget_status() -> None:
