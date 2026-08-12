@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import warnings
 from datetime import UTC
 
@@ -193,7 +194,7 @@ async def test_deploy_pins_effective_engine_mode(
     assert (await service.get("engine-service")).engine_mode is expected_mode
 
 
-async def test_deploy_stamps_owner_from_graph_not_deployment_settings(sqlite_db) -> None:
+async def test_deploy_stamps_owner_from_trusted_scope_arguments(sqlite_db) -> None:
     service = await _build_service(sqlite_db)
     graph = build_graph().model_copy(
         update={
@@ -224,6 +225,62 @@ async def test_deploy_stamps_owner_from_graph_not_deployment_settings(sqlite_db)
 
     assert deployed.tenant_id == "tenant-a"
     assert deployed.workspace_id == "workspace-a"
+
+
+async def test_deploy_rejects_graph_payload_owner_mismatch_before_persistence(sqlite_db) -> None:
+    service = await _build_service(sqlite_db)
+    graph = build_graph().model_copy(
+        update={"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    )
+    stored = await service.graph_repository.create(
+        graph,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    await service.graph_repository.publish(
+        stored.graph_id,
+        stored.version,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    async with sqlite_db.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT payload FROM graph_versions WHERE graph_id = ? AND version = ?",
+            (stored.graph_id, stored.version),
+        )
+        assert row is not None
+        payload = json.loads(row["payload"])
+        payload.update({"tenant_id": "tenant-b", "workspace_id": "workspace-b"})
+        await connection.execute(
+            "UPDATE graph_versions SET payload = ? WHERE graph_id = ? AND version = ?",
+            (json.dumps(payload), stored.graph_id, stored.version),
+        )
+
+    with pytest.raises(DeploymentError, match="graph owner does not match deployment scope"):
+        await service.deploy(
+            "mismatched-owner-service",
+            stored.graph_id,
+            stored.version,
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+        )
+
+    assert (
+        await service.list(
+            "mismatched-owner-service",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+        )
+        == []
+    )
+    assert (
+        await service.list(
+            "mismatched-owner-service",
+            tenant_id="tenant-b",
+            workspace_id="workspace-b",
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(

@@ -1275,44 +1275,97 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
     }
 )
 
+_CONTRACT_REGISTRY_CLASS = ("zeroth", "contracts", "registry", "ContractRegistry")
+_CONTRACT_REGISTRY_MODULE = _CONTRACT_REGISTRY_CLASS[:-1]
+
+
+def _resolved_contract_registry_name(
+    node: ast.AST,
+    registry_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    if isinstance(node, ast.Name):
+        if node.id in registry_names:
+            return _CONTRACT_REGISTRY_CLASS
+        return module_names.get(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolved_contract_registry_name(node.value, registry_names, module_names)
+        if base is not None:
+            return (*base, node.attr)
+    return None
+
+
+def _assigned_contract_registry_binding(
+    node: ast.AST,
+    registry_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    resolved = _resolved_contract_registry_name(node, registry_names, module_names)
+    if resolved is not None:
+        return resolved
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and _resolved_contract_registry_name(node.args[0], registry_names, module_names)
+        == _CONTRACT_REGISTRY_MODULE
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "ContractRegistry"
+    ):
+        return _CONTRACT_REGISTRY_CLASS
+    return None
+
 
 def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
     inventory: set[str] = set()
     for search_root in (root / "src", root / "examples"):
         for path in search_root.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            registry_names = {"ContractRegistry"}
-            registry_modules: set[str] = set()
+            registry_names: set[str] = set()
+            module_names: dict[str, tuple[str, ...]] = {}
+            if path.relative_to(root).as_posix() == "src/zeroth/contracts/registry/registry.py":
+                registry_names.add("ContractRegistry")
             for imported in ast.walk(tree):
                 if isinstance(imported, ast.ImportFrom):
                     for alias in imported.names:
-                        if alias.name == "ContractRegistry":
+                        if (
+                            imported.module == "zeroth.contracts.registry"
+                            and alias.name == "ContractRegistry"
+                        ):
                             registry_names.add(alias.asname or alias.name)
+                        elif imported.module == "zeroth.contracts" and alias.name == "registry":
+                            module_names[alias.asname or alias.name] = _CONTRACT_REGISTRY_MODULE
                 elif isinstance(imported, ast.Import):
                     for alias in imported.names:
                         if alias.name == "zeroth.contracts.registry":
-                            registry_modules.add(alias.asname or alias.name.split(".")[0])
+                            if alias.asname:
+                                module_names[alias.asname] = _CONTRACT_REGISTRY_MODULE
+                            else:
+                                module_names["zeroth"] = ("zeroth",)
+
             changed = True
             while changed:
                 changed = False
                 for assigned in ast.walk(tree):
-                    if not isinstance(assigned, ast.Assign) or len(assigned.targets) != 1:
+                    if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
+                        target = assigned.targets[0]
+                        value = assigned.value
+                    elif isinstance(assigned, ast.AnnAssign):
+                        target = assigned.target
+                        value = assigned.value
+                    else:
                         continue
-                    target = assigned.targets[0]
-                    source_is_registry = (
-                        isinstance(assigned.value, ast.Name) and assigned.value.id in registry_names
-                    ) or (
-                        isinstance(assigned.value, ast.Attribute)
-                        and assigned.value.attr == "ContractRegistry"
-                        and isinstance(assigned.value.value, ast.Name)
-                        and assigned.value.value.id in registry_modules
+                    if not isinstance(target, ast.Name) or value is None:
+                        continue
+                    binding = _assigned_contract_registry_binding(
+                        value, registry_names, module_names
                     )
-                    if (
-                        isinstance(target, ast.Name)
-                        and source_is_registry
-                        and target.id not in registry_names
-                    ):
+                    if binding == _CONTRACT_REGISTRY_CLASS and target.id not in registry_names:
                         registry_names.add(target.id)
+                        changed = True
+                    elif binding is not None and target.id not in module_names:
+                        module_names[target.id] = binding
                         changed = True
             parents: dict[ast.AST, ast.AST] = {}
             for parent in ast.walk(tree):
@@ -1322,22 +1375,16 @@ def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
                 if not isinstance(node, ast.Call):
                     continue
                 kind: str | None = None
-                registry_receiver = isinstance(node.func, ast.Attribute) and (
-                    (isinstance(node.func.value, ast.Name) and node.func.value.id in registry_names)
-                    or (
-                        isinstance(node.func.value, ast.Attribute)
-                        and node.func.value.attr == "ContractRegistry"
-                        and isinstance(node.func.value.value, ast.Name)
-                        and node.func.value.value.id in registry_modules
+                registry_receiver = (
+                    isinstance(node.func, ast.Attribute)
+                    and _resolved_contract_registry_name(
+                        node.func.value, registry_names, module_names
                     )
+                    == _CONTRACT_REGISTRY_CLASS
                 )
                 direct_constructor = (
-                    isinstance(node.func, ast.Name) and node.func.id in registry_names
-                ) or (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "ContractRegistry"
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id in registry_modules
+                    _resolved_contract_registry_name(node.func, registry_names, module_names)
+                    == _CONTRACT_REGISTRY_CLASS
                 )
                 if direct_constructor:
                     raise AssertionError(
@@ -1380,6 +1427,87 @@ def _contract_registry_binding_inventory(root: Path) -> frozenset[str]:
 def test_contract_registry_production_bindings_are_explicit_and_reviewed() -> None:
     root = Path(__file__).resolve().parents[2]
     assert _contract_registry_binding_inventory(root) == _CONTRACT_REGISTRY_BINDING_INVENTORY
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import zeroth.contracts.registry\nzeroth.contracts.registry.ContractRegistry(db)\n",
+        "from zeroth.contracts import registry\nregistry.ContractRegistry(db)\n",
+        (
+            "from zeroth.contracts.registry import ContractRegistry\n"
+            "R: type = ContractRegistry\n"
+            "R(db)\n"
+        ),
+        (
+            "import zeroth.contracts.registry as registry_module\n"
+            "alias = registry_module\n"
+            "alias.ContractRegistry(db)\n"
+        ),
+        (
+            "from zeroth.contracts import registry\n"
+            "R = getattr(registry, 'ContractRegistry')\n"
+            "R(db)\n"
+        ),
+    ],
+)
+def test_contract_registry_binding_inventory_rejects_qualified_and_aliased_construction(
+    tmp_path: Path, source: str
+) -> None:
+    module = tmp_path / "src" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="production legacy ContractRegistry constructor"):
+        _contract_registry_binding_inventory(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "class ContractRegistry:\n    pass\nContractRegistry()\n",
+        "from another_package import ContractRegistry\nContractRegistry(db)\n",
+        "import another_package as registry\nregistry.ContractRegistry(db)\n",
+        "class Registry:\n    ContractRegistry = object\nregistry = Registry()\nregistry.ContractRegistry()\n",
+    ],
+)
+def test_contract_registry_binding_inventory_ignores_unrelated_symbols(
+    tmp_path: Path, source: str
+) -> None:
+    module = tmp_path / "src" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    assert _contract_registry_binding_inventory(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("source", "kind"),
+    [
+        (
+            "import zeroth.contracts.registry\n"
+            "def bind():\n"
+            "    return zeroth.contracts.registry.ContractRegistry.scoped(db, scope)\n",
+            "scoped",
+        ),
+        (
+            "from zeroth.contracts import registry\n"
+            "def bind():\n"
+            "    return registry.ContractRegistry.for_default_compatibility(db)\n",
+            "default_compatibility",
+        ),
+    ],
+)
+def test_contract_registry_binding_inventory_allows_explicit_qualified_factories(
+    tmp_path: Path, source: str, kind: str
+) -> None:
+    module = tmp_path / "src" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    assert _contract_registry_binding_inventory(tmp_path) == frozenset(
+        {f"src/candidate.py::bind::{kind}"}
+    )
 
 
 def test_async_persistence_registry_covers_named_non_repository_stores() -> None:

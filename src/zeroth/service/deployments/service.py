@@ -59,30 +59,37 @@ class DeploymentService:
         workspace_id: str | None = None,
     ) -> Deployment:
         """Create a new immutable deployment version from a published graph."""
+        trusted_tenant_id = tenant_id if tenant_id is not None else "default"
+        trusted_workspace_id = workspace_id
         await self._ensure_deployment_ref_lineage(
             deployment_ref,
             graph_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
+            tenant_id=trusted_tenant_id,
+            workspace_id=trusted_workspace_id,
         )
         graph = await self._require_published_graph(
             graph_id,
             graph_version,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
+            tenant_id=trusted_tenant_id,
+            workspace_id=trusted_workspace_id,
         )
+        if (graph.tenant_id, graph.workspace_id) != (
+            trusted_tenant_id,
+            trusted_workspace_id,
+        ):
+            raise DeploymentError("graph owner does not match deployment scope")
         entry_node = self._entry_node(graph)
         # Contract versions are pinned now so the deployment keeps using
         # the same schema later.
         input_contract_version = await self._resolve_contract_version(
             entry_node.input_contract_ref if entry_node else None,
-            tenant_id=graph.tenant_id,
-            workspace_id=graph.workspace_id,
+            tenant_id=trusted_tenant_id,
+            workspace_id=trusted_workspace_id,
         )
         output_contract_version = await self._resolve_contract_version(
             entry_node.output_contract_ref if entry_node else None,
-            tenant_id=graph.tenant_id,
-            workspace_id=graph.workspace_id,
+            tenant_id=trusted_tenant_id,
+            workspace_id=trusted_workspace_id,
         )
         last_error: Exception | None = None
         for _ in range(3):
@@ -93,8 +100,8 @@ class DeploymentService:
                 deployment_ref=deployment_ref,
                 version=await self.deployment_repository.next_version(
                     deployment_ref,
-                    tenant_id=graph.tenant_id,
-                    workspace_id=graph.workspace_id,
+                    tenant_id=trusted_tenant_id,
+                    workspace_id=trusted_workspace_id,
                 ),
                 graph_id=graph.graph_id,
                 graph_version=graph.version,
@@ -121,8 +128,8 @@ class DeploymentService:
                 settings_snapshot_digest=compute_settings_snapshot_digest(
                     dict(graph.deployment_settings)
                 ),
-                tenant_id=graph.tenant_id,
-                workspace_id=graph.workspace_id,
+                tenant_id=trusted_tenant_id,
+                workspace_id=trusted_workspace_id,
             )
             if explicit_legacy_engine(graph.execution_settings):
                 warn_legacy_engine(stage="deployment_publication", stacklevel=2)
@@ -140,8 +147,8 @@ class DeploymentService:
             try:
                 return await self.deployment_repository.create(
                     deployment,
-                    tenant_id=graph.tenant_id,
-                    workspace_id=graph.workspace_id,
+                    tenant_id=trusted_tenant_id,
+                    workspace_id=trusted_workspace_id,
                 )
             except DeploymentRefLineageConflictError as exc:
                 msg = (
