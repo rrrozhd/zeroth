@@ -3139,8 +3139,9 @@ def _audit_repository_public_call_provenance(
                                 else [None]
                             )
                             element_flows: list[PotentialFlow] = []
+                            element_state = before
                             for item_value in literal_items:
-                                loop_state = before
+                                loop_state = element_state
                                 target_exceptions: list[_PotentialState] = []
                                 if isinstance(statement, (ast.For, ast.AsyncFor)):
                                     loop_state, target_exceptions = bind_target(
@@ -3160,6 +3161,12 @@ def _audit_repository_public_call_provenance(
                                 )
                                 element_flow.exceptions.extend(target_exceptions)
                                 element_flows.append(element_flow)
+                                next_element_state = join_states(
+                                    element_flow.continuing, *element_flow.continues
+                                )
+                                if next_element_state is None:
+                                    break
+                                element_state = next_element_state
                             body_flow = PotentialFlow(
                                 join_states(*(flow.continuing for flow in element_flows)),
                                 [state for flow in element_flows for state in flow.breaks],
@@ -8575,10 +8582,14 @@ def test_public_call_inventory_models_nested_starred_target_shapes(
         ("(None, None, None), (None, None, None)", frozenset()),
         (
             "(None, None, None), (None,)",
+            frozenset(),
+        ),
+        (
+            "(None,), (None, None, None)",
             frozenset({"apps/candidate.py::use::write"}),
         ),
     ],
-    ids=["all-valid", "heterogeneous-short"],
+    ids=["all-valid", "valid-then-short", "short-then-valid"],
 )
 def test_public_call_inventory_models_each_literal_loop_element(
     tmp_path: Path, values: str, expected: frozenset[str]
