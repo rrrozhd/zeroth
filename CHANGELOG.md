@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.5] - 2026-08-12
+
+Fixes found by this task's own initial audit, including four regressions the
+earlier commits in this series introduced.
+
+### Fixed
+
+- A circuit breaker on an endpoint carrying mixed traffic now opens. Endpoint health
+  was being decided by whether the *request* could be replayed rather than by what the
+  *response* said, so a 503 answered to a POST took the success branch and zeroed the
+  failure count a concurrent GET had just raised — alternating GET/POST 503 oscillated
+  and never tripped. The two questions are now separate (ZER-48 audit / F-CORR-03).
+- Orphan recovery no longer names its loop task `recover-…`, a prefix `_extract_run_id`
+  decodes as a run id, which made graceful shutdown drive fence and lease writes against
+  a run that never existed (F-CORR-01).
+- Orphans claimed but not yet dispatched are released when the worker stops. They had no
+  task, so shutdown's hand-back never saw them and they stayed RUNNING against an exiting
+  worker until the lease TTL expired (F-CORR-02).
+- A non-positive sidecar timeout answers 422 instead of an unhandled 500, and the deadline
+  is resolved before any container, network or coroutine exists (F-CORR-07).
+- All three timeout resolvers refuse non-finite values. `asyncio.wait_for(..., timeout=inf)`
+  never fires, JSON carries the `Infinity` literal, and `PolicyDefinition.timeout_override_seconds`
+  is authored data with no constraint — so a declared bound could still be no bound
+  (F-CONC-01).
+- Deterministic client-side transport faults (`UnsupportedProtocol`, `LocalProtocolError`)
+  are raised unretried with their real type, instead of being retried against a host that
+  was never dialled and flattened into a retry-exhaustion error (F-CORR-05).
+- Connect and pool failures are replayable whatever the method is: the request provably
+  never reached the peer, so the idempotency gate does not apply to them (F-CORR-06).
+- An explicitly empty `retryable_status_codes` no longer unlocks non-idempotent replay —
+  the most restrictive status policy was granting the most permissive one (F-CORR-04).
+- Pooled clients no longer share a cookie jar across callers, one failing `aclose()` no
+  longer strands the clients behind it, a client built while shutdown holds the lock is
+  closed rather than orphaned, and the app-less fallback cache is keyed by the running
+  event loop (F-CONC-02, F-CONC-03, F-CONC-04, F-CONC-05).
+- Retired sandbox output sets the truncation flags, so it is distinguishable from an
+  execution that genuinely produced none (F-CORR-09).
+
+### Changed
+
+- The sidecar's 422 uses `HTTP_422_UNPROCESSABLE_CONTENT`, matching the rest of the
+  codebase and dropping a Starlette deprecation warning.
+
 ## [0.23.4] - 2026-08-12
 
 ### Fixed

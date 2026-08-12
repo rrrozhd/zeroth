@@ -20,6 +20,7 @@ folded into this ticket.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import httpx
 import pytest
@@ -29,9 +30,14 @@ from zeroth.integrations.http.factory import (
     REDIS_CONNECT_TIMEOUT_SECONDS,
     REDIS_SOCKET_TIMEOUT_SECONDS,
     aclose_all,
+    client_cache,
     governed_async_client,
+    governed_redis_client,
     reset_process_cache,
 )
+
+#: The logger ``aclose_all`` reports a failed client close on.
+_FACTORY_LOGGER = "zeroth.integrations.http.factory"
 
 
 class _App:
@@ -197,4 +203,97 @@ class TestCallSitesUseTheFactory:
             seen.append(await _regulus_client(_Request(), 2.0))  # type: ignore[arg-type]
 
         assert len({id(c) for c in seen}) == 1
+        await aclose_all(app)
+
+
+class _RaisingClient:
+    """A cached client whose ``aclose`` always fails."""
+
+    async def aclose(self) -> None:
+        """Fail the way a client holding a wedged connection would."""
+        raise RuntimeError("aclose failed")
+
+
+class _RecordingClient:
+    """A cached client that records whether shutdown ever reached it."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        """Record that this client was closed."""
+        self.closed = True
+
+
+class TestShutdownSurvivesAFailingClient:
+    """One client that cannot close must not strand every client behind it."""
+
+    @pytest.mark.asyncio
+    async def test_a_raising_aclose_does_not_strand_the_clients_behind_it(self) -> None:
+        """Close the rest of the cache after one client fails to close.
+
+        ``aclose_all`` empties the cache under the lock and closes what it took
+        afterwards, serially. Nothing holds a reference to the remainder, so a
+        raiser that aborted that loop leaked every client behind it for the life
+        of the process. The cache is heterogeneous -- httpx clients and a redis
+        client -- so they do not even fail the same way.
+        """
+        app = _App()
+        cache = client_cache(app)
+        good = _RecordingClient()
+        await cache.get_or_create(("raiser",), lambda: _completed(_RaisingClient()))
+        await cache.get_or_create(("good",), lambda: _completed(good))
+
+        await aclose_all(app)
+
+        assert good.closed, "a failing aclose() stranded the client queued behind it"
+
+    @pytest.mark.asyncio
+    async def test_a_failing_close_is_logged_rather_than_passed_over(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Leave a trace when a client cannot be closed; do not swallow it."""
+        app = _App()
+        cache = client_cache(app)
+        await cache.get_or_create(("raiser",), lambda: _completed(_RaisingClient()))
+
+        with caplog.at_level(logging.WARNING, logger=_FACTORY_LOGGER):
+            await aclose_all(app)
+
+        assert [r for r in caplog.records if r.name == _FACTORY_LOGGER], (
+            "a client that failed to close left no record at all"
+        )
+
+
+class TestRedisProbeBoundsReachRedis:
+    """A constant nobody passes to redis-py is documentation, not a bound."""
+
+    @pytest.mark.asyncio
+    async def test_the_redis_client_is_built_with_both_socket_bounds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Assert the kwargs that reach ``from_url``, not just the constants.
+
+        Both constants can be correct while neither is handed to redis-py: an
+        audit dropped both kwargs from the builder and the whole suite stayed
+        green, because the only assertion on them read the constants directly.
+        """
+        recorded: dict[str, object] = {}
+
+        def _fake_from_url(url: str, **kwargs: object) -> _RecordingClient:
+            recorded["url"] = url
+            recorded.update(kwargs)
+            return _RecordingClient()
+
+        monkeypatch.setattr("redis.asyncio.from_url", _fake_from_url)
+        app = _App()
+
+        await governed_redis_client("redis://localhost:6379/0", purpose="ready", app=app)
+
+        assert recorded.get("socket_timeout") == REDIS_SOCKET_TIMEOUT_SECONDS, (
+            f"the read bound never reached redis-py: {recorded}"
+        )
+        assert recorded.get("socket_connect_timeout") == REDIS_CONNECT_TIMEOUT_SECONDS, (
+            f"the connect bound never reached redis-py: {recorded}"
+        )
         await aclose_all(app)

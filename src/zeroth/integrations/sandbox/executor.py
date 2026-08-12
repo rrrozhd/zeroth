@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -45,8 +46,12 @@ def _resolved_timeout(requested: float | None) -> float:
     """
     if requested is None:
         return DEFAULT_EXECUTION_TIMEOUT_SECONDS
-    if requested <= 0:
-        raise ValueError("timeout_seconds must be positive")
+    if not math.isfinite(requested) or requested <= 0:
+        # inf reaches asyncio.wait_for and means "no deadline", which is exactly
+        # the state this resolver exists to make unreachable. JSON carries the
+        # Infinity literal and pydantic accepts it by default, so this is a
+        # reachable input, not a theoretical one.
+        raise ValueError("timeout_seconds must be positive and finite")
     return requested
 
 #: Deadline for a ``docker`` helper invocation (network create/rm, ``info``).
@@ -105,6 +110,10 @@ class SidecarExecutor:
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
         validate_docker_image_reference(request.image)
+        # Resolved up front so a rejected timeout fails before a container, a
+        # network or a coroutine exists. Evaluating it inline at the wait_for
+        # left self._communicate_bounded(...) constructed and never awaited.
+        execution_timeout = _resolved_timeout(request.timeout_seconds)
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
         execution_task = asyncio.current_task()
@@ -193,7 +202,7 @@ class SidecarExecutor:
                     # ``None`` here means wait forever, and the field defaults to
                     # ``None`` -- a body that simply omits it used to buy an
                     # unbounded container. Resolve it to a real deadline.
-                    timeout=_resolved_timeout(request.timeout_seconds),
+                    timeout=execution_timeout,
                 )
                 returncode = proc.returncode
             except TimeoutError:
@@ -453,8 +462,19 @@ class SidecarExecutor:
             response = self._executions[execution_id]
             if not response.stdout and not response.stderr:
                 continue
+            # The truncation flags carry this, because every sidecar model is
+            # pinned by the frozen protected-surface fixture and no new field is
+            # available. They already mean "what you are seeing is not the whole
+            # output"; retirement is a second reason for that, alongside size.
+            # Without them a retired execution is indistinguishable from one that
+            # genuinely produced nothing.
             self._executions[execution_id] = response.model_copy(
-                update={"stdout": "", "stderr": ""}
+                update={
+                    "stdout": "",
+                    "stderr": "",
+                    "stdout_truncated": True,
+                    "stderr_truncated": True,
+                }
             )
 
     async def _communicate_deadlined(self, proc: Any) -> tuple[bytes, bytes]:

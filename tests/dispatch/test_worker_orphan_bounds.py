@@ -143,3 +143,122 @@ async def test_a_cancelled_tracked_task_is_not_reported_as_a_failure(
             await asyncio.sleep(0)
 
     assert [r for r in caplog.records if r.name == logger_name] == []
+
+
+# --- the recovery *loop* is not a run ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_recovery_loop_task_does_not_decode_to_a_run_id() -> None:
+    """Refuse to read the recovery loop's own task name as a run.
+
+    ``_extract_run_id`` strips ``run-``, ``wakeup-`` and ``recover-``, so a loop
+    task named ``recover-orphans-<worker>`` parsed as a run called
+    ``orphans-<worker>``. The name is read back off the task ``start()``
+    actually created rather than restated here, so this tracks the production
+    string instead of a copy of it.
+    """
+    worker = _worker([], max_concurrency=1)
+    recorder = _Recorder()
+    recorder.worker = worker  # type: ignore[attr-defined]
+    recorder.release.set()
+    worker._execute_leased_run = recorder.drive  # type: ignore[method-assign]
+
+    await worker.start()
+    tasks = list(worker._active_tasks)
+
+    assert len(tasks) == 1, "start() no longer creates exactly one recovery task"
+    name = tasks[0].get_name()
+    assert worker._extract_run_id(tasks[0]) is None, (
+        f"the recovery loop task {name!r} decodes to the run id "
+        f"{worker._extract_run_id(tasks[0])!r}, which is not a run"
+    )
+
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_recovery_releases_only_real_orphans() -> None:
+    """Release only ids this worker actually claimed, never a fabricated one.
+
+    ``graceful_shutdown`` cancels whatever is still pending and drives
+    ``_stop_token_snapshot`` plus ``_release_to_pending`` against the run id it
+    reads off each task name. With the loop task inside the parsed namespace
+    that drove both against a run that does not exist.
+    """
+    orphans = [f"run-{index}" for index in range(3)]
+    worker = _worker(orphans, max_concurrency=1)
+    worker.shutdown_timeout = 0.0
+    released: list[str] = []
+
+    async def _release(run_id: str) -> None:
+        released.append(run_id)
+
+    async def _no_snapshot(run_id: str) -> None:
+        del run_id
+
+    worker._release_to_pending = _release  # type: ignore[method-assign]
+    worker._stop_token_snapshot = _no_snapshot  # type: ignore[method-assign]
+
+    recorder = _Recorder()  # drives block, so the loop is still pending at shutdown
+    recorder.worker = worker  # type: ignore[attr-defined]
+    worker._execute_leased_run = recorder.drive  # type: ignore[method-assign]
+
+    await worker.start()
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    await worker.graceful_shutdown()
+
+    fabricated = sorted(set(released) - set(orphans))
+    assert not fabricated, f"shutdown released ids that were never orphaned runs: {fabricated}"
+
+    recorder.release.set()
+    for task in list(worker._active_tasks):
+        task.cancel()
+    await asyncio.gather(*list(worker._active_tasks), return_exceptions=True)
+
+
+# --- a claimed orphan is either started or handed back -----------------------
+
+
+@pytest.mark.asyncio
+async def test_a_stop_mid_recovery_strands_no_claimed_orphan() -> None:
+    """Hand back orphans that were claimed but never dispatched.
+
+    They are claimed up front and dispatched behind the concurrency gate, so an
+    undispatched one has no task at all. ``graceful_shutdown``'s ``for task in
+    pending`` therefore cannot see it, and it sat RUNNING against an exiting
+    worker until the lease TTL expired.
+    """
+    orphans = [f"run-{index}" for index in range(5)]
+    worker = _worker(orphans, max_concurrency=1)
+    started: list[str] = []
+    released: list[str] = []
+
+    async def _drive(run_id: str, *, is_recovery: bool, slot_reserved: bool = False) -> None:
+        del is_recovery, slot_reserved
+        started.append(run_id)
+        # Observed by the loop only at its next iteration, which is exactly the
+        # mid-loop stop this covers.
+        worker._stopping = True
+
+    async def _release(run_id: str) -> None:
+        released.append(run_id)
+
+    worker._execute_leased_run = _drive  # type: ignore[method-assign]
+    worker._release_to_pending = _release  # type: ignore[method-assign]
+
+    await worker.start()
+    for _ in range(50):
+        pending = [task for task in worker._active_tasks if not task.done()]
+        if not pending:
+            break
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    assert started, "nothing was dispatched, so the mid-loop stop was never exercised"
+    stranded = sorted(set(orphans) - set(started) - set(released))
+    assert not stranded, (
+        f"orphans claimed by this worker were neither started nor released: {stranded}"
+    )
+    assert not set(started) & set(released), "an orphan was both started and released"

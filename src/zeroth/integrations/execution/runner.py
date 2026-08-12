@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import math
 import tempfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -764,8 +765,15 @@ class ExecutableUnitRunner:
         Resolving here rather than at each backend means there is one place where
         "nobody configured a timeout" is turned into a real deadline.
         """
+        # A non-finite or non-positive timeout is discarded rather than honoured:
+        # inf reaches asyncio.wait_for as "no deadline", and
+        # PolicyDefinition.timeout_override_seconds is authored data with no
+        # constraint on it, so this is a reachable way to declare a bound that
+        # is not one.
         candidates = [
-            timeout for timeout in (configured_timeout, policy_timeout) if timeout is not None
+            timeout
+            for timeout in (configured_timeout, policy_timeout)
+            if timeout is not None and math.isfinite(timeout) and timeout > 0
         ]
         if not candidates:
             return DEFAULT_EXECUTION_TIMEOUT_SECONDS

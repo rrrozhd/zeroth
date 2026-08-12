@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from typing import Any
 
 from zeroth.runtime.agents.tooling.base import (
@@ -82,7 +83,7 @@ class CLITool(Tool[InModelT, OutModelT]):
         await asyncio.shield(process.wait())
 
     async def _execute_validated(self, ctx: Any, data: InModelT) -> Any:
-        """Internal helper to execute validated."""
+        """Run the validated payload through the CLI tool and parse its output."""
         payload = data.model_dump_json().encode("utf-8")
         process = await asyncio.create_subprocess_exec(
             *self.command,
@@ -92,9 +93,13 @@ class CLITool(Tool[InModelT, OutModelT]):
         )
         # A bounded deadline always: ``timeout_seconds=None`` used to reach
         # ``wait_for`` unchanged, where it means wait forever.
+        # Non-finite and non-positive fall back to the default for the same
+        # reason: wait_for treats inf as no deadline at all.
         deadline = (
             self.timeout_seconds
             if self.timeout_seconds is not None
+            and math.isfinite(self.timeout_seconds)
+            and self.timeout_seconds > 0
             else DEFAULT_CLI_TOOL_TIMEOUT_SECONDS
         )
         try:

@@ -32,6 +32,7 @@ a process-wide cache, which :func:`reset_process_cache` clears.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,8 @@ import httpx
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 #: Default outbound timeout, in seconds, for a governed non-agent client.
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -62,7 +65,7 @@ DEFAULT_LIMITS = httpx.Limits(
 #: Attribute on ``app.state`` under which an app's client cache is anchored.
 CACHE_STATE_ATTRIBUTE = "governed_http_clients"
 
-_PROCESS_CACHES: dict[str, GovernedClientCache] = {}
+_PROCESS_CACHES: dict[object, GovernedClientCache] = {}
 _PROCESS_CACHE_KEY = "default"
 
 
@@ -96,6 +99,21 @@ def validate_timeout(timeout: float | None, *, name: str = "timeout") -> float:
     return seconds
 
 
+class _NoStoreCookies(httpx.Cookies):
+    """A cookie jar that never stores anything.
+
+    Pooling a client also pools its cookie jar. A per-request client discarded
+    any ``Set-Cookie`` when it was torn down; a shared one would replay one
+    caller's session cookie on the next caller's request. These are
+    service-to-service calls that authenticate with explicit headers, so there is
+    no cookie worth keeping and a strong reason not to keep one.
+    """
+
+    def extract_cookies(self, response: httpx.Response) -> None:
+        """Ignore ``Set-Cookie`` entirely."""
+        return
+
+
 class GovernedClientCache:
     """One long-lived client per key, built once and handed to every caller.
 
@@ -108,6 +126,7 @@ class GovernedClientCache:
     def __init__(self) -> None:
         self._clients: dict[Any, Any] = {}
         self._lock = asyncio.Lock()
+        self._closing = False
 
     def __len__(self) -> int:
         """Return how many clients this cache currently holds open."""
@@ -137,6 +156,13 @@ class GovernedClientCache:
             if cached is not None:
                 return cached
             client = await build()
+            if self._closing:
+                # aclose_all ran while this caller was queued on the lock. The
+                # cache it would be stored in has already been drained, so
+                # storing it here would leak a client nothing holds a reference
+                # to. Close it now and let the caller see the shutdown.
+                await client.aclose()
+                raise RuntimeError("governed client cache is shutting down")
             self._clients[key] = client
             return client
 
@@ -148,10 +174,27 @@ class GovernedClientCache:
         the same client twice or handing out a client mid-teardown.
         """
         async with self._lock:
+            self._closing = True
             clients = list(self._clients.values())
             self._clients.clear()
-        for client in clients:
-            await client.aclose()
+        try:
+            # Guarded per client: the cache was emptied above, so a raiser that
+            # aborted this loop would strand every client behind it with nothing
+            # left holding a reference to retry.
+            for client in clients:
+                try:
+                    await client.aclose()
+                except Exception:
+                    logger.warning(
+                        "closing a governed client failed; continuing with the rest",
+                        exc_info=True,
+                    )
+        finally:
+            # The flag guards the teardown *window* only. A cache that has
+            # finished closing is reusable -- an app restarted in-process, or a
+            # test that closes and then builds again, must not be permanently
+            # poisoned by a previous shutdown.
+            self._closing = False
 
 
 def client_cache(app: Any | None = None) -> GovernedClientCache:
@@ -169,10 +212,18 @@ def client_cache(app: Any | None = None) -> GovernedClientCache:
     """
     state = getattr(app, "state", None)
     if state is None:
-        cache = _PROCESS_CACHES.get(_PROCESS_CACHE_KEY)
+        # Keyed by the running loop, not by a single constant. An httpx client
+        # binds to the loop it was created on, and this cache outlives any one
+        # of them, so a single shared entry would hand a later caller a client
+        # tied to a loop that has already closed.
+        try:
+            loop_key: object = id(asyncio.get_running_loop())
+        except RuntimeError:
+            loop_key = _PROCESS_CACHE_KEY
+        cache = _PROCESS_CACHES.get(loop_key)
         if cache is None:
             cache = GovernedClientCache()
-            _PROCESS_CACHES[_PROCESS_CACHE_KEY] = cache
+            _PROCESS_CACHES[loop_key] = cache
         return cache
 
     cache = getattr(state, CACHE_STATE_ATTRIBUTE, None)
@@ -220,13 +271,18 @@ async def governed_async_client(
         # that distinguishes clients by a value the client does not carry hands
         # back something configured for a different upstream.
         extra: dict[str, Any] = {"base_url": base_url} if base_url else {}
-        return httpx.AsyncClient(
+        client = httpx.AsyncClient(
             timeout=httpx.Timeout(seconds),
             limits=DEFAULT_LIMITS,
             transport=transport,
             follow_redirects=follow_redirects,
             **extra,
         )
+        # Assigned after construction, not passed in: both __init__ and the
+        # cookies setter re-wrap whatever they are given in a plain
+        # httpx.Cookies, which would silently discard the no-store behaviour.
+        client._cookies = _NoStoreCookies()
+        return client
 
     return await client_cache(app).get_or_create(key, build)
 

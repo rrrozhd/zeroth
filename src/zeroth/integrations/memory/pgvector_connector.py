@@ -115,6 +115,16 @@ class PgvectorMemoryConnector:
         control; the deliberate ``commit()`` calls in ``write``/``delete``
         remain, because durably storing what the caller asked to store is the
         requested effect, not an incidental one.
+
+        A caller who injects a *factory that mints a fresh connection per call*
+        therefore owns each one and must close it; this connector will not. That
+        is a real cost, and it is the deliberate trade: A07-12's narrowed residual
+        is that an injected connection must not be closed or committed behind the
+        caller's back, and honouring that necessarily means a per-call factory's
+        result outlives the operation. The constructor signature is pinned by the
+        frozen protected-surface fixture, so ownership cannot become a parameter.
+        No in-repo caller injects either shape -- ``memory/factory.py`` passes a
+        DSN string, so the connector always owns what it opens.
         """
         conn = await self._get_conn()
         if not self._owns_connections:

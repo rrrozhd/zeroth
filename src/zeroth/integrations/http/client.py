@@ -44,6 +44,22 @@ logger = logging.getLogger(__name__)
 # HTTP methods considered idempotent (safe to retry on status codes).
 _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "DELETE"})
 
+#: Transport failures where the request provably never reached the peer.
+#:
+#: These are safe to replay whatever the method is: no side effect can have been
+#: applied by a server that was never connected to. Treating them like a
+#: mid-stream failure -- refusing to retry a POST -- withheld retry from the
+#: single safest class there is, on a task about resilience.
+_UNDELIVERED_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+#: Transport failures that are deterministic client-side faults.
+#:
+#: A malformed URL or an unsupported scheme cannot succeed on a second attempt.
+#: Retrying them burned the backoff budget and charged the circuit breaker for a
+#: host that was never dialled, and replacing them with HttpRetryExhaustedError
+#: hid the only diagnosis that mattered.
+_CLIENT_FAULT_ERRORS = (httpx.UnsupportedProtocol, httpx.LocalProtocolError)
+
 
 class ResilientHttpClient:
     """Production-grade HTTP client with resilience layers.
@@ -54,6 +70,7 @@ class ResilientHttpClient:
         Global :class:`HttpClientSettings` controlling retry, pool, timeouts, etc.
     secret_provider:
         Optional :class:`SecretProvider` for resolving auth secrets at call time.
+
     """
 
     def __init__(
@@ -170,9 +187,24 @@ class ResilientHttpClient:
         An endpoint that declares its own ``retryable_status_codes`` has had its
         retry policy set deliberately and keeps the existing escape hatch.
         """
-        if config.retryable_status_codes is not None:
+        if config.retryable_status_codes:
             return True
         return method.upper() in _IDEMPOTENT_METHODS
+
+    def _is_unhealthy_status(self, status_code: int, config: EndpointConfig) -> bool:
+        """Whether *status_code* means the endpoint answered but failed.
+
+        Deliberately independent of the request method. Whether a call may be
+        replayed is a property of the method; whether the endpoint is failing is
+        a property of the response, and the circuit breaker cares only about the
+        second.
+        """
+        codes = (
+            config.retryable_status_codes
+            if config.retryable_status_codes is not None
+            else self._settings.retryable_status_codes
+        )
+        return status_code in codes
 
     def _is_retryable_status(
         self,
@@ -273,31 +305,41 @@ class ResilientHttpClient:
             # a half-closed peer (RemoteProtocolError) or a mid-stream
             # read/write error is the same kind of endpoint failure, and used to
             # escape raw with no retry, no breaker accounting and no audit record.
+            except _CLIENT_FAULT_ERRORS:
+                # Deterministic and local: no retry, no breaker charge against a
+                # host that was never dialled, and the original exception is
+                # raised rather than being flattened into a retry-exhaustion.
+                raise
             except httpx.TransportError as exc:
                 await breaker.record_failure()
                 last_error = f"{type(exc).__name__}: {exc}"
                 retry_count = attempt + 1
-                # Redelivering a non-idempotent request after a transport failure
-                # can duplicate a side effect the peer may already have applied.
-                # Account for it, record it, do not replay it.
-                if not may_retry:
+                # Redelivering a non-idempotent request can duplicate a side
+                # effect the peer may already have applied -- but only if it
+                # could have been applied at all. A connect or pool failure
+                # never reached the peer, so it is replayable regardless.
+                undelivered = isinstance(exc, _UNDELIVERED_ERRORS)
+                if not (may_retry or undelivered):
                     break
                 if attempt < max_retries:
                     await asyncio.sleep(self._backoff_delay(attempt, config))
                 continue
 
-            if not self._is_retryable_status(response.status_code, method, config):
-                # Order preserved from before the split: the breaker is reset
-                # first, so the recorded state is the post-success one.
+            # Two independent questions, previously conflated. "Is this endpoint
+            # healthy?" is a property of the response alone. "May this request be
+            # replayed?" depends on the method. Answering the first with the
+            # second meant a 503 answered to a POST recorded a breaker SUCCESS
+            # and zeroed the counter a concurrent GET had just raised, so on any
+            # endpoint carrying mixed traffic the breaker never opened at all.
+            unhealthy = self._is_unhealthy_status(response.status_code, config)
+            if unhealthy:
+                await breaker.record_failure()
+            else:
                 await breaker.record_success()
+
+            if not self._is_retryable_status(response.status_code, method, config):
                 self._record_success(url, method, response, retry_count, breaker, start)
                 return response
-
-            # A retryable status means the endpoint answered but failed. That is
-            # an endpoint-health signal whichever attempt it lands on, so it feeds
-            # the breaker exactly like a transport error does — otherwise an
-            # endpoint that is up but returning 5xx could never trip it.
-            await breaker.record_failure()
             last_error = f"HTTP {response.status_code}"
             if attempt >= max_retries:
                 retry_count = attempt

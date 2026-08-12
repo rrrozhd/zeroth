@@ -55,6 +55,7 @@ class RunWorker:
         worker_id:           Unique ID for this worker instance.
         dead_letter_manager: Optional; marks repeatedly-failing runs as dead-letter.
         metrics_collector:   Optional; records execution metrics.
+
     """
 
     deployment_ref: str
@@ -121,9 +122,14 @@ class RunWorker:
                 len(orphans),
                 self.max_concurrency,
             )
+        # Named outside the run-/wakeup-/recover- namespace on purpose: this is
+        # the recovery *loop*, not a run. _extract_run_id parses any of those
+        # prefixes as a run id, so a "recover-orphans-w1" task made
+        # graceful_shutdown drive clear_fence and release_lease against a
+        # fabricated run called "orphans-w1".
         task = asyncio.create_task(
             self._recover_orphans(orphans),
-            name=f"recover-orphans-{self.worker_id}",
+            name=f"orphan-recovery-loop-{self.worker_id}",
         )
         self._track(task)
 
@@ -140,11 +146,19 @@ class RunWorker:
         in_flight: set[asyncio.Task[None]] = set()
         for index, run_id in enumerate(orphans):
             if self._stopping:
+                # These were CLAIMED by this worker, so they are leased to a
+                # process that is leaving. They have no task, so
+                # graceful_shutdown's "for task in pending" cannot see them, and
+                # without this they would sit RUNNING until the lease TTL
+                # expired. Hand them back explicitly instead.
+                undispatched = list(orphans[index:])
                 logger.info(
-                    "worker %s stopping; %d orphaned runs left for another worker",
+                    "worker %s stopping; releasing %d claimed but undispatched orphaned runs",
                     self.worker_id,
-                    len(orphans) - index,
+                    len(undispatched),
                 )
+                for pending_run_id in undispatched:
+                    await self._release_to_pending(pending_run_id)
                 break
             while len(in_flight) >= self.max_concurrency:
                 _done, in_flight = await asyncio.wait(
@@ -287,7 +301,7 @@ class RunWorker:
         return True
 
     async def _handle_fencing_rejection(self, run_id: str) -> None:
-        """The fence fired before the renewal loop noticed: ownership moved.
+        """Handle a fence that fired before the renewal loop noticed ownership moved.
 
         The refused write is the proof. The run is the new owner's, so no run
         state is written — only the durable evidence and the metric.

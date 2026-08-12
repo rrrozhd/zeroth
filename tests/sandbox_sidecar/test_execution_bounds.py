@@ -18,13 +18,16 @@ Three findings on the sandbox sidecar execution path:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import math
 import sys
 import time
 from typing import Any
 
+import httpx
 import pytest
 
+from zeroth.integrations.sandbox.app import app as sidecar_app
 from zeroth.integrations.sandbox.executor import (
     DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS,
     SidecarExecutor,
@@ -280,3 +283,157 @@ def test_retirement_is_a_no_op_below_the_retention_limit() -> None:
     for execution_id in ids:
         kept = executor._executions[execution_id]
         assert kept.stdout == f"stdout for {execution_id}"
+
+
+# --- A07-2, at the call site: the resolved deadline is the one applied --------
+
+
+@pytest.mark.asyncio
+async def test_an_omitted_body_field_reaches_wait_for_as_the_default_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``execute`` must pass the *resolved* deadline, not the raw request field.
+
+    The resolver is pinned above, but pinning a resolver nothing calls proves
+    nothing: reverting this call site to ``timeout=request.timeout_seconds``
+    leaves every ``_resolved_timeout`` test green while the container goes back
+    to being unbounded. So observe the value ``asyncio.wait_for`` is handed.
+    """
+    executor = SidecarExecutor()
+    fake_process = type("_FakeProcess", (), {"returncode": 0})()
+
+    async def _no_docker(*args: str) -> tuple[bytes, bytes]:
+        return b"", b""
+
+    async def _spawn(*args: Any, **kwargs: Any) -> Any:
+        return fake_process
+
+    async def _communicate(*args: Any, **kwargs: Any) -> tuple[bytes, bytes, bool, bool]:
+        return b"", b"", False, False
+
+    monkeypatch.setattr(executor, "_run_cmd", _no_docker)
+    monkeypatch.setattr(executor, "_communicate_bounded", _communicate)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _spawn)
+
+    deadlines: list[float | None] = []
+    real_wait_for = asyncio.wait_for
+
+    async def _recording_wait_for(awaitable: Any, timeout: float | None = None) -> Any:
+        deadlines.append(timeout)
+        return await real_wait_for(awaitable, timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", _recording_wait_for)
+
+    request = SidecarExecuteRequest.model_validate(_body())
+    assert request.timeout_seconds is None, "the body under test must omit the field"
+
+    await executor.execute(request)
+
+    assert deadlines, "the execution never reached asyncio.wait_for"
+    assert None not in deadlines, "an unbounded wait reached wait_for"
+    assert DEFAULT_EXECUTION_TIMEOUT_SECONDS in deadlines
+
+
+# --- "no bound" has more spellings than zero ---------------------------------
+
+
+@pytest.mark.parametrize("value", [math.inf, -math.inf, float("nan")])
+def test_a_non_finite_execution_timeout_is_refused(value: float) -> None:
+    """Refuse inf and nan, which are declared bounds that bound nothing.
+
+    ``asyncio.wait_for(..., timeout=inf)`` never fires, so ``inf`` reaching the
+    wait is indistinguishable from the unbounded container this resolver exists
+    to make unreachable. It is a reachable input rather than a theoretical one:
+    JSON carries the ``Infinity`` literal and pydantic accepts it on a plain
+    ``float`` field, which the ``model_validate`` below is here to show.
+    """
+    request = SidecarExecuteRequest.model_validate(_body(timeout_seconds=value))
+
+    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+        _resolved_timeout(request.timeout_seconds)
+
+
+def test_the_resolver_still_admits_a_real_bound() -> None:
+    """Keep admitting the values that are genuinely bounded deadlines."""
+    assert _resolved_timeout(None) == DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    assert _resolved_timeout(0.5) == 0.5
+    assert _resolved_timeout(600.0) == 600.0
+
+
+# --- a refused timeout is a client error, and it is refused early ------------
+
+_SIDECAR_SECRET = "test-execution-bounds-secret"
+_SIDECAR_SECRET_HEADER = "X-Zeroth-Sandbox-Secret"
+
+#: The sidecar app *module*, which owns the executor the route calls. Resolved
+#: through ``import_module`` rather than by attribute traversal because the
+#: package re-exports the FastAPI object under this submodule's own name, so
+#: ``zeroth.integrations.sandbox.app`` reached by attribute is the app, not the
+#: module -- and a monkeypatch aimed there would miss the executor entirely.
+_APP_MODULE = importlib.import_module("zeroth.integrations.sandbox.app")
+
+
+@pytest.fixture
+def _sidecar_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the sidecar app at a fresh real executor behind a known secret.
+
+    The app module holds a module-level ``executor``, so the substitution has to
+    happen there. It is a real ``SidecarExecutor`` rather than a mock: the
+    refusal under test is the executor's own.
+    """
+    monkeypatch.setenv("ZEROTH_SANDBOX_SIDECAR_SECRET", _SIDECAR_SECRET)
+    monkeypatch.setattr(_APP_MODULE, "executor", SidecarExecutor(docker_binary=sys.executable))
+
+
+async def _post_execute(body: dict[str, Any]) -> httpx.Response:
+    """POST *body* to the sidecar's ``/execute`` route and return the response.
+
+    ``raise_app_exceptions=False`` so an unhandled error surfaces as the 500 a
+    real deployment would return, rather than escaping into the test as the
+    original exception.
+    """
+    transport = httpx.ASGITransport(app=sidecar_app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://sidecar",
+        headers={_SIDECAR_SECRET_HEADER: _SIDECAR_SECRET},
+    ) as client:
+        return await client.post("/execute", json=body)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_sidecar_route")
+@pytest.mark.parametrize("value", [0, -1.0])
+async def test_a_refused_timeout_answers_422_not_500(value: float) -> None:
+    """Report a rejected deadline as a bad request, not a server fault.
+
+    The resolver's ``ValueError`` reached no handler, so tightening the bound
+    turned a request that previously answered 200 with ``timed_out=True`` into
+    an unhandled 500 -- a regression dressed as a fix.
+    """
+    response = await _post_execute(_body(execution_id=f"reject-{value}", timeout_seconds=value))
+
+    assert response.status_code == 422, (
+        f"a refused timeout answered {response.status_code}, not 422: {response.text}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_sidecar_route")
+async def test_a_refused_timeout_starts_no_container(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject the deadline before any container or network exists.
+
+    Resolving it inline at the ``wait_for`` meant the isolated network was
+    already created and ``docker run`` already spawned before the request was
+    refused, leaving the sidecar to unwind work it never should have started.
+    """
+    spawned: list[asyncio.subprocess.Process] = []
+    _install_spawn_recorder(monkeypatch, spawned, argv=(sys.executable, "-c", "pass"))
+
+    response = await _post_execute(_body(execution_id="reject-early", timeout_seconds=0))
+
+    assert spawned == [], "a docker command ran before the timeout was refused"
+    # Only that the request did not succeed: which error code it carries is the
+    # neighbouring test's assertion, so a change there cannot silently move this
+    # one's verdict.
+    assert response.status_code != 200
