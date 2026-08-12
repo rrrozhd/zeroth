@@ -20,7 +20,12 @@ from zeroth.integrations.persistence.runs.run_repository import (
 from zeroth.integrations.persistence.runs.serialization import row_to_thread
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["ThreadRepository"]
@@ -28,6 +33,7 @@ __all__ = ["ThreadRepository"]
 _UNSCOPED_WORKSPACE = object()
 
 
+@persistence_surface("service.threads", probe=named_isolation_probe("_drive_threads"))
 class ThreadRepository:
     """High-level async interface for saving and loading threads.
 

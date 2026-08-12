@@ -15,6 +15,7 @@ from zeroth.platform.storage import (
     ScopedTable,
     persistence_operation,
 )
+from zeroth.platform.storage.scoping import named_isolation_probe, persistence_surface
 
 
 def guardrail_identity_key(
@@ -35,6 +36,9 @@ def guardrail_identity_key(
     return f"guardrail:{kind}:v1:{digest}"
 
 
+@persistence_surface(
+    "service.rate_limit_buckets", probe=named_isolation_probe("_drive_rate_limit_buckets")
+)
 class TokenBucketRateLimiter:
     """Per-key token bucket backed by an async database.
 
@@ -143,6 +147,7 @@ class TokenBucketRateLimiter:
             return True
 
 
+@persistence_surface("service.quota_counters", probe=named_isolation_probe("_drive_quota_counters"))
 class QuotaEnforcer:
     """Per-key rolling-window quota enforcer backed by an async database.
 

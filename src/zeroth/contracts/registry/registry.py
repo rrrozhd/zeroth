@@ -36,6 +36,12 @@ from zeroth.platform.storage import (
     TenantWideScopeContext,
 )
 from zeroth.platform.storage.json import from_json_value, to_json_value
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 _AUTOMATIC_VERSION_ALLOCATION_ATTEMPTS = 32
@@ -160,6 +166,11 @@ class StepContractBinding(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+@persistence_surface(
+    "service.contract_versions",
+    probe=named_isolation_probe("_drive_contract_versions"),
+    non_persistence_public_methods=frozenset({"for_scope", "bind_step"}),
+)
 class ContractRegistry:
     """The main registry for storing and retrieving versioned contracts.
 
@@ -244,6 +255,7 @@ class ContractRegistry:
     def _runtime_fingerprint(record: ContractVersion) -> tuple[str, str]:
         return (record.model_path, to_json_value(record.json_schema))
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def register(
         self,
         model_type: type[ModelT],
@@ -285,6 +297,7 @@ class ContractRegistry:
             f"automatic version allocation for contract {contract_name!r} did not converge"
         )
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def register_schema(
         self,
         name: str,
@@ -337,6 +350,7 @@ class ContractRegistry:
             conflict_columns=("tenant_id", "contract_name", "version"),
         )
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def register_tool(
         self,
         tool: RegistrableTool,
@@ -414,6 +428,7 @@ class ContractRegistry:
             metadata=payload,
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         name: str | ContractReference,
@@ -437,10 +452,12 @@ class ContractRegistry:
             )
         return self._row_to_record(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def resolve(self, reference: ContractReference) -> ContractVersion:
         """Look up a contract from a ContractReference. Shorthand for get()."""
         return await self.get(reference)
 
+    @persistence_operation(ResourceOperation.READ)
     async def resolve_model_type(self, reference: ContractReference) -> type[BaseModel]:
         """Get the actual Python class for a contract reference.
 
@@ -463,6 +480,7 @@ class ContractRegistry:
         self._runtime_types[runtime_key] = (fingerprint, resolved)
         return resolved
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_versions(self, name: str) -> list[ContractVersion]:
         """Return all registered versions of a contract, oldest first."""
         rows = await self._contracts.select(
@@ -478,11 +496,13 @@ class ContractRegistry:
         )
         return sorted((self._row_to_record(row) for row in rows), key=lambda row: row.version)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_names(self) -> list[str]:
         """Return the names of all contracts in the registry, sorted alphabetically."""
         rows = await self._contracts.select(columns=("contract_name",))
         return sorted({str(row["contract_name"]) for row in rows})
 
+    @persistence_operation(ResourceOperation.READ)
     async def latest_version(self, name: str) -> int:
         """Return the highest version number for a contract, or 0 if it doesn't exist yet."""
         rows = await self._contracts.select(
@@ -491,6 +511,7 @@ class ContractRegistry:
         )
         return max((int(row["version"]) for row in rows), default=0)
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, name: str, version: int | None = None) -> None:
         """Remove a contract from the registry.
 

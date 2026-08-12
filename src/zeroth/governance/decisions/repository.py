@@ -40,7 +40,12 @@ from zeroth.governance.decisions.request import (
     StoredDecision,
 )
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 _COLUMNS = (
     "decision_id, tenant_id, idempotency_key, request_digest, decision_kind, "
@@ -116,12 +121,16 @@ def _row_to_stored(row: dict[str, Any]) -> StoredDecision:
     return StoredDecision(response=response, request_digest=str(row["request_digest"]))
 
 
+@persistence_surface(
+    "service.decision_records", probe=named_isolation_probe("_drive_decision_records")
+)
 class DecisionRepository:
     """Read and append tool-enforcement decisions, keyed per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_by_idempotency_key(
         self,
         tenant_id: str,
@@ -141,6 +150,7 @@ class DecisionRepository:
             row = await connection.fetch_one(_SELECT_BY_KEY, (tenant_id, idempotency_key))
         return None if row is None else _row_to_stored(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_replay(
         self,
         request: DecisionRequest,
@@ -173,6 +183,7 @@ class DecisionRepository:
         _ensure_digest_matches(stored, digest, request)
         return stored.response
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def record(
         self,
         request: DecisionRequest,

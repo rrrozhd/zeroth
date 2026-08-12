@@ -20,9 +20,17 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import to_json_value
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
+@persistence_surface(
+    "service.retention_audit_log", probe=named_isolation_probe("_drive_retention_audit")
+)
 class RetentionAuditLogRepository:
     """Writes and reads ``retention_audit_log`` entries."""
 

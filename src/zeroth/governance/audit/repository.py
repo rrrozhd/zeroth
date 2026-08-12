@@ -55,12 +55,32 @@ from zeroth.platform.storage import (
 )
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_resource_operations,
+    persistence_surface,
+)
 
 if TYPE_CHECKING:
     from zeroth.governance.audit.capture_policy import CaptureClassifier
     from zeroth.platform.signing import SigningKeyProvider
 
 
+@persistence_surface(
+    "service.audit_chain_heads",
+    probe=named_isolation_probe(
+        "zeroth.platform.storage.audit_isolation_probe:_drive_audit_chain_heads"
+    ),
+    non_persistence_public_methods=frozenset({"configure_capture"}),
+    method_names=frozenset({"write", "write_many"}),
+)
+@persistence_surface(
+    "service.node_audits",
+    probe=named_isolation_probe("zeroth.platform.storage.audit_isolation_probe:_drive_node_audits"),
+    non_persistence_public_methods=frozenset({"configure_capture"}),
+)
 class AuditRepository:
     """Saves and retrieves audit records from an async database.
 
@@ -158,6 +178,18 @@ class AuditRepository:
         self._capture = AuditCapturePolicy(classifier=classifier)
         self._capture_configured = True
 
+    @persistence_resource_operations(
+        "service.audit_chain_heads",
+        ResourceOperation.CREATE,
+        ResourceOperation.READ,
+        ResourceOperation.UPDATE,
+    )
+    @persistence_resource_operations(
+        "service.node_audits", ResourceOperation.CREATE, ResourceOperation.READ
+    )
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def write(self, record: NodeAuditRecord) -> NodeAuditRecord:
         """Save an audit record to the database.
 
@@ -232,6 +264,7 @@ class AuditRepository:
             )
         return await self.get(record.audit_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, audit_id: str, *, tenant_id: str | None = None) -> NodeAuditRecord | None:
         """Look up one audit record, optionally constrained by tenant in SQL."""
         if tenant_id is not None and tenant_id != self._scope_context.tenant_id:
@@ -244,6 +277,7 @@ class AuditRepository:
             return None
         return self._hydrate(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(self, query: AuditQuery | None = None) -> list[NodeAuditRecord]:
         """Return audit records matching the given filters, ordered by time.
 
@@ -291,6 +325,7 @@ class AuditRepository:
         records = [self._hydrate(row) for row in rows]
         return order_audit_records(records) if query.run_id is not None else records
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_run(
         self,
         run_id: str,
@@ -311,6 +346,7 @@ class AuditRepository:
             )
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -319,18 +355,22 @@ class AuditRepository:
         """Return a run's records using the caller's database transaction."""
         return await load_ordered_run_records(self._audits.in_transaction(connection), run_id)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_thread(self, thread_id: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific thread."""
         return await self.list(AuditQuery(thread_id=thread_id))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_node(self, node_id: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific node."""
         return await self.list(AuditQuery(node_id=node_id))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_graph_version(self, graph_version_ref: str) -> list[NodeAuditRecord]:
         """Return all audit records for a specific graph version."""
         return await self.list(AuditQuery(graph_version_ref=graph_version_ref))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_by_deployment(
         self,
         deployment_ref: str,
@@ -349,10 +389,23 @@ class AuditRepository:
             )
         )
 
+    @persistence_resource_operations(
+        "service.audit_chain_heads",
+        ResourceOperation.CREATE,
+        ResourceOperation.READ,
+        ResourceOperation.UPDATE,
+    )
+    @persistence_resource_operations(
+        "service.node_audits", ResourceOperation.CREATE, ResourceOperation.READ
+    )
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def write_many(self, records: Sequence[NodeAuditRecord]) -> list[NodeAuditRecord]:
         """Save multiple audit records at once. Returns all saved records."""
         return [await self.write(record) for record in records]
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def crypto_erase(self, audit_id: str, *, reason: str) -> NodeAuditRecord | None:
         """Crypto-erase a single record's PII while keeping the chain verifiable.
 
@@ -375,6 +428,7 @@ class AuditRepository:
                 reason=reason,
             )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def crypto_erase_in_transaction(
         self,
         connection: AsyncConnection | BoundStructuredTable,
@@ -433,6 +487,7 @@ class AuditRepository:
         )
         return erased
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_erasable(
         self,
         tenant_id: str,
@@ -455,6 +510,7 @@ class AuditRepository:
                 exclude_run_ids=exclude_run_ids,
             )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_erasable_in_transaction(
         self,
         connection: AsyncConnection | BoundStructuredTable,

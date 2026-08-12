@@ -13,11 +13,23 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _tenant_predicate(tenant_id: str | None) -> tuple[str | None, tuple[str, ...]]:
+    """Render the tenant predicate shared by scoped connector operations."""
+    if tenant_id is None:
+        return None, ()
+    return "tenant_id = ?", (tenant_id,)
 
 
 class MemoryConnectorConfig(BaseModel):
@@ -37,6 +49,9 @@ class MemoryConnectorConfig(BaseModel):
     updated_at: str
 
 
+@persistence_surface(
+    "service.memory_connector_configs", probe=named_isolation_probe("_drive_memory_configs")
+)
 class MemoryConnectorConfigRepository:
     """Raw-SQL repository over the ``memory_connector_configs`` table.
 
@@ -53,6 +68,9 @@ class MemoryConnectorConfigRepository:
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def upsert(
         self,
         ref: str,
@@ -81,50 +99,58 @@ class MemoryConnectorConfigRepository:
                     (ref, backend_type, params_json, tenant_id, now, now),
                 )
             else:
+                tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+                assert tenant_sql is not None
                 await connection.execute(
-                    """
+                    f"""
                     UPDATE memory_connector_configs
                     SET backend_type = ?, params = ?, updated_at = ?
-                    WHERE ref = ? AND tenant_id = ?
+                    WHERE ref = ? AND {tenant_sql}
                     """,
-                    (backend_type, params_json, now, ref, tenant_id),
+                    (backend_type, params_json, now, ref, *tenant_params),
                 )
         return await self.get(ref, tenant_id=tenant_id)  # type: ignore[return-value]
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, ref: str, *, tenant_id: str | None = None) -> MemoryConnectorConfig | None:
         """Load a single connector config by ref (optionally tenant-scoped)."""
         sql = "SELECT * FROM memory_connector_configs WHERE ref = ?"
         params: tuple[object, ...] = (ref,)
-        if tenant_id is not None:
-            sql += " AND tenant_id = ?"
-            params = (ref, tenant_id)
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            sql += f" AND {tenant_sql}"
+            params = (ref, *tenant_params)
         async with self._database.transaction() as connection:
             row = await connection.fetch_one(sql, params)
         if row is None:
             return None
         return self._row_to_config(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(self, *, tenant_id: str | None = None) -> list[MemoryConnectorConfig]:
         """Persisted connector configs, ordered by ref (optionally tenant-scoped)."""
         sql = "SELECT * FROM memory_connector_configs"
         params: tuple[object, ...] = ()
-        if tenant_id is not None:
-            sql += " WHERE tenant_id = ?"
-            params = (tenant_id,)
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            sql += f" WHERE {tenant_sql}"
+            params = tenant_params
         sql += " ORDER BY ref"
         async with self._database.transaction() as connection:
             rows = await connection.fetch_all(sql, params)
         return [self._row_to_config(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, ref: str, *, tenant_id: str | None = None) -> bool:
         """Delete a connector config. Returns True if a row existed (in tenant)."""
         select_sql = "SELECT ref FROM memory_connector_configs WHERE ref = ?"
         delete_sql = "DELETE FROM memory_connector_configs WHERE ref = ?"
         params: tuple[object, ...] = (ref,)
-        if tenant_id is not None:
-            select_sql += " AND tenant_id = ?"
-            delete_sql += " AND tenant_id = ?"
-            params = (ref, tenant_id)
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            select_sql += f" AND {tenant_sql}"
+            delete_sql += f" AND {tenant_sql}"
+            params = (ref, *tenant_params)
         async with self._database.transaction() as connection:
             existing = await connection.fetch_one(select_sql, params)
             if existing is None:

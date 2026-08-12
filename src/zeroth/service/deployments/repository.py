@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
 from zeroth.platform.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.service.deployments.models import (
     Deployment,
     DeploymentEngineMode,
@@ -43,12 +48,18 @@ def _row_get(row: object, column: str) -> str | None:
     return value if value else None
 
 
+@persistence_surface(
+    "service.deployment_versions", probe=named_isolation_probe("_drive_deployments")
+)
 class SQLiteDeploymentRepository:
     """Persist and query deployment history using an async database."""
 
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def create(
         self,
         deployment: Deployment,
@@ -170,6 +181,7 @@ class SQLiteDeploymentRepository:
             workspace_id=owner_workspace,
         )  # type: ignore[return-value]
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         deployment_ref: str,
@@ -204,6 +216,7 @@ class SQLiteDeploymentRepository:
             return None
         return self._row_to_deployment(row)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self,
         deployment_ref: str | None = None,
@@ -229,6 +242,7 @@ class SQLiteDeploymentRepository:
             rows = await connection.fetch_all(sql, tuple(params))
         return [self._row_to_deployment(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.READ)
     async def next_version(
         self,
         deployment_ref: str,

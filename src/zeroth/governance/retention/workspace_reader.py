@@ -8,9 +8,14 @@ from zeroth.platform.storage import (
     ScopedTable,
     TenantWideScopeContext,
 )
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    persistence_operation,
+    persistence_surface,
+)
 
 
+@persistence_surface("service.runs")
 class RetentionWorkspaceMaintenanceReader:
     """Discover named workspaces without exposing a mutation surface."""
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -32,6 +33,23 @@ class ResourceOperation(StrEnum):
 
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+type PersistenceProbe = Callable[[Any, ResourceOperation], Awaitable[None]]
+
+
+def named_isolation_probe(probe_name: str) -> PersistenceProbe:
+    """Create a lazy probe reference that avoids repository import cycles."""
+    _require_non_empty_string(probe_name, "probe_name")
+
+    async def execute(database: Any, operation: ResourceOperation) -> None:
+        module_name, separator, function_name = probe_name.partition(":")
+        if not separator:
+            module_name = "zeroth.platform.storage.isolation_probes"
+            function_name = probe_name
+        probes = importlib.import_module(module_name)
+        probe = getattr(probes, function_name)
+        await probe(database, operation)
+
+    return execute
 
 
 def persistence_operation(
@@ -55,6 +73,68 @@ def persistence_operation(
     return decorate
 
 
+def persistence_resource_operations(
+    resource_name: str, *operations: ResourceOperation
+) -> Callable[[_CallableT], _CallableT]:
+    """Bind one multi-resource repository method to a resource's operations."""
+    _require_stable_resource_name(resource_name)
+    if not operations:
+        raise ValueError("resource persistence operations must be non-empty")
+    declared = frozenset(operations)
+
+    def decorate(method: _CallableT) -> _CallableT:
+        resource_operations = dict(getattr(method, "__persistence_resource_operations__", {}))
+        if resource_name in resource_operations:
+            raise ValueError(f"operations for {resource_name} are already declared")
+        resource_operations[resource_name] = declared
+        method.__persistence_resource_operations__ = MappingProxyType(  # type: ignore[attr-defined]
+            resource_operations
+        )
+        return method
+
+    return decorate
+
+
+@dataclass(frozen=True, slots=True)
+class _PersistenceSurfaceDeclaration:
+    resource_name: str
+    probe: PersistenceProbe | None
+    non_persistence_public_methods: frozenset[str]
+    method_names: frozenset[str] | None
+
+
+_PERSISTENCE_REPOSITORY_TYPES: set[type[Any]] = set()
+
+
+def persistence_surface(
+    resource_name: str,
+    *,
+    probe: PersistenceProbe | None = None,
+    non_persistence_public_methods: frozenset[str] = frozenset(),
+    method_names: frozenset[str] | None = None,
+) -> Callable[[type[Any]], type[Any]]:
+    """Declare a production repository surface adjacent to its implementation."""
+    _require_stable_resource_name(resource_name)
+
+    def decorate(repository_type: type[Any]) -> type[Any]:
+        declarations = list(getattr(repository_type, "__persistence_surface_declarations__", ()))
+        if any(item.resource_name == resource_name for item in declarations):
+            raise ValueError(f"surface {resource_name} is already declared")
+        declarations.append(
+            _PersistenceSurfaceDeclaration(
+                resource_name,
+                probe,
+                non_persistence_public_methods,
+                method_names,
+            )
+        )
+        repository_type.__persistence_surface_declarations__ = tuple(declarations)
+        _PERSISTENCE_REPOSITORY_TYPES.add(repository_type)
+        return repository_type
+
+    return decorate
+
+
 @dataclass(frozen=True, slots=True)
 class PersistenceSurface:
     """Production repository class bound to one registered resource."""
@@ -63,9 +143,51 @@ class PersistenceSurface:
     repository_type: type[Any]
     operation_methods: Mapping[str, frozenset[ResourceOperation]]
     non_persistence_public_methods: frozenset[str] = frozenset()
+    probe: PersistenceProbe | None = None
 
 
 _PERSISTENCE_SURFACES: dict[tuple[str, type[Any]], PersistenceSurface] = {}
+
+
+def discover_persistence_surfaces() -> tuple[PersistenceSurface, ...]:
+    """Rebuild surfaces by introspecting decorated production repository classes."""
+    _PERSISTENCE_SURFACES.clear()
+    for repository_type in sorted(
+        _PERSISTENCE_REPOSITORY_TYPES,
+        key=lambda item: (item.__module__, item.__qualname__),
+    ):
+        declarations: tuple[_PersistenceSurfaceDeclaration, ...] = (
+            repository_type.__persistence_surface_declarations__
+        )
+        single_resource = len(declarations) == 1
+        for declaration in declarations:
+            operation_methods: dict[str, frozenset[ResourceOperation]] = {}
+            for method_name, method in vars(repository_type).items():
+                operations = getattr(method, "__persistence_operations__", None)
+                if not operations:
+                    continue
+                resource_operations = getattr(method, "__persistence_resource_operations__", {})
+                selected = resource_operations.get(declaration.resource_name)
+                if declaration.method_names is not None and selected is None:
+                    selected = operations if method_name in declaration.method_names else None
+                if (
+                    selected is None
+                    and declaration.method_names is None
+                    and (single_resource or not resource_operations)
+                ):
+                    selected = operations
+                if selected is not None:
+                    operation_methods[method_name] = selected
+            _PERSISTENCE_SURFACES[(declaration.resource_name, repository_type)] = (
+                PersistenceSurface(
+                    declaration.resource_name,
+                    repository_type,
+                    MappingProxyType(operation_methods),
+                    declaration.non_persistence_public_methods,
+                    declaration.probe,
+                )
+            )
+    return persistence_surfaces()
 
 
 def register_persistence_surface(
@@ -159,7 +281,7 @@ def validate_persistence_surface(
             resource_operations = getattr(method, "__persistence_resource_operations__", {}).get(
                 surface.resource_name
             )
-            if resource_operations != expected:
+            if resource_operations is not None and resource_operations != expected:
                 raise AssertionError(
                     f"public persistence method {name} has wrong resource metadata"
                 )

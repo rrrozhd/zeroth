@@ -14,7 +14,12 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +30,9 @@ class RetentionTransaction:
     tenant_id: str
 
 
+@persistence_surface(
+    "service.retention_coordination", probe=named_isolation_probe("_drive_coordination")
+)
 class RetentionCoordinator:
     """Serialize retention decisions and legal-hold changes per tenant."""
 

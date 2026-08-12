@@ -9,12 +9,30 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from zeroth.governance.approvals.models import ApprovalRecord, ApprovalStatus
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
 from zeroth.platform.storage.json import load_typed_value, to_json_value
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 _UNSCOPED = object()
 
 
+def _tenant_predicate(tenant_id: str | None) -> tuple[str | None, tuple[str, ...]]:
+    """Render the tenant predicate shared by scoped approval operations."""
+    if tenant_id is None:
+        return None, ()
+    return "tenant_id = ?", (tenant_id,)
+
+
+def _ownership_conflict_clause() -> str:
+    """Keep a legacy global approval ID from transferring tenant ownership."""
+    return "WHERE approvals.tenant_id = excluded.tenant_id"
+
+
+@persistence_surface("service.approvals", probe=named_isolation_probe("_drive_approvals"))
 class ApprovalRepository:
     """Saves and loads approval records from an async database.
 
@@ -26,6 +44,9 @@ class ApprovalRepository:
     def __init__(self, database: AsyncDatabase):
         self._database: AsyncDatabase = database
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def write(self, record: ApprovalRecord) -> ApprovalRecord:
         """Save an approval record to the database.
 
@@ -35,7 +56,7 @@ class ApprovalRepository:
         sla_deadline_str = record.sla_deadline.isoformat() if record.sla_deadline else None
         async with self._database.transaction() as connection:
             await connection.execute(
-                """
+                f"""
                 INSERT INTO approvals (
                     approval_id,
                     run_id,
@@ -68,6 +89,7 @@ class ApprovalRepository:
                     escalation_action = excluded.escalation_action,
                     escalated_from_id = excluded.escalated_from_id,
                     record_json = excluded.record_json
+                {_ownership_conflict_clause()}
                 """,
                 (
                     record.approval_id,
@@ -87,8 +109,14 @@ class ApprovalRepository:
                     to_json_value(record.model_dump(mode="json")),
                 ),
             )
-        return await self.get(record.approval_id)
+        stored = await self.get(record.approval_id, tenant_id=record.tenant_id)
+        if stored is None:
+            # ``approval_id`` is a legacy global primary key.  A collision in
+            # another tenant must not transfer ownership through the upsert.
+            raise KeyError(record.approval_id)
+        return stored
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         approval_id: str,
@@ -101,8 +129,11 @@ class ApprovalRepository:
         """Look up one approval with every supplied scope predicate in SQL."""
         sql = "SELECT record_json FROM approvals WHERE approval_id = ?"
         params: list[str] = [approval_id]
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            sql += f" AND {tenant_sql}"
+            params.extend(tenant_params)
         for field, value in (
-            ("tenant_id", tenant_id),
             ("deployment_ref", deployment_ref),
             ("graph_version_ref", graph_version_ref),
         ):
@@ -121,22 +152,26 @@ class ApprovalRepository:
             return None
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def resolve_pending(self, record: ApprovalRecord) -> ApprovalRecord | None:
         """Atomically publish ``record`` only while its exact scoped row is pending."""
         sql = """UPDATE approvals
                  SET status = ?, updated_at = ?, record_json = ?
                  WHERE approval_id = ? AND status = ?
-                   AND tenant_id = ? AND deployment_ref = ? AND graph_version_ref = ?"""
+                   AND deployment_ref = ? AND graph_version_ref = ?"""
         params: list[object] = [
             record.status.value,
             record.updated_at.isoformat(),
             to_json_value(record.model_dump(mode="json")),
             record.approval_id,
             ApprovalStatus.PENDING.value,
-            record.tenant_id,
             record.deployment_ref,
             record.graph_version_ref,
         ]
+        tenant_sql, tenant_params = _tenant_predicate(record.tenant_id)
+        assert tenant_sql is not None
+        sql += f" AND {tenant_sql}"
+        params.extend(tenant_params)
         if record.workspace_id is None:
             sql += " AND workspace_id IS NULL"
         else:
@@ -149,6 +184,7 @@ class ApprovalRepository:
             return None
         return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_pending(
         self,
         *,
@@ -166,11 +202,14 @@ class ApprovalRepository:
         """
         clauses = ["status = ?"]
         params: list[str] = [ApprovalStatus.PENDING.value]
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            clauses.append(tenant_sql)
+            params.extend(tenant_params)
         for key, value in (
             ("run_id", run_id),
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
-            ("tenant_id", tenant_id),
             ("graph_version_ref", graph_version_ref),
         ):
             if value is None:
@@ -192,6 +231,7 @@ class ApprovalRepository:
             for row in rows
         ]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self,
         *,
@@ -205,11 +245,14 @@ class ApprovalRepository:
         """Return approval records, optionally filtered by run, thread, or deployment."""
         clauses: list[str] = []
         params: list[str] = []
+        tenant_sql, tenant_params = _tenant_predicate(tenant_id)
+        if tenant_sql is not None:
+            clauses.append(tenant_sql)
+            params.extend(tenant_params)
         for key, value in (
             ("run_id", run_id),
             ("thread_id", thread_id),
             ("deployment_ref", deployment_ref),
-            ("tenant_id", tenant_id),
             ("graph_version_ref", graph_version_ref),
         ):
             if value is None:
@@ -233,6 +276,7 @@ class ApprovalRepository:
             for row in rows
         ]
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_overdue(self) -> list[ApprovalRecord]:
         """Return PENDING approvals past their SLA deadline."""
         now = datetime.now(UTC).isoformat()
