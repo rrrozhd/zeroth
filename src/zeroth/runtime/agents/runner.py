@@ -123,8 +123,7 @@ def _narrow_mcp_argument_inverse_map(
             return value in inverse_map
         if isinstance(value, Mapping):
             return any(
-                (isinstance(key, str) and key in inverse_map)
-                or contains_transformed_string(item)
+                (isinstance(key, str) and key in inverse_map) or contains_transformed_string(item)
                 for key, item in value.items()
             )
         if isinstance(value, list | tuple):
@@ -219,9 +218,7 @@ def _restore_mcp_arguments(
     if _depth > 64:
         raise ToolDeclarationSafetyError("MCP arguments exceed the restoration depth limit")
     remaining_nodes = (
-        _remaining_nodes
-        if _remaining_nodes is not None
-        else [_MAX_MCP_ARGUMENT_RESTORATION_NODES]
+        _remaining_nodes if _remaining_nodes is not None else [_MAX_MCP_ARGUMENT_RESTORATION_NODES]
     )
     remaining_nodes[0] -= 1
     if remaining_nodes[0] < 0:
@@ -348,6 +345,7 @@ def _restore_mcp_arguments(
             )
         return restored
     if isinstance(value, list):
+
         def schemas_for_index(index: int) -> list[Mapping[str, Any]]:
             selected: list[Mapping[str, Any]] = []
             for candidate in schemas:
@@ -600,6 +598,7 @@ class AgentRunner:
                 messages,
                 self.config.model_name,
             )
+        compaction_results = [compaction_result] if compaction_result is not None else []
 
         # Pre-execution budget check (per D-10, ECON-03)
         if self.budget_enforcer is not None:
@@ -615,7 +614,7 @@ class AgentRunner:
                     spend=spend,
                     cap=cap,
                 )
-                self._attach_cost_audit(error, compaction_result)
+                self._attach_cost_audit(error, *compaction_results)
                 raise error
 
         await self._start_mcp_servers(effective_capabilities)
@@ -639,6 +638,7 @@ class AgentRunner:
                         provider_timeout_seconds=provider_timeout_seconds,
                         approval_required_for_side_effects=approval_required_for_side_effects,
                         effective_capabilities=effective_capabilities,
+                        compaction_results=compaction_results,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -675,7 +675,7 @@ class AgentRunner:
                         record["response"] = self.content_guardrail.inspect(
                             record["response"], direction="output"
                         ).payload
-                    record.update(self._measurement_audit(response, compaction_result))
+                    record.update(self._measurement_audit(response, *compaction_results))
                     if response.cost_event_id is not None:
                         record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
@@ -735,18 +735,18 @@ class AgentRunner:
                     )
                 except AgentContentBlockedError as exc:
                     # Content blocks are terminal — never retried or wrapped.
-                    self._attach_cost_audit(exc, response, compaction_result)
+                    self._attach_cost_audit(exc, response, *compaction_results)
                     raise
                 except TimeoutError as exc:
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
                     )
                     if not retry_policy.retry_on_timeout or attempt == max_attempts:
-                        self._attach_cost_audit(last_error, response, compaction_result)
+                        self._attach_cost_audit(last_error, response, *compaction_results)
                         raise last_error from exc
                 except AgentOutputValidationError as exc:
                     last_error = exc
-                    self._attach_cost_audit(exc, response, compaction_result)
+                    self._attach_cost_audit(exc, response, *compaction_results)
                     if not retry_policy.retry_on_validation_error or attempt == max_attempts:
                         raise
                 except Exception as exc:
@@ -756,12 +756,10 @@ class AgentRunner:
                     should_retry = retry_policy.retry_on_provider_error and retryable
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
-                            self._attach_cost_audit(
-                                last_error, response, compaction_result
-                            )
+                            self._attach_cost_audit(last_error, response, *compaction_results)
                             raise last_error from exc
                         error = AgentProviderError(str(last_error))
-                        self._attach_cost_audit(error, response, compaction_result)
+                        self._attach_cost_audit(error, response, *compaction_results)
                         raise error from last_error
                 if retry_policy.use_exponential_backoff:
                     delay = compute_backoff_delay(
@@ -924,6 +922,7 @@ class AgentRunner:
         provider_timeout_seconds: float | None,
         approval_required_for_side_effects: bool,
         effective_capabilities: set[Capability] | None = None,
+        compaction_results: list[Any] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -1088,10 +1087,12 @@ class AgentRunner:
                 tool_audits.append(audit)
             # Phase 37: Compact between tool call re-invocations if needed.
             if self.context_tracker is not None:
-                current_messages, _ = await self.context_tracker.maybe_compact(
+                current_messages, tool_compaction = await self.context_tracker.maybe_compact(
                     current_messages,
                     self.config.model_name,
                 )
+                if tool_compaction is not None and compaction_results is not None:
+                    compaction_results.append(tool_compaction)
             current_response = await run_provider_with_timeout(
                 self.provider,
                 self._build_provider_request(current_messages, {}),

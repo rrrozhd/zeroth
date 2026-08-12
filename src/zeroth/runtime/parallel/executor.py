@@ -13,6 +13,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from zeroth.contracts.mappings.executor import _get_path, _set_path
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
@@ -364,7 +365,11 @@ class ParallelExecutor:
             # Wait for cancellations to complete
             await asyncio.gather(*tasks, return_exceptions=True)
             msg = f"parallel execution failed (fail-fast): {exc}"
-            raise ParallelExecutionError(msg) from exc
+            error = ParallelExecutionError(msg)
+            error.branch_histories = [  # type: ignore[attr-defined]
+                (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+            ]
+            raise error from exc
 
         return [
             BranchResult(
@@ -417,12 +422,27 @@ class ParallelExecutor:
         _set_path(merged_output, merge_path, reduced_value)
 
         # Aggregate cost and step counts
-        total_cost = sum(r.cost_usd for r in sorted_results)
+        costs = [result.cost_usd for result in sorted_results if result.cost_usd is not None]
+        estimates = [
+            result.estimated_cost_usd
+            for result in sorted_results
+            if result.estimated_cost_usd is not None
+        ]
+        states = [result.cost_measurement for result in sorted_results]
+        cost_measurement = (
+            MeasurementState.UNMEASURED
+            if not states or MeasurementState.UNMEASURED in states
+            else MeasurementState.ESTIMATED
+            if MeasurementState.ESTIMATED in states
+            else MeasurementState.MEASURED
+        )
         total_steps = sum(len(r.execution_history) for r in sorted_results)
 
         return FanInResult(
             results=sorted_results,
             merged_output=merged_output,
-            total_cost_usd=total_cost,
+            total_cost_usd=sum(costs) if costs else None,
+            total_estimated_cost_usd=sum(estimates) if estimates else None,
+            cost_measurement=cost_measurement,
             total_steps=total_steps,
         )

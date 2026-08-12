@@ -124,10 +124,7 @@ class ProviderResponse(BaseModel):
             )
         if self.cost_measurement is MeasurementState.MEASURED and self.cost_usd is None:
             raise ValueError("measured provider cost requires cost_usd")
-        if (
-            self.cost_measurement is MeasurementState.ESTIMATED
-            and self.estimated_cost_usd is None
-        ):
+        if self.cost_measurement is MeasurementState.ESTIMATED and self.estimated_cost_usd is None:
             raise ValueError("estimated provider cost requires estimated_cost_usd")
         if self.usage_measurement is MeasurementState.MEASURED and self.token_usage is None:
             raise ValueError("measured provider usage requires token_usage")
@@ -393,14 +390,17 @@ class LiteLLMProviderAdapter:
         """Extract token usage from AIMessage.usage_metadata or response_metadata."""
         # Try usage_metadata first (LangChain standard)
         usage_meta = getattr(ai_message, "usage_metadata", None)
-        if usage_meta and isinstance(usage_meta, dict):
+        if (
+            usage_meta
+            and isinstance(usage_meta, dict)
+            and usage_meta.get("total_tokens") is not None
+        ):
             input_t = usage_meta.get("input_tokens", 0)
             output_t = usage_meta.get("output_tokens", 0)
-            total_t = usage_meta.get("total_tokens", input_t + output_t)
             return TokenUsage(
                 input_tokens=input_t,
                 output_tokens=output_t,
-                total_tokens=total_t,
+                total_tokens=usage_meta["total_tokens"],
                 model_name=model_name,
             )
         # Fallback: response_metadata.token_usage (OpenAI-style)

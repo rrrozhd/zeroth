@@ -17,7 +17,9 @@ import pytest
 
 from zeroth.contracts.graph import AgentNode, AgentNodeData
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeAuditRecorder
+from zeroth.runtime.orchestration.parallel_executor import sum_run_cost
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run
 
@@ -194,6 +196,24 @@ async def test_failed_execution_preserves_a_carried_audit_record_as_rejected() -
     assert record.cost_usd == 0.25
 
 
+async def test_failed_execution_appends_cost_history_without_a_repository() -> None:
+    recorder = RuntimeAuditRecorder()
+    run = _run()
+    error = ValueError("blocked")
+    error.audit_record = {  # type: ignore[attr-defined]
+        "estimated_cost_usd": 0.25,
+        "cost_measurement": MeasurementState.ESTIMATED,
+    }
+
+    await recorder.record_failed_execution(run, _node(), "n1", {}, error)
+
+    (history,) = run.execution_history
+    assert history.status == "rejected"
+    assert history.estimated_cost_usd == 0.25
+    assert history.cost_measurement is MeasurementState.ESTIMATED
+    assert sum_run_cost(run) == 0.25
+
+
 async def test_failed_execution_merges_carried_operation_facts() -> None:
     """ZER26-AUD-008: a timeout's operation facts must reach the durable record.
 
@@ -236,6 +256,24 @@ async def test_failed_branch_execution_uses_the_branch_audit_namespace() -> None
     assert record.execution_metadata["branch_id"] == "b2"
     # Branch refs never consume a parent audit:N slot.
     assert run.audit_refs == []
+
+
+async def test_failed_branch_execution_appends_cost_history_without_a_repository() -> None:
+    recorder = RuntimeAuditRecorder()
+    run = _run()
+    ctx = BranchContext(branch_index=2, branch_id="b2", input_payload={})
+    error = ValueError("blocked")
+    error.audit_record = {  # type: ignore[attr-defined]
+        "cost_usd": 0.5,
+        "cost_measurement": MeasurementState.MEASURED,
+    }
+
+    await recorder.record_failed_branch_execution(run, _node(), "n1", {}, error, ctx)
+
+    (history,) = ctx.execution_history
+    assert history.status == "rejected"
+    assert history.cost_usd == 0.5
+    assert history.cost_measurement is MeasurementState.MEASURED
 
 
 @pytest.mark.parametrize(

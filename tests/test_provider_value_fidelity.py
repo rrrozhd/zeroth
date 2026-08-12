@@ -25,7 +25,11 @@ from zeroth.runtime.agents.provider import (
     LiteLLMProviderAdapter,
     ProviderResponse,
 )
-from zeroth.runtime.agents.errors import AgentOutputValidationError, AgentProviderError, BudgetExceededError
+from zeroth.runtime.agents.errors import (
+    AgentOutputValidationError,
+    AgentProviderError,
+    BudgetExceededError,
+)
 from zeroth.runtime.agents.models import AgentConfig
 from zeroth.runtime.agents.runner import AgentRunner
 from zeroth.runtime.context.models import CompactionResult, ContextWindowSettings
@@ -69,6 +73,17 @@ def test_missing_total_token_usage_is_unmeasured() -> None:
         content="ok",
         response_metadata={"token_usage": {"prompt_tokens": 2, "completion_tokens": 3}},
     )
+    assert adapter._extract_token_usage(message, "m") is None
+
+
+def test_usage_metadata_without_explicit_total_is_unmeasured() -> None:
+    adapter = LiteLLMProviderAdapter()
+    message = AIMessage(
+        content="ok",
+        usage_metadata={"input_tokens": 2, "output_tokens": 3, "total_tokens": 5},
+    )
+    assert message.usage_metadata is not None
+    message.usage_metadata.pop("total_tokens")
     assert adapter._extract_token_usage(message, "m") is None
 
 
@@ -221,9 +236,7 @@ async def test_compaction_measurement_survives_output_failure() -> None:
 async def test_compaction_measurement_survives_budget_rejection() -> None:
     budget = AsyncMock(spec=BudgetEnforcer)
     budget.check_budget = AsyncMock(return_value=(False, 2.0, 1.0))
-    runner = _runner_with_compaction(
-        DeterministicProviderAdapter([]), budget_enforcer=budget
-    )
+    runner = _runner_with_compaction(DeterministicProviderAdapter([]), budget_enforcer=budget)
 
     with pytest.raises(BudgetExceededError) as raised:
         await runner.run({"query": "hi"})
@@ -245,9 +258,7 @@ async def test_explicit_zero_estimate_is_retained() -> None:
         )
     )
     compaction = _compaction_with_estimated_cost(0.0)
-    runner.context_tracker.maybe_compact = AsyncMock(
-        return_value=(compaction.messages, compaction)
-    )
+    runner.context_tracker.maybe_compact = AsyncMock(return_value=(compaction.messages, compaction))
 
     result = await runner.run({"query": "hi"})
 
