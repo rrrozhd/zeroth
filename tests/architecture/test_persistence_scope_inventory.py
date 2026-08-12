@@ -809,9 +809,15 @@ def _visible_annotation_repository_names(
         for name in candidate_names - shadowed_names:
             visible.discard(name)
             visible_events = [
-                identity for event, identity in events_by_name.get(name, []) if event < position
+                (event, identity)
+                for event, identity in events_by_name.get(name, [])
+                if event < position
             ]
-            if visible_events and visible_events[-1] == _AUDIT_REPOSITORY_CLASS:
+            last_event = visible_events[-1][0] if visible_events else None
+            if any(
+                event == last_event and identity == _AUDIT_REPOSITORY_CLASS
+                for event, identity in visible_events
+            ):
                 visible.add(name)
             shadowed_names.add(name)
     return visible
