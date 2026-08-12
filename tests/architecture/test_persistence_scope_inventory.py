@@ -2741,6 +2741,24 @@ def _audit_repository_public_call_provenance(
                                 state = transfer_expression(child, state)
                         return state
 
+                    def transfer_assignment_target(
+                        target: ast.AST,
+                        state: dict[str, type[BaseException] | None],
+                    ) -> dict[str, type[BaseException] | None]:
+                        if isinstance(target, ast.Name):
+                            return state
+                        if isinstance(target, ast.Attribute):
+                            return transfer_expression(target.value, state)
+                        if isinstance(target, ast.Subscript):
+                            state = transfer_expression(target.value, state)
+                            return transfer_expression(target.slice, state)
+                        if isinstance(target, ast.Starred):
+                            return transfer_assignment_target(target.value, state)
+                        if isinstance(target, (ast.Tuple, ast.List)):
+                            for element in target.elts:
+                                state = transfer_assignment_target(element, state)
+                        return state
+
                     def walk(
                         block: list[ast.stmt], state: dict[str, type[BaseException] | None]
                     ) -> dict[str, type[BaseException] | None]:
@@ -2750,6 +2768,7 @@ def _audit_repository_public_call_provenance(
                             if isinstance(statement, ast.AnnAssign):
                                 if statement.value is not None:
                                     state = transfer_expression(statement.value, state)
+                                    state = transfer_assignment_target(statement.target, state)
                                     bind_alias(statement.target, statement.value, position, state)
                                 if (
                                     not isinstance(
@@ -8873,6 +8892,24 @@ def test_public_call_inventory_models_definition_annotation_aliases(
             "from builtins import TypeError as BuiltinTypeError\n"
             "marker: (TypeError := BuiltinTypeError) = (TypeError := ValueError)\n",
             "    pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "mapping = {}\n",
+            "    mapping[(TypeError := ValueError)]: object = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "class Holder:\n    def __init__(self, *values):\n        pass\n",
+            "    (holder := Holder(TypeError := ValueError)).attribute: object = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "",
+            "    marker: object = None\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
