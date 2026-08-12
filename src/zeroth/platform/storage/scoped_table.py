@@ -377,6 +377,33 @@ class _StructuredTable:
         async with self.__database.transaction(write_lock=True) as connection:
             await connection.execute(sql, tuple(rendered.values()))
 
+    async def insert_if_absent(
+        self,
+        values: dict[str, Any],
+        *,
+        conflict_columns: tuple[str, ...],
+    ) -> bool:
+        """Insert a scoped row atomically, returning whether this call won the identity."""
+        definition = self._validate_operation(
+            ResourceOperation.CREATE,
+            self._canonical_definition(),
+        )
+        table_name = _definition_table_name(definition)
+        rendered = self._validate_values(values, create=True, definition=definition)
+        columns = tuple(rendered)
+        conflicts = tuple(_identifier(column) for column in conflict_columns)
+        if not conflicts or any(column not in rendered for column in conflicts):
+            raise ValueError("conflict_columns must be non-empty inserted columns")
+        sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES "
+            f"({', '.join('?' for _ in columns)}) "
+            f"ON CONFLICT ({', '.join(conflicts)}) DO NOTHING "
+            f"RETURNING {conflicts[0]}"
+        )
+        async with self.__database.transaction(write_lock=True) as connection:
+            row = await connection.fetch_one(sql, tuple(rendered.values()))
+        return row is not None
+
     async def update(self, values: dict[str, Any], *, where: dict[str, Any]) -> None:
         """Update rows selected by caller predicates plus the bound scope."""
         definition = self._validate_operation(
