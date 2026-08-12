@@ -1807,8 +1807,44 @@ def _audit_repository_public_call_provenance(
                     for alias in statement.names
                 )
                 lexical_local_names = local_names.get(owner, set())
+                postponed_annotations = any(
+                    isinstance(statement, ast.ImportFrom)
+                    and statement.module == "__future__"
+                    and any(alias.name == "annotations" for alias in statement.names)
+                    for statement in tree.body
+                )
+
+                def direct_binding_names(statement: ast.stmt) -> set[str]:
+                    if isinstance(statement, ast.AnnAssign) and statement.value is None:
+                        return set()
+                    return set().union(
+                        *(_bound_names(target) for target in _binding_targets(statement))
+                    )
+
+                def enclosing_closure_names(
+                    function: ast.AST,
+                    parents: dict[ast.AST, ast.AST] = parents,
+                ) -> set[str]:
+                    parent = parents.get(function)
+                    while parent is not None and not isinstance(
+                        parent, (ast.FunctionDef, ast.AsyncFunctionDef)
+                    ):
+                        parent = parents.get(parent)
+                    if not isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        return set()
+                    if function not in parent.body:
+                        return set()
+                    names = _function_argument_names(parent) | enclosing_closure_names(parent)
+                    for statement in parent.body:
+                        if statement is function:
+                            break
+                        names.update(direct_binding_names(statement))
+                    return names
+
                 initial_bound_names = (
-                    _function_argument_names(owner) | (module_bound_names - lexical_local_names)
+                    _function_argument_names(owner)
+                    | (module_bound_names - lexical_local_names)
+                    | (enclosing_closure_names(owner) - lexical_local_names)
                     if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
                     else set()
                 )
@@ -2033,6 +2069,7 @@ def _audit_repository_public_call_provenance(
                     bound_names: set[str],
                     lexical_local_names: set[str] = lexical_local_names,
                     module_bound_names: set[str] = module_bound_names,
+                    postponed_annotations: bool = postponed_annotations,
                 ) -> bool:
                     if expression is None or is_provably_nonraising(expression):
                         return False
@@ -2047,13 +2084,46 @@ def _audit_repository_public_call_provenance(
                     if isinstance(expression, ast.Lambda):
                         return False
                     if isinstance(expression, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        annotations = (
+                            *(argument.annotation for argument in expression.args.posonlyargs),
+                            *(argument.annotation for argument in expression.args.args),
+                            *(argument.annotation for argument in expression.args.kwonlyargs),
+                            expression.args.vararg.annotation
+                            if expression.args.vararg is not None
+                            else None,
+                            expression.args.kwarg.annotation
+                            if expression.args.kwarg is not None
+                            else None,
+                            expression.returns,
+                        )
                         return any(
                             expression_may_raise(node, bound_names)
                             for node in (
                                 *expression.decorator_list,
                                 *expression.args.defaults,
                                 *(default for default in expression.args.kw_defaults if default),
-                                expression.returns,
+                                *(() if postponed_annotations else annotations),
+                            )
+                        )
+                    if isinstance(expression, ast.ClassDef):
+                        return any(
+                            expression_may_raise(node, bound_names)
+                            for node in (
+                                *expression.decorator_list,
+                                *expression.bases,
+                                *(keyword.value for keyword in expression.keywords),
+                                *(
+                                    child.value
+                                    for child in expression.body
+                                    if isinstance(child, ast.AnnAssign) and child.value is not None
+                                ),
+                                *(
+                                    child.annotation
+                                    for child in expression.body
+                                    if isinstance(child, ast.AnnAssign)
+                                    and not postponed_annotations
+                                ),
+                                *(child for child in expression.body if not isinstance(child, ast.AnnAssign)),
                             )
                         )
                     if isinstance(
@@ -2388,16 +2458,12 @@ def _audit_repository_public_call_provenance(
                         if isinstance(statement, ast.Match):
                             if expression_may_raise(statement.subject, before[2]):
                                 exceptions.append(before)
-                            case_flows = [
-                                walk_potential_bindings(
-                                    case.body,
-                                    bind_names(before, _bound_names(case.pattern)),
-                                )
-                                for case in statement.cases
-                            ]
+                            case_flows: list[PotentialFlow] = []
                             for case in statement.cases:
-                                if expression_may_raise(case.guard, before[2]):
-                                    exceptions.append(before)
+                                case_state = bind_names(before, _bound_names(case.pattern))
+                                if expression_may_raise(case.guard, case_state[2]):
+                                    exceptions.append(case_state)
+                                case_flows.append(walk_potential_bindings(case.body, case_state))
 
                             def is_irrefutable(pattern: ast.pattern) -> bool:
                                 return (
@@ -2422,10 +2488,14 @@ def _audit_repository_public_call_provenance(
                                 exceptions.extend(flow.exceptions)
                             continue
                         if isinstance(statement, ast.Delete):
-                            continuing = unbind_names(
-                                continuing,
-                                set().union(*(_bound_names(target) for target in statement.targets)),
+                            deleted_names = set().union(
+                                *(_bound_names(target) for target in statement.targets)
                             )
+                            if not deleted_names <= continuing[2]:
+                                exceptions.append(before)
+                            continuing = unbind_names(continuing, deleted_names)
+                            continue
+                        if isinstance(statement, ast.AnnAssign) and statement.value is None:
                             continue
                         assignment_value = (
                             None
@@ -6557,6 +6627,147 @@ def test_public_call_inventory_keeps_potential_after_deleted_binding_read(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+def test_public_call_inventory_allows_bound_delete_before_clean_rebind(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    transient = None\n"
+        "    with suppressor:\n"
+        "        del transient\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_keeps_annotation_only_name_unbound(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        transient: int\n"
+        "        if transient:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_marks_match_capture_bound_before_guard(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, value, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        match value:\n"
+        "            case captured if captured:\n"
+        "                Base = None\n"
+        "            case _:\n"
+        "                Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_seeds_nested_closure_binding(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, closure, candidate, record):\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("future_import", "definition", "expected"),
+    [
+        (
+            "",
+            "        def local(value: may_raise()) -> may_raise():\n            pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "        class Local:\n            value: may_raise()\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "from __future__ import annotations\n",
+            "        class Local:\n            value: may_raise()\n",
+            frozenset(),
+        ),
+        (
+            "from __future__ import annotations\n",
+            "        def local(value: may_raise()) -> may_raise():\n            pass\n",
+            frozenset(),
+        ),
+    ],
+    ids=["eager-function", "eager-class", "postponed-class", "postponed-function"],
+)
+def test_public_call_inventory_respects_postponed_annotations(
+    tmp_path: Path, future_import: str, definition: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        future_import
+        + "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        + definition
+        + "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
 @pytest.mark.parametrize(
