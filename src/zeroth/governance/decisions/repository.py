@@ -59,6 +59,7 @@ _COLUMNS = (
     "action_name, action_fingerprint, created_at"
 )
 
+
 class IdempotencyConflictError(ValueError):
     """An idempotency key was reused for a materially different request.
 
@@ -132,11 +133,16 @@ class DecisionRepository:
         self._database = database
 
     def _decisions(self, tenant_id: str) -> ScopedTable:
+        context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
         return ScopedTable(
             self._database,
             SERVICE_SCOPE_REGISTRY,
             "service.decision_records",
-            NullWorkspaceScopeContext(tenant_id=tenant_id),
+            context,
         )
 
     @persistence_operation(ResourceOperation.READ)
