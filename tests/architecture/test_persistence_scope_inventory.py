@@ -1871,19 +1871,27 @@ def _audit_repository_public_call_provenance(
                             )
                             continue
                         if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                            if isinstance(statement, (ast.For, ast.AsyncFor)):
+                                bound_names = _bound_names(statement.target)
+                                potential_names.difference_update(bound_names)
+                                invalidated_names.update(bound_names)
                             body_state = walk_potential_bindings(
                                 statement.body, potential_names, invalidated_names
                             )
-                            loop_state = (
-                                (potential_names | body_state[0], invalidated_names & body_state[1])
-                                if any(isinstance(node, ast.Break) for node in ast.walk(statement))
-                                else body_state
-                            )
-                            potential_names, invalidated_names = walk_potential_bindings(
-                                statement.orelse, *loop_state
-                            )
+                            exhausted_state = walk_potential_bindings(statement.orelse, *body_state)
+                            potential_names = potential_names | body_state[0] | exhausted_state[0]
+                            invalidated_names &= body_state[1] & exhausted_state[1]
                             continue
                         if isinstance(statement, (ast.With, ast.AsyncWith)):
+                            bound_names = set().union(
+                                *(
+                                    _bound_names(item.optional_vars)
+                                    for item in statement.items
+                                    if item.optional_vars is not None
+                                )
+                            )
+                            potential_names.difference_update(bound_names)
+                            invalidated_names.update(bound_names)
                             potential_names, invalidated_names = walk_potential_bindings(
                                 statement.body, potential_names, invalidated_names
                             )
@@ -1891,10 +1899,20 @@ def _audit_repository_public_call_provenance(
                         if isinstance(statement, ast.Match):
                             path_states = [
                                 walk_potential_bindings(
-                                    case.body, potential_names, invalidated_names
+                                    case.body,
+                                    potential_names - _bound_names(case.pattern),
+                                    invalidated_names | _bound_names(case.pattern),
                                 )
                                 for case in statement.cases
                             ]
+                            exhaustive = any(
+                                isinstance(case.pattern, ast.MatchAs)
+                                and case.pattern.pattern is None
+                                and case.guard is None
+                                for case in statement.cases
+                            )
+                            if not exhaustive:
+                                path_states.append((potential_names, invalidated_names))
                             potential_names = set().union(*(state[0] for state in path_states))
                             invalidated_names = set.intersection(
                                 *(state[1] for state in path_states)
@@ -5457,6 +5475,61 @@ def test_public_call_inventory_finally_rebind_clears_potential_type_alias(tmp_pa
         "try:\n    pass\nfinally:\n    Base = OtherRepository\n"
         "type Repo = Base\n"
         "async def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "for value in values:\n    Base = OtherRepository\nelse:\n    pass\n",
+        "for value in values:\n    Base = OtherRepository\n    break\nelse:\n    Base = AnotherRepository\n",
+        "match value:\n    case 1:\n        Base = OtherRepository\n",
+        "match value:\n    case _ if cond:\n        Base = OtherRepository\n",
+    ],
+    ids=["loop-zero", "loop-break", "match-nonexhaustive", "match-guarded"],
+)
+def test_public_call_inventory_keeps_unmatched_compound_potential_paths(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        + compound
+        + "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "for Base in values:\n    pass\n",
+        "with context as Base:\n    pass\n",
+        "match value:\n    case Base:\n        pass\n",
+    ],
+    ids=["for", "with", "match"],
+)
+def test_public_call_inventory_header_bindings_invalidate_potential_aliases(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "type Base = list[AuditRepository]\n"
+        + compound
+        + "type Repo = Base\nasync def use(candidate: Repo, record):\n    await candidate.write(record)\n",
         encoding="utf-8",
     )
 
