@@ -97,9 +97,8 @@ app.state.zeroth)`) or import individual routers from
 
 - **SQLite:** no migration step required; the schema is created lazily on
   first boot.
-- **Postgres:** run `alembic upgrade head` from the host project before the
-  first boot. Reuse the `zeroth.runtime.migrations` package as the script
-  location.
+- **Postgres:** call `zeroth.service.bootstrap.migrations.run_migrations` with
+  the database URL before the first boot; it locates the bundled Alembic scripts.
 
 ## Common gotchas
 

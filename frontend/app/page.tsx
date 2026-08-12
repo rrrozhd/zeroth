@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Card, Pill, Skeleton, StatusDot } from "@/app/components/primitives";
+import { useAuditVerification } from "@/app/components/auditVerificationContext";
 import { useToast } from "@/app/components/Toast";
 import { useRegulus } from "@/app/components/regulusContext";
 import { RUN_TONE } from "@/app/components/runTone";
@@ -36,23 +37,19 @@ export default function Overview() {
   const health = useLoad<HealthResponse>(getHealth);
   const dep = useLoad<DeploymentSummary[]>(listDeployments);
   const runs = useLoad<AdminRunList>(listRuns);
+  const { verifiedAt } = useAuditVerification();
 
-  // localStorage-derived flags are read after mount so the static prerender and
-  // the first client render agree (no hydration mismatch).
+  // Connection config is read after mount so the static prerender and the
+  // first client render agree (no hydration mismatch).
   const [mounted, setMounted] = useState(false);
-  const [auditVerified, setAuditVerified] = useState(false);
   useEffect(() => {
     setMounted(true);
-    try {
-      setAuditVerified(window.localStorage.getItem("zeroth.auditVerified") === "1");
-    } catch {
-      /* localStorage unavailable — leave unverified */
-    }
   }, []);
   const connected = mounted && isConfigured();
 
   const [rollingBack, setRollingBack] = useState<string | null>(null);
   const doRollback = async (d: DeploymentSummary) => {
+    if (!window.confirm(`Roll back ${d.deployment_ref} to ${d.graph_version_ref}?`)) return;
     // The endpoint pins a new version to an earlier graph version; derive the
     // target from the row's ref (`{graph_id}@{version}`).
     const target = Number(d.graph_version_ref.split("@").pop());
@@ -98,7 +95,7 @@ export default function Overview() {
     { label: "Connect to the API", done: connected },
     { label: "Create a deployment", done: (dep.data?.length ?? 0) >= 1 },
     { label: "Submit a run", done: (runs.data?.runs.length ?? 0) >= 1 },
-    { label: "Verify the audit chain", done: auditVerified },
+    { label: "Verify the audit chain", done: verifiedAt !== null },
   ];
 
   return (

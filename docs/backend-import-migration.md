@@ -33,6 +33,27 @@ semantics; only the import path changed. Two things also left the wheel in
   static reachability, dynamic registration, exports, documentation, examples,
   service schemas, and optional integrations.
 
+### Protected fixture maintenance
+
+Private implementation cleanup and frontend-only cleanup do not change either
+backend-surface fixture. There is no generator or regeneration step for those
+changes: the accepted legacy fixture remains immutable, and the canonical
+fixture remains untouched when no protected capability moved or disappeared.
+
+When a protected capability intentionally moves, preserve its `legacy_ids`,
+update its canonical module and name mapping, add the corresponding row to the
+symbol migration log, and run the backend surface contract tests. Removing a
+protected capability requires evidence that covers static and dynamic
+reachability, exports, documentation, examples, service schemas, and optional
+integrations before its canonical mapping can be removed.
+
+### Deferred structural work
+
+This cleanup does not split the oversized run repository, LangGraph tool guard,
+or Studio editor/API modules. Consolidating the duplicate child-graph
+implementations is also deferred; each is a separate structural change with a
+wider regression surface than dead-definition removal.
+
 ## Initial package dispositions
 
 These rows establish the approved package-level destinations. A **move** row
