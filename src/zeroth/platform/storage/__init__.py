@@ -25,6 +25,7 @@ from zeroth.platform.storage.redis import (
     RedisDeploymentMode,
     docker_container_running,
 )
+from zeroth.platform.storage.scoped_resource import ScopedOperation, ScopedResourceDriver
 from zeroth.platform.storage.scoped_table import (
     ASYNC_NON_PERSISTENCE_MODULES,
     ASYNC_PERSISTENCE_MODULES,
@@ -45,6 +46,7 @@ from zeroth.platform.storage.scoping import (
     ResourceScopeRegistry,
     ScopeContext,
     TenantWideScopeContext,
+    persistence_operation,
 )
 from zeroth.platform.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
 
@@ -75,12 +77,15 @@ __all__ = [
     "SERVICE_PENDING_DIRECT_OWNERSHIP_TABLES",
     "SERVICE_SCOPE_REGISTRY",
     "ScopedJoin",
+    "ScopedOperation",
+    "ScopedResourceDriver",
     "ScopedTable",
     "SQLiteDatabase",
     "TenantWideScopeContext",
     "create_database",
     "docker_container_running",
     "ensure_and_lock_row",
+    "persistence_operation",
 ]
 
 
