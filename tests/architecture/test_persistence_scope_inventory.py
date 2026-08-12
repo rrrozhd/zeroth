@@ -625,7 +625,7 @@ def _must_alias_events(
         }
 
     def record(
-        statement: ast.Assign | ast.AnnAssign,
+        statement: ast.Assign | ast.AnnAssign | ast.NamedExpr,
         state: dict[str, _AliasIdentity],
     ) -> None:
         pre_assignment_state = dict(state)
@@ -667,12 +667,12 @@ def _must_alias_events(
             state[name] = None
             events.setdefault(name, []).append((position, None))
 
-    def statement_named_expression_names(statement: ast.stmt) -> set[str]:
-        names: set[str] = set()
+    def statement_named_expressions(statement: ast.stmt) -> tuple[ast.NamedExpr, ...]:
+        expressions: list[ast.NamedExpr] = []
 
         def visit(node: ast.AST) -> None:
             if isinstance(node, ast.NamedExpr):
-                names.update(_bound_names(node.target))
+                expressions.append(node)
                 return
             if isinstance(node, ast.Lambda):
                 for default in (*node.args.defaults, *node.args.kw_defaults):
@@ -684,20 +684,25 @@ def _must_alias_events(
                     visit(child)
 
         visit(statement)
-        return names
+        return tuple(expressions)
 
     def walk_block(
         statements: list[ast.stmt], state: dict[str, _AliasIdentity]
     ) -> dict[str, _AliasIdentity]:
         state = dict(state)
         for statement in statements:
-            expression_names = statement_named_expression_names(statement)
-            if expression_names:
-                invalidate(statement, expression_names, state)
+            for expression in statement_named_expressions(statement):
+                record(expression, state)
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 record(statement, state)
             elif isinstance(statement, ast.AugAssign):
                 invalidate_at_source(statement, _bound_names(statement.target), state)
+            elif isinstance(statement, ast.Delete):
+                invalidate_at_source(
+                    statement,
+                    set().union(*(_bound_names(target) for target in statement.targets)),
+                    state,
+                )
             elif isinstance(statement, ast.If):
                 state = join(
                     walk_block(statement.body, state),
@@ -757,23 +762,36 @@ def _must_alias_events(
                 for path_state in path_states[1:]:
                     state = join(state, path_state)
                 merge_event(statement, state)
-            elif isinstance(statement, ast.ImportFrom) and potential_import_aliases:
+            elif isinstance(statement, ast.ImportFrom):
                 for alias in statement.names:
                     name = alias.asname or alias.name.split(".")[0]
                     state[name] = (
                         _AUDIT_REPOSITORY_CLASS
                         if (
                             alias.name == "AuditRepository"
-                            and statement.module
-                            not in {
-                                "zeroth.governance.audit",
-                                "zeroth.governance.audit.repository",
-                            }
+                            and (
+                                (
+                                    not potential_import_aliases
+                                    and statement.module
+                                    in {
+                                        "zeroth.governance.audit",
+                                        "zeroth.governance.audit.repository",
+                                    }
+                                )
+                                or (
+                                    potential_import_aliases
+                                    and statement.module
+                                    not in {
+                                        "zeroth.governance.audit",
+                                        "zeroth.governance.audit.repository",
+                                    }
+                                )
+                            )
                         )
                         else None
                     )
                 merge_event(statement, state)
-            elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+            elif isinstance(statement, ast.Import):
                 invalidate(
                     statement,
                     {alias.asname or alias.name.split(".")[0] for alias in statement.names},
@@ -2035,6 +2053,88 @@ def test_public_call_inventory_tracks_chained_factory_and_destructured_type_alia
         }
     )
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_tracks_walrus_factory_and_type_aliases(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_factory(record):\n"
+        "    consume(factory := AuditRepository.scoped)\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def via_type(candidate, record):\n"
+        "    consume(Repo := AuditRepository)\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::write",
+        }
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_tracks_local_canonical_repository_import_alias(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "async def use(record):\n"
+        "    from zeroth.governance.audit import AuditRepository as AR\n"
+        "    factory = AR.scoped\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("factory_delete", "type_delete"),
+    [
+        ("del factory", "del Repo"),
+        ("del (factory, other_factory)", "del (Repo, other_type)"),
+    ],
+    ids=["single-target", "tuple-target"],
+)
+def test_public_call_inventory_invalidates_deleted_factory_and_type_aliases(
+    tmp_path: Path, factory_delete: str, type_delete: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_factory(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        f"    {factory_delete}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def via_type(candidate, record):\n"
+        "    Repo = AuditRepository\n"
+        f"    {type_delete}\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::write",
+        }
+    )
 
 
 def test_public_call_inventory_invalidates_augmented_factory_and_type_aliases(
