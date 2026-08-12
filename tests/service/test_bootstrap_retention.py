@@ -23,8 +23,11 @@ async def test_bootstrap_seeds_policy_repository_default_from_settings(
         auth_config=service.auth_config,
     )
 
-    resolved = await bootstrap.retention_policy_repository.resolve("tenant-unseen")
+    resolved = await bootstrap.retention_policy_repository.resolve()
     assert resolved.audit_ttl_seconds == 86400
     assert resolved.run_ttl_seconds == 172800
     # Environment-derived defaults must not be persisted as tenant rows.
-    assert await bootstrap.retention_policy_repository.get("tenant-unseen") is None
+    stored = await bootstrap.retention_policy_repository.get()
+    assert stored is not None
+    assert stored.audit_ttl_seconds is None
+    assert stored.run_ttl_seconds is None
