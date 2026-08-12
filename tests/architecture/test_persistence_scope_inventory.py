@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import fnmatch
 import importlib
+import inspect as python_inspect
 import os
 import pkgutil
 from pathlib import Path
@@ -30,30 +31,312 @@ from zeroth.platform.storage.scoped_table import (
     ScopedTable,
 )
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.governance.audit import AuditRepository
 
 _ECON_PLANE_ROOT = Path(econ_plane_paths[0])
 _SOURCE_ROOT = _ECON_PLANE_ROOT.parents[1]
 _GLOBAL_TABLES = {"pricing_catalog", "tool_pricing_catalog", "roles", "user_roles"}
 
 
+_AUDIT_REPOSITORY_CLASS = ("zeroth", "governance", "audit", "AuditRepository")
+_AUDIT_REPOSITORY_MODULE = _AUDIT_REPOSITORY_CLASS[:-1]
+_AUDIT_REPOSITORY_IMPLEMENTATION_MODULE = (*_AUDIT_REPOSITORY_MODULE, "repository")
+
+
+def _canonical_audit_repository_name(name: tuple[str, ...]) -> tuple[str, ...]:
+    if name == _AUDIT_REPOSITORY_IMPLEMENTATION_MODULE:
+        return _AUDIT_REPOSITORY_MODULE
+    if name == (*_AUDIT_REPOSITORY_IMPLEMENTATION_MODULE, "AuditRepository"):
+        return _AUDIT_REPOSITORY_CLASS
+    return name
+
+
+def _resolved_audit_repository_name(
+    node: ast.AST,
+    repository_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    if isinstance(node, ast.Name):
+        if node.id in repository_names:
+            return _AUDIT_REPOSITORY_CLASS
+        return module_names.get(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolved_audit_repository_name(node.value, repository_names, module_names)
+        if base is not None:
+            return _canonical_audit_repository_name((*base, node.attr))
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and _resolved_audit_repository_name(node.args[0], repository_names, module_names)
+        == _AUDIT_REPOSITORY_MODULE
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "AuditRepository"
+    ):
+        return _AUDIT_REPOSITORY_CLASS
+    return None
+
+
+def _audit_repository_binding_inventory(root: Path) -> frozenset[str]:
+    """Return the reviewed production AuditRepository construction inventory."""
+    inventory: set[str] = set()
+    for search_root in (
+        root / "src",
+        root / "release",
+        root / "apps",
+        root / "examples",
+        root / "packaging" / "console" / "src",
+    ):
+        for path in search_root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            repository_names: set[str] = set()
+            module_names: dict[str, tuple[str, ...]] = {}
+            relative_path = path.relative_to(root).as_posix()
+            if relative_path == "src/zeroth/governance/audit/repository.py":
+                repository_names.add("AuditRepository")
+            for imported in ast.walk(tree):
+                if isinstance(imported, ast.ImportFrom):
+                    for alias in imported.names:
+                        if (
+                            imported.module
+                            in {
+                                "zeroth.governance.audit",
+                                "zeroth.governance.audit.repository",
+                            }
+                            and alias.name == "AuditRepository"
+                        ):
+                            repository_names.add(alias.asname or alias.name)
+                        elif imported.module in {
+                            "zeroth.governance",
+                            "zeroth.governance.audit",
+                        } and alias.name in {"audit", "repository"}:
+                            module_names[alias.asname or alias.name] = _AUDIT_REPOSITORY_MODULE
+                elif isinstance(imported, ast.Import):
+                    for alias in imported.names:
+                        if alias.name in {
+                            "zeroth.governance.audit",
+                            "zeroth.governance.audit.repository",
+                        }:
+                            if alias.asname:
+                                module_names[alias.asname] = _canonical_audit_repository_name(
+                                    tuple(alias.name.split("."))
+                                )
+                            else:
+                                module_names["zeroth"] = ("zeroth",)
+
+            changed = True
+            while changed:
+                changed = False
+                for assigned in ast.walk(tree):
+                    if isinstance(assigned, ast.Assign) and len(assigned.targets) == 1:
+                        target = assigned.targets[0]
+                        value = assigned.value
+                    elif isinstance(assigned, ast.AnnAssign):
+                        target = assigned.target
+                        value = assigned.value
+                    else:
+                        continue
+                    if not isinstance(target, ast.Name) or value is None:
+                        continue
+                    binding = _resolved_audit_repository_name(value, repository_names, module_names)
+                    if binding == _AUDIT_REPOSITORY_CLASS and target.id not in repository_names:
+                        repository_names.add(target.id)
+                        changed = True
+                    elif binding is not None and target.id not in module_names:
+                        module_names[target.id] = binding
+                        changed = True
+
+            parents: dict[ast.AST, ast.AST] = {}
+            for parent in ast.walk(tree):
+                for child in ast.iter_child_nodes(parent):
+                    parents[child] = parent
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                direct_constructor = (
+                    _resolved_audit_repository_name(node.func, repository_names, module_names)
+                    == _AUDIT_REPOSITORY_CLASS
+                )
+                if direct_constructor:
+                    raise AssertionError(
+                        f"production direct AuditRepository constructor at {path}:{node.lineno}"
+                    )
+                receiver = (
+                    isinstance(node.func, ast.Attribute)
+                    and _resolved_audit_repository_name(
+                        node.func.value, repository_names, module_names
+                    )
+                    == _AUDIT_REPOSITORY_CLASS
+                )
+                if not receiver:
+                    continue
+                if node.func.attr == "for_default_compatibility":
+                    raise AssertionError(
+                        f"production default AuditRepository compatibility at {path}:{node.lineno}"
+                    )
+                if node.func.attr != "scoped":
+                    continue
+                if len(node.args) < 2 and not any(
+                    keyword.arg == "scope_context" for keyword in node.keywords
+                ):
+                    raise AssertionError(
+                        f"scope-free AuditRepository.scoped at {path}:{node.lineno}"
+                    )
+                owner: ast.AST | None = node
+                while owner is not None and not isinstance(
+                    owner, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    owner = parents.get(owner)
+                owner_name = (
+                    owner.name
+                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    else "<module>"
+                )
+                inventory.add(f"{relative_path}::{owner_name}::scoped")
+    return frozenset(inventory)
+
+
 def test_production_audit_repository_has_one_explicit_scoped_constructor() -> None:
     """Keep the complete production construction surface owner-bound."""
-    calls: list[tuple[str, str]] = []
-    for path in _SOURCE_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            function = node.func
-            if (
-                isinstance(function, ast.Attribute)
-                and isinstance(function.value, ast.Name)
-                and function.value.id == "AuditRepository"
-            ):
-                calls.append((path.relative_to(_SOURCE_ROOT).as_posix(), function.attr))
-            elif isinstance(function, ast.Name) and function.id == "AuditRepository":
-                calls.append((path.relative_to(_SOURCE_ROOT).as_posix(), "__init__"))
-    assert calls == [("service/bootstrap/factory.py", "scoped")]
+    root = Path(__file__).resolve().parents[2]
+    assert _audit_repository_binding_inventory(root) == frozenset(
+        {"src/zeroth/service/bootstrap/factory.py::bootstrap_service::scoped"}
+    )
+
+
+def test_audit_repository_public_surface_is_exhaustive_and_scope_is_required() -> None:
+    """A public operation can only exist on an instance whose owner was bound."""
+    signature = python_inspect.signature(AuditRepository)
+    assert signature.parameters["scope_context"].default is python_inspect.Parameter.empty
+    assert {name for name in vars(AuditRepository) if not name.startswith("_")} == {
+        "configure_capture",
+        "crypto_erase",
+        "crypto_erase_in_transaction",
+        "for_default_compatibility",
+        "get",
+        "list",
+        "list_by_deployment",
+        "list_by_graph_version",
+        "list_by_node",
+        "list_by_run",
+        "list_by_run_in_transaction",
+        "list_by_thread",
+        "list_erasable",
+        "list_erasable_in_transaction",
+        "scoped",
+        "write",
+        "write_many",
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import zeroth.governance.audit\nzeroth.governance.audit.AuditRepository(db, scope)\n",
+        "from zeroth.governance import audit\naudit.AuditRepository(db, scope)\n",
+        "import zeroth.governance.audit.repository as repository\nrepository.AuditRepository(db, scope)\n",
+        "from zeroth.governance.audit import AuditRepository as Repo\nRepo(db, scope)\n",
+        "from zeroth.governance.audit import AuditRepository\nRepo = AuditRepository\nRepo(db, scope)\n",
+        "from zeroth.governance.audit import AuditRepository\nRepo: type = AuditRepository\nRepo(db, scope)\n",
+        (
+            "from zeroth.governance import audit\n"
+            "Repo = getattr(audit, 'AuditRepository')\nRepo(db, scope)\n"
+        ),
+        ("from zeroth.governance import audit\ngetattr(audit, 'AuditRepository')(db, scope)\n"),
+    ],
+)
+def test_audit_repository_inventory_rejects_qualified_and_aliased_direct_construction(
+    tmp_path: Path, source: str
+) -> None:
+    module = tmp_path / "apps" / "reference_app" / "entrypoint.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="production direct AuditRepository constructor"):
+        _audit_repository_binding_inventory(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "directory",
+    ["src", "release", "apps", "examples", "packaging/console/src"],
+)
+def test_audit_repository_inventory_scans_every_shipped_python_root(
+    tmp_path: Path, directory: str
+) -> None:
+    module = tmp_path / directory / "candidate.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\nAuditRepository(db, scope)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AssertionError, match="production direct AuditRepository constructor"):
+        _audit_repository_binding_inventory(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "class AuditRepository:\n    pass\nAuditRepository()\n",
+        "from another_package import AuditRepository\nAuditRepository(db)\n",
+        "import another_package as audit\naudit.AuditRepository(db)\n",
+        "from zeroth.governance import audit\ngetattr(audit, 'UnrelatedRepository')(db)\n",
+    ],
+)
+def test_audit_repository_inventory_ignores_unrelated_symbols(tmp_path: Path, source: str) -> None:
+    module = tmp_path / "src" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    assert _audit_repository_binding_inventory(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import zeroth.governance.audit\n"
+            "def bind():\n"
+            "    return zeroth.governance.audit.AuditRepository.scoped(db, scope)\n"
+        ),
+        (
+            "from zeroth.governance import audit\n"
+            "def bind():\n"
+            "    return getattr(audit, 'AuditRepository').scoped(db, scope)\n"
+        ),
+        (
+            "from zeroth.governance.audit.repository import AuditRepository as Repo\n"
+            "def bind():\n"
+            "    return Repo.scoped(db, scope_context=scope)\n"
+        ),
+    ],
+)
+def test_audit_repository_inventory_allows_only_explicit_scoped_factories(
+    tmp_path: Path, source: str
+) -> None:
+    module = tmp_path / "src" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(source, encoding="utf-8")
+
+    assert _audit_repository_binding_inventory(tmp_path) == frozenset(
+        {"src/candidate.py::bind::scoped"}
+    )
+
+
+def test_audit_repository_inventory_rejects_default_compatibility_in_shipped_code(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "examples" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "AuditRepository.for_default_compatibility(db)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AssertionError, match="production default AuditRepository compatibility"):
+        _audit_repository_binding_inventory(tmp_path)
 
 
 @pytest.fixture(scope="module")
