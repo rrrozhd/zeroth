@@ -209,7 +209,6 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     auth = scoped_auth_config(
         ("a", "safe-a", ServiceRole.OPERATOR, "tenant-a", None),
         ("b", "safe-b", ServiceRole.OPERATOR, "tenant-b", None),
-        ("unknown", "safe-unknown", ServiceRole.OPERATOR, "tenant-unknown", None),
     )
     service, _ = await deploy_service(
         sqlite_db,
@@ -219,12 +218,13 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
         tenant_id="tenant-a",
     )
     key = generate_artifact_key("observable-run", "node")
+    unknown_run_id = "unknown-run"
+    unknown_key = generate_artifact_key(unknown_run_id, "node")
     payload = b"artifact-evidence-payload"
     records: list[dict[str, object]] = []
     backend = FilesystemArtifactStore(tmp_path / "artifacts")
     owner_store = TenantScopedArtifactStore(backend, tenant_id="tenant-a")
     foreign_store = TenantScopedArtifactStore(backend, tenant_id="tenant-b")
-    unknown_store = TenantScopedArtifactStore(backend, tenant_id="tenant-unknown")
 
     artifact_ref = await _RecordingArtifactStore(
         owner_store, records, operation="owner-write"
@@ -244,11 +244,11 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
         )
     with pytest.raises(ArtifactNotFoundError):
         await _RecordingArtifactStore(
-            unknown_store, records, operation="unknown-retrieval"
-        ).retrieve(key)
+            foreign_store, records, operation="unknown-retrieval"
+        ).retrieve(unknown_key)
     with pytest.raises(AttributeError):
-        await _RecordingArtifactStore(unknown_store, records, operation="unknown-list").list(
-            "observable-run"
+        await _RecordingArtifactStore(foreign_store, records, operation="unknown-list").list(
+            unknown_run_id
         )
 
     service.artifact_store = _RecordingArtifactStore(
@@ -275,7 +275,15 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
     assert audit is not None
 
     with TestClient(create_app(service)) as client:
-        invalid_auth = client.get(f"/v1/artifacts/{key}", headers=api_key_headers(CANARY))
+        invalid_auth = _record_api_get(
+            client,
+            records,
+            operation="invalid-auth-api-retrieval",
+            key=key,
+            api_key=CANARY,
+            principal="invalid-api-key",
+            correlation_id="artifact-invalid-auth-correlation",
+        )
         owner_api_read = _record_api_get(
             client,
             records,
@@ -298,9 +306,9 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
             client,
             records,
             operation="unknown-api-retrieval",
-            key=key,
-            api_key="safe-unknown",
-            principal="tenant-unknown",
+            key=unknown_key,
+            api_key="safe-b",
+            principal="tenant-b",
             correlation_id="artifact-unknown-correlation",
         )
     assert invalid_auth.status_code == 401
@@ -319,6 +327,8 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
         "artifacts": {
             "key": key,
             "run-id": "observable-run",
+            "unknown-key": unknown_key,
+            "unknown-run-id": unknown_run_id,
             "payload": payload,
             "reference": artifact_ref.model_dump(mode="json"),
             "records": records,
@@ -335,9 +345,17 @@ async def _capture_observable_surfaces(sqlite_db, tmp_path: Path) -> dict[str, o
 def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, object]]:
     key = artifacts["key"]
     run_id = artifacts["run-id"]
+    unknown_key = artifacts["unknown-key"]
+    unknown_run_id = artifacts["unknown-run-id"]
     payload = artifacts["payload"]
     reference = artifacts["reference"]
     not_found = [{"type": "ArtifactNotFoundError", "message": f"Artifact not found: {key}"}]
+    unknown_not_found = [
+        {
+            "type": "ArtifactNotFoundError",
+            "message": f"Artifact not found: {unknown_key}",
+        }
+    ]
     list_unsupported = [
         {"type": "AttributeError", "message": "artifact store does not support list"}
     ]
@@ -400,18 +418,18 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
         {
             "operation": "unknown-retrieval",
             "order": 5,
-            "arguments": {"key": key},
+            "arguments": {"key": unknown_key},
             "trace": ["unknown-retrieval", "not-found"],
             "bytes": None,
             "metadata": {},
-            "errors": not_found,
+            "errors": unknown_not_found,
             "status": "not-found",
             "headers": {},
         },
         {
             "operation": "unknown-list",
             "order": 6,
-            "arguments": {"run-id": run_id},
+            "arguments": {"run-id": unknown_run_id},
             "trace": ["unknown-list", "unsupported"],
             "bytes": None,
             "metadata": {},
@@ -420,8 +438,26 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
             "headers": {},
         },
         {
-            "operation": "owner-api-store-retrieval",
+            "operation": "invalid-auth-api-retrieval",
             "order": 7,
+            "arguments": {
+                "key": key,
+                "principal": "invalid-api-key",
+                "correlation-id": "artifact-invalid-auth-correlation",
+            },
+            "trace": ["invalid-auth-api-retrieval", "response", "401"],
+            "bytes": b'{"detail":"authentication required"}',
+            "metadata": {"correlation-id": None},
+            "errors": [{"detail": "authentication required"}],
+            "status": 401,
+            "headers": {
+                "content-length": "36",
+                "content-type": "application/json",
+            },
+        },
+        {
+            "operation": "owner-api-store-retrieval",
+            "order": 8,
             "arguments": {"key": key},
             "trace": ["owner-api-store-retrieval", "retrieved"],
             "bytes": payload,
@@ -432,7 +468,7 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
         },
         {
             "operation": "owner-api-retrieval",
-            "order": 8,
+            "order": 9,
             "arguments": {
                 "key": key,
                 "principal": "tenant-a",
@@ -451,7 +487,7 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
         },
         {
             "operation": "foreign-api-retrieval",
-            "order": 9,
+            "order": 10,
             "arguments": {
                 "key": key,
                 "principal": "tenant-b",
@@ -470,10 +506,10 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
         },
         {
             "operation": "unknown-api-retrieval",
-            "order": 10,
+            "order": 11,
             "arguments": {
-                "key": key,
-                "principal": "tenant-unknown",
+                "key": unknown_key,
+                "principal": "tenant-b",
                 "correlation-id": "artifact-unknown-correlation",
             },
             "trace": ["unknown-api-retrieval", "response", "404"],
@@ -491,8 +527,19 @@ def _expected_artifact_records(artifacts: dict[str, object]) -> list[dict[str, o
 
 
 def _assert_artifact_evidence(artifacts: dict[str, object]) -> None:
-    assert set(artifacts) == {"key", "run-id", "payload", "reference", "records"}
+    assert set(artifacts) == {
+        "key",
+        "run-id",
+        "unknown-key",
+        "unknown-run-id",
+        "payload",
+        "reference",
+        "records",
+    }
     assert artifacts["payload"] != b"None\n"
+    assert artifacts["unknown-key"] != artifacts["key"]
+    assert artifacts["unknown-run-id"] != artifacts["run-id"]
+    assert len(artifacts["records"]) == 12
     assert artifacts["records"] == _expected_artifact_records(artifacts)
 
 
@@ -507,6 +554,16 @@ def _normalized_isolation_record(record: dict[str, object]) -> dict[str, object]
     trace[0] = normalized["operation"]
     arguments = normalized["arguments"]
     assert isinstance(arguments, dict)
+    requested_key = arguments.get("key")
+    if isinstance(requested_key, str):
+        arguments["key"] = "<requested-key>"
+        errors = normalized["errors"]
+        assert isinstance(errors, list)
+        for error in errors:
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                error["message"] = error["message"].replace(requested_key, "<requested-key>")
+    if "run-id" in arguments:
+        arguments["run-id"] = "<requested-run>"
     if "principal" in arguments:
         arguments["principal"] = "<other-tenant>"
     if "correlation-id" in arguments:
@@ -558,7 +615,7 @@ async def test_credential_canary_absent_from_artifacts(sqlite_db, tmp_path: Path
     assert isinstance(records, list)
     assert _normalized_isolation_record(records[3]) == _normalized_isolation_record(records[5])
     assert _normalized_isolation_record(records[4]) == _normalized_isolation_record(records[6])
-    assert _normalized_isolation_record(records[9]) == _normalized_isolation_record(records[10])
+    assert _normalized_isolation_record(records[10]) == _normalized_isolation_record(records[11])
     assert CredentialLeakScanner([CANARY]).scan(captured["artifacts"], surface="artifacts") == []
 
 
@@ -574,9 +631,10 @@ async def test_artifact_evidence_literal_assertion_kills_structural_mutations(
         lambda records: records[0].update(trace=[]),
         lambda records: records[1].update(bytes=b""),
         lambda records: records[1].update(status=0),
-        lambda records: records[8]["metadata"].update({"correlation-id": False}),
-        lambda records: records[9].update(errors=[]),
+        lambda records: records[9]["metadata"].update({"correlation-id": False}),
+        lambda records: records[10].update(errors=[]),
         lambda records: records[0].update(metadata={}),
+        lambda records: records.pop(7),
     ):
         mutated = deepcopy(artifacts)
         mutate(mutated["records"])
