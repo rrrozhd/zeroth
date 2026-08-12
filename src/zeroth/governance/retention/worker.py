@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
-from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
+from zeroth.governance.retention.policy_repository import EnabledPolicyMaintenanceReader
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 if TYPE_CHECKING:
     # Annotation-only: importing the service here would put it on this package's
@@ -22,6 +24,10 @@ if TYPE_CHECKING:
     from zeroth.governance.retention.erasure_service import RetentionErasureService
 
 logger = logging.getLogger(__name__)
+
+
+class WorkspaceMaintenanceReader(Protocol):
+    async def list_workspace_ids(self) -> list[str]: ...
 
 
 @dataclass
@@ -34,29 +40,45 @@ class RetentionPurgeWorker:
         poll_interval: Seconds between purge sweeps (default 3600).
     """
 
-    erasure_service: RetentionErasureService
-    policy_repository: RetentionPolicyRepository
+    policy_reader: EnabledPolicyMaintenanceReader
+    workspace_reader_factory: Callable[[str], WorkspaceMaintenanceReader]
+    erasure_service_factory: Callable[
+        [ScopeContext | NullWorkspaceScopeContext], RetentionErasureService
+    ]
     poll_interval: float = 3600.0
 
     async def sweep_once(self) -> None:
-        """Sweep the repository owner's resolved policy once."""
-        tenant_id = self.policy_repository.tenant_id
-        policy = await self.policy_repository.resolve()
-        if policy.tenant_id != tenant_id:
-            raise ValueError("retention policy does not match bound tenant")
-        if not policy.enabled:
-            return
-        for sweep in (self.erasure_service.purge_runs, self.erasure_service.purge_audits):
-            try:
-                await sweep(tenant_id)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception(
-                    "retention %s failed for tenant %s",
-                    sweep.__name__,
-                    tenant_id,
-                )
+        """Enumerate policies, then sweep through tenant-bound collaborators."""
+        policies = await self.policy_reader.list_all_enabled_for_maintenance()
+        for policy in policies:
+            workspace_ids = await self.workspace_reader_factory(
+                policy.tenant_id
+            ).list_workspace_ids()
+            null_scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if policy.tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=policy.tenant_id)
+            )
+            scopes: list[ScopeContext | NullWorkspaceScopeContext] = [null_scope]
+            scopes.extend(
+                ScopeContext.for_default_compatibility(workspace_id=workspace_id)
+                if policy.tenant_id == "default"
+                else ScopeContext(tenant_id=policy.tenant_id, workspace_id=workspace_id)
+                for workspace_id in workspace_ids
+            )
+            for scope in scopes:
+                service = self.erasure_service_factory(scope)
+                for sweep in (service.purge_runs, service.purge_audits):
+                    try:
+                        await sweep(policy.tenant_id)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception(
+                            "retention %s failed for tenant %s",
+                            sweep.__name__,
+                            policy.tenant_id,
+                        )
 
     async def poll_loop(self) -> None:
         """Continuously sweep each tenant's TTL surfaces until cancelled.
