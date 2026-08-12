@@ -80,6 +80,22 @@ async def test_worker_applies_bound_repository_default_policy() -> None:
     assert service.audit_swept == ["tenant-default"]
 
 
+async def test_worker_skips_a_disabled_bound_policy() -> None:
+    service = _FlakyErasureService("none")
+    worker = RetentionPurgeWorker(
+        tenant_id="tenant-disabled",
+        policy_repository=_RecordingPolicyRepo(
+            RetentionPolicy(tenant_id="tenant-disabled", enabled=False)
+        ),  # type: ignore[arg-type]
+        erasure_service=service,  # type: ignore[arg-type]
+    )
+
+    await worker.sweep_once()
+
+    assert service.purged == []
+    assert service.audit_swept == []
+
+
 async def test_worker_survives_bound_tenant_failure() -> None:
     service = _FlakyErasureService(failing_tenant="tenant-boom")
     worker = RetentionPurgeWorker(
