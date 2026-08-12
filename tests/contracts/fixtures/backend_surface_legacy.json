@@ -7260,7 +7260,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionPolicyRepository",
-      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext | TenantWideScopeContext | CrossTenantMaintenanceScopeContext', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
+      "signature": "(database: 'AsyncDatabase', *, default_policy: 'RetentionPolicy | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -7271,7 +7271,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.retention",
       "legacy_name": "RetentionPurgeWorker",
-      "signature": "(database: 'AsyncDatabase', erasure_service_factory: 'Callable[[str], RetentionErasureService]', poll_interval: 'float' = 3600.0) -> None"
+      "signature": "(erasure_service: 'RetentionErasureService', policy_repository: 'RetentionPolicyRepository', poll_interval: 'float' = 3600.0) -> None"
     },
     {
       "evidence": [
