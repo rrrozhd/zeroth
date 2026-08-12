@@ -65,7 +65,7 @@ async def test_blocked_agent_output_persists_rejected_audit(sqlite_db) -> None:
     )
     orchestrator = RuntimeOrchestrator(
         audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )

@@ -59,6 +59,7 @@ from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanu
 from zeroth.platform.artifacts.helpers import extract_artifact_refs
 from zeroth.platform.artifacts.models import artifact_key_owner
 from zeroth.platform.dispatch.operations import erase_operations_for_run
+from zeroth.platform.storage import NullWorkspaceScopeContext
 
 if TYPE_CHECKING:
     from zeroth.governance.audit.repository import AuditRepository
@@ -138,8 +139,14 @@ class RetentionErasureService:
         self._log = log_repository
         self._artifact_store = artifact_store
         self._econ_eraser = econ_eraser
-        self._coordinator = RetentionCoordinator(run_repository.database)
-        self._cleanup_state = CleanupStateRepository()
+        tenant_id = run_repository.scope_context.tenant_id
+        self._scope_context = (
+            NullWorkspaceScopeContext.for_default_compatibility()
+            if tenant_id == "default"
+            else NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
+        self._coordinator = RetentionCoordinator(run_repository.database, self._scope_context)
+        self._cleanup_state = CleanupStateRepository(run_repository.database, self._scope_context)
         self._cleanup_lease_seconds = cleanup_lease_seconds
 
     @property
@@ -211,13 +218,14 @@ class RetentionErasureService:
 
         # The legal-hold decision, plaintext harvest, database erasure, and
         # authorization evidence are one tenant-serialized database transaction.
-        async with self._coordinator.transaction(resolved_tenant) as transaction:
+        if resolved_tenant != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        async with self._coordinator.transaction() as transaction:
             await self._after_lock_acquired()
             holds = await self._holds.active_holds_for_tenant_in_transaction(transaction)
             if holds.blocks(run_id):
                 await self._log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=resolved_tenant,
                     run_id=run_id,
                     action="erasure_refused_legal_hold",
                     reason=reason,
@@ -227,14 +235,12 @@ class RetentionErasureService:
                 await self._runs.lock_and_recheck_erasable_run(
                     transaction.connection,
                     run_id,
-                    resolved_tenant,
                     ttl_cutoff,
                 )
                 is None
             ):
                 await self._log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=resolved_tenant,
                     run_id=run_id,
                     action="ttl_recheck_ineligible",
                     reason=reason,
@@ -331,7 +337,6 @@ class RetentionErasureService:
                 )
                 authorization_log_id = await self._log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=resolved_tenant,
                     run_id=run_id,
                     action="erasure_authorized",
                     reason=reason,
@@ -366,7 +371,9 @@ class RetentionErasureService:
         claim_log_id: str | None = None
         generation = 0
         manifest: CleanupManifest
-        async with self._coordinator.transaction(tenant_id) as transaction:
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        async with self._coordinator.transaction() as transaction:
             locked_row = await self._log.get_in_transaction(transaction.connection, log_id)
             if locked_row is None or locked_row["action"] != "erasure_authorized":
                 raise ValueError(f"retention authorization log {log_id!r} was not found")
@@ -453,19 +460,20 @@ class RetentionErasureService:
         removal is :meth:`purge_runs`'s job. Returns one result per affected
         run carrying only ``audits_erased``.
         """
-        policy = await self._policies.resolve(tenant_id)
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        policy = await self._policies.resolve()
         if not policy.enabled or policy.audit_ttl_seconds is None:
             return []
         cutoff = datetime.now(UTC) - timedelta(seconds=policy.audit_ttl_seconds)
 
         results: dict[str, ErasureResult] = {}
-        async with self._coordinator.transaction(tenant_id) as transaction:
+        async with self._coordinator.transaction() as transaction:
             await self._after_lock_acquired()
             holds = await self._holds.active_holds_for_tenant_in_transaction(transaction)
             if holds.tenant_wide:
                 await self._log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=tenant_id,
                     action="purge_skipped_tenant_hold",
                     reason="ttl",
                 )
@@ -494,7 +502,6 @@ class RetentionErasureService:
             for run_id, result in results.items():
                 await self._log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=tenant_id,
                     run_id=run_id,
                     action="audit_ttl_purged",
                     reason="ttl",
@@ -510,21 +517,22 @@ class RetentionErasureService:
         inside its own tenant-coordinated destructive transaction, so runs
         resurrected mid-sweep survive untouched.
         """
-        policy = await self._policies.resolve(tenant_id)
+        if tenant_id != self._scope_context.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+        policy = await self._policies.resolve()
         if not policy.enabled or policy.run_ttl_seconds is None:
             return []
 
-        holds = await self._holds.active_holds_for_tenant(tenant_id)
+        holds = await self._holds.active_holds_for_tenant()
         if holds.tenant_wide:
             await self._log.record(
-                tenant_id=tenant_id,
                 action="purge_skipped_tenant_hold",
                 reason="ttl",
             )
             return []
 
         cutoff = datetime.now(UTC) - timedelta(seconds=policy.run_ttl_seconds)
-        run_ids = await self._runs.list_erasable_run_ids(tenant_id, cutoff)
+        run_ids = await self._runs.list_erasable_run_ids(cutoff)
 
         results: list[ErasureResult] = []
         for run_id in run_ids:

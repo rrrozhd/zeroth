@@ -20,7 +20,7 @@ from zeroth.service.webhooks.repository import WebhookRepository
 
 @pytest.fixture
 async def webhook_repo(sqlite_db):
-    return WebhookRepository(sqlite_db)
+    return WebhookRepository.for_default_compatibility(sqlite_db)
 
 
 @pytest.fixture
@@ -77,9 +77,10 @@ class TestDeliver:
 
         http_client.post.assert_called_once()
         call_kwargs = http_client.post.call_args
-        assert call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {})).get(
-            "Content-Type"
-        ) == "application/json"
+        assert (
+            call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {})).get("Content-Type")
+            == "application/json"
+        )
         assert "X-Zeroth-Signature" in call_kwargs.kwargs.get(
             "headers", call_kwargs[1].get("headers", {})
         )
@@ -187,9 +188,7 @@ class TestRetryBackoffWindow:
     async def test_next_attempt_within_single_backoff_window(
         self, worker, webhook_repo, http_client, sqlite_db, attempt_count
     ):
-        sub, delivery = await _create_sub_and_delivery(
-            webhook_repo, attempt_count=attempt_count
-        )
+        sub, delivery = await _create_sub_and_delivery(webhook_repo, attempt_count=attempt_count)
         response = MagicMock(spec=httpx.Response)
         response.status_code = 500
         http_client.post.return_value = response

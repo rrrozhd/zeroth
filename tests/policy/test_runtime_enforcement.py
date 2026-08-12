@@ -168,7 +168,7 @@ async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_au
     )
     orchestrator = RuntimeOrchestrator(
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": agent_runner},
         executable_unit_runner=eu_runner,  # type: ignore[arg-type]
         policy_guard=RecordingPolicyGuard(),  # type: ignore[arg-type]
@@ -212,13 +212,13 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
 
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=eu_runner,  # type: ignore[arg-type]
         policy_guard=RecordingPolicyGuard(),  # type: ignore[arg-type]

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import zeroth.governance.retention.models as retention_models
 from zeroth.governance.retention.models import RetentionPolicy
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from tests.retention.conftest import seed_token_snapshot
 
 
@@ -33,15 +34,15 @@ async def _pii_in_audits(database, ssn: str) -> bool:
 
 async def test_policy_resolution_falls_back_to_system_default(env) -> None:
     # Seeded by migration 008: tenant 'default' exists with keep-forever TTLs.
-    resolved = await env.policy_repo.resolve("tenant-without-policy")
+    resolved = await env.policy_repo_for("tenant-without-policy").resolve()
     assert resolved.tenant_id == "tenant-without-policy"
     assert resolved.audit_ttl_seconds is None  # inherits keep-forever default
 
-    saved = await env.policy_repo.upsert(
+    saved = await env.upsert_policy(
         RetentionPolicy(tenant_id="tenant-x", audit_ttl_seconds=30, enabled=True)
     )
     assert saved.audit_ttl_seconds == 30
-    assert (await env.policy_repo.resolve("tenant-x")).audit_ttl_seconds == 30
+    assert (await env.policy_repo_for("tenant-x").resolve()).audit_ttl_seconds == 30
 
 
 async def test_per_tenant_ttl_isolation(env) -> None:
@@ -50,12 +51,12 @@ async def test_per_tenant_ttl_isolation(env) -> None:
     await env.seed_run("run-a", tenant_id="tenant-a", created_at=old, ssn="aaa-11-1111")
     await env.seed_run("run-b", tenant_id="tenant-b", created_at=old, ssn="bbb-22-2222")
 
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(
             tenant_id="tenant-a", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
         )
     )
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(
             tenant_id="tenant-b", audit_ttl_seconds=int(timedelta(days=90).total_seconds())
         )
@@ -75,12 +76,12 @@ async def test_legal_hold_blocks_ttl_purge(env) -> None:
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-hold", tenant_id="tenant-h", created_at=old, ssn="hhh-33-3333")
     await env.seed_run("run-free", tenant_id="tenant-h", created_at=old, ssn="fff-44-4444")
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(
             tenant_id="tenant-h", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
         )
     )
-    await env.hold_repo.place("tenant-h", run_id="run-hold", reason="legal")
+    await env.hold_repo_for("tenant-h").place(run_id="run-hold", reason="legal")
 
     results = await env.service_for("tenant-h").purge_tenant("tenant-h")
 
@@ -100,7 +101,7 @@ async def test_ttl_none_keeps_everything(env) -> None:
 async def test_disabled_policy_skips_purge(env) -> None:
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-dis", tenant_id="tenant-dis", created_at=old, ssn="ddd-66-6666")
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(tenant_id="tenant-dis", audit_ttl_seconds=1, enabled=False)
     )
     assert await env.service_for("tenant-dis").purge_tenant("tenant-dis") == []
@@ -147,11 +148,12 @@ async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> 
 
     repo = RetentionPolicyRepository(
         sqlite_db,
+        NullWorkspaceScopeContext(tenant_id="tenant-without-policy"),
         default_policy=RetentionPolicy(
             tenant_id="default", audit_ttl_seconds=3600, run_ttl_seconds=7200
         ),
     )
-    resolved = await repo.resolve("tenant-without-policy")
+    resolved = await repo.resolve()
     assert resolved.tenant_id == "tenant-without-policy"
     assert resolved.audit_ttl_seconds == 3600
     assert resolved.run_ttl_seconds == 7200
@@ -162,10 +164,11 @@ async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
 
     repo = RetentionPolicyRepository(
         sqlite_db,
+        NullWorkspaceScopeContext(tenant_id="tenant-forever"),
         default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),
     )
     await repo.upsert(RetentionPolicy(tenant_id="tenant-forever", audit_ttl_seconds=None))
-    resolved = await repo.resolve("tenant-forever")
+    resolved = await repo.resolve()
     # Explicit NULL = keep forever, even though the configured default is finite.
     assert resolved.audit_ttl_seconds is None
 
@@ -175,10 +178,11 @@ async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
 
     repo = RetentionPolicyRepository(
         sqlite_db,
+        NullWorkspaceScopeContext(tenant_id="tenant-ephemeral"),
         default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),
     )
-    await repo.resolve("tenant-ephemeral")
-    assert await repo.get("tenant-ephemeral") is None
+    await repo.resolve()
+    assert await repo.get() is None
 
 
 # --- audit-TTL tombstoning (retention-correctness task 3) --------------------
@@ -202,7 +206,7 @@ async def test_audit_ttl_tombstones_only_old_audits(env) -> None:
             "UPDATE node_audits SET created_at = ? WHERE audit_id = ?",
             (old.isoformat(), "run-mixed-a0"),
         )
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(
             tenant_id="t-audit", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
         )
@@ -222,7 +226,7 @@ async def test_audit_ttl_tombstones_only_old_audits(env) -> None:
     assert records["run-mixed-a1"].erased is False
     assert "mmm-77-7777" in str(records["run-mixed-a1"].input_snapshot)
     # Full-surface erasure did NOT happen: run row and checkpoints survive.
-    run = await env.run_repo.get("run-mixed")
+    run = await env.run_repo_for("t-audit").get("run-mixed")
     assert "mmm-77-7777" in str(run.final_output)
     assert await _checkpoint_count(env.database, "run-mixed") == checkpoints_before
 
@@ -231,10 +235,10 @@ async def test_audit_ttl_sweep_respects_legal_holds(env) -> None:
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-a-held", tenant_id="t-ah", created_at=old, ssn="hhh-88-8888")
     await env.seed_run("run-a-free", tenant_id="t-ah", created_at=old, ssn="fff-99-9999")
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(tenant_id="t-ah", audit_ttl_seconds=int(timedelta(days=30).total_seconds()))
     )
-    await env.hold_repo.place("t-ah", run_id="run-a-held", reason="litigation")
+    await env.hold_repo_for("t-ah").place(run_id="run-a-held", reason="litigation")
 
     results = await env.service_for("t-ah").purge_audits("t-ah")
 
@@ -273,23 +277,24 @@ async def test_run_ttl_erases_only_old_terminal_runs(env) -> None:
             run_id,
             artifact_key=f"{run_id}/token/blob",
             ssn=f"ssn-{run_id}",
+            tenant_id="t-run",
         )
         await _force_run_state(env.database, run_id, status=status, updated_at=updated_at)
-    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-run", run_ttl_seconds=ttl))
+    await env.upsert_policy(RetentionPolicy(tenant_id="t-run", run_ttl_seconds=ttl))
 
     results = await env.service_for("t-run").purge_runs("t-run")
 
     assert {r.run_id for r in results} == {"run-done", "run-fail"}
     for run_id in ("run-done", "run-fail"):
-        run = await env.run_repo.get(run_id)
+        run = await env.run_repo_for("t-run").get(run_id)
         assert f"ssn-{run_id}" not in str(run.final_output)
         assert await _checkpoint_count(env.database, run_id) == 0
-        assert await env.run_repo.get_token_snapshot(run_id) is None
+        assert await env.run_repo_for("t-run").get_token_snapshot(run_id) is None
         assert await _pii_in_audits(env.database, f"ssn-{run_id}") is False
     for run_id in ("run-pend", "run-live", "run-appr", "run-intr", "run-new"):
-        run = await env.run_repo.get(run_id)
+        run = await env.run_repo_for("t-run").get(run_id)
         assert f"ssn-{run_id}" in str(run.final_output), run_id
-        assert await env.run_repo.get_token_snapshot(run_id) is not None
+        assert await env.run_repo_for("t-run").get_token_snapshot(run_id) is not None
         assert await _pii_in_audits(env.database, f"ssn-{run_id}") is True
 
 
@@ -301,7 +306,7 @@ async def test_run_ttl_recheck_blocks_resurrected_run(env) -> None:
     await env.seed_run("run-barrier", tenant_id="t-bar", ssn="bar-11-1111")
     await _force_run_state(env.database, "run-barrier", status="FAILED", updated_at=old)
 
-    selected = await env.run_repo.list_erasable_run_ids("t-bar", cutoff)
+    selected = await env.run_repo_for("t-bar").list_erasable_run_ids(cutoff)
     assert selected == ["run-barrier"]
 
     # The race: a retry resurrects the run between selection and erasure.
@@ -313,7 +318,7 @@ async def test_run_ttl_recheck_blocks_resurrected_run(env) -> None:
     assert result.audits_erased == 0
     assert result.checkpoints_deleted == 0
     assert result.run_redacted is False
-    run = await env.run_repo.get("run-barrier")
+    run = await env.run_repo_for("t-bar").get("run-barrier")
     assert "bar-11-1111" in str(run.final_output)
     assert await _pii_in_audits(env.database, "bar-11-1111") is True
 
@@ -326,10 +331,10 @@ async def test_run_ttl_ignores_runs_with_old_audits_but_recent_activity(env) -> 
     await _force_run_state(
         env.database, "run-active", status="COMPLETED", updated_at=datetime.now(UTC)
     )
-    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-recent", run_ttl_seconds=ttl))
+    await env.upsert_policy(RetentionPolicy(tenant_id="t-recent", run_ttl_seconds=ttl))
 
     assert await env.service_for("t-recent").purge_runs("t-recent") == []
-    run = await env.run_repo.get("run-active")
+    run = await env.run_repo_for("t-recent").get("run-active")
     assert "rec-22-2222" in str(run.final_output)
 
 
@@ -341,7 +346,7 @@ async def test_signed_chain_verifies_after_audit_ttl_tombstoning(env) -> None:
 
     old = datetime.now(UTC) - timedelta(days=60)
     await env.seed_run("run-chain", tenant_id="t-chain", created_at=old, n_audits=3)
-    await env.policy_repo.upsert(
+    await env.upsert_policy(
         RetentionPolicy(
             tenant_id="t-chain", audit_ttl_seconds=int(timedelta(days=30).total_seconds())
         )
@@ -365,8 +370,8 @@ async def test_audit_sweep_query_count_does_not_scale_with_records(env, monkeypa
     ttl = int(timedelta(days=30).total_seconds())
     await env.seed_run("run-q3", tenant_id="t-q3", created_at=old, n_audits=3)
     await env.seed_run("run-q8", tenant_id="t-q8", created_at=old, n_audits=8)
-    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-q3", audit_ttl_seconds=ttl))
-    await env.policy_repo.upsert(RetentionPolicy(tenant_id="t-q8", audit_ttl_seconds=ttl))
+    await env.upsert_policy(RetentionPolicy(tenant_id="t-q3", audit_ttl_seconds=ttl))
+    await env.upsert_policy(RetentionPolicy(tenant_id="t-q8", audit_ttl_seconds=ttl))
 
     class _CountingConnection:
         def __init__(self, inner, log: list[str]) -> None:

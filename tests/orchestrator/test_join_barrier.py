@@ -122,7 +122,7 @@ def _agent(node_id: str, *, parallel_config: ParallelConfig | None = None) -> Ag
 
 def _orchestrator(runners: dict[str, AgentRunner], sqlite_db, **kw) -> RuntimeOrchestrator:
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         **kw,
@@ -472,7 +472,7 @@ async def test_join_state_survives_approval_pause_and_resume(sqlite_db) -> None:
     )
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orch = _orchestrator(

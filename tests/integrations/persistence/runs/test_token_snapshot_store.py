@@ -20,6 +20,7 @@ from zeroth.contracts.graph import (
 )
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
@@ -78,12 +79,12 @@ def test_runtime_protocol_import_does_not_load_integrations() -> None:
 
 
 async def test_repository_structurally_satisfies_runtime_protocol(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     assert isinstance(repository, TokenSnapshotStore)
 
 
 async def test_initial_create_and_read_round_trip(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     snapshot = _snapshot(0)
 
@@ -96,7 +97,7 @@ async def test_initial_create_and_read_round_trip(sqlite_db) -> None:
 
 
 async def test_successful_cas_replaces_one_coherent_snapshot(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -111,7 +112,7 @@ async def test_successful_cas_replaces_one_coherent_snapshot(sqlite_db) -> None:
 
 
 async def test_stale_cas_is_typed_and_makes_no_partial_write(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     original = _snapshot(0)
     await repository.compare_and_swap_token_snapshot(
@@ -129,7 +130,7 @@ async def test_stale_cas_is_typed_and_makes_no_partial_write(sqlite_db) -> None:
 
 
 async def test_read_fails_loudly_when_row_metadata_contradicts_snapshot(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -145,7 +146,7 @@ async def test_read_fails_loudly_when_row_metadata_contradicts_snapshot(sqlite_d
 
 
 async def test_read_wraps_malformed_snapshot_payload_as_typed_corruption(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -161,7 +162,7 @@ async def test_read_wraps_malformed_snapshot_payload_as_typed_corruption(sqlite_
 
 
 async def test_cas_fails_loudly_when_row_metadata_contradicts_snapshot(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -191,12 +192,14 @@ async def test_malformed_numeric_row_metadata_is_typed_corruption(sqlite_db, fie
     row[field] = "not-an-integer"
 
     with pytest.raises(TokenSnapshotCorruptionError, match=field):
-        TokenSnapshotRowStore(sqlite_db)._decode_row(row)
+        TokenSnapshotRowStore(
+            sqlite_db, NullWorkspaceScopeContext.for_default_compatibility()
+        )._decode_row(row)
 
 
 @pytest.mark.parametrize("next_revision", [0, 2])
 async def test_cas_rejects_revision_reuse_or_skip(sqlite_db, next_revision: int) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -211,7 +214,7 @@ async def test_cas_rejects_revision_reuse_or_skip(sqlite_db, next_revision: int)
 
 
 async def test_cas_rejects_backward_next_token_ordinal(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0, ordinal=4)
@@ -260,7 +263,7 @@ def _snapshot_with_fence(
 
 
 async def test_cas_rejects_cancellation_generation_rollback(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1",
@@ -277,7 +280,7 @@ async def test_cas_rejects_cancellation_generation_rollback(sqlite_db) -> None:
 
 
 async def test_cas_rejects_cancellation_acknowledgement_regression(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1",
@@ -302,7 +305,7 @@ async def test_cas_rejects_cancellation_acknowledgement_regression(sqlite_db) ->
 
 
 async def test_cas_rejects_request_revision_change_within_generation(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1",
@@ -319,7 +322,7 @@ async def test_cas_rejects_request_revision_change_within_generation(sqlite_db) 
 
 
 async def test_cas_rejects_terminal_snapshot_resurrection(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     terminal = TokenEngineSnapshot(
         run_id="run-1",
@@ -338,7 +341,7 @@ async def test_cas_rejects_terminal_snapshot_resurrection(sqlite_db) -> None:
 
 
 async def test_cas_rejects_live_token_from_stale_cancellation_generation(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
 
     with pytest.raises(TokenSnapshotTransitionError, match="current cancellation fence"):
@@ -389,7 +392,7 @@ def _executing_snapshot() -> TokenEngineSnapshot:
 
 
 async def test_cas_allows_executing_dispatch_with_newer_cancellation_request(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     initial = _executing_snapshot()
     await repository.compare_and_swap_token_snapshot(
@@ -454,7 +457,7 @@ def _contradictory_cancellation_request(
 
 
 async def test_cas_rejects_cancellation_request_newer_than_durable_fence(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     initial = _executing_snapshot()
     await repository.compare_and_swap_token_snapshot(
@@ -472,7 +475,7 @@ async def test_cas_rejects_cancellation_request_newer_than_durable_fence(sqlite_
 async def test_read_wraps_cancellation_request_fence_contradiction_as_corruption(
     sqlite_db,
 ) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     initial = _executing_snapshot()
     await repository.compare_and_swap_token_snapshot(
@@ -490,7 +493,7 @@ async def test_read_wraps_cancellation_request_fence_contradiction_as_corruption
 
 
 async def test_token_snapshot_write_is_rejected_after_durable_erasure_fence(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     async with sqlite_db.transaction(write_lock=True) as connection:
         await repository.fence_and_erase_token_snapshot_for_run_in_transaction(
@@ -506,7 +509,7 @@ async def test_token_snapshot_write_is_rejected_after_durable_erasure_fence(sqli
 
 
 async def test_deleting_and_recreating_run_resets_token_snapshot_erasure_fence(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     async with sqlite_db.transaction(write_lock=True) as connection:
         await repository.fence_and_erase_token_snapshot_for_run_in_transaction(
@@ -528,7 +531,7 @@ async def test_snapshot_survives_repository_reopen(tmp_path) -> None:
     path = tmp_path / "reopen.db"
     run_migrations(f"sqlite:///{path}")
     first_db = AsyncSQLiteDatabase(str(path))
-    first = RunRepository(first_db)
+    first = RunRepository(first_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await first.create(_run())
     await first.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -536,7 +539,7 @@ async def test_snapshot_survives_repository_reopen(tmp_path) -> None:
     await first_db.close()
 
     second_db = AsyncSQLiteDatabase(str(path))
-    second = RunRepository(second_db)
+    second = RunRepository(second_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     try:
         assert await second.get_token_snapshot("run-1") == _snapshot(0)
     finally:
@@ -544,7 +547,7 @@ async def test_snapshot_survives_repository_reopen(tmp_path) -> None:
 
 
 async def test_deleting_run_cascades_snapshot(sqlite_db) -> None:
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -556,8 +559,8 @@ async def test_deleting_run_cascades_snapshot(sqlite_db) -> None:
 
 
 async def _assert_exactly_one_racing_cas_wins(database) -> None:
-    first = RunRepository(database)
-    second = RunRepository(database)
+    first = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-1"))
+    second = RunRepository(database, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await first.create(_run())
     await first.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)
@@ -585,7 +588,7 @@ async def test_two_sqlite_writers_publish_exactly_one_cas_winner(sqlite_db) -> N
 
 @requires_docker
 async def test_compare_and_swap_runs_on_postgres(postgres_database) -> None:
-    repository = RunRepository(postgres_database)
+    repository = RunRepository(postgres_database, NullWorkspaceScopeContext(tenant_id="tenant-1"))
     await repository.create(_run())
     await repository.compare_and_swap_token_snapshot(
         "run-1", expected_revision=None, snapshot=_snapshot(0)

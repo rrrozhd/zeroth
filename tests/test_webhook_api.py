@@ -381,7 +381,7 @@ async def test_repo_list_dead_letters_scoped_by_subscription_ids(sqlite_db) -> N
     from zeroth.service.webhooks.models import WebhookDelivery
     from zeroth.service.webhooks.repository import WebhookRepository
 
-    repo = WebhookRepository(sqlite_db)
+    repo = WebhookRepository.for_default_compatibility(sqlite_db)
     for sub_id, dep, tenant in [("own", "d1", "default"), ("foreign", "d2", "globex")]:
         await repo.create_subscription(
             WebhookSubscription(

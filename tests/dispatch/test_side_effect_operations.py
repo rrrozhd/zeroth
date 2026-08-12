@@ -1038,7 +1038,7 @@ class TestExhaustionPausesRatherThanFails:
         from zeroth.runtime.orchestration.driver import GraphDriver
         from zeroth.runtime.runs import Run, RunStatus
 
-        repo = RunRepository(dual_database)
+        repo = RunRepository.for_default_compatibility(dual_database)
         run = await repo.create(Run(graph_version_ref="g:v1", deployment_ref="dep-pause"))
 
         class _Recorder:
@@ -1085,7 +1085,7 @@ class TestExhaustionPausesRatherThanFails:
         from zeroth.runtime.orchestration.driver import GraphDriver
         from zeroth.runtime.runs import Run, RunStatus
 
-        repo = RunRepository(dual_database)
+        repo = RunRepository.for_default_compatibility(dual_database)
 
         class _Recorder:
             failed_executions = 0

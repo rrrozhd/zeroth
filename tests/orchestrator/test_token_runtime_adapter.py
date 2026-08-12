@@ -145,7 +145,7 @@ async def test_flag_on_linear_run_uses_injected_snapshot_store(sqlite_db) -> Non
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunOnlyRepository(RunRepository(sqlite_db)),
+        run_repository=RunOnlyRepository(RunRepository.for_default_compatibility(sqlite_db)),
         agent_runners={"A": _runner(), "B": _runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -173,7 +173,7 @@ async def test_flag_on_requires_durable_snapshot_store(sqlite_db) -> None:
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunOnlyRepository(RunRepository(sqlite_db)),
+        run_repository=RunOnlyRepository(RunRepository.for_default_compatibility(sqlite_db)),
         agent_runners={"A": _runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -200,7 +200,7 @@ async def test_flag_on_graph_fanout_creates_one_durable_child_per_edge(sqlite_db
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("A", "B", "C")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -230,7 +230,7 @@ async def test_flag_on_diamond_closes_structured_join_once(sqlite_db) -> None:
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("A", "L", "R", "J")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -288,7 +288,7 @@ async def test_default_on_nested_diamond_resolves_join_and_other_successor_once(
     assert report.is_valid, report.issues
     store = ReloadingMemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in nodes},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -387,7 +387,7 @@ async def test_default_on_nested_fanout_inner_join_preserves_outer_ownership(sql
     assert report.is_valid, report.issues
     store = ReloadingMemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in node_ids},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -460,7 +460,7 @@ async def test_nested_inner_and_outer_cohorts_reconverge_at_same_join(
     assert report.is_valid, report.issues
     store = ReloadingMemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in node_ids},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -543,7 +543,7 @@ async def test_nested_shared_join_does_not_reapply_representative_edge_mapping(
     assert report.is_valid, report.issues
     store = ReloadingMemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in node_ids},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -606,7 +606,7 @@ async def test_nested_shared_join_all_suppressed_inner_settles_outer_slot(
     assert report.is_valid, report.issues
     store = ReloadingMemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in node_ids},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -678,7 +678,7 @@ async def test_cancellation_settles_delegated_outer_join_obligation(sqlite_db) -
     )
     store = _CancellingStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in nodes},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -714,7 +714,7 @@ async def test_graceful_stop_drains_persisted_overlapping_join_frontier(sqlite_d
             Edge(edge_id="J-T", source_node_id="J", target_node_id="T"),
         ],
     )
-    repository = RunRepository(sqlite_db)
+    repository = RunRepository.for_default_compatibility(sqlite_db)
 
     class _GracefulStopStore(ReloadingMemoryTokenStore):
         stopping = False
@@ -777,7 +777,7 @@ async def test_flag_on_loop_persists_iteration_ownership(sqlite_db) -> None:
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("H", "B", "OUT")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -830,7 +830,7 @@ async def test_flag_on_loop_header_materializes_body_and_distinct_exit_outcomes(
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("H", "B", "X", "Y")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -889,7 +889,7 @@ async def test_flag_on_loop_member_materializes_back_edge_and_exit_before_replay
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("H", "B", "X")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -947,7 +947,7 @@ async def test_flag_on_nested_loop_boundary_settles_inner_before_outer_owner(
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("O", "I", "B", "OB", "X")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -1005,7 +1005,7 @@ async def test_flag_on_loop_member_keeps_internal_child_and_records_exit(sqlite_
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("H", "B", "C", "X")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -1064,7 +1064,7 @@ async def test_flag_on_nested_inner_back_edge_and_outer_exit_waits_for_owner(
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("O", "I", "B", "OB", "X")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -1125,7 +1125,7 @@ async def test_flag_on_multi_boundary_exit_hands_off_reserved_join_once(sqlite_d
     )
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={node_id: _runner() for node_id in ("S", "P", "H", "B", "J", "END")},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     ).use_token_snapshot_store(store)
@@ -1189,7 +1189,7 @@ async def test_flag_on_routes_subgraph_node_through_runtime_executor(sqlite_db) 
     executor.execute = AsyncMock(return_value=child)
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         subgraph_executor=executor,
@@ -1231,7 +1231,7 @@ async def test_flag_on_resumes_paused_subgraph_without_creating_a_second_child(s
     executor.resume = AsyncMock(return_value=resumed_child)
     store = MemoryTokenStore()
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         subgraph_executor=executor,

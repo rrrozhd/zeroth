@@ -191,10 +191,10 @@ async def test_request_and_escalation_notify_once_and_fail_open(sqlite_db) -> No
     recorder = _Recorder()
     service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
     )
     service.notifier = CompositeNotifier([_Boom(), recorder])
-    run = await RunRepository(sqlite_db).create(_run())
+    run = await RunRepository.for_default_compatibility(sqlite_db).create(_run())
 
     record = await service.create_pending(run=run, node=_node(), input_payload={"secret": "x"})
     await service.escalate(record.approval_id)

@@ -245,7 +245,7 @@ async def test_erasure_is_idempotent(env) -> None:
 
 async def test_legal_hold_refuses_right_to_erasure(env) -> None:
     await env.seed_run("run-held", n_audits=2, ssn="hld-22-2222")
-    await env.hold_repo.place("default", run_id="run-held", reason="litigation")
+    await env.hold_repo.place(run_id="run-held", reason="litigation")
 
     with pytest.raises(LegalHoldError):
         await env.service.erase_run("run-held", "rte")
@@ -255,7 +255,7 @@ async def test_legal_hold_refuses_right_to_erasure(env) -> None:
     assert present["node_audits"] is True
 
     # Release, then erasure proceeds.
-    holds = await env.hold_repo.list_for_tenant("default")
+    holds = await env.hold_repo.list_for_tenant()
     await env.hold_repo.release(holds[0].hold_id)
     result = await env.service.erase_run("run-held", "rte")
     assert result.audits_erased == 2
@@ -265,7 +265,7 @@ async def test_legal_hold_refuses_right_to_erasure(env) -> None:
 
 async def test_tenant_wide_hold_blocks_erasure(env) -> None:
     await env.seed_run("run-tw", tenant_id="default", n_audits=1, ssn="333-33-3333")
-    await env.hold_repo.place("default", run_id=None, reason="tenant freeze")
+    await env.hold_repo.place(run_id=None, reason="tenant freeze")
     with pytest.raises(LegalHoldError):
         await env.service.erase_run("run-tw", "rte")
 
@@ -288,7 +288,7 @@ async def test_erasure_writes_retention_audit_log(env) -> None:
 
 async def test_refused_hold_is_logged(env) -> None:
     await env.seed_run("run-refuse", n_audits=1, ssn="555-55-5555")
-    await env.hold_repo.place("default", run_id="run-refuse")
+    await env.hold_repo.place(run_id="run-refuse")
     with pytest.raises(LegalHoldError):
         await env.service.erase_run("run-refuse", "rte")
     actions = [e["action"] for e in await env.log_repo.list_for_run("run-refuse")]
