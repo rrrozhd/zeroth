@@ -51,7 +51,9 @@ class DatabaseSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_backend_requirements(self) -> DatabaseSettings:
-        if self.backend == "postgres" and self.postgres_dsn is None:
+        if self.backend == "postgres" and (
+            self.postgres_dsn is None or not self.postgres_dsn.get_secret_value().strip()
+        ):
             raise ValueError("postgres backend requires postgres_dsn")
         return self
 

@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from zeroth.econ.instrumentation.client import resolve_join_key
 from zeroth.econ.instrumentation.integrations._capture import finalize_capture_metadata, should_capture_layer, should_emit_by_rate, start_time_ms
@@ -13,6 +14,10 @@ from zeroth.econ.instrumentation.schemas import ExecutionEvent
 
 def _enabled() -> bool:
     return os.getenv("ECP_INSTRUMENT_LANGCHAIN", "false").lower() == "true" and should_capture_layer("langchain")
+
+
+def _new_run_id() -> str:
+    return f"lc_{uuid4().hex}"
 
 
 def _execution_event(
@@ -206,7 +211,7 @@ class InstrumentedRunnable:
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         if not _enabled() or not get_runtime().config.enabled:
             return self._runnable.invoke(*args, **kwargs)
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -222,7 +227,7 @@ class InstrumentedRunnable:
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         if not _enabled() or not get_runtime().config.enabled:
             return await self._runnable.ainvoke(*args, **kwargs)
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -238,7 +243,7 @@ class InstrumentedRunnable:
     def batch(self, *args: Any, **kwargs: Any) -> Any:
         if not _enabled() or not get_runtime().config.enabled or not hasattr(self._runnable, "batch"):
             return self._runnable.batch(*args, **kwargs)
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -254,7 +259,7 @@ class InstrumentedRunnable:
     async def abatch(self, *args: Any, **kwargs: Any) -> Any:
         if not _enabled() or not get_runtime().config.enabled or not hasattr(self._runnable, "abatch"):
             return await self._runnable.abatch(*args, **kwargs)
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -271,7 +276,7 @@ class InstrumentedRunnable:
         if not _enabled() or not get_runtime().config.enabled or not hasattr(self._runnable, "stream"):
             yield from self._runnable.stream(*args, **kwargs)
             return
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
@@ -290,7 +295,7 @@ class InstrumentedRunnable:
             async for chunk in self._runnable.astream(*args, **kwargs):
                 yield chunk
             return
-        run_id = f"lc_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        run_id = _new_run_id()
         started = perf_counter()
         started_ms = start_time_ms()
         error: BaseException | None = None
