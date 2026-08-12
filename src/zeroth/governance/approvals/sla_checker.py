@@ -11,6 +11,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from zeroth.governance.approvals.repository import OverdueApprovalMaintenanceReader
 from zeroth.governance.approvals.service import ApprovalService
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class ApprovalSLAChecker:
     """
 
     approval_service: ApprovalService
+    maintenance_reader: OverdueApprovalMaintenanceReader
     webhook_service: object | None = None  # Optional WebhookService to avoid circular import
     poll_interval: float = 10.0
 
@@ -34,7 +36,7 @@ class ApprovalSLAChecker:
         """Continuously check for and escalate overdue approvals until cancelled."""
         while True:
             try:
-                overdue = await self.approval_service.repository.list_overdue()
+                overdue = await self.maintenance_reader.list_overdue()
                 for record in overdue:
                     try:
                         escalated = await self.approval_service.escalate(record.approval_id)

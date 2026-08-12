@@ -13,7 +13,10 @@ from zeroth.governance.approvals.models import (
     ApprovalRecord,
     ApprovalStatus,
 )
-from zeroth.governance.approvals.repository import ApprovalRepository
+from zeroth.governance.approvals.repository import (
+    ApprovalRepository,
+    OverdueApprovalMaintenanceReader,
+)
 from zeroth.governance.approvals.service import ApprovalService
 from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.integrations.persistence.runs import RunRepository
@@ -56,40 +59,44 @@ def _make_record(
 
 
 # ---------------------------------------------------------------------------
-# ApprovalRepository.list_overdue
+# OverdueApprovalMaintenanceReader.list_overdue
 # ---------------------------------------------------------------------------
 
 
-class TestApprovalRepositoryListOverdue:
-    """Tests for the list_overdue query on ApprovalRepository."""
+class TestOverdueApprovalMaintenanceReader:
+    """Tests for the explicit cross-tenant overdue-approval reader."""
 
     @pytest.fixture
-    async def repo(self, async_database):
-        return ApprovalRepository(async_database)
+    async def stores(self, async_database):
+        return ApprovalRepository(async_database), OverdueApprovalMaintenanceReader(
+            async_database
+        )
 
-    async def test_returns_pending_past_deadline(self, repo):
+    async def test_returns_pending_past_deadline(self, stores):
         """list_overdue returns PENDING approvals whose sla_deadline is in the past."""
         past = datetime.now(UTC) - timedelta(minutes=5)
         record = _make_record(sla_deadline=past)
-        await repo.write(record)
+        repository, reader = stores
+        await repository.write(record)
 
-        overdue = await repo.list_overdue()
+        overdue = await reader.list_overdue()
         assert len(overdue) == 1
         assert overdue[0].approval_id == record.approval_id
 
-    async def test_excludes_resolved(self, repo):
+    async def test_excludes_resolved(self, stores):
         """list_overdue does NOT return RESOLVED approvals."""
         past = datetime.now(UTC) - timedelta(minutes=5)
         record = _make_record(
             status=ApprovalStatus.RESOLVED,
             sla_deadline=past,
         )
-        await repo.write(record)
+        repository, reader = stores
+        await repository.write(record)
 
-        overdue = await repo.list_overdue()
+        overdue = await reader.list_overdue()
         assert len(overdue) == 0
 
-    async def test_excludes_escalated(self, repo):
+    async def test_excludes_escalated(self, stores):
         """list_overdue does NOT return ESCALATED approvals."""
         past = datetime.now(UTC) - timedelta(minutes=5)
         record = _make_record(
@@ -97,26 +104,29 @@ class TestApprovalRepositoryListOverdue:
             status=ApprovalStatus.ESCALATED,
             sla_deadline=past,
         )
-        await repo.write(record)
+        repository, reader = stores
+        await repository.write(record)
 
-        overdue = await repo.list_overdue()
+        overdue = await reader.list_overdue()
         assert len(overdue) == 0
 
-    async def test_excludes_no_sla_deadline(self, repo):
+    async def test_excludes_no_sla_deadline(self, stores):
         """list_overdue does NOT return approvals with sla_deadline=None."""
         record = _make_record(sla_deadline=None)
-        await repo.write(record)
+        repository, reader = stores
+        await repository.write(record)
 
-        overdue = await repo.list_overdue()
+        overdue = await reader.list_overdue()
         assert len(overdue) == 0
 
-    async def test_excludes_future_deadline(self, repo):
+    async def test_excludes_future_deadline(self, stores):
         """list_overdue does NOT return approvals whose deadline is in the future."""
         future = datetime.now(UTC) + timedelta(hours=1)
         record = _make_record(sla_deadline=future)
-        await repo.write(record)
+        repository, reader = stores
+        await repository.write(record)
 
-        overdue = await repo.list_overdue()
+        overdue = await reader.list_overdue()
         assert len(overdue) == 0
 
 
@@ -321,13 +331,14 @@ class TestApprovalSLAChecker:
         )
 
         service = AsyncMock(spec=ApprovalService)
-        service.repository = AsyncMock()
-        service.repository.list_overdue = AsyncMock(return_value=[overdue])
+        maintenance_reader = AsyncMock(spec=OverdueApprovalMaintenanceReader)
+        maintenance_reader.list_overdue = AsyncMock(return_value=[overdue])
         escalated_record = _make_record(status=ApprovalStatus.ESCALATED)
         service.escalate = AsyncMock(return_value=escalated_record)
 
         checker = ApprovalSLAChecker(
             approval_service=service,
+            maintenance_reader=maintenance_reader,
             poll_interval=0.01,
         )
 
@@ -338,7 +349,7 @@ class TestApprovalSLAChecker:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        service.repository.list_overdue.assert_called()
+        maintenance_reader.list_overdue.assert_called()
         service.escalate.assert_called_with(overdue.approval_id)
 
     async def test_emits_webhook_event(self):
@@ -351,8 +362,8 @@ class TestApprovalSLAChecker:
         )
 
         service = AsyncMock(spec=ApprovalService)
-        service.repository = AsyncMock()
-        service.repository.list_overdue = AsyncMock(return_value=[overdue])
+        maintenance_reader = AsyncMock(spec=OverdueApprovalMaintenanceReader)
+        maintenance_reader.list_overdue = AsyncMock(return_value=[overdue])
         escalated_record = _make_record(
             status=ApprovalStatus.ESCALATED,
             escalation_action="alert",
@@ -365,6 +376,7 @@ class TestApprovalSLAChecker:
 
         checker = ApprovalSLAChecker(
             approval_service=service,
+            maintenance_reader=maintenance_reader,
             webhook_service=webhook_service,
             poll_interval=0.01,
         )
