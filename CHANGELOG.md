@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-08-12
+
+### Fixed
+
+- A sandboxed execution always carries a finite deadline. `timeout_seconds` defaults to `None`
+  and flowed straight into `asyncio.wait_for`, where `None` means wait forever, so a request
+  body that simply omitted the field bought an unbounded container; the in-repo path reached the
+  same value because the manifest timeout, the policy override and `_effective_timeout` all
+  defaulted to `None`. Both the sidecar and the LOCAL/DOCKER backends now resolve an absent
+  timeout to a real bound, and a non-positive one is refused (ZER-48 / A07-2).
+- Every `docker` helper invocation — network create, network rm, `docker info` — is deadlined and
+  reaps the child it gives up on. The only bounded wait was around the container's own execution,
+  and the first helper call runs before it (ZER-48 / A07-6).
+- Captured sandbox output ages out of the executor's retention window while the execution's
+  identity and terminal status are kept. `_executions` doubles as the permanent
+  duplicate-execution guard, so evicting entries to bound memory would have reopened replay
+  (ZER-48 / A07-7).
+- A unit's `zeroth-output.json` is read under a size cap. The workspace is bind-mounted
+  read-write with no disk quota among the container's resource flags, so its size was chosen by
+  the code being sandboxed (ZER-48 / A07-10).
+- A CLI tool without an explicit timeout gets a bounded default, and its child process is killed
+  on cancellation as well as on timeout — cancellation raises `CancelledError`, which never
+  entered the `except TimeoutError` branch, so the child outlived the cancelled task
+  (ZER-48 / A06-11).
+- Parallel fan-out is bounded. `max_branches` and `max_concurrency` both defaulted to `None`
+  while the branch list comes from the preceding node's output, so a 50,000-element result
+  spawned 50,000 branches and ran them at once. `None` now resolves to a default ceiling rather
+  than to no ceiling (ZER-48 / A06-15).
+- Histogram observations are bounded to a rolling window. The collector lives for the process,
+  `observe` appended with no cap or reset, and `snapshot` copies rather than drains. The exported
+  `_count` and `_sum` come from running totals so they stay monotonic (ZER-48 / A08-3).
+
+### Added
+
+- An architecture test bans transport-client construction outside the governed factories —
+  `httpx.AsyncClient`, `httpx.Client`, `chromadb.HttpClient`, `aioredis.from_url` and a literal
+  `asyncio.wait_for(..., timeout=None)` — seeded with today's 20 violations as an exact-set
+  allowlist that fails both when a new violation appears and when an entry goes stale, so it can
+  only shrink. It resolves `from … import … as …` aliases, without which it would miss the
+  readiness probe's own unbounded Redis client (ZER-48 / acceptance criterion 1).
+
 ## [0.23.1] - 2026-08-12
 
 ### Fixed

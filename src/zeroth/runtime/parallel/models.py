@@ -10,6 +10,11 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+from zeroth.contracts.graph.models import DEFAULT_MAX_BRANCHES as DEFAULT_MAX_BRANCHES
+from zeroth.contracts.graph.models import (
+    DEFAULT_MAX_CONCURRENCY as DEFAULT_MAX_CONCURRENCY,
+)
+
 # Re-exported as zeroth.runtime.parallel API: the authored fan-out configuration
 # is graph contract vocabulary; the runtime execution objects stay here.
 from zeroth.contracts.graph.models import JoinConfig as JoinConfig

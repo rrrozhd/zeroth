@@ -1,4 +1,7 @@
-"""Tests for zeroth.runtime.parallel.models — ParallelConfig, BranchContext, BranchResult, FanInResult, GlobalStepTracker."""
+"""Tests for zeroth.runtime.parallel.models.
+
+ParallelConfig, BranchContext, BranchResult, FanInResult and GlobalStepTracker.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +10,16 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
+from zeroth.runtime.parallel.errors import ParallelStepLimitError
 from zeroth.runtime.parallel.models import (
+    DEFAULT_MAX_BRANCHES,
+    DEFAULT_MAX_CONCURRENCY,
     BranchContext,
     BranchResult,
     FanInResult,
     GlobalStepTracker,
     ParallelConfig,
 )
-from zeroth.runtime.parallel.errors import ParallelStepLimitError
-
 
 # ---------------------------------------------------------------------------
 # ParallelConfig
@@ -30,7 +34,25 @@ class TestParallelConfig:
         assert cfg.split_path == "items"
         assert cfg.merge_strategy == "collect"
         assert cfg.fail_mode == "fail_fast"
+
+    def test_an_absent_fan_out_bound_names_a_default_not_infinity(self) -> None:
+        """ZER-48 / A06-15: ``None`` must mean "use the default", never "no limit".
+
+        The fields stay optional because this model's constructor signature is
+        pinned by the frozen protected-surface fixture. What changed is what
+        ``None`` *means*: the executor resolves it to a real ceiling, because the
+        branch list comes from the preceding node's output and an absent cap let
+        the fan-out width be chosen by data.
+
+        Asserted on the constants rather than on the field defaults, since the
+        field defaults deliberately remain ``None``.
+        """
+        cfg = ParallelConfig(split_path="items")
         assert cfg.max_branches is None
+        assert cfg.max_concurrency is None
+
+        assert DEFAULT_MAX_BRANCHES > 0
+        assert DEFAULT_MAX_CONCURRENCY > 0
 
     def test_all_fields(self) -> None:
         cfg = ParallelConfig(

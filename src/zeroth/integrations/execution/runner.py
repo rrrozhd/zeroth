@@ -43,6 +43,7 @@ from zeroth.integrations.execution.sandbox import (
     SandboxManager,
     SandboxStrictnessMode,
 )
+from zeroth.integrations.sandbox.models import DEFAULT_EXECUTION_TIMEOUT_SECONDS
 from zeroth.platform.secrets import SecretResolver
 from zeroth.runtime.agents.tooling.python_tool import PythonHandler
 
@@ -749,13 +750,26 @@ class ExecutableUnitRunner:
         self,
         configured_timeout: float | None,
         policy_timeout: float | None,
-    ) -> float | None:
-        """Choose the tighter timeout when both manifest and policy specify one."""
-        if configured_timeout is None:
-            return policy_timeout
-        if policy_timeout is None:
-            return configured_timeout
-        return min(configured_timeout, policy_timeout)
+    ) -> float:
+        """Choose the tighter timeout, falling back to a bound rather than none.
+
+        This is the single choke point feeding all three backends. It used to
+        return ``None`` when neither the manifest nor the policy named a timeout,
+        and both the manifest field and the policy override default to ``None``
+        -- so an ordinary unit with no timeout configured anywhere reached
+        ``asyncio.wait_for(..., timeout=None)`` on the LOCAL and DOCKER backends
+        and waited forever. ``sandbox.py`` even rendered that state as
+        "unbounded" in its log line.
+
+        Resolving here rather than at each backend means there is one place where
+        "nobody configured a timeout" is turned into a real deadline.
+        """
+        candidates = [
+            timeout for timeout in (configured_timeout, policy_timeout) if timeout is not None
+        ]
+        if not candidates:
+            return DEFAULT_EXECUTION_TIMEOUT_SECONDS
+        return min(candidates)
 
     def _resource_constraints_for(
         self,

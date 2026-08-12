@@ -141,6 +141,17 @@ class ContextWindowSettings(BaseModel):
     archive_originals: bool = False
 
 
+#: Default fan-out ceiling and throttle.
+#:
+#: Both were ``None`` -- unlimited -- while the branch list is taken from the
+#: preceding node's output, so a 50,000-element result spawned 50,000 branches
+#: and ran them all at once. These are deliberately generous: they exist to stop
+#: a data-driven fan-out from being unbounded, not to constrain a graph whose
+#: author has thought about its width.
+DEFAULT_MAX_BRANCHES = 1000
+DEFAULT_MAX_CONCURRENCY = 32
+
+
 class ParallelConfig(BaseModel):
     """Configuration for parallel fan-out on a node.
 
@@ -172,17 +183,25 @@ class ParallelConfig(BaseModel):
     on the first error, 'best_effort' runs all branches and collects errors."""
 
     max_branches: int | None = Field(default=None, ge=1)
-    """Optional cap on the number of parallel branches. None means unlimited.
-    This is a *safety ceiling* — a fan-out wider than this is rejected outright.
-    It is NOT a throttle: to process a large list in bounded waves use
-    ``batch_size`` / ``max_concurrency`` (both stay within this ceiling)."""
+    """Cap on the number of parallel branches — a *safety ceiling*, so a fan-out
+    wider than this is rejected outright. It is NOT a throttle: to process a large
+    list in bounded waves use ``batch_size`` / ``max_concurrency`` (both stay
+    within this ceiling).
+
+    ``None`` here does NOT mean unlimited any more. The branch list comes from the
+    preceding node's output, so leaving the width to data is what let a 50,000-element
+    result spawn 50,000 branches. ``None`` now means *use* ``DEFAULT_MAX_BRANCHES``,
+    which the executor applies. The field stays optional because this model's
+    signature is pinned by the frozen protected-surface fixture."""
 
     max_concurrency: int | None = Field(default=None, ge=1)
-    """Cap on how many branches run *simultaneously* (a worker pool). ``None``
-    means every branch runs at once (the historical unbounded ``gather``). Unlike
+    """Cap on how many branches run *simultaneously* (a worker pool). Unlike
     ``batch_size`` this is a sliding-window throttle: as one branch finishes the
     next starts, with no barrier. Composes with ``batch_size`` (bounds concurrency
-    *within* each wave)."""
+    *within* each wave).
+
+    Also formerly ``None`` — every branch at once, the historical unbounded
+    ``gather``."""
 
     batch_size: int | None = Field(default=None, ge=1)
     """Process branches in sequential waves of at most this many. Wave N+1 starts
