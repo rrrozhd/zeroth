@@ -24,7 +24,7 @@ from tests.service.cross_tenant_resource_factory import (
     seed_sqlalchemy_mapping,
     validate_resource_inventory,
 )
-from tests.task9_operation_driver_registry import TASK9_EXECUTABLE_DRIVERS
+from tests.task9_operation_driver_registry import semantic_driver_for
 from zeroth.contracts.graph.repository import GraphRepository
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
 from zeroth.platform.storage import (
@@ -44,6 +44,11 @@ from zeroth.econ.plane import __path__ as econ_plane_paths
 from zeroth.econ.plane.database import Base as EconBase
 from zeroth.econ.plane import scoped_session as scoped_session_module
 from zeroth.platform.storage.scoped_table import _StructuredTable
+from zeroth.platform.storage.service_surfaces import (
+    load_service_persistence_surfaces,
+    surface_operation_pairs,
+)
+from zeroth.platform.storage import validate_persistence_surface
 
 
 def _econ_models() -> tuple[type, ...]:
@@ -74,6 +79,8 @@ with sqlite3.connect(_SERVICE_SCHEMA_PATH) as _connection:
         )
     }
 SERVICE_CASES = generated_cross_tenant_cases(SERVICE_SCOPE_REGISTRY, _SERVICE_PHYSICAL_TABLES)
+SERVICE_SURFACES = load_service_persistence_surfaces()
+SERVICE_REPOSITORY_PAIRS = surface_operation_pairs(SERVICE_SURFACES)
 
 
 def test_physical_resource_registration_generates_crud_parameter_ids_without_case_edit() -> None:
@@ -98,6 +105,46 @@ def test_physical_resource_registration_generates_crud_parameter_ids_without_cas
     ids = {case.parameter_id for case in generated_sqlalchemy_cases([Widget], engine)}
 
     assert ids == {f"meta.widgets:{operation.value}" for operation in ResourceOperation}
+    executed: set[str] = set()
+    for operation in ResourceOperation:
+        case_engine = create_engine("sqlite://")
+        MetaBase.metadata.create_all(case_engine)
+        case = next(
+            item
+            for item in generated_sqlalchemy_cases([Widget], case_engine)
+            if item.operation is operation
+        )
+        exercise_sqlalchemy_case(case_engine, case)
+        executed.add(case.parameter_id)
+    assert executed == ids
+
+
+def test_temporary_mapper_execution_detects_a_broken_read_predicate(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_execution_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.execution_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.READ
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
 
 
 def test_sqlalchemy_seed_generation_recursively_satisfies_foreign_keys() -> None:
@@ -251,6 +298,65 @@ def test_sqlalchemy_create_case_requires_a_retrievable_foreign_row() -> None:
     exercise_sqlalchemy_case(engine, case)
 
 
+@pytest.mark.parametrize("operation", list(ResourceOperation), ids=lambda item: item.value)
+async def test_scoped_child_crud_uses_server_generated_composite_parent_key(
+    tmp_path, operation
+) -> None:
+    from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+
+    database = AsyncSQLiteDatabase(str(tmp_path / f"generated-fk-{operation.value}.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE generated_parents (
+                tenant_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+                PRIMARY KEY (tenant_id, parent_id)
+            );
+            CREATE TABLE generated_children (
+                tenant_id TEXT NOT NULL,
+                child_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, child_id),
+                FOREIGN KEY (tenant_id, parent_id)
+                    REFERENCES generated_parents (tenant_id, parent_id)
+            );
+            """
+        )
+    definitions = (
+        ResourceScopeDefinition(
+            resource_name="meta.generated_parents",
+            table_name="generated_parents",
+            operations=frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+        ),
+        ResourceScopeDefinition(
+            resource_name="meta.generated_children",
+            table_name="generated_children",
+            operations=frozenset(ResourceOperation),
+        ),
+    )
+    registry = ResourceScopeRegistry(definitions)
+    case = next(
+        item
+        for item in generated_cross_tenant_cases(
+            registry, {"generated_parents", "generated_children"}
+        )
+        if item.definition.resource_name == "meta.generated_children"
+        and item.operation is operation
+    )
+
+    await exercise_relational_case(database, registry, case)
+    async with database.transaction() as connection:
+        generated_parent = await connection.fetch_one(
+            "SELECT parent_id FROM generated_parents WHERE tenant_id = ? LIMIT 1",
+            ("matrix-owner",),
+        )
+    assert generated_parent is not None
+    assert generated_parent["parent_id"]
+
+
 def test_definition_without_physical_resource_fails_inventory() -> None:
     registry = ResourceScopeRegistry(
         [
@@ -344,11 +450,44 @@ async def test_vault_scoped_resource_driver_invokes_bound_production_methods() -
 
 @pytest.mark.parametrize("case", SERVICE_CASES, ids=lambda case: case.parameter_id)
 async def test_registry_generated_cross_tenant_case(async_database, case) -> None:
-    driver = TASK9_EXECUTABLE_DRIVERS.get((case.definition.resource_name, case.operation))
+    await _exercise_service_case(async_database, case)
+
+
+async def _exercise_service_case(database, case) -> None:
+    pair = (case.definition.resource_name, case.operation)
+    driver = semantic_driver_for(*pair) if pair in SERVICE_REPOSITORY_PAIRS else None
     if driver is not None:
-        await driver(async_database)
+        await driver(database)
         return
-    await exercise_relational_case(async_database, SERVICE_SCOPE_REGISTRY, case)
+    assert pair not in SERVICE_REPOSITORY_PAIRS, (
+        f"production repository case {case.parameter_id} fell back to raw ScopedTable"
+    )
+    await exercise_relational_case(database, SERVICE_SCOPE_REGISTRY, case)
+
+
+def test_production_repository_surfaces_match_registry_and_public_metadata() -> None:
+    for surface in SERVICE_SURFACES:
+        definition = SERVICE_SCOPE_REGISTRY.definition_for_resource(surface.resource_name)
+        validate_persistence_surface(surface, definition)
+    repository_resources = {surface.resource_name for surface in SERVICE_SURFACES}
+    assert {
+        (case.definition.resource_name, case.operation)
+        for case in SERVICE_CASES
+        if case.definition.resource_name in repository_resources
+    } == SERVICE_REPOSITORY_PAIRS
+
+
+async def test_repository_driver_completeness_rejects_raw_fallback(
+    async_database, monkeypatch
+) -> None:
+    case = next(
+        case
+        for case in SERVICE_CASES
+        if (case.definition.resource_name, case.operation) in SERVICE_REPOSITORY_PAIRS
+    )
+    monkeypatch.setitem(_exercise_service_case.__globals__, "semantic_driver_for", lambda *_: None)
+    with pytest.raises(AssertionError, match="fell back to raw ScopedTable"):
+        await _exercise_service_case(async_database, case)
 
 
 @pytest.mark.parametrize("case", ECON_CASES, ids=lambda case: case.parameter_id)

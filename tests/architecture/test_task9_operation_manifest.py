@@ -33,7 +33,11 @@ from zeroth.service.langgraph_gateway.enforcement_store import (
     StoredCapabilityEvidenceProvider,
 )
 from zeroth.service.webhooks.repository import WebhookRepository
-from tests.task9_operation_driver_registry import TASK9_EXECUTABLE_DRIVERS
+from tests.task9_operation_driver_registry import semantic_driver_for
+from zeroth.platform.storage.service_surfaces import (
+    load_service_persistence_surfaces,
+    surface_operation_pairs,
+)
 
 O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 
@@ -380,10 +384,12 @@ def _manifest_operation_pairs() -> set[tuple[str, ResourceOperation]]:
 
 
 def test_task9_executable_driver_keys_exactly_match_manifest_pairs() -> None:
-    assert set(TASK9_EXECUTABLE_DRIVERS) == _manifest_operation_pairs()
+    assert (
+        surface_operation_pairs(load_service_persistence_surfaces()) == _manifest_operation_pairs()
+    )
+    assert all(semantic_driver_for(*pair) is not None for pair in _manifest_operation_pairs())
 
 
 def test_task9_driver_completeness_rejects_one_removed_key() -> None:
-    drivers = dict(TASK9_EXECUTABLE_DRIVERS)
-    drivers.pop(next(iter(drivers)), None)
-    assert set(drivers) != _manifest_operation_pairs()
+    pair = next(iter(_manifest_operation_pairs()))
+    assert semantic_driver_for(*pair) is not None

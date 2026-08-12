@@ -40,6 +40,7 @@ from zeroth.platform.storage.scoped_table import (
 from zeroth.platform.storage.scoping import (
     CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
+    PersistenceSurface,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
@@ -47,6 +48,9 @@ from zeroth.platform.storage.scoping import (
     ScopeContext,
     TenantWideScopeContext,
     persistence_operation,
+    persistence_surfaces,
+    register_persistence_surface,
+    validate_persistence_surface,
 )
 from zeroth.platform.storage.sqlite import EncryptedField, Migration, SQLiteDatabase
 
@@ -69,6 +73,7 @@ __all__ = [
     "RedisConfig",
     "RedisDeploymentMode",
     "ResourceOperation",
+    "PersistenceSurface",
     "ResourceScope",
     "ResourceScopeDefinition",
     "ResourceScopeRegistry",
@@ -86,6 +91,9 @@ __all__ = [
     "docker_container_running",
     "ensure_and_lock_row",
     "persistence_operation",
+    "persistence_surfaces",
+    "register_persistence_surface",
+    "validate_persistence_surface",
 ]
 
 

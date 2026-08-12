@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, ClassVar, TypeVar, final
 
 _DEFAULT_TENANT_ID = "default"
@@ -52,6 +53,123 @@ def persistence_operation(
         return method
 
     return decorate
+
+
+@dataclass(frozen=True, slots=True)
+class PersistenceSurface:
+    """Production repository class bound to one registered resource."""
+
+    resource_name: str
+    repository_type: type[Any]
+    operation_methods: Mapping[str, frozenset[ResourceOperation]]
+    non_persistence_public_methods: frozenset[str] = frozenset()
+
+
+_PERSISTENCE_SURFACES: dict[tuple[str, type[Any]], PersistenceSurface] = {}
+
+
+def register_persistence_surface(
+    resource_name: str,
+    repository_type: type[Any],
+    *,
+    operation_methods: Mapping[str, frozenset[ResourceOperation]],
+    non_persistence_public_methods: frozenset[str] = frozenset(),
+) -> PersistenceSurface:
+    """Register reviewed production method metadata and fail on drift."""
+    _require_stable_resource_name(resource_name)
+    for method_name, operations in operation_methods.items():
+        method = vars(repository_type).get(method_name)
+        if not callable(method):
+            raise TypeError(f"{repository_type.__name__}.{method_name} is not a public method")
+        if not operations:
+            raise ValueError("persistence method operations must be non-empty")
+        existing = getattr(method, "__persistence_operations__", None)
+        if existing is None:
+            persistence_operation(*operations)(method)
+        elif existing != operations:
+            method.__persistence_operations__ = frozenset(existing | operations)  # type: ignore[attr-defined]
+        resource_operations = dict(getattr(method, "__persistence_resource_operations__", {}))
+        previous = resource_operations.get(resource_name)
+        if previous is not None and previous != operations:
+            raise ValueError(
+                f"{repository_type.__name__}.{method_name} has conflicting resource metadata"
+            )
+        resource_operations[resource_name] = operations
+        method.__persistence_resource_operations__ = MappingProxyType(  # type: ignore[attr-defined]
+            resource_operations
+        )
+    surface = PersistenceSurface(
+        resource_name,
+        repository_type,
+        dict(operation_methods),
+        non_persistence_public_methods,
+    )
+    _PERSISTENCE_SURFACES[(resource_name, repository_type)] = surface
+    return surface
+
+
+def persistence_surfaces() -> tuple[PersistenceSurface, ...]:
+    """Return registered production repository surfaces in stable order."""
+    return tuple(
+        sorted(
+            _PERSISTENCE_SURFACES.values(),
+            key=lambda item: (item.resource_name, item.repository_type.__qualname__),
+        )
+    )
+
+
+def validate_persistence_surface(
+    surface: PersistenceSurface,
+    definition: ResourceScopeDefinition | None = None,
+) -> None:
+    """Reject undecorated public methods and empty or unexpected declarations."""
+    class_surfaces = tuple(
+        item
+        for item in _PERSISTENCE_SURFACES.values()
+        if item.repository_type is surface.repository_type
+    )
+    expected_by_method: dict[str, set[ResourceOperation]] = {}
+    for item in class_surfaces:
+        for name, operations in item.operation_methods.items():
+            expected_by_method.setdefault(name, set()).update(operations)
+    non_persistence_methods = frozenset(
+        name for item in class_surfaces for name in item.non_persistence_public_methods
+    )
+    declared_operations: set[ResourceOperation] = set()
+    for name, method in vars(surface.repository_type).items():
+        if name.startswith("_") or not callable(method):
+            continue
+        operations = getattr(method, "__persistence_operations__", None)
+        if name in non_persistence_methods:
+            if operations is not None:
+                raise AssertionError(f"non-persistence method {name} has operation metadata")
+            continue
+        if not operations:
+            raise AssertionError(f"public persistence method {name} lacks operation metadata")
+        if not all(type(operation) is ResourceOperation for operation in operations):
+            raise AssertionError(f"public persistence method {name} has invalid metadata")
+        if name not in expected_by_method:
+            raise AssertionError(
+                f"public persistence method {name} is missing from registered surfaces"
+            )
+        if set(operations) != expected_by_method[name]:
+            raise AssertionError(f"public persistence method {name} has wrong metadata")
+        expected = surface.operation_methods.get(name)
+        if expected is not None:
+            resource_operations = getattr(method, "__persistence_resource_operations__", {}).get(
+                surface.resource_name
+            )
+            if resource_operations != expected:
+                raise AssertionError(
+                    f"public persistence method {name} has wrong resource metadata"
+                )
+            declared_operations.update(expected)
+    if definition is not None:
+        if definition.resource_name != surface.resource_name:
+            raise AssertionError("surface and definition resource names differ")
+        extras = declared_operations - set(definition.operations)
+        if extras:
+            raise AssertionError(f"surface declares extra operations: {sorted(extras)}")
 
 
 def _require_non_empty_string(value: object, field_name: str) -> None:

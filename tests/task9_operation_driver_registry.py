@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from types import MappingProxyType
 
 import pytest
 
@@ -908,7 +909,9 @@ async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOper
         assert (await owner.get("driver-key"))["value"] == 1
 
 
-_RESOURCE_DRIVERS: dict[str, Callable[[AsyncDatabase, ResourceOperation], Awaitable[None]]] = {
+_SEMANTIC_DRIVER_OVERRIDES: dict[
+    str, Callable[[AsyncDatabase, ResourceOperation], Awaitable[None]]
+] = {
     "service.quota_counters": _drive_quota_counters,
     "service.rate_limit_buckets": _drive_rate_limit_buckets,
     "service.runs": _drive_runs,
@@ -930,30 +933,26 @@ _RESOURCE_DRIVERS: dict[str, Callable[[AsyncDatabase, ResourceOperation], Awaita
     "service.langgraph_run_attestations": _drive_attestations,
 }
 
-_OPERATIONS = {
-    "service.quota_counters": frozenset({O.CREATE, O.READ, O.UPDATE}),
-    "service.rate_limit_buckets": frozenset({O.CREATE, O.READ, O.UPDATE}),
-    "service.runs": frozenset(O),
-    "service.threads": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
-    "service.run_checkpoints": frozenset(O),
-    "service.token_engine_snapshots": frozenset({O.CREATE, O.READ, O.UPDATE, O.DELETE}),
-    "service.side_effect_operations": frozenset(O),
-    "service.webhook_subscriptions": frozenset(O),
-    "service.webhook_deliveries": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
-    "service.webhook_dead_letters": frozenset({O.CREATE, O.READ, O.ENUMERATE}),
-    "service.retention_policies": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
-    "service.legal_holds": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
-    "service.retention_audit_log": frozenset({O.CREATE, O.READ, O.ENUMERATE}),
-    "service.retention_cleanup_state": frozenset({O.CREATE, O.READ, O.UPDATE}),
-    "service.retention_cleanup_operations": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
-    "service.retention_coordination": frozenset({O.CREATE, O.READ}),
-    "service.langgraph_decisions": frozenset({O.CREATE, O.READ, O.ENUMERATE}),
-    "service.langgraph_inventories": frozenset({O.CREATE, O.READ, O.UPDATE}),
-    "service.langgraph_run_attestations": frozenset({O.CREATE, O.READ, O.ENUMERATE}),
-}
 
-TASK9_EXECUTABLE_DRIVERS: dict[tuple[str, ResourceOperation], Driver] = {
-    (resource_name, operation): partial(_RESOURCE_DRIVERS[resource_name], operation=operation)
-    for resource_name, operations in _OPERATIONS.items()
-    for operation in operations
-}
+def semantic_driver_for(resource_name: str, operation: ResourceOperation) -> Driver | None:
+    """Return a validation-only semantic override for one generated case."""
+    driver = _SEMANTIC_DRIVER_OVERRIDES.get(resource_name)
+    return None if driver is None else partial(driver, operation=operation)
+
+
+def _generated_semantic_drivers() -> dict[tuple[str, ResourceOperation], Driver]:
+    from zeroth.platform.storage.service_surfaces import (
+        load_service_persistence_surfaces,
+        surface_operation_pairs,
+    )
+
+    return {
+        pair: driver
+        for pair in surface_operation_pairs(load_service_persistence_surfaces())
+        if (driver := semantic_driver_for(*pair)) is not None
+    }
+
+
+# Compatibility for the direct driver suite. The matrix itself derives cases
+# from SERVICE_SCOPE_REGISTRY and looks up semantic drivers only after generation.
+TASK9_EXECUTABLE_DRIVERS = MappingProxyType(_generated_semantic_drivers())

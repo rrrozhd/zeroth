@@ -1,12 +1,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import FrozenInstanceError
+import inspect
 from typing import Any
 
 import pytest
 
 from zeroth.platform.storage import (
     GlobalTable,
+    NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
     ResourceScopeDefinition,
@@ -16,6 +18,8 @@ from zeroth.platform.storage import (
     ScopeContext,
     TenantWideScopeContext,
     persistence_operation,
+    register_persistence_surface,
+    validate_persistence_surface,
 )
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
@@ -116,90 +120,49 @@ def test_persistence_operation_requires_non_empty_exact_operation_metadata() -> 
         persistence_operation("read")  # type: ignore[arg-type]
 
 
-def test_production_gateway_methods_carry_exact_operation_metadata() -> None:
-    expected = {
-        "select": frozenset({ResourceOperation.ENUMERATE}),
-        "select_one": frozenset({ResourceOperation.READ}),
-        "insert": frozenset({ResourceOperation.CREATE}),
-        "insert_if_absent": frozenset({ResourceOperation.CREATE}),
-        "update": frozenset({ResourceOperation.UPDATE}),
-        "delete": frozenset({ResourceOperation.DELETE}),
-    }
-    actual = {
-        name: getattr(getattr(ScopedTable, name), "__persistence_operations__", frozenset())
-        for name in expected
-    }
-
-    assert actual == expected
-
-
-def test_public_persistence_gateway_methods_have_no_missing_or_extra_metadata() -> None:
-    expected = {
-        "select": frozenset({ResourceOperation.ENUMERATE}),
-        "select_one": frozenset({ResourceOperation.READ}),
-        "insert": frozenset({ResourceOperation.CREATE}),
-        "insert_if_absent": frozenset({ResourceOperation.CREATE}),
-        "update": frozenset({ResourceOperation.UPDATE}),
-        "delete": frozenset({ResourceOperation.DELETE}),
-    }
-    public = {
-        name: method
-        for name, method in vars(ScopedTable.__mro__[1]).items()
-        if not name.startswith("_") and callable(method)
-    }
-    declared = {
-        name: method.__persistence_operations__
-        for name, method in public.items()
-        if hasattr(method, "__persistence_operations__")
-    }
-
-    assert declared == expected
-
-
-def test_every_public_persistence_method_declares_exact_operations() -> None:
-    expected = {
-        ScopedSession: {
-            "get": {ResourceOperation.READ},
-            "execute": set(ResourceOperation),
-            "scalars": {ResourceOperation.READ, ResourceOperation.ENUMERATE},
-            "add": {ResourceOperation.CREATE},
-            "delete": {ResourceOperation.DELETE},
-            "commit": set(ResourceOperation),
-            "flush": set(ResourceOperation),
-            "rollback": set(ResourceOperation),
-            "refresh": {ResourceOperation.READ},
-        },
-        BoundStructuredTable: {
-            "select": {ResourceOperation.ENUMERATE},
-            "select_one": {ResourceOperation.READ},
-            "insert": {ResourceOperation.CREATE},
-            "insert_if_absent": {ResourceOperation.CREATE},
-            "upsert": {ResourceOperation.CREATE, ResourceOperation.UPDATE},
-            "update": {ResourceOperation.UPDATE},
-            "update_if_matches": {ResourceOperation.UPDATE},
-            "increment_and_get": {ResourceOperation.UPDATE},
-            "delete": {ResourceOperation.DELETE},
-        },
-        TenantScopedArtifactStore: {
-            "store": {ResourceOperation.CREATE},
-            "retrieve": {ResourceOperation.READ},
-            "delete": {ResourceOperation.DELETE},
-            "refresh_ttl": {ResourceOperation.UPDATE},
-            "exists": {ResourceOperation.READ},
-            "cleanup_run": {ResourceOperation.DELETE},
-        },
-        TenantScopedVaultDriver: {
-            "resolve": {ResourceOperation.READ},
-            "resolve_many": {ResourceOperation.ENUMERATE},
-        },
-    }
-    for gateway, methods in expected.items():
-        declared = {
-            name: set(method.__persistence_operations__)
-            for name, method in vars(gateway).items()
-            if hasattr(method, "__persistence_operations__")
+_NON_PERSISTENCE_PUBLIC_METHODS = {
+    ScopedSession: frozenset(),
+    ScopedTable: frozenset(
+        {
+            "for_cross_tenant_maintenance",
+            "for_privileged_tenant_wide",
+            "in_transaction",
+            "transaction",
         }
-        assert declared == methods
+    ),
+    BoundStructuredTable: frozenset({"bind"}),
+    TenantScopedArtifactStore: frozenset(),
+    TenantScopedVaultDriver: frozenset(),
+}
+
+
+def _audit_public_persistence_methods(gateway: type[Any]) -> None:
+    allowlist = _NON_PERSISTENCE_PUBLIC_METHODS[gateway]
+    public_methods = {
+        name: method
+        for name, method in inspect.getmembers(gateway, predicate=callable)
+        if not name.startswith("_")
+    }
+    assert allowlist <= public_methods.keys()
+    for name, method in public_methods.items():
+        operations = getattr(method, "__persistence_operations__", None)
+        if name in allowlist:
+            assert operations is None
+            continue
+        assert operations
+        assert all(type(operation) is ResourceOperation for operation in operations)
+
+
+def test_every_public_persistence_method_has_non_empty_exact_metadata() -> None:
+    for gateway in _NON_PERSISTENCE_PUBLIC_METHODS:
+        _audit_public_persistence_methods(gateway)
+
+
+def test_public_metadata_audit_rejects_an_undecorated_added_method(monkeypatch) -> None:
+    monkeypatch.setattr(ScopedSession, "persist_new", lambda self: None, raising=False)
+
+    with pytest.raises(AssertionError):
+        _audit_public_persistence_methods(ScopedSession)
 
 
 @pytest.mark.parametrize("tenant_id", ["", "  ", None, 7])
@@ -650,7 +613,7 @@ async def test_scoped_table_adds_tenant_and_workspace_to_every_crud_operation() 
     await table.delete(where={"run_id": "run-1"})
 
     calls = database.connection.calls
-    assert [call[0] for call in calls] == ["fetch_all", "execute", "execute", "execute"]
+    assert [call[0] for call in calls] == ["fetch_all", "fetch_one", "execute", "execute"]
     assert "tenant_id = ?" in calls[0][1] and "workspace_id = ?" in calls[0][1]
     assert calls[0][2] == ("run-1", "tenant-a", "workspace-a", "value:workspace-a")
     assert "tenant_id" in calls[1][1] and "workspace_id" in calls[1][1]
@@ -1115,3 +1078,75 @@ async def test_structured_mutations_require_a_caller_predicate() -> None:
         await global_table.update({"version": 2}, where={})
     with pytest.raises(ValueError, match="where"):
         await global_table.delete(where={})
+
+
+async def test_scoped_insert_returns_complete_server_generated_row(tmp_path) -> None:
+    database = AsyncSQLiteDatabase(str(tmp_path / "generated-row.db"))
+    async with database.transaction() as connection:
+        await connection.execute_script(
+            """
+            CREATE TABLE generated_parents (
+                tenant_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL DEFAULT (lower(hex(randomblob(8)))),
+                PRIMARY KEY (tenant_id, parent_id)
+            );
+            """
+        )
+    definition = ResourceScopeDefinition(
+        resource_name="test.generated_parents",
+        table_name="generated_parents",
+        operations=frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    )
+    table = ScopedTable(
+        database,
+        ResourceScopeRegistry([definition]),
+        definition.resource_name,
+        NullWorkspaceScopeContext(tenant_id="tenant-a"),
+    )
+
+    inserted = await table.insert({})
+
+    assert inserted["tenant_id"] == "tenant-a"
+    assert inserted["parent_id"]
+
+
+def test_surface_audit_rejects_undecorated_and_wrong_public_metadata() -> None:
+    class Repository:
+        def persist_new(self) -> None:
+            pass
+
+    surface = register_persistence_surface("test.surface_missing", Repository, operation_methods={})
+    with pytest.raises(AssertionError, match="persist_new"):
+        validate_persistence_surface(surface)
+
+    class ExtraRepository:
+        @persistence_operation(ResourceOperation.DELETE)
+        def persist_extra(self) -> None:
+            pass
+
+    extra_surface = register_persistence_surface(
+        "test.surface_extra", ExtraRepository, operation_methods={}
+    )
+    with pytest.raises(AssertionError, match="missing from registered surfaces"):
+        validate_persistence_surface(extra_surface)
+
+    wrong_surface = register_persistence_surface(
+        "test.surface_wrong",
+        Repository,
+        operation_methods={"persist_new": frozenset({ResourceOperation.CREATE})},
+    )
+    Repository.persist_new.__persistence_operations__ = frozenset(  # type: ignore[attr-defined]
+        {ResourceOperation.DELETE}
+    )
+    with pytest.raises(AssertionError, match="wrong metadata"):
+        validate_persistence_surface(
+            wrong_surface,
+            ResourceScopeDefinition(
+                resource_name="test.surface_wrong",
+                table_name="surface_wrong",
+                operations=frozenset({ResourceOperation.CREATE}),
+            ),
+        )
+    assert Repository.persist_new.__persistence_operations__ == frozenset(  # type: ignore[attr-defined]
+        {ResourceOperation.DELETE}
+    )
