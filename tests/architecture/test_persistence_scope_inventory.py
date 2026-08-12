@@ -66,7 +66,7 @@ _AUDIT_REPOSITORY_TYPED_COLLABORATORS = {
     ("zeroth.governance.audit.delivery_state", "AuditRecordWriter"): frozenset({"write"}),
 }
 _AuditRepositoryCallSite = tuple[str, tuple[str, ...] | None, int, int]
-type _PotentialState = tuple[set[str], set[str]]
+type _PotentialState = tuple[set[str], set[str], set[str]]
 _UNKNOWN_LITERAL = object()
 _BUILTIN_EXCEPTION_CLASSES = {
     name: candidate
@@ -1869,10 +1869,11 @@ def _audit_repository_public_call_provenance(
                     return (
                         set().union(*(state[0] for state in present)),
                         set.intersection(*(state[1] for state in present)),
+                        set.intersection(*(state[2] for state in present)),
                     )
 
                 def bind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
-                    return state[0] - names, state[1] | names
+                    return state[0] - names, state[1] | names, state[2] | names
 
                 def literal_value(expression: ast.AST) -> object:
                     if isinstance(expression, ast.Constant):
@@ -1935,6 +1936,16 @@ def _audit_repository_public_call_provenance(
                                 return result if abs(result) <= 2**16 else _UNKNOWN_LITERAL
                         except (ArithmeticError, OverflowError, TypeError, ValueError):
                             return _UNKNOWN_LITERAL
+                    if isinstance(expression, ast.BoolOp):
+                        for value_expression in expression.values:
+                            value = literal_value(value_expression)
+                            if not isinstance(value, bool):
+                                return _UNKNOWN_LITERAL
+                            if isinstance(expression.op, ast.And) and not value:
+                                return False
+                            if isinstance(expression.op, ast.Or) and value:
+                                return True
+                        return value
                     if isinstance(expression, ast.Compare):
                         operands = [
                             literal_value(item)
@@ -2043,16 +2054,42 @@ def _audit_repository_public_call_provenance(
                         or not isinstance(exception.args[1], (ast.List, ast.Tuple))
                     ):
                         return None
-                    member_classes = tuple(
-                        builtin_exception_class(
+                    def member_classes(
+                        member: ast.expr,
+                    ) -> tuple[type[BaseException], ...] | None:
+                        if (
+                            isinstance(member, ast.Call)
+                            and builtin_exception_class(member.func)
+                            in {
+                                _BUILTIN_EXCEPTION_CLASSES["ExceptionGroup"],
+                                _BUILTIN_EXCEPTION_CLASSES["BaseExceptionGroup"],
+                            }
+                        ):
+                            if (
+                                len(member.args) < 2
+                                or not isinstance(member.args[1], (ast.List, ast.Tuple))
+                            ):
+                                return None
+                            nested_classes = [member_classes(item) for item in member.args[1].elts]
+                            if not nested_classes or any(item is None for item in nested_classes):
+                                return None
+                            return tuple(
+                                exception_class
+                                for item in nested_classes
+                                for exception_class in item
+                            )
+                        exception_class = builtin_exception_class(
                             member.func if isinstance(member, ast.Call) else member
                         )
-                        for member in exception.args[1].elts
-                    )
-                    return (
-                        member_classes
-                        if member_classes and all(member_classes)
-                        else None
+                        return None if exception_class is None else (exception_class,)
+
+                    flattened_classes = [member_classes(member) for member in exception.args[1].elts]
+                    if not flattened_classes or any(item is None for item in flattened_classes):
+                        return None
+                    return tuple(
+                        exception_class
+                        for item in flattened_classes
+                        for exception_class in item
                     )
 
                 def handler_catches_exception(
@@ -2109,7 +2146,11 @@ def _audit_repository_public_call_provenance(
                     potential_declaration_names: set[str] = potential_declaration_names,
                     events: _AliasEvents = events,
                 ) -> PotentialFlow:
-                    continuing: _PotentialState | None = (set(state[0]), set(state[1]))
+                    continuing: _PotentialState | None = (
+                        set(state[0]),
+                        set(state[1]),
+                        set(state[2]),
+                    )
                     breaks: list[_PotentialState] = []
                     continues: list[_PotentialState] = []
                     returns: list[_PotentialState] = []
@@ -2119,7 +2160,7 @@ def _audit_repository_public_call_provenance(
                             break
                         before = continuing
                         if isinstance(statement, ast.Return):
-                            if expression_may_raise(statement.value, before[1]):
+                            if expression_may_raise(statement.value, before[2]):
                                 exceptions.append(before)
                             returns.append(before)
                             continuing = None
@@ -2137,7 +2178,7 @@ def _audit_repository_public_call_provenance(
                             continuing = None
                             continue
                         if isinstance(statement, ast.If):
-                            if expression_may_raise(statement.test, before[1]):
+                            if expression_may_raise(statement.test, before[2]):
                                 exceptions.append(before)
                             body_flow = walk_potential_bindings(statement.body, before)
                             else_flow = walk_potential_bindings(statement.orelse, before)
@@ -2233,7 +2274,7 @@ def _audit_repository_public_call_provenance(
                             continue
                         if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
                             header = statement.iter if isinstance(statement, (ast.For, ast.AsyncFor)) else statement.test
-                            if expression_may_raise(header, before[1]):
+                            if expression_may_raise(header, before[2]):
                                 exceptions.append(before)
                             loop_state = before
                             if isinstance(statement, (ast.For, ast.AsyncFor)):
@@ -2266,7 +2307,7 @@ def _audit_repository_public_call_provenance(
                             acquired = before
                             suppressed_acquisition_states: list[_PotentialState] = []
                             for item_index, item in enumerate(statement.items):
-                                if item_index == 0 and expression_may_raise(item.context_expr, acquired[1]):
+                                if item_index == 0 and expression_may_raise(item.context_expr, acquired[2]):
                                     exceptions.append(acquired)
                                 if item_index:
                                     # An earlier manager can suppress a later acquisition failure.
@@ -2284,7 +2325,7 @@ def _audit_repository_public_call_provenance(
                             returns.extend(body_flow.returns)
                             continue
                         if isinstance(statement, ast.Match):
-                            if expression_may_raise(statement.subject, before[1]):
+                            if expression_may_raise(statement.subject, before[2]):
                                 exceptions.append(before)
                             case_flows = [
                                 walk_potential_bindings(
@@ -2294,7 +2335,7 @@ def _audit_repository_public_call_provenance(
                                 for case in statement.cases
                             ]
                             for case in statement.cases:
-                                if expression_may_raise(case.guard, before[1]):
+                                if expression_may_raise(case.guard, before[2]):
                                     exceptions.append(before)
 
                             def is_irrefutable(pattern: ast.pattern) -> bool:
@@ -2320,7 +2361,9 @@ def _audit_repository_public_call_provenance(
                                 exceptions.extend(flow.exceptions)
                             continue
                         assignment_value = (
-                            statement.value
+                            None
+                            if isinstance(statement, ast.TypeAlias)
+                            else statement.value
                             if isinstance(statement, (ast.Assign, ast.AnnAssign))
                             and all(
                                 isinstance(target, ast.Name)
@@ -2332,7 +2375,7 @@ def _audit_repository_public_call_provenance(
                             )
                             else statement
                         )
-                        if expression_may_raise(assignment_value, continuing[1]):
+                        if expression_may_raise(assignment_value, continuing[2]):
                             exceptions.append(before)
                         if not isinstance(statement, ast.TypeAlias):
                             for target in _binding_targets(statement):
@@ -2368,9 +2411,10 @@ def _audit_repository_public_call_provenance(
                             )
                         else:
                             continuing[0].discard(statement.name.id)
+                        continuing[2].add(statement.name.id)
                     return PotentialFlow(continuing, breaks, continues, returns, exceptions)
 
-                walk_potential_bindings(statements, (set(), set(initial_bound_names)))
+                walk_potential_bindings(statements, (set(), set(), set(initial_bound_names)))
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -6381,6 +6425,60 @@ def test_public_call_inventory_clears_potential_after_bound_name_control(tmp_pat
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
+def test_public_call_inventory_keeps_alias_definition_bound_inside_suppressed_with(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        type Local = int\n"
+        "        if Local:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["True and False", "True or may_raise()", "False and may_raise()"],
+    ids=["literal-and", "or-short-circuit", "and-short-circuit"],
+)
+def test_public_call_inventory_clears_potential_after_safe_bool_expression(
+    tmp_path: Path, expression: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        f"        if {expression}:\n"
+        "            Base = None\n"
+        "        else:\n"
+        "            Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
 def test_public_call_inventory_routes_known_exception_group_members_to_except_star(
     tmp_path: Path,
 ) -> None:
@@ -6396,6 +6494,31 @@ def test_public_call_inventory_routes_known_exception_group_members_to_except_st
         "        type Repo = Base\n"
         "    except* ValueError:\n"
         "        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_routes_nested_exception_group_members_to_except_star(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    try:\n"
+        "        raise ExceptionGroup('outer', [ExceptionGroup('inner', [ValueError()])])\n"
+        "    except* TypeError:\n"
+        "        type Repo = Base\n"
+        "    except* ValueError:\n"
+        "        Base = None\n"
         "    type Repo = Base\n"
         "    repository: Repo = candidate\n"
         "    await repository.write(record)\n",
