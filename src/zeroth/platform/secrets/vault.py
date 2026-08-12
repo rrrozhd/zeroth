@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass
 
@@ -103,6 +104,7 @@ class VaultSecretProvider:
         self._cache: dict[tuple[str, str], _CacheEntry] = {}
         # Values stay redacted for this provider's lifetime, including after
         # TTL expiry or rotation, because later transport errors can echo them.
+        self._redactor_lock = threading.RLock()
         self._redaction_history: list[tuple[tuple[str, str], str]] = []
         self._redactor = SecretRedactor()
         # Async path: one pooled client for the provider's lifetime, plus
@@ -261,8 +263,12 @@ class VaultSecretProvider:
         """
         if not entries:
             return
-        token = await self._ensure_token_async()
-        client = await self._get_async_client()
+        try:
+            token = await self._ensure_token_async()
+            client = await self._get_async_client()
+        except Exception as exc:
+            logger.warning("vault warm setup failed: %s", self._redactor.redact(str(exc)))
+            return
         for tenant, logical_name in entries:
             try:
                 value = await self._fetch_async(client, token, tenant, logical_name)
@@ -458,9 +464,10 @@ class VaultSecretProvider:
 
     def _remember_secret(self, reference: tuple[str, str], value: str) -> None:
         """Add a value to lifetime redaction history and rebuild its matcher."""
-        if value not in {secret for _reference, secret in self._redaction_history}:
-            self._redaction_history.append((reference, value))
-        self._redactor = SecretRedactor(self._redaction_history)
+        with self._redactor_lock:
+            if value not in {secret for _reference, secret in self._redaction_history}:
+                self._redaction_history.append((reference, value))
+            self._redactor = SecretRedactor(self._redaction_history)
 
 
 __all__ = ["VaultSecretProvider"]
