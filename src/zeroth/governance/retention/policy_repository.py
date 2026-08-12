@@ -36,14 +36,11 @@ class RetentionPolicyRepository:
     def __init__(
         self,
         database: AsyncDatabase,
+        scope_context: NullWorkspaceScopeContext,
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> None:
-        self._bind(
-            database,
-            NullWorkspaceScopeContext.for_default_compatibility(),
-            default_policy=default_policy,
-        )
+        self._bind(database, scope_context, default_policy=default_policy)
 
     @classmethod
     def scoped(
@@ -54,9 +51,7 @@ class RetentionPolicyRepository:
         default_policy: RetentionPolicy | None = None,
     ) -> RetentionPolicyRepository:
         """Bind policy access to an explicit trusted tenant scope."""
-        repository = cls.__new__(cls)
-        repository._bind(database, scope_context, default_policy=default_policy)
-        return repository
+        return cls(database, scope_context, default_policy=default_policy)
 
     def _bind(
         self,
@@ -88,7 +83,11 @@ class RetentionPolicyRepository:
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> RetentionPolicyRepository:
-        return cls(database, default_policy=default_policy)
+        return cls(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            default_policy=default_policy,
+        )
 
     @property
     def tenant_id(self) -> str:
