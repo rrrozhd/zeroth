@@ -33,12 +33,13 @@ from apps.vendor_dd.graphs import (  # noqa: E402
     CHAT_DEPLOYMENT_REF,
     DIMENSION_DEPLOYMENT_REF,
     MAIN_DEPLOYMENT_REF,
+    TENANT_ID,
     build_chat_graph,
     build_dimension_graph,
     build_main_graph,
 )
 from zeroth.contracts.graph import GraphRepository  # noqa: E402
-from zeroth.contracts.registry import ContractRegistry  # noqa: E402
+from zeroth.contracts.registry import ContractRegistry, contract_scope_context  # noqa: E402
 from zeroth.platform.config import get_settings  # noqa: E402
 from zeroth.platform.storage import create_database  # noqa: E402
 from zeroth.runtime.graph_validation import GraphValidator  # noqa: E402
@@ -57,7 +58,10 @@ async def main() -> int:
 
     database = await create_database(settings)
 
-    contract_registry = ContractRegistry(database)
+    contract_registry = ContractRegistry.scoped(
+        database,
+        contract_scope_context(TENANT_ID, None),
+    )
     for name, model in CONTRACTS.items():
         await contract_registry.register(model, name=name)
     print(f"registered {len(CONTRACTS)} contracts")
@@ -76,10 +80,19 @@ async def main() -> int:
         (CHAT_DEPLOYMENT_REF, build_chat_graph()),
         (MAIN_DEPLOYMENT_REF, build_main_graph()),
     ):
-        saved = await graph_repository.create(graph)
-        published = await graph_repository.publish(saved.graph_id, saved.version)
+        saved = await graph_repository.create(graph, tenant_id=TENANT_ID, workspace_id=None)
+        published = await graph_repository.publish(
+            saved.graph_id,
+            saved.version,
+            tenant_id=TENANT_ID,
+            workspace_id=None,
+        )
         deployment = await deployment_service.deploy(
-            deployment_ref, published.graph_id, published.version
+            deployment_ref,
+            published.graph_id,
+            published.version,
+            tenant_id=TENANT_ID,
+            workspace_id=None,
         )
         print(
             f"deployed {deployment.deployment_ref} @ v{deployment.version} "

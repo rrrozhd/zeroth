@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from zeroth.contracts.governed.app.spec import GovernedStepSpec
 from zeroth.contracts.registry.errors import (
     ContractNotFoundError,
+    ContractRegistryError,
     ContractTypeResolutionError,
     ContractVersionExistsError,
 )
@@ -36,6 +37,7 @@ from zeroth.platform.storage import (
 from zeroth.platform.storage.json import from_json_value, to_json_value
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+_AUTOMATIC_VERSION_ALLOCATION_ATTEMPTS = 32
 
 # Required fields and their expected types for ArtifactReference structural validation.
 _ARTIFACT_REF_REQUIRED: dict[str, type] = {
@@ -205,7 +207,9 @@ class ContractRegistry:
         # Tenant identity is part of cache identity even though a registry is
         # itself fixed to one tenant.  This prevents a future shared-cache
         # optimization from making same-name contracts cross tenant boundaries.
-        self._runtime_types: dict[tuple[str, str, int], type[BaseModel]] = {}
+        self._runtime_types: dict[
+            tuple[str, str, int], tuple[tuple[str, str], type[BaseModel]]
+        ] = {}
 
     @classmethod
     def for_default_compatibility(cls, database: AsyncDatabase) -> ContractRegistry:
@@ -222,6 +226,10 @@ class ContractRegistry:
     def _runtime_key(self, name: str, version: int) -> tuple[str, str, int]:
         return (self._scope_context.tenant_id, name, version)
 
+    @staticmethod
+    def _runtime_fingerprint(record: ContractVersion) -> tuple[str, str]:
+        return (record.model_path, to_json_value(record.json_schema))
+
     async def register(
         self,
         model_type: type[ModelT],
@@ -237,38 +245,31 @@ class ContractRegistry:
         Raises ContractVersionExistsError if that exact name+version already exists.
         """
         contract_name = name or model_type.__name__
-        # Auto-increment starts at 1 because latest_version() returns 0 for new contracts.
-        resolved_version = (
-            version if version is not None else await self.latest_version(contract_name) + 1
-        )
-        record = ContractVersion(
-            name=contract_name,
-            version=resolved_version,
-            model_path=self._model_path(model_type),
-            json_schema=model_type.model_json_schema(),
-            metadata=dict(metadata or {}),
-            created_at=await self._now(),
-        )
-        existing = await self._contracts.select_one(
-            where={"contract_name": record.name, "version": record.version},
-            columns=("contract_name",),
-        )
-        if existing is not None:
-            raise ContractVersionExistsError(
-                f"contract {record.name!r} version {record.version} already exists"
+        for _ in range(_AUTOMATIC_VERSION_ALLOCATION_ATTEMPTS):
+            resolved_version = (
+                version if version is not None else await self.latest_version(contract_name) + 1
             )
-        await self._contracts.insert(
-            {
-                "contract_name": record.name,
-                "version": record.version,
-                "model_path": record.model_path,
-                "schema_json": to_json_value(record.json_schema),
-                "metadata_json": to_json_value(record.metadata),
-                "created_at": record.created_at,
-            }
+            record = ContractVersion(
+                name=contract_name,
+                version=resolved_version,
+                model_path=self._model_path(model_type),
+                json_schema=model_type.model_json_schema(),
+                metadata=dict(metadata or {}),
+                created_at=await self._now(),
+            )
+            if await self._insert_record_if_absent(record):
+                self._runtime_types[self._runtime_key(record.name, record.version)] = (
+                    self._runtime_fingerprint(record),
+                    model_type,
+                )
+                return record
+            if version is not None:
+                raise ContractVersionExistsError(
+                    f"contract {record.name!r} version {record.version} already exists"
+                )
+        raise ContractRegistryError(
+            f"automatic version allocation for contract {contract_name!r} did not converge"
         )
-        self._runtime_types[self._runtime_key(record.name, record.version)] = model_type
-        return record
 
     async def register_schema(
         self,
@@ -287,24 +288,30 @@ class ContractRegistry:
         """
         schema = dict(json_schema)
         check_json_schema(schema)
-        resolved_version = version if version is not None else await self.latest_version(name) + 1
-        record = ContractVersion(
-            name=name,
-            version=resolved_version,
-            model_path="",
-            json_schema=schema,
-            metadata=dict(metadata or {}),
-            created_at=await self._now(),
-        )
-        existing = await self._contracts.select_one(
-            where={"contract_name": record.name, "version": record.version},
-            columns=("contract_name",),
-        )
-        if existing is not None:
-            raise ContractVersionExistsError(
-                f"contract {record.name!r} version {record.version} already exists"
+        for _ in range(_AUTOMATIC_VERSION_ALLOCATION_ATTEMPTS):
+            resolved_version = (
+                version if version is not None else await self.latest_version(name) + 1
             )
-        await self._contracts.insert(
+            record = ContractVersion(
+                name=name,
+                version=resolved_version,
+                model_path="",
+                json_schema=schema,
+                metadata=dict(metadata or {}),
+                created_at=await self._now(),
+            )
+            if await self._insert_record_if_absent(record):
+                return record
+            if version is not None:
+                raise ContractVersionExistsError(
+                    f"contract {record.name!r} version {record.version} already exists"
+                )
+        raise ContractRegistryError(
+            f"automatic version allocation for contract {name!r} did not converge"
+        )
+
+    async def _insert_record_if_absent(self, record: ContractVersion) -> bool:
+        return await self._contracts.insert_if_absent(
             {
                 "contract_name": record.name,
                 "version": record.version,
@@ -312,9 +319,9 @@ class ContractRegistry:
                 "schema_json": to_json_value(record.json_schema),
                 "metadata_json": to_json_value(record.metadata),
                 "created_at": record.created_at,
-            }
+            },
+            conflict_columns=("tenant_id", "contract_name", "version"),
         )
-        return record
 
     async def register_tool(
         self,
@@ -430,15 +437,16 @@ class ContractRegistry:
         record = await self.resolve(reference)
         runtime_key = self._runtime_key(record.name, record.version)
         cached = self._runtime_types.get(runtime_key)
-        if cached is not None:
-            return cached
+        fingerprint = self._runtime_fingerprint(record)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
         if not record.model_path:
             # Schema-only contract (console-authored): synthesize a model that
             # validates payloads against the stored JSON Schema exactly.
             resolved = model_from_json_schema(record.name, record.json_schema)
         else:
             resolved = self._import_model_type(record.model_path)
-        self._runtime_types[runtime_key] = resolved
+        self._runtime_types[runtime_key] = (fingerprint, resolved)
         return resolved
 
     async def list_versions(self, name: str) -> list[ContractVersion]:

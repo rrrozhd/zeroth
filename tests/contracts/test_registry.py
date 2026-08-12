@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from enum import StrEnum
 
 import pytest
@@ -107,6 +108,39 @@ async def test_contract_names_and_versions_are_tenant_local(sqlite_db) -> None:
     assert (
         await tenant_b.resolve_model_type(ContractReference(name="customer", version=1))
         is CustomerV2
+    )
+
+
+async def test_model_cache_refreshes_after_another_registry_reuses_identity(sqlite_db) -> None:
+    scope_a = _scope("tenant-a")
+    registry_a1 = ContractRegistry.scoped(sqlite_db, scope_a)
+    registry_a2 = ContractRegistry.scoped(sqlite_db, scope_a)
+    registry_b = ContractRegistry.scoped(sqlite_db, _scope("tenant-b"))
+    reference = ContractReference(name="customer", version=1)
+
+    await registry_a1.register(CustomerV1, name="customer", version=1)
+    await registry_b.register(CustomerV1, name="customer", version=1)
+    assert await registry_a1.resolve_model_type(reference) is CustomerV1
+    assert await registry_b.resolve_model_type(reference) is CustomerV1
+
+    await registry_a2.delete("customer", 1)
+    await registry_a2.register(CustomerV2, name="customer", version=1)
+
+    assert (await registry_a1.get("customer", 1)).model_path.endswith(":CustomerV2")
+    assert await registry_a1.resolve_model_type(reference) is CustomerV2
+    assert await registry_b.resolve_model_type(reference) is CustomerV1
+
+
+async def test_concurrent_automatic_registration_allocates_sequential_versions(sqlite_db) -> None:
+    registries = [ContractRegistry.scoped(sqlite_db, _scope("tenant-a")) for _ in range(8)]
+
+    records = await asyncio.gather(
+        *(registry.register(CustomerV1, name="customer") for registry in registries)
+    )
+
+    assert sorted(record.version for record in records) == list(range(1, 9))
+    assert [record.version for record in await registries[0].list_versions("customer")] == list(
+        range(1, 9)
     )
 
 
