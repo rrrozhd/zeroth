@@ -47,9 +47,13 @@ from zeroth.governance.retention.models import (
     RetentionPolicy,
     TenantHolds,
 )
-from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
+from zeroth.governance.retention.policy_repository import (
+    EnabledPolicyMaintenanceReader,
+    RetentionPolicyRepository,
+)
 from zeroth.governance.retention.replay import CleanupReplayState, replay_cleanup_state
 from zeroth.governance.retention.worker import RetentionPurgeWorker
+from zeroth.governance.retention.workspace_reader import RetentionWorkspaceMaintenanceReader
 
 __all__ = [
     "CleanupClaims",
@@ -57,6 +61,7 @@ __all__ = [
     "CleanupReplayState",
     "CompatibilityLog",
     "EconEventEraser",
+    "EnabledPolicyMaintenanceReader",
     "ErasureResult",
     "LegalHold",
     "LegalHoldError",
@@ -66,6 +71,7 @@ __all__ = [
     "RetentionPolicy",
     "RetentionPolicyRepository",
     "RetentionPurgeWorker",
+    "RetentionWorkspaceMaintenanceReader",
     "SqlAlchemyEconEventEraser",
     "StaleCleanupClaimError",
     "TenantHolds",
