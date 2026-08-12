@@ -50,6 +50,7 @@ from zeroth.platform.storage import (
 )
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.runtime.runs import (
     Run,
     RunConditionResult,
@@ -745,6 +746,7 @@ class RunRepository:
         """Trusted owner bound to every repository operation."""
         return self._store.scope_context
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def create(self, run: Run) -> Run:
         """Save a new run and return the persisted version."""
         await self._store.create_run(run)
@@ -752,6 +754,7 @@ class RunRepository:
         assert created is not None
         return created
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def put(self, run: Run) -> Run:
         """Save (insert or update) a run, including its checkpoint and thread."""
         await self._store.put_run(run)
@@ -771,6 +774,7 @@ class RunRepository:
         """Remove the write fence installed for a run."""
         self._store.clear_fence(run_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         run_id: str,
@@ -782,14 +786,17 @@ class RunRepository:
         """
         return await self._store.get_run(run_id)
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def delete(self, run_id: str) -> None:
         """Remove a run from the database."""
         await self._store.delete_run(run_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_token_snapshot(self, run_id: str) -> TokenEngineSnapshot | None:
         """Load the exact durable token-engine state for a run."""
         return await self._token_snapshots.get(run_id)
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def compare_and_swap_token_snapshot(
         self,
         run_id: str,
@@ -804,10 +811,12 @@ class RunRepository:
             snapshot=snapshot,
         )
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def write_checkpoint(self, run: Run) -> str:
         """Save a snapshot of the run and return the checkpoint ID."""
         return await self._store.write_checkpoint(run)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_checkpoint(
         self,
         checkpoint_id: str,
@@ -815,26 +824,32 @@ class RunRepository:
         """Load a checkpoint, optionally constrained by its run tenant."""
         return await self._store.checkpoints.get(checkpoint_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_checkpoint(self, thread_id: str) -> Run | None:
         """Load the most recent checkpoint for a thread."""
         return await self._store.get_latest_checkpoint(thread_id)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_checkpoints(self, thread_id: str) -> list[Run]:
         """Return all checkpoints for a thread, in order."""
         return await self._store.list_checkpoints(thread_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_active_run_id(self, thread_id: str) -> str | None:
         """Return the currently active run ID for a thread."""
         return await self._store.get_active_run_id(thread_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_run_id(self, thread_id: str) -> str | None:
         """Return the most recently added run ID for a thread."""
         return await self._store.get_latest_run_id(thread_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def list_run_ids(self, thread_id: str) -> list[str]:
         """Return all run IDs belonging to a thread."""
         return await self._store.list_run_ids(thread_id)
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def set_active_run_id(
         self,
         thread_id: str,
@@ -843,10 +858,12 @@ class RunRepository:
         """Mark a run as the active run for its thread."""
         await self._store.set_active_run_id(thread_id, run_id)
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def clear_active_run_id(self, thread_id: str, run_id: str) -> None:
         """Clear the active run for a thread if it matches the given run_id."""
         await self._store.clear_active_run_id(thread_id, run_id)
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def transition(
         self,
         run_id: str,
@@ -893,6 +910,7 @@ class RunRepository:
         run.touch()
         return await self.put(run)
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_history(self, run_id: str, entry: RunHistoryEntry) -> Run:
         """Append a node execution entry to a run's history."""
         run = await self.get(run_id)
@@ -903,6 +921,7 @@ class RunRepository:
         run.touch()
         return await self.put(run)
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_condition_result(self, run_id: str, result: RunConditionResult) -> Run:
         """Append a condition evaluation result to a run's records."""
         run = await self.get(run_id)
@@ -912,18 +931,22 @@ class RunRepository:
         run.touch()
         return await self.put(run)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def count_pending(self, deployment_ref: str) -> int:
         """Count PENDING runs for a deployment (for backpressure checks)."""
         return await self._store.count_pending(deployment_ref)
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def increment_failure_count(self, run_id: str) -> int:
         """Increment and return the failure_count for a run."""
         return await self._store.increment_failure_count(run_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_checkpoint_id_for_run(self, run_id: str) -> str | None:
         """Return the most recent checkpoint ID for a run."""
         return await self._store.get_latest_checkpoint_id_for_run(run_id)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_runs(
         self,
         deployment_ref: str,
@@ -937,10 +960,12 @@ class RunRepository:
             deployment_ref, status=status, limit=limit, offset=offset
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_dead_letter_runs(self, deployment_ref: str) -> list[Run]:
         """Return dead-lettered runs for a deployment."""
         return await self._store.list_dead_letter_runs(deployment_ref)
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def erase_checkpoints_for_run(self, run_id: str) -> int:
         """WS-E: delete a run's checkpoints — the missing retention cascade.
 
@@ -953,6 +978,7 @@ class RunRepository:
         async with self._store.checkpoints.table.transaction() as checkpoints:
             return await retention_queries.erase_checkpoints_for_run(checkpoints, run_id)
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def erase_checkpoints_for_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -963,6 +989,7 @@ class RunRepository:
             self._store.checkpoints.table.in_transaction(connection), run_id
         )
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def erase_token_snapshot_for_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -973,6 +1000,7 @@ class RunRepository:
             self._store.token_snapshots.in_transaction(connection), run_id
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def fence_token_snapshot_writes_in_transaction(
         self,
         connection: AsyncConnection,
@@ -983,6 +1011,7 @@ class RunRepository:
             self._store.runs.in_transaction(connection), run_id
         )
 
+    @persistence_operation(ResourceOperation.DELETE)
     async def fence_and_erase_token_snapshot_for_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -995,6 +1024,7 @@ class RunRepository:
             run_id,
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def redact_run(self, run_id: str) -> bool:
         """WS-E: null a run's PII-bearing output columns, keeping the row.
 
@@ -1007,6 +1037,7 @@ class RunRepository:
         async with self._store.runs.transaction() as runs:
             return await retention_queries.redact_run(runs, run_id)
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def redact_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -1017,6 +1048,7 @@ class RunRepository:
             self._store.runs.in_transaction(connection), run_id
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def erasure_payloads_in_transaction(
         self,
         connection: AsyncConnection,
@@ -1031,6 +1063,7 @@ class RunRepository:
             decrypt=self._store.checkpoints.decrypt_state_json,
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def tenant_id_for_run_in_transaction(
         self,
         connection: AsyncConnection,
@@ -1041,6 +1074,7 @@ class RunRepository:
             self._store.runs.in_transaction(connection), run_id
         )
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_erasable_run_ids(
         self,
         older_than: datetime,
@@ -1061,6 +1095,7 @@ class RunRepository:
                 terminal_statuses=terminal_statuses,
             )
 
+    @persistence_operation(ResourceOperation.READ)
     async def lock_and_recheck_erasable_run(
         self,
         connection: AsyncConnection,

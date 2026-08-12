@@ -20,6 +20,7 @@ from zeroth.integrations.persistence.runs.run_repository import (
 from zeroth.integrations.persistence.runs.serialization import row_to_thread
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
+from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
 from zeroth.runtime.runs import Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["ThreadRepository"]
@@ -47,6 +48,7 @@ class ThreadRepository:
     def for_default_compatibility(cls, database: AsyncDatabase) -> ThreadRepository:
         return cls(database, NullWorkspaceScopeContext.for_default_compatibility())
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def create(self, thread: Thread) -> Thread:
         """Save a new thread and return the persisted version."""
         await self._store.create_thread(thread)
@@ -55,6 +57,7 @@ class ThreadRepository:
             raise RuntimeError("created thread is unavailable in its owning scope")
         return created
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         thread_id: str,
@@ -62,6 +65,7 @@ class ThreadRepository:
         """Load a thread, optionally hiding scopes other than the caller's."""
         return await self._store.get_thread(thread_id)
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self,
     ) -> list[Thread]:
@@ -70,6 +74,7 @@ class ThreadRepository:
             rows = await threads.select(order_by=("created_at", "thread_id"))
         return [row_to_thread(row) for row in rows]
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def update(self, thread: Thread) -> Thread:
         """Save changes to an existing thread."""
         thread.updated_at = utc_now()
@@ -79,6 +84,9 @@ class ThreadRepository:
             raise RuntimeError("updated thread is unavailable in its owning scope")
         return updated
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def resolve(
         self,
         thread_id: str | None,
@@ -157,6 +165,7 @@ class ThreadRepository:
             raise KeyError("thread could not be resolved")
         return resolved
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def attach_run(
         self,
         thread_id: str,
@@ -180,6 +189,7 @@ class ThreadRepository:
             raise KeyError(thread_id)
         return updated
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_active_run_id(
         self,
         thread_id: str,
@@ -188,6 +198,7 @@ class ThreadRepository:
         thread = await self.get(thread_id)
         return None if thread is None else thread.active_run_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_run_id(
         self,
         thread_id: str,
@@ -196,6 +207,7 @@ class ThreadRepository:
         thread = await self.get(thread_id)
         return None if thread is None else thread.last_run_id
 
+    @persistence_operation(ResourceOperation.READ)
     async def list_run_ids(
         self,
         thread_id: str,
@@ -204,6 +216,7 @@ class ThreadRepository:
         thread = await self.get(thread_id)
         return [] if thread is None else list(thread.run_ids)
 
+    @persistence_operation(ResourceOperation.UPDATE)
     async def set_active_run_id(
         self,
         thread_id: str,
