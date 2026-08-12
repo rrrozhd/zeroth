@@ -4,7 +4,6 @@ import pytest
 
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
-    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ScopeContext,
     ScopedTable,
@@ -101,18 +100,9 @@ async def test_bound_transaction_rejects_different_authority_modes(async_databas
         "service.retention_policies",
         TenantWideScopeContext(tenant_id="tenant-a"),
     )
-    maintenance = ScopedTable.for_cross_tenant_maintenance(
-        async_database,
-        SERVICE_SCOPE_REGISTRY,
-        "service.retention_policies",
-        CrossTenantMaintenanceScopeContext.for_scheduled_maintenance(),
-    )
-
     async with ordinary.transaction() as transaction:
         with pytest.raises(ValueError, match="same structural scope"):
             transaction.bind(privileged)
-        with pytest.raises(ValueError, match="same structural scope"):
-            transaction.bind(maintenance)
 
 
 async def test_bound_transaction_accepts_same_privileged_scope(async_database) -> None:

@@ -192,6 +192,25 @@ def _create_webhooks() -> None:
 
 
 def upgrade() -> None:
+    orphan = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """SELECT s.operation_key, s.run_id
+               FROM side_effect_operations s
+               LEFT JOIN runs r ON r.run_id = s.run_id
+               WHERE r.run_id IS NULL
+               ORDER BY s.operation_key LIMIT 1"""
+            )
+        )
+        .first()
+    )
+    if orphan is not None:
+        raise RuntimeError(
+            "side-effect operation "
+            f"{orphan[0]!r} references run {orphan[1]!r} without an authoritative owner"
+        )
+
     op.execute("ALTER TABLE run_checkpoints RENAME TO run_checkpoints_unchecked")
     op.execute("ALTER TABLE threads RENAME TO threads_unchecked")
     _create_threads(checked=True, constraint_name="threads_task9_checked_pkey")
@@ -245,10 +264,9 @@ def upgrade() -> None:
             {_SIDE_EFFECT_COLUMNS}, tenant_id, workspace_id, workspace_scope
         )
         SELECT {_SIDE_EFFECT_SELECT},
-               COALESCE(r.tenant_id, 'default'), r.workspace_id,
-               COALESCE(r.workspace_scope, 'null')
+               r.tenant_id, r.workspace_id, r.workspace_scope
           FROM side_effect_operations_legacy s
-          LEFT JOIN runs r ON r.run_id = s.run_id
+          JOIN runs r ON r.run_id = s.run_id
     """)
     op.execute("DROP TABLE side_effect_operations_legacy")
     op.execute(

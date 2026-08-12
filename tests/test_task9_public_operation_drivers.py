@@ -47,20 +47,21 @@ async def test_webhook_foreign_delete_is_unknown_and_owner_survives(async_databa
     assert await owner.get_subscription("driver-sub") is not None
 
 
-async def test_privileged_policy_enumeration_reads_both_tenants(async_database) -> None:
+async def test_policy_enumeration_stays_within_bound_tenant(async_database) -> None:
     for tenant_id in ("driver-policy-a", "driver-policy-b"):
         repository = RetentionPolicyRepository(
             async_database, NullWorkspaceScopeContext(tenant_id=tenant_id)
         )
         await repository.upsert(RetentionPolicy(tenant_id=tenant_id, enabled=True))
 
-    maintenance = RetentionPolicyRepository.for_privileged_tenant_maintenance(async_database)
-    policies = await maintenance.list_all_enabled_for_maintenance()
-
-    assert {policy.tenant_id for policy in policies} >= {
-        "driver-policy-a",
-        "driver-policy-b",
-    }
+    owner = RetentionPolicyRepository(
+        async_database, NullWorkspaceScopeContext(tenant_id="driver-policy-a")
+    )
+    foreign = RetentionPolicyRepository(
+        async_database, NullWorkspaceScopeContext(tenant_id="driver-policy-b")
+    )
+    assert [policy.tenant_id for policy in await owner.list_for_tenant()] == ["driver-policy-a"]
+    assert [policy.tenant_id for policy in await foreign.list_for_tenant()] == ["driver-policy-b"]
 
 
 async def test_cleanup_unknown_operation_update_preserves_owner_state(async_database) -> None:

@@ -156,7 +156,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "get": frozenset({O.READ}),
             "resolve": frozenset({O.READ}),
             "upsert": frozenset({O.CREATE, O.READ, O.UPDATE}),
-            "list_all_enabled_for_maintenance": frozenset({O.ENUMERATE}),
+            "list_for_tenant": frozenset({O.ENUMERATE}),
         }
     },
     "service.legal_holds": {

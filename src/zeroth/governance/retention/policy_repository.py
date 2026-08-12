@@ -8,7 +8,6 @@ from zeroth.governance.retention.models import RetentionPolicy
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
-    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ScopedTable,
     TenantWideScopeContext,
@@ -31,9 +30,7 @@ class RetentionPolicyRepository:
     def __init__(
         self,
         database: AsyncDatabase,
-        scope_context: (
-            NullWorkspaceScopeContext | TenantWideScopeContext | CrossTenantMaintenanceScopeContext
-        ),
+        scope_context: NullWorkspaceScopeContext | TenantWideScopeContext,
         *,
         default_policy: RetentionPolicy | None = None,
     ) -> None:
@@ -44,10 +41,6 @@ class RetentionPolicyRepository:
             )
         elif type(scope_context) is TenantWideScopeContext:
             self._policies = ScopedTable.for_privileged_tenant_wide(
-                database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
-            )
-        elif type(scope_context) is CrossTenantMaintenanceScopeContext:
-            self._policies = ScopedTable.for_cross_tenant_maintenance(
                 database, SERVICE_SCOPE_REGISTRY, "service.retention_policies", scope_context
             )
         else:
@@ -73,12 +66,6 @@ class RetentionPolicyRepository:
             NullWorkspaceScopeContext.for_default_compatibility(),
             default_policy=default_policy,
         )
-
-    @classmethod
-    def for_privileged_tenant_maintenance(
-        cls, database: AsyncDatabase
-    ) -> RetentionPolicyRepository:
-        return cls(database, CrossTenantMaintenanceScopeContext.for_scheduled_maintenance())
 
     @property
     def tenant_id(self) -> str:
@@ -137,12 +124,10 @@ class RetentionPolicyRepository:
         assert resolved is not None  # noqa: S101 - just written
         return resolved
 
-    async def list_all_enabled_for_maintenance(self) -> list[RetentionPolicy]:
-        """Return every enabled policy (drives the purge worker's sweep)."""
-        if type(self._scope_context) is not CrossTenantMaintenanceScopeContext:
-            raise PermissionError("tenant-wide maintenance scope required")
+    async def list_for_tenant(self) -> list[RetentionPolicy]:
+        """Return the explicit policy in this repository's bound tenant."""
         async with self._policies.transaction() as policies:
-            rows = await policies.select(where={"enabled": 1}, order_by=("tenant_id",))
+            rows = await policies.select(order_by=("tenant_id",))
         return [self._row_to_policy(row) for row in rows]
 
     def _row_to_policy(self, row: dict[str, object]) -> RetentionPolicy:
