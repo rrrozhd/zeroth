@@ -484,7 +484,7 @@ async def test_a_content_classification_still_masks_registered_secret_values() -
 
     captured = policy.apply(_seeded_record())
 
-    assert captured.input_snapshot["prompt"] == "summarise the ledger using [REDACTED:llm_key]"
+    assert captured.input_snapshot["prompt"] == "summarise the ledger using [REDACTED:LLM_KEY]"
     assert API_KEY not in captured.model_dump_json()
 
 
