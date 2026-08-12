@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -10,7 +9,6 @@ from typing import Any
 
 from sqlalchemy import delete, inspect as sa_inspect, select, update
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from zeroth.econ.plane.scoped_session import ScopedSession
@@ -321,11 +319,9 @@ def seed_sqlalchemy_mapping(
         for element in constraint.elements:
             values[element.parent.name] = parent_values[element.column.name]
     for column in mapper.columns:
-        if column.name == "tenant_id":
-            values[column.name] = tenant_id
+        if definition.scope is ResourceScope.TENANT_SCOPED and column.name == "tenant_id":
             continue
-        if column.name == "workspace_id":
-            values[column.name] = "matrix-workspace"
+        if definition.workspace_scoped and column.name == "workspace_id":
             continue
         if column.name in values or column.default is not None or column.server_default is not None:
             continue
@@ -374,6 +370,8 @@ def exercise_sqlalchemy_case(engine: Engine, case: CrossTenantCase) -> None:
     identity_arg: Any = identity[0] if len(identity) == 1 else identity
     owner_scope = _sqlalchemy_context(definition, "matrix-owner")
     foreign_scope = _sqlalchemy_context(definition, "matrix-foreign")
+    update_column: Any | None = None
+    original_update_value: Any = None
     with Session(engine) as raw:
         foreign = ScopedSession(raw, foreign_scope)
         if case.operation is ResourceOperation.READ:
@@ -381,7 +379,7 @@ def exercise_sqlalchemy_case(engine: Engine, case: CrossTenantCase) -> None:
         elif case.operation is ResourceOperation.ENUMERATE:
             assert foreign.scalars(select(model)).all() == []
         elif case.operation is ResourceOperation.UPDATE:
-            column = next(
+            update_column = next(
                 (
                     item
                     for item in mapper.columns
@@ -389,15 +387,20 @@ def exercise_sqlalchemy_case(engine: Engine, case: CrossTenantCase) -> None:
                 ),
                 None,
             )
-            if column is None:
-                column = next(
+            if update_column is None:
+                update_column = next(
                     item
                     for item in mapper.primary_key
                     if item.name not in {"tenant_id", "workspace_id"}
                 )
+            original_update_value = owner_values[update_column.name]
             foreign.execute(
                 update(model).values(
-                    **{column.key: _different_mapped_value(column, owner_values[column.name])}
+                    **{
+                        update_column.key: _different_mapped_value(
+                            update_column, original_update_value
+                        )
+                    }
                 )
             )
             foreign.commit()
@@ -405,17 +408,55 @@ def exercise_sqlalchemy_case(engine: Engine, case: CrossTenantCase) -> None:
             foreign.execute(delete(model))
             foreign.commit()
         else:
-            with contextlib.suppress(IntegrityError):
-                seed_sqlalchemy_mapping(engine, model, tenant_id="matrix-foreign", token="owner")
+            # Reuse the logical identifier when the physical identity (including
+            # every recursively seeded parent) is actually scope-partitioned.
+            # Legacy mapped tables with a globally unique primary key cannot
+            # represent the same identifier twice, so they use a distinct value
+            # while still proving bound ownership injection and retrieval.
+            foreign_token = "owner" if _scope_partitioned_identity(model) else "foreign"
+            foreign_values = seed_sqlalchemy_mapping(
+                engine, model, tenant_id="matrix-foreign", token=foreign_token
+            )
+            foreign_identity = tuple(foreign_values[column.name] for column in mapper.primary_key)
+            foreign_identity_arg: Any = (
+                foreign_identity[0] if len(foreign_identity) == 1 else foreign_identity
+            )
+            assert foreign.get(model, foreign_identity_arg) is not None
     with Session(engine) as raw:
         owner = ScopedSession(raw, owner_scope)
-        assert owner.get(model, identity_arg) is not None
+        owner_row = owner.get(model, identity_arg)
+        assert owner_row is not None
+        if update_column is not None:
+            assert getattr(owner_row, update_column.key) == original_update_value
 
 
 def _sqlalchemy_context(definition: ResourceScopeDefinition, tenant_id: str) -> ScopeContext:
     # The ORM gateway accepts the full trusted context; non-workspace mappings
     # simply ignore its workspace component.
     return ScopeContext(tenant_id, "matrix-workspace")
+
+
+def _scope_partitioned_identity(model: type[Any], seen: frozenset[type[Any]] = frozenset()) -> bool:
+    if model in seen:
+        return True
+    mapper = sa_inspect(model)
+    primary_key_names = {column.name for column in mapper.primary_key}
+    if "tenant_id" not in primary_key_names:
+        return False
+    definition: ResourceScopeDefinition = model.scope_definition
+    if definition.workspace_scoped and "workspace_id" not in primary_key_names:
+        return False
+    table_to_model = {
+        candidate.local_table.name: candidate.class_ for candidate in mapper.registry.mappers
+    }
+    parents = (
+        table_to_model.get(constraint.referred_table.name)
+        for constraint in mapper.local_table.foreign_key_constraints
+    )
+    return all(
+        parent is not None and _scope_partitioned_identity(parent, seen | {model})
+        for parent in parents
+    )
 
 
 def _is_integer_column(column: Any) -> bool:

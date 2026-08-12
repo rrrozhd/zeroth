@@ -12,6 +12,7 @@ import pkgutil
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import ForeignKey, String, create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.service.cross_tenant_resource_factory import (
@@ -41,6 +42,7 @@ from zeroth.platform.secrets.vault import TenantScopedVaultDriver, VaultSecretPr
 from zeroth.platform.storage.scoped_resource import ScopedResourceDriver
 from zeroth.econ.plane import __path__ as econ_plane_paths
 from zeroth.econ.plane.database import Base as EconBase
+from zeroth.econ.plane import scoped_session as scoped_session_module
 from zeroth.platform.storage.scoped_table import _StructuredTable
 
 
@@ -134,6 +136,87 @@ def test_sqlalchemy_seed_generation_recursively_satisfies_foreign_keys() -> None
         if item.definition.resource_name == "meta.children"
         and item.operation is ResourceOperation.READ
     )
+    exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_create_case_detects_disabled_ownership_injection(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_create_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.create_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.CREATE
+    )
+    monkeypatch.setattr(scoped_session_module, "_fill_or_verify", lambda *args, **kwargs: None)
+
+    with pytest.raises(IntegrityError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_update_case_detects_disabled_tenant_predicate(monkeypatch) -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_update_mutation_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.update_mutation_widgets",
+            table_name=__tablename__,
+            operations=frozenset(ResourceOperation),
+        )
+        tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        value: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.UPDATE
+    )
+    monkeypatch.setattr(scoped_session_module, "_apply_tenant_criteria", lambda *args: None)
+
+    with pytest.raises(AssertionError):
+        exercise_sqlalchemy_case(engine, case)
+
+
+def test_sqlalchemy_create_case_requires_a_retrievable_foreign_row() -> None:
+    class MetaBase(DeclarativeBase):
+        pass
+
+    class Widget(MetaBase):
+        __tablename__ = "meta_create_widgets"
+        scope_definition = ResourceScopeDefinition(
+            resource_name="meta.create_widgets",
+            table_name=__tablename__,
+            operations=frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+        )
+        widget_id: Mapped[str] = mapped_column(String, primary_key=True)
+        tenant_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    engine = create_engine("sqlite://")
+    MetaBase.metadata.create_all(engine)
+    case = next(
+        item
+        for item in generated_sqlalchemy_cases([Widget], engine)
+        if item.operation is ResourceOperation.CREATE
+    )
+
     exercise_sqlalchemy_case(engine, case)
 
 
