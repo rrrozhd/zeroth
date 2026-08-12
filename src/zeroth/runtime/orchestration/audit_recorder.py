@@ -262,6 +262,8 @@ class RuntimeAuditRecorder:
                     execution_metadata=redacted_audit_record,
                     token_usage=token_usage,
                     cost_usd=redacted_audit_record.get("cost_usd"),
+                    estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                    cost_measurement=redacted_audit_record.get("cost_measurement"),
                     cost_event_id=redacted_audit_record.get("cost_event_id"),
                     tool_calls=tool_calls,
                     memory_interactions=memory_interactions,
@@ -277,6 +279,8 @@ class RuntimeAuditRecorder:
                 # Promote per-node cost so _sum_run_cost can aggregate the run's
                 # spend from its own history (basis for the per-run ceiling).
                 cost_usd=redacted_audit_record.get("cost_usd"),
+                estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                cost_measurement=redacted_audit_record.get("cost_measurement"),
             )
         )
         run.completed_steps = [entry.node_id for entry in run.execution_history]
@@ -346,6 +350,8 @@ class RuntimeAuditRecorder:
                 execution_metadata=redacted_audit_record,
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
+                estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                cost_measurement=redacted_audit_record.get("cost_measurement"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
                 error=self.redact(str(error)),
                 tool_calls=tool_calls,
@@ -455,6 +461,8 @@ class RuntimeAuditRecorder:
                 execution_metadata=redacted_audit_record,
                 token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
+                estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                cost_measurement=redacted_audit_record.get("cost_measurement"),
                 cost_event_id=redacted_audit_record.get("cost_event_id"),
                 error=self.redact(str(error)),
                 tool_calls=tool_calls,

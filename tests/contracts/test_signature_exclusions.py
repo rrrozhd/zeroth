@@ -36,6 +36,26 @@ SOURCE = ROOT / "src/zeroth"
 #: Measured, not asserted: each entry is exactly what
 #: ``declared_fields - reported_parameters`` returns today.
 HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
+    "zeroth.econ.analytics.waste:EconReport": (
+        "cost_measurement_complete",
+        "estimated_cost_usd",
+    ),
+    "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
+        "cost_measurement",
+        "usage_measurement",
+    ),
+    "zeroth.econ.plane.enforcement.schemas:BudgetStatusOut": (
+        "cost_measurement",
+        "measurement_complete",
+    ),
+    "zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate": (
+        "cost_measurement",
+        "usage_measurement",
+    ),
+    "zeroth.governance.audit.models:NodeAuditRecord": (
+        "cost_measurement",
+        "estimated_cost_usd",
+    ),
     "zeroth.contracts.langgraph_gateway.models:RunCapabilityEvidence": (
         "adapter_version",
         "inventory_fingerprint",
@@ -65,6 +85,22 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.platform.config.settings:ZerothSettings": (
         "approval_notifications",
         "langgraph_gateway",
+    ),
+    "zeroth.runtime.agents.provider:ProviderResponse": (
+        "cost_measurement",
+        "estimated_cost_usd",
+        "usage_measurement",
+    ),
+    "zeroth.runtime.context.models:CompactionResult": (
+        "cost_measurement",
+        "cost_usd",
+        "estimated_cost_usd",
+        "token_usage",
+        "usage_measurement",
+    ),
+    "zeroth.runtime.runs.models:RunHistoryEntry": (
+        "cost_measurement",
+        "estimated_cost_usd",
     ),
     "zeroth.runtime.orchestration.orchestrator:RuntimeOrchestrator": (
         "_token_snapshot_store",

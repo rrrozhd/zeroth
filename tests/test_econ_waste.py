@@ -573,12 +573,12 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     report = analyze_run(run.run_id, run.status, audits)
 
     # Two visits: a cold miss with real cost, and a hit that costs nothing.
-    costs = sorted(a.cost_usd or 0.0 for a in audits)
-    assert len(costs) == 2
-    assert costs[0] == 0.0  # the cache hit -- no fabricated cost
-    assert costs[1] > 0  # the cold miss -- real spend
-    # Total reflects only the miss; the hit no longer inflates it.
-    assert report.total_cost_usd == pytest.approx(costs[1])
+    assert len(audits) == 2
+    assert sorted(a.cost_usd or 0.0 for a in audits) == [0.0, 0.0]
+    estimates = sorted(a.estimated_cost_usd or 0.0 for a in audits)
+    assert estimates[1] > 0  # the cold miss is priced, but remains labeled estimated
+    assert report.total_cost_usd == 0.0
+    assert report.estimated_cost_usd == pytest.approx(estimates[1])
 
     # Exactly one Regulus event -- the miss. The hit emits none (no double-bill).
     regulus.track_execution.assert_called_once()
