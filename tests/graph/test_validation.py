@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -25,6 +27,14 @@ from zeroth.contracts.mappings.models import (
     EdgeMapping,
     PassthroughMappingOperation,
     RenameMappingOperation,
+    TransformMappingOperation,
+)
+from zeroth.contracts.graph.limits import (
+    CONDITION_EXPRESSION_MAX_CHARS,
+    DESCRIPTION_MAX_CHARS,
+    DISPLAY_LABEL_MAX_CHARS,
+    DISPLAY_TAG_MAX_CHARS,
+    DISPLAY_TITLE_MAX_CHARS,
 )
 
 
@@ -302,3 +312,51 @@ async def test_validator_reports_invalid_mapping_and_raise_helper() -> None:
         assert exc.report == report
     else:  # pragma: no cover - defensive guard
         raise AssertionError("expected validation error")
+
+
+async def test_transform_expression_uses_the_condition_expression_bound() -> None:
+    graph = build_valid_graph()
+    edge = graph.edges[0].model_copy(
+        update={
+            "condition": None,
+            "mapping": EdgeMapping(
+                operations=[
+                    TransformMappingOperation(
+                        target_path="request.value",
+                        expression="x" * (CONDITION_EXPRESSION_MAX_CHARS + 1),
+                    )
+                ]
+            ),
+        }
+    )
+    report = await GraphValidator().validate(
+        graph.model_copy(update={"edges": [edge, *graph.edges[1:]]})
+    )
+
+    issue = next(issue for issue in report.issues if issue.code is ValidationCode.INVALID_MAPPING)
+    assert "character limit" in issue.message
+
+
+@pytest.mark.parametrize(
+    ("display", "expected_fragment"),
+    [
+        (DisplayMetadata(title="x" * (DISPLAY_TITLE_MAX_CHARS + 1)), "title"),
+        (DisplayMetadata(description="x" * (DESCRIPTION_MAX_CHARS + 1)), "description"),
+        (DisplayMetadata(tags=["x" * (DISPLAY_TAG_MAX_CHARS + 1)]), "tag"),
+        (DisplayMetadata(labels={"x" * (DISPLAY_LABEL_MAX_CHARS + 1): "v"}), "label key"),
+        (DisplayMetadata(labels={"k": "x" * (DISPLAY_LABEL_MAX_CHARS + 1)}), "label value"),
+    ],
+)
+async def test_display_metadata_is_bounded_at_publish_validation(
+    display: DisplayMetadata, expected_fragment: str
+) -> None:
+    graph = build_valid_graph()
+    node = graph.nodes[0].model_copy(update={"display": display})
+    # Construction/load remains compatible; only the publish validator rejects it.
+    loaded = Graph.model_validate(
+        graph.model_copy(update={"nodes": [node, *graph.nodes[1:]]}).model_dump()
+    )
+
+    report = await GraphValidator().validate(loaded)
+
+    assert any(expected_fragment in issue.message for issue in report.errors)

@@ -88,6 +88,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not been re-run since 0.17.0.4 — and re-stamping the string without re-running it would
   be the exact dishonesty this release is removing.
 
+## [0.22.2.18.1] - 2026-08-11
+
+### Fixed
+
+- `confine_path`'s docstring now names the root-directory rejection it gained in
+  0.22.2.18 (ZER-45).
+
+## [0.22.2.18] - 2026-08-11
+
+### Security
+
+- Follow-ups from this branch's own audit pass: the fourth `Regulus backend error: {exc}`
+  site (`econ_dashboard_api.py`) now uses the closed vocabulary like the three in
+  `cost_api.py`; and MCP tool screening now provenance-wraps the description strings
+  *inside* `parameters_schema`, not only the top-level one — wrapping only the latter
+  quarantined the benign prose while delivering a payload hidden in a parameter
+  description bare to the provider, inverting the mitigation. `confine_path` also now
+  rejects the root directory itself rather than deferring to an `IsADirectoryError`
+  at write time (ZER-45, A02-10/A06-8/A01-34).
+
+## [0.22.2.17] - 2026-08-11
+
+### Security
+
+- Tool descriptions discovered from an MCP server are now screened for prompt
+  injection on the same terms as tool output. `MCPClientManager.start` copied
+  `tool.description` — and the parameter descriptions inside `inputSchema` — verbatim
+  from an external process into every provider request, reaching the same
+  model-instruction surface `tool_output_safety` already guarded for tool *output*,
+  one step earlier and entirely unscreened. Matching output's contract, a flagged
+  description is provenance-wrapped and recorded in the audit trail under
+  `tool_description_safety`, never blocked: the heuristics are conservative, and
+  refusing a tool on a heuristic match would silently strip a legitimate capability.
+  Honours the existing `screen_for_injection` switch (ZER-45, A06-8).
+
+## [0.22.2.16] - 2026-08-11
+
+### Security
+
+- Every authored string in a graph now declares a bound, not just `inline_source`.
+  The publish gate rejects an agent instruction over 32,768 characters, a tool-binding
+  or tool-argument description over 2,048, and a condition expression over 4,096 —
+  each of which was previously unbounded while travelling into graph payload rows,
+  diffs, and (for instructions and descriptions) every provider request. Enforced at
+  the publish gate beside the existing `inline_source` check rather than as a Pydantic
+  `max_length`, so a graph persisted before these bounds existed stays loadable and
+  merely becomes unpublishable (ZER-45, A05-5).
+
+## [0.22.2.15] - 2026-08-11
+
+### Security
+
+- Backend failures are now reported as a category from a closed set instead of the
+  caught driver's own text. `/health/ready`'s `database`/`redis` checks, the
+  connector test-probe, and the three cost-API
+  Regulus handlers all interpolated the exception into their response body, carrying
+  the host, port, DSN, or URL it was constructed from. `/health/ready` answers before
+  authentication *and* returns 200 when a dependency is down, so that reached an
+  unauthenticated caller inside a success response. The new closed vocabulary is
+  `zeroth.platform.primitives.error_vocabulary`, resolved from the exception's class
+  name (never its message) and defaulting to `internal_error`, so an unregistered
+  class loses precision rather than confidentiality (ZER-45, A02-4/A02-8/A02-10).
+
+## [0.22.2.14] - 2026-08-11
+
+### Security
+
+- Webhook subscriptions now declare where they may deliver. A `target_url` naming a
+  loopback, private, link-local, reserved, or multicast address — or using a
+  non-http(s) scheme — is refused with 400 before the subscription is persisted,
+  since the persisted row is what later opens the socket. The delivery worker
+  re-checks the same bound and dead-letters rather than POSTing, so a subscription
+  persisted before this bound existed cannot be used as an SSRF primitive
+  (ZER-45, A02-6).
+
+## [0.22.2.13] - 2026-08-11
+
+### Security
+
+- Outbound analytics connectors now declare where they may reach. An endpoint
+  naming a loopback, private, link-local, reserved, or multicast address — directly
+  or by DNS resolution — is refused during config validation, before any socket is
+  opened, and a non-http(s) scheme is refused outright. The warehouse-file adapters
+  (`clickhouse`, `bigquery`, `snowflake`) confine `spool_path` to a declared root
+  (`ECP_CONNECTOR_SPOOL_ROOT`, default `./.zeroth/connector-spool`), resolving the
+  path first so `..` traversal and symlinks both fail. The new shared primitive is
+  `zeroth.platform.primitives.boundary`. Scoped deliberately to outbound
+  third-party sinks: memory and database connectors legitimately point at
+  loopback/private addresses and are unaffected (ZER-45, A01-34).
+
+### Changed (BREAKING for two existing econ-connector configurations)
+
+- Both halves of the connector bound above reject configurations that were valid
+  before, and neither is auto-migrated:
+  - **`spool_path` must now sit under `ECP_CONNECTOR_SPOOL_ROOT`** (default
+    `./.zeroth/connector-spool`, resolved against the worker's CWD). An existing
+    `clickhouse`/`bigquery`/`snowflake` connector with an absolute path such as
+    `/var/lib/zeroth/events.jsonl` will fail `validate_config` and dead-letter its
+    outbox rows after `ECP_CONNECTOR_MAX_ATTEMPTS` (default 8). **Migration:** set
+    `ECP_CONNECTOR_SPOOL_ROOT` to the directory that already contains the path, or
+    move the spool file under the default root.
+  - **A self-hosted analytics endpoint on a private address is now refused.** A
+    Langfuse or PostHog instance at, say, `http://10.0.0.5/collect` is a real
+    topology and is indistinguishable from an SSRF target by address alone; it is
+    refused. **Migration:** front it with a name that resolves publicly, or use a
+    connector type that is not an `HttpJsonAdapter`.
+
+## [0.22.2.12] - 2026-08-11
+
+### Fixed
+
+- Every paginated route now declares bounds on `limit`/`offset` instead of accepting
+  any caller-supplied integer: `/admin/runs` and `/webhooks/dead-letters` reject
+  out-of-range values with 422, and `RunRepository.list_runs` clamps defensively
+  since it is reachable beyond the route layer (SQLite treats a non-positive `LIMIT`
+  as "no limit at all") (ZER-45, A02-12).
+
+## [0.22.2.11] - 2026-08-11
+
+### Fixed
+
+- Sandbox sidecar's cancel route (`POST /executions/{id}/cancel`) now 404s when the
+  execution was never submitted, instead of unconditionally reporting `cancelled` —
+  mirroring the sibling `GET /executions/{id}` route's existing not-found behavior
+  (ZER-45, A07-11).
+
 ## [0.22.2.10.3] - 2026-08-11
 
 ### Fixed

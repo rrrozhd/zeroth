@@ -13,9 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
+from zeroth.platform.primitives.boundary import (
+    OutboundDestinationError,
+    validate_outbound_url,
+)
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,
@@ -114,6 +118,23 @@ def _serialize_subscription(
     )
 
 
+def _require_permitted_target(target_url: str) -> None:
+    """Refuse a subscription target that names internal infrastructure.
+
+    A02-6: ``target_url`` is an outbound destination the caller chooses, which the
+    delivery worker later POSTs to from inside the deployment's network position.
+    Checked before the subscription is persisted, since the persisted row is what
+    opens the socket.
+    """
+    try:
+        validate_outbound_url(target_url, context="webhook target_url")
+    except OutboundDestinationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from None
+
+
 def register_webhook_routes(app: FastAPI | APIRouter) -> None:
     """Register webhook subscription and dead-letter management routes."""
 
@@ -133,6 +154,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
         # The body's deployment_ref/tenant_id are NOT trusted — accepting them
         # let any tenant admin subscribe to another tenant's run events.
         await require_deployment_scope(request, deployment)
+        _require_permitted_target(payload.target_url)
         webhook_service = _webhook_service(request)
         sub = WebhookSubscription(
             deployment_ref=deployment.deployment_ref,
@@ -218,7 +240,7 @@ def register_webhook_routes(app: FastAPI | APIRouter) -> None:
     async def list_dead_letters(
         request: Request,
         subscription_id: str | None = None,
-        limit: int = 50,
+        limit: int = Query(default=50, ge=1, le=1000),
     ) -> WebhookDeadLetterListResponse:
         await require_permission(request, Permission.WEBHOOK_ADMIN)
         deployment = _served_deployment(request)
