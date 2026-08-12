@@ -379,6 +379,7 @@ function LegalHoldsCard({ connected, mounted }: { connected: boolean; mounted: b
   }
 
   async function release(holdId: string) {
+    if (!window.confirm(`Release legal hold ${holdId}? Protected data may become erasable.`)) return;
     setReleasing(holdId);
     try {
       await releaseLegalHold(holdId);

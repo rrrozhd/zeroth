@@ -17,7 +17,6 @@ import pytest
 
 from tests.conftest import requires_docker
 
-from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     NullWorkspaceScopeContext,
@@ -30,6 +29,7 @@ from zeroth.integrations.persistence.runs.run_repository import (
     RunRepository,
 )
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
 
 
@@ -82,6 +82,32 @@ async def test_create_persists_a_run_and_reads_it_back(
     assert created.run_id == "run-1"
     assert created.tenant_id == "tenant-1"
     assert (await repository.get("run-1")) is not None
+
+
+async def test_list_runs_clamps_non_positive_limit(sqlite_db: AsyncSQLiteDatabase) -> None:
+    """A02-12: list_runs is called beyond the FastAPI route layer's Query bound.
+
+    SQLite's own ``LIMIT -1`` means "no limit" -- if a negative caller-supplied
+    limit reached the query unclamped, this would return every row instead of
+    being floored to a sane minimum.
+    """
+    repository = _repository(sqlite_db)
+    for i in range(5):
+        await repository.create(_make_run(f"run-{i}", tenant_id="tenant-1"))
+
+    runs = await repository.list_runs("deployment-1", limit=-1)
+
+    assert len(runs) < 5
+
+
+async def test_list_runs_clamps_negative_offset(sqlite_db: AsyncSQLiteDatabase) -> None:
+    """A negative offset must not raise and must behave like offset=0."""
+    repository = _repository(sqlite_db)
+    await repository.create(_make_run("run-x", tenant_id="tenant-1"))
+
+    runs = await repository.list_runs("deployment-1", offset=-5, limit=10)
+
+    assert len(runs) == 1
 
 
 async def test_repository_exposes_its_database_for_coordinated_transactions(

@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS
+from zeroth.contracts.graph.limits import (
+    AGENT_INSTRUCTION_MAX_CHARS,
+    DESCRIPTION_MAX_CHARS,
+    DISPLAY_LABEL_MAX_CHARS,
+    DISPLAY_TAG_MAX_CHARS,
+    DISPLAY_TITLE_MAX_CHARS,
+    INLINE_SOURCE_MAX_CHARS,
+)
 from zeroth.contracts.graph.models import (
     AgentNode,
+    DisplayMetadata,
     EntrypointNode,
     ExecutableUnitNode,
     Graph,
@@ -67,6 +75,7 @@ def validate_node(
     capability_checks: CapabilityChecks,
 ) -> None:
     """Validate a single node's references, contracts, and type-specific data."""
+    _validate_display_metadata(graph_id, node.node_id, node.display, issues)
     if not is_ref_like(node.graph_version_ref):
         append_issue(
             issues,
@@ -127,6 +136,62 @@ def validate_node(
             validate_human_approval_node(graph_id, node, issues)
 
 
+def _validate_display_metadata(
+    graph_id: str,
+    node_id: str,
+    display: DisplayMetadata,
+    issues: list[ValidationIssue],
+) -> None:
+    """Bound UI metadata at publish time while keeping historical rows loadable."""
+
+    def check(value: str | None, limit: int, label: str, path: tuple[str, ...]) -> None:
+        if value is not None and len(value) > limit:
+            append_issue(
+                issues,
+                severity=ValidationSeverity.ERROR,
+                code=ValidationCode.INVALID_NODE_ATTACHMENT,
+                message=f"display {label} exceeds the {limit} character limit",
+                graph_id=graph_id,
+                node_id=node_id,
+                path=("nodes", node_id, "display", *path),
+            )
+
+    check(display.title, DISPLAY_TITLE_MAX_CHARS, "title", ("title",))
+    check(display.description, DESCRIPTION_MAX_CHARS, "description", ("description",))
+    for index, tag in enumerate(display.tags):
+        check(tag, DISPLAY_TAG_MAX_CHARS, "tag", ("tags", str(index)))
+    for key, value in display.labels.items():
+        check(key, DISPLAY_LABEL_MAX_CHARS, "label key", ("labels", key))
+        check(value, DISPLAY_LABEL_MAX_CHARS, "label value", ("labels", key))
+
+
+def _validate_description_length(
+    description: str,
+    issues: list[ValidationIssue],
+    *,
+    graph_id: str,
+    node_id: str,
+    label: str,
+    path: tuple[str, ...],
+) -> None:
+    """Bound one author-written description (A05-5).
+
+    Descriptions are already required to be non-empty by the model; what they
+    lacked was a ceiling. Every one of them is copied verbatim into the tool
+    schema sent to the provider on each step.
+    """
+    if len(description) > DESCRIPTION_MAX_CHARS:
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_TOOL_BINDING,
+            message=f"{label} exceeds the {DESCRIPTION_MAX_CHARS} character limit",
+            graph_id=graph_id,
+            node_id=node_id,
+            path=path,
+        )
+
+
 def validate_agent_node(
     graph_id: str,
     node: AgentNode,
@@ -145,6 +210,49 @@ def validate_agent_node(
             node_id=node.node_id,
             path=("nodes", node.node_id, "agent", "instruction"),
         )
+    elif len(node.agent.instruction) > AGENT_INSTRUCTION_MAX_CHARS:
+        # A05-5: the instruction is author-written text that reaches the model as
+        # prompt content on every step of every run, and travels in the graph
+        # payload row. Bounded here, at publish, for the same reason
+        # inline_source is.
+        append_issue(
+            issues,
+            severity=ValidationSeverity.ERROR,
+            code=ValidationCode.INVALID_NODE_ATTACHMENT,
+            message=(
+                f"agent instruction exceeds the {AGENT_INSTRUCTION_MAX_CHARS} character limit"
+            ),
+            graph_id=graph_id,
+            node_id=node.node_id,
+            path=("nodes", node.node_id, "agent", "instruction"),
+        )
+    for index, binding in enumerate(node.agent.tool_bindings):
+        _validate_description_length(
+            binding.description,
+            issues,
+            graph_id=graph_id,
+            node_id=node.node_id,
+            label=f"tool binding {binding.name!r} description",
+            path=("nodes", node.node_id, "agent", "tool_bindings", str(index), "description"),
+        )
+        for arg_index, argument in enumerate(binding.arguments):
+            _validate_description_length(
+                argument.description,
+                issues,
+                graph_id=graph_id,
+                node_id=node.node_id,
+                label=f"tool argument {argument.name!r} description",
+                path=(
+                    "nodes",
+                    node.node_id,
+                    "agent",
+                    "tool_bindings",
+                    str(index),
+                    "arguments",
+                    str(arg_index),
+                    "description",
+                ),
+            )
     if not node.agent.model_provider.strip():
         append_issue(
             issues,

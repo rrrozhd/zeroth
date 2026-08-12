@@ -36,9 +36,11 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 
@@ -132,7 +134,15 @@ async def main() -> int:
             retry_base_delay=0.1,
             retry_max_delay=0.2,
         )
-        await run_worker_for(worker, duration=0.5)
+        # The worker still resolves and pins the destination before handing the
+        # request to the injected MockTransport. Give the documentation-only
+        # hostname a deterministic public answer so this offline example tests
+        # delivery without weakening the production SSRF boundary.
+        with patch(
+            "zeroth.platform.primitives.boundary._resolved_addresses",
+            return_value=[ipaddress.ip_address("93.184.216.34")],
+        ):
+            await run_worker_for(worker, duration=0.5)
         print(f"happy-path receiver hits: {len(happy_receiver.hits)}")
         assert len(happy_receiver.hits) >= 1, "worker never hit the receiver"
         await http_client.aclose()
@@ -161,7 +171,11 @@ async def main() -> int:
             retry_base_delay=0.05,
             retry_max_delay=0.1,
         )
-        await run_worker_for(flaky_worker, duration=2.0)
+        with patch(
+            "zeroth.platform.primitives.boundary._resolved_addresses",
+            return_value=[ipaddress.ip_address("93.184.216.34")],
+        ):
+            await run_worker_for(flaky_worker, duration=2.0)
         print(
             f"flaky-path receiver hits: {len(flaky_receiver.hits)} "
             f"(≥3 — 2 failures then at least 1 success)"

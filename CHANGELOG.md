@@ -26,6 +26,236 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or gateway row. Foreign resources retain the same empty or unknown observable as missing
   resources, including artifact and secret surfaces (ZER-44 / A01-14, A01-32, A01-29,
   A01-26, A02-1, A02-2, A02-26, A03-1, A06-3, A06-19, A07-19, A08-9, A10-6).
+## [0.22.4] - 2026-08-12
+
+### Added
+
+- A shrink-only documentation-reference gate validates maintained imports,
+  settings, source paths, and installation examples against a pinned seed.
+- Console component tests now collect TSX surfaces and cover destructive actions,
+  navigation safety, verification state, and stale run responses.
+
+### Changed
+
+- Release images install a hash-locked dependency set and the exact candidate
+  wheel, while Compose services run read-only with dropped capabilities and
+  bounded process counts.
+- Removed proven-dead backend and Console declarations while preserving live
+  compatibility and runtime paths.
+
+### Fixed
+
+- A delayed Studio submission can no longer replace a newer historical run or
+  its thread state.
+- Documentation history markers bind to their nearest inline reference without
+  hiding actionable startup instructions.
+
+## [0.22.3] - 2026-08-11
+
+### Fixed
+
+- **`Gate — package` reports on the wheel again, instead of on tooling a wheel venv
+  never has.** The job installs the built wheel into a clean venv and runs the suite
+  there to answer one question — does the built product work? On nightly 31469899049
+  it answered with **25 failures and 96 errors**, and only two of those were about the
+  wheel. Three separate causes, fixed separately:
+  - **84 errors: `-m` on the command line replaces `addopts`, it does not extend it.**
+    `-m "not live"` therefore re-selected the `langgraph_conformance` and
+    `deployed_acceptance` suites that the project deselects by default, and a wheel
+    venv has no Agent Server to start. Both wheel-venv jobs
+    (`release-gates:package`, `release-zeroth-core:test-wheel`) now repeat every
+    marker the default excludes. Measured: the shipped expression admitted **449**
+    node ids the project default excludes.
+  - **12 errors: `FileNotFoundError: uv`.** `tests/architecture/test_wheel_packaging.py`
+    shells out to `uv build` to inspect what the distribution actually ships — the most
+    on-topic check either job has — and `package` was the one gate job that did not
+    install `uv`. It is installed on the runner now, rather than the test file being
+    excluded; excluding it would have made the gate green by deleting the part that was
+    about the wheel.
+  - **23 failures: `ModuleNotFoundError: mkdocs`.** MkDocs is a `[docs]` extra, absent
+    from a wheel venv by design. A new `dev_toolchain` marker covers exactly the eight
+    tests that reach `on_post_page`'s `mkdocs.utils` import; the rest of the module still
+    runs in both wheel jobs.
+- **The ephemeral candidate's contract leg said "the Agent Server exited before
+  serving" and meant `ModuleNotFoundError: No module named 'langgraph_api'`.** The
+  launcher sent the child's stderr to `DEVNULL`, so the one line that named the cause
+  was discarded and the fixture reported the symptom. `langgraph-api` is a
+  `gateway-conformance` dev-group pin, absent from a wheel venv by design, so the test
+  is marked `dev_toolchain` — the other five in that module do not boot a server and
+  stay in the wheel jobs. The launcher now keeps stderr and reports its last line plus
+  the interpreter, which is the whole diagnosis when one tree runs under two
+  environments. ZER-35 landed this file after the last nightly, so no gate has
+  recorded it either.
+- **Two wheel-venv failures that no nightly has recorded yet.** ZER-41 added
+  `test_the_lint_gate_environment_really_has_ruff`, which hard-asserts that Ruff is
+  importable while its own failure message says "if this is the wheel-venv job that is
+  expected". Nightly 31469899049 tested `7249ca04`, one commit before ZER-41 merged, so
+  the gate has never reported it — the next run would have, for precisely the reason
+  this release removes. Marked `dev_toolchain`; it still runs in both places the lint
+  gate runs, which the marker guard proves rather than asserts.
+- **The `dev_toolchain` marker cannot become a place to hide a test.**
+  `tests/release_gates/test_marker_integrity.py` executes the selections rather than
+  reading them: every marked test must be selected by the project's own default, the
+  wheel jobs must really deselect it, and no whole-suite invocation may admit anything
+  the default excludes. Reading the workflow files instead would have been defeated in
+  one move — adding `and not dev_toolchain` to `addopts` deselects the marker everywhere
+  while every workflow file still scans clean. The excluded files and the two jobs
+  allowed to deselect are recorded, compared for equality, and may only shrink.
+- **The schema attestation work bound no longer fails for a reason it does not name.**
+  `test_a_wide_generated_schema_graph_has_a_total_work_bound` pinned the boundary at
+  width 2,026 admitted / 2,027 refused. At that width the wide branches consume 8,104 of
+  the 8,192 available visits, leaving 88 for everything else in the graph — so a pydantic
+  release that adds a few reachable attributes spends the headroom and the case that is
+  supposed to be *admitted* is refused, reporting `ToolGovernanceError: ... exceeded its
+  work bound` when nothing about the bound had changed. The boundary is now measured by
+  bisection, and a second test halves `_MAX_ATTESTATION_WORK` and requires the boundary
+  to move with it, so the refusal is attributed to the bound rather than assumed. There
+  is no clock in this bound; a slow runner can neither cause nor prevent it. Exactness
+  has not moved — `test_schema_attestation_work_bound_is_exact` seeds the counter
+  directly and depends on no ambient cost.
+- **The protected surface pins Zeroth's constructor parameters, not pydantic-settings'.**
+  `pyproject.toml` declares `pydantic-settings>=2.13` with no upper bound, so `uv sync`
+  resolved 2.13.1 while the wheel venv's `pip install` resolved 2.15.0 — which adds
+  `_cli_show_env_vars` to `BaseSettings.__init__`. The gate reported the protected
+  surface of `ZerothSettings` as changed when nothing about Zeroth had. The comparison
+  now drops exactly the parameters the *installed* base class contributes, derived from
+  that class rather than listed, and refuses any derivation that reaches one of Zeroth's
+  own 22 fields. Verified against `pydantic-settings==2.15.0`: the previous comparison
+  fails and the new one passes with every Zeroth field still pinned.
+
+### Known red
+
+- `Gate — LangGraph` fails `compatibility-current` on all three recorded nightlies:
+  `release/langgraph/compatibility.json` declares release `0.17.0.4` against a candidate
+  of `0.22.3`. That is the gate naming a real, unfixed gap — the compatibility matrix has
+  not been re-run since 0.17.0.4 — and re-stamping the string without re-running it would
+  be the exact dishonesty this release is removing.
+
+## [0.22.2.18.1] - 2026-08-11
+
+### Fixed
+
+- `confine_path`'s docstring now names the root-directory rejection it gained in
+  0.22.2.18 (ZER-45).
+
+## [0.22.2.18] - 2026-08-11
+
+### Security
+
+- Follow-ups from this branch's own audit pass: the fourth `Regulus backend error: {exc}`
+  site (`econ_dashboard_api.py`) now uses the closed vocabulary like the three in
+  `cost_api.py`; and MCP tool screening now provenance-wraps the description strings
+  *inside* `parameters_schema`, not only the top-level one — wrapping only the latter
+  quarantined the benign prose while delivering a payload hidden in a parameter
+  description bare to the provider, inverting the mitigation. `confine_path` also now
+  rejects the root directory itself rather than deferring to an `IsADirectoryError`
+  at write time (ZER-45, A02-10/A06-8/A01-34).
+
+## [0.22.2.17] - 2026-08-11
+
+### Security
+
+- Tool descriptions discovered from an MCP server are now screened for prompt
+  injection on the same terms as tool output. `MCPClientManager.start` copied
+  `tool.description` — and the parameter descriptions inside `inputSchema` — verbatim
+  from an external process into every provider request, reaching the same
+  model-instruction surface `tool_output_safety` already guarded for tool *output*,
+  one step earlier and entirely unscreened. Matching output's contract, a flagged
+  description is provenance-wrapped and recorded in the audit trail under
+  `tool_description_safety`, never blocked: the heuristics are conservative, and
+  refusing a tool on a heuristic match would silently strip a legitimate capability.
+  Honours the existing `screen_for_injection` switch (ZER-45, A06-8).
+
+## [0.22.2.16] - 2026-08-11
+
+### Security
+
+- Every authored string in a graph now declares a bound, not just `inline_source`.
+  The publish gate rejects an agent instruction over 32,768 characters, a tool-binding
+  or tool-argument description over 2,048, and a condition expression over 4,096 —
+  each of which was previously unbounded while travelling into graph payload rows,
+  diffs, and (for instructions and descriptions) every provider request. Enforced at
+  the publish gate beside the existing `inline_source` check rather than as a Pydantic
+  `max_length`, so a graph persisted before these bounds existed stays loadable and
+  merely becomes unpublishable (ZER-45, A05-5).
+
+## [0.22.2.15] - 2026-08-11
+
+### Security
+
+- Backend failures are now reported as a category from a closed set instead of the
+  caught driver's own text. `/health/ready`'s `database`/`redis` checks, the
+  connector test-probe, and the three cost-API
+  Regulus handlers all interpolated the exception into their response body, carrying
+  the host, port, DSN, or URL it was constructed from. `/health/ready` answers before
+  authentication *and* returns 200 when a dependency is down, so that reached an
+  unauthenticated caller inside a success response. The new closed vocabulary is
+  `zeroth.platform.primitives.error_vocabulary`, resolved from the exception's class
+  name (never its message) and defaulting to `internal_error`, so an unregistered
+  class loses precision rather than confidentiality (ZER-45, A02-4/A02-8/A02-10).
+
+## [0.22.2.14] - 2026-08-11
+
+### Security
+
+- Webhook subscriptions now declare where they may deliver. A `target_url` naming a
+  loopback, private, link-local, reserved, or multicast address — or using a
+  non-http(s) scheme — is refused with 400 before the subscription is persisted,
+  since the persisted row is what later opens the socket. The delivery worker
+  re-checks the same bound and dead-letters rather than POSTing, so a subscription
+  persisted before this bound existed cannot be used as an SSRF primitive
+  (ZER-45, A02-6).
+
+## [0.22.2.13] - 2026-08-11
+
+### Security
+
+- Outbound analytics connectors now declare where they may reach. An endpoint
+  naming a loopback, private, link-local, reserved, or multicast address — directly
+  or by DNS resolution — is refused during config validation, before any socket is
+  opened, and a non-http(s) scheme is refused outright. The warehouse-file adapters
+  (`clickhouse`, `bigquery`, `snowflake`) confine `spool_path` to a declared root
+  (`ECP_CONNECTOR_SPOOL_ROOT`, default `./.zeroth/connector-spool`), resolving the
+  path first so `..` traversal and symlinks both fail. The new shared primitive is
+  `zeroth.platform.primitives.boundary`. Scoped deliberately to outbound
+  third-party sinks: memory and database connectors legitimately point at
+  loopback/private addresses and are unaffected (ZER-45, A01-34).
+
+### Changed (BREAKING for two existing econ-connector configurations)
+
+- Both halves of the connector bound above reject configurations that were valid
+  before, and neither is auto-migrated:
+  - **`spool_path` must now sit under `ECP_CONNECTOR_SPOOL_ROOT`** (default
+    `./.zeroth/connector-spool`, resolved against the worker's CWD). An existing
+    `clickhouse`/`bigquery`/`snowflake` connector with an absolute path such as
+    `/var/lib/zeroth/events.jsonl` will fail `validate_config` and dead-letter its
+    outbox rows after `ECP_CONNECTOR_MAX_ATTEMPTS` (default 8). **Migration:** set
+    `ECP_CONNECTOR_SPOOL_ROOT` to the directory that already contains the path, or
+    move the spool file under the default root.
+  - **A self-hosted analytics endpoint on a private address is now refused.** A
+    Langfuse or PostHog instance at, say, `http://10.0.0.5/collect` is a real
+    topology and is indistinguishable from an SSRF target by address alone; it is
+    refused. **Migration:** front it with a name that resolves publicly, or use a
+    connector type that is not an `HttpJsonAdapter`.
+
+## [0.22.2.12] - 2026-08-11
+
+### Fixed
+
+- Every paginated route now declares bounds on `limit`/`offset` instead of accepting
+  any caller-supplied integer: `/admin/runs` and `/webhooks/dead-letters` reject
+  out-of-range values with 422, and `RunRepository.list_runs` clamps defensively
+  since it is reachable beyond the route layer (SQLite treats a non-positive `LIMIT`
+  as "no limit at all") (ZER-45, A02-12).
+
+## [0.22.2.11] - 2026-08-11
+
+### Fixed
+
+- Sandbox sidecar's cancel route (`POST /executions/{id}/cancel`) now 404s when the
+  execution was never submitted, instead of unconditionally reporting `cancelled` —
+  mirroring the sibling `GET /executions/{id}` route's existing not-found behavior
+  (ZER-45, A07-11).
 
 ## [0.22.2.10.3] - 2026-08-11
 
@@ -322,7 +552,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded polling for asynchronously settling state, counted side-effect assertions, and
   platform lifecycle (restart, drain) as an operation the harness enacts rather than a
   route the product must serve.
-
 ## [0.20] - 2026-08-09
 
 ### Added

@@ -13,7 +13,8 @@ The vectors, and why each is a distinct hole rather than a restatement:
   an attribute lookup on a *foreign* object, so the delegate chose the callee.
   Returning a same-schema ``StructuredTool`` with a different body swapped what
   ran without moving anything the fingerprint read.
-* **A post-decision ``func`` swap** (:func:`test_a_func_replaced_after_the_decision_cannot_execute`).
+* **A post-decision ``func`` swap**
+  (:func:`test_a_func_replaced_after_the_decision_cannot_execute`).
   Identity is derived, then the caller's classifier and the decision client run,
   then the body executes. Anything mutated in that window was never fingerprinted.
   The classifier here is the attacker, which is fair: it is caller-supplied code
@@ -153,13 +154,13 @@ from langchain_core.tools import BaseTool, StructuredTool
 from langchain_core.tracers.context import _configure_hooks, register_configure_hook
 from pydantic import BaseModel, Field
 
+from zeroth.integrations.langgraph import _tool_wrappers as tool_wrappers
 from zeroth.integrations.langgraph._middleware import ZerothMiddleware
 from zeroth.integrations.langgraph._tool_errors import (
     ToolGovernanceError,
     UnstableToolIdentityError,
 )
 from zeroth.integrations.langgraph._tool_execution import ToolSnapshot
-from zeroth.integrations.langgraph import _tool_wrappers as tool_wrappers
 from zeroth.integrations.langgraph._tool_types import (
     SideEffectClass,
     ToolAction,
@@ -237,7 +238,10 @@ class AllowingClient:
 
 
 class Handler:
-    """``ToolNode`` as the middleware surface meets it: it runs whatever tool the request carries."""
+    """``ToolNode`` as the middleware surface meets it.
+
+    It runs whatever tool the request carries.
+    """
 
     calls: int = 0
 
@@ -1282,7 +1286,9 @@ def _config_in_a_partial_field(log: list[Any]) -> BaseTool:
     stays at the body boundary: no value the policy never saw may reach the call.
     """
 
-    def body(prefix: str, items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
+    def body(
+        prefix: str, items: list[str], config: RunnableConfig = NOT_INJECTED
+    ) -> str:  # type: ignore[assignment]
         """Record whether the framework handed this body a run configuration."""
         log.append(config)
         return f"{prefix}{SAFE}:{items}"
@@ -1304,7 +1310,9 @@ def _config_in_a_func_field(log: list[Any]) -> BaseTool:
     that a red test rather than a regression nobody notices.
     """
 
-    def body(items: list[str], config: RunnableConfig = NOT_INJECTED) -> str:  # type: ignore[assignment]
+    def body(
+        items: list[str], config: RunnableConfig = NOT_INJECTED
+    ) -> str:  # type: ignore[assignment]
         """Record whether the framework handed this body a run configuration."""
         log.append(config)
         return f"{SAFE}:{items}"
@@ -3202,13 +3210,18 @@ def test_schema_snapshot_preserves_literal_and_callable_annotations() -> None:
     assert validated.callback is len
 
 
-@pytest.mark.parametrize(
-    ("width", "refused"),
-    [(2_026, False), (2_027, True)],
-    ids=["largest_admitted_graph", "smallest_refused_graph"],
-)
-def test_a_wide_generated_schema_graph_has_a_total_work_bound(width: int, refused: bool) -> None:
-    """The exact work ceiling rejects only otherwise-valid oversized traversals."""
+#: Visits one shared branch costs the traversal: the branch list, its dict, and
+#: the dict's key and value. Used only to report the ambient cost in a failure
+#: message, never to predict the boundary.
+_WORK_PER_SHARED_BRANCH = 4
+
+
+def _admits_a_graph_of_width(width: int) -> bool:
+    """Whether ``govern_tools`` publishes a schema carrying ``width`` shared branches.
+
+    Each branch costs the traversal a fixed number of visits, so widening the
+    graph is the way to walk the total work bound up to its ceiling from outside.
+    """
 
     def target(query: str) -> str:
         return query
@@ -3220,12 +3233,96 @@ def test_a_wide_generated_schema_graph_has_a_total_work_bound(width: int, refuse
     WideSchema.__pydantic_parent_namespace__ = {"wide": [shared] * width}
     target.args_schema = WideSchema
 
-    if refused:
-        with pytest.raises(ToolGovernanceError, match="work bound"):
-            govern_tools([target], **_seams())
-    else:
+    try:
         governed = govern_tools([target], **_seams())[0]
-        assert governed.args_schema.model_validate({"query": "safe"}).query == "safe"
+    except ToolGovernanceError as error:
+        if "work bound" not in str(error):
+            raise
+        return False
+    assert governed.args_schema.model_validate({"query": "safe"}).query == "safe"
+    return True
+
+
+def _widest_admitted_graph(ceiling: int) -> int:
+    """The largest width still published, found by bisection rather than assumed.
+
+    Monotone: a wider graph reaches everything a narrower one does and more, so a
+    single boundary exists and bisection finds it in a dozen calls.
+    """
+    low, high = 0, ceiling
+    assert _admits_a_graph_of_width(low), "an empty graph must be publishable"
+    assert not _admits_a_graph_of_width(high), (
+        f"a graph of width {high} was published, so no total bound is in force"
+    )
+    while high - low > 1:
+        middle = (low + high) // 2
+        if _admits_a_graph_of_width(middle):
+            low = middle
+        else:
+            high = middle
+    return low
+
+
+def test_a_wide_generated_schema_graph_has_a_total_work_bound() -> None:
+    """A boundary exists, and it is the one ``_MAX_ATTESTATION_WORK`` sets.
+
+    This test used to pin the boundary at width 2,026 admitted / 2,027 refused.
+    Those numbers were correct on a developer machine and wrong in the wheel-venv
+    gate, which failed nightly with ``ToolGovernanceError: callable argument
+    schema attestation exceeded its work bound`` -- naming the ceiling, when what
+    had actually changed was the *ambient* cost of everything else in the graph.
+    At width 2,026 the wide branches consume 8,104 of the 8,192 available visits,
+    so the remaining headroom is 88; a pydantic release that adds a handful of
+    reachable attributes spends it and the case that is supposed to be admitted is
+    refused instead. There is no clock anywhere in this bound -- a slow runner
+    cannot cause it, and neither can a fast one prevent it.
+
+    So the boundary is measured, and what is asserted is the property the name
+    claims: that a boundary exists, and that ``_MAX_ATTESTATION_WORK`` is what
+    puts it there. Exactness has not moved -- it is
+    ``test_schema_attestation_work_bound_is_exact``, which seeds the counter
+    directly and so depends on no ambient cost at all.
+    """
+    ceiling = tool_wrappers._MAX_ATTESTATION_WORK
+    boundary = _widest_admitted_graph(ceiling)
+
+    # Reported, never asserted: the per-branch cost is an observation about the
+    # traversal, and pinning it here would reintroduce exactly the kind of
+    # incidental number this test was rewritten to stop encoding.
+    ambient = ceiling - boundary * _WORK_PER_SHARED_BRANCH
+    assert 0 < boundary < ceiling, (
+        f"boundary at width {boundary} of a {ceiling}-visit ceiling (ambient cost "
+        f"about {ambient} visits); a bound at either extreme is not a bound"
+    )
+    assert _admits_a_graph_of_width(boundary)
+    assert not _admits_a_graph_of_width(boundary + 1)
+
+
+def test_the_measured_boundary_is_caused_by_the_configured_work_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lower the ceiling and the boundary must move with it, proportionally.
+
+    Without this, the test above passes for any graph that happens to become
+    unpublishable at some width -- a depth bound, a recursion limit, or a
+    refusal that has nothing to do with total work would all satisfy it. Halving
+    the ceiling must roughly halve the admitted width, which no other mechanism
+    would do.
+    """
+    full = tool_wrappers._MAX_ATTESTATION_WORK
+    at_full = _widest_admitted_graph(full)
+
+    monkeypatch.setattr(tool_wrappers, "_MAX_ATTESTATION_WORK", full // 2)
+    at_half = _widest_admitted_graph(full)
+
+    assert at_half < at_full, (
+        f"halving the work bound left the boundary at {at_half} (was {at_full}), so "
+        "the refusal is not caused by the total work bound"
+    )
+    # The ambient cost is the same in both runs, so the admitted widths differ by
+    # very close to half the ceiling divided by the per-branch cost.
+    expected = (full // 2) // _WORK_PER_SHARED_BRANCH
+    assert abs(at_full - at_half - expected) <= 2, (at_full, at_half, expected)
 
 
 @pytest.mark.parametrize(

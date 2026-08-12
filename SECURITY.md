@@ -23,7 +23,7 @@ Zeroth is a governance-focused runtime; a few defaults matter when deploying it:
   or trusted materializer invalidates the proof and requires new tenant-scoped
   behavioral coverage before promotion.
 
-- **Never expose the bundled Regulus backend (`src/econ_plane`) standalone.**
+- **Never expose the bundled Regulus backend (`src/zeroth/econ/plane`) standalone.**
   Its token issuer has no credential check of its own. The supported path is the
   in-process mount under `/regulus`, which sits behind Zeroth's API-key gate.
   Zeroth additionally blocks the econ token-issuer endpoint
