@@ -280,14 +280,55 @@ def _resolved_receiver_annotation_repository_name(
     repository_names: set[str],
     module_names: dict[str, tuple[str, ...]],
 ) -> tuple[str, ...] | None:
-    direct_identity = _resolved_audit_repository_name(node, repository_names, module_names)
-    if direct_identity is not None:
-        return direct_identity
-    identities = {
+    none_alternative = object()
+    unresolved_alternative = object()
+
+    def resolve(candidate: ast.AST) -> tuple[str, ...] | object:
+        direct_identity = _resolved_audit_repository_name(candidate, repository_names, module_names)
+        if direct_identity is not None:
+            return direct_identity
+        if isinstance(candidate, ast.Constant) and candidate.value is None:
+            return none_alternative
+        if isinstance(candidate, ast.BinOp) and isinstance(candidate.op, ast.BitOr):
+            alternatives = (resolve(candidate.left), resolve(candidate.right))
+        elif (
+            isinstance(candidate, ast.Subscript)
+            and (base := _dotted_ast_path(candidate.value)) is not None
+            and base[-1] in {"Annotated", "Optional", "Union"}
+        ):
+            arguments = (
+                candidate.slice.elts
+                if isinstance(candidate.slice, ast.Tuple)
+                else (candidate.slice,)
+            )
+            if base[-1] == "Annotated":
+                arguments = arguments[:1]
+            alternatives = tuple(resolve(argument) for argument in arguments)
+        else:
+            return unresolved_alternative
+        identities = {
+            alternative for alternative in alternatives if alternative is not none_alternative
+        }
+        return (
+            _AUDIT_REPOSITORY_CLASS
+            if identities == {_AUDIT_REPOSITORY_CLASS}
+            else unresolved_alternative
+        )
+
+    identity = resolve(node)
+    return identity if isinstance(identity, tuple) else None
+
+
+def _has_repository_annotation_evidence(
+    node: ast.AST,
+    repository_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> bool:
+    return any(
         _resolved_audit_repository_name(candidate, repository_names, module_names)
-        for candidate in _receiver_annotation_type_nodes(node)
-    }
-    return _AUDIT_REPOSITORY_CLASS if identities - {None} == {_AUDIT_REPOSITORY_CLASS} else None
+        == _AUDIT_REPOSITORY_CLASS
+        for candidate in _annotation_type_nodes(node)
+    )
 
 
 def _ast_parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
@@ -1458,14 +1499,10 @@ def _audit_repository_public_call_provenance(
                 if binding == _AUDIT_REPOSITORY_CLASS:
                     continue
                 if any(
-                    _resolved_receiver_annotation_repository_name(
-                        option, repository_names, module_names
-                    )
-                    == _AUDIT_REPOSITORY_CLASS
-                    or _resolved_receiver_annotation_repository_name(
+                    _has_repository_annotation_evidence(option, repository_names, module_names)
+                    or _has_repository_annotation_evidence(
                         option, potential_imported_repository_names, {}
                     )
-                    == _AUDIT_REPOSITORY_CLASS
                     for option in _assignment_value_options(alias.value)
                 ):
                     potential_type_alias_names.add(alias.name.id)
@@ -4582,6 +4619,25 @@ def test_public_call_inventory_honors_local_type_alias_closure_shadowing(
             frozenset(),
         ),
         (
+            "from typing import Union\n"
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = Union[AuditRepository, None]\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = AuditRepository | OtherRepository\n",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = list[AuditRepository]\n",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
             "from zeroth.governance.audit import AuditRepository\n"
             "type Base = AuditRepository\n"
             "type Repo = Base\n",
@@ -4605,6 +4661,9 @@ def test_public_call_inventory_honors_local_type_alias_closure_shadowing(
         "optional",
         "annotated",
         "union",
+        "typing-union",
+        "nonnullable-union",
+        "generic-container",
         "chain",
         "potential-optional",
     ],
