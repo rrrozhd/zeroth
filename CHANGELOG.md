@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.1] - 2026-08-12
+
+### Fixed
+
+- Package, Console, documentation, and changelog versions stay synchronized,
+  while measured LangGraph image evidence remains bound to its recorded release
+  until the benchmark, image, SBOM, and provenance set is regenerated.
+
+## [0.23] - 2026-08-12
+
+### Changed
+
+- Dropped audit metadata now uses per-policy keyed HMAC summaries rather than
+  reusable unkeyed digests.
+- The legacy Redis audit emitter refuses raw writes and is no longer exported
+  from the audit package.
+
+### Fixed
+
+- Approval payloads and nested audit metadata are sanitized before persistence,
+  including secret-bearing mapping keys and key spelling variants.
+- Empty prompt-secret values are ignored safely, while short known secrets
+  trigger whole-value redaction.
+- Approval escalation uses pending-only writes, decision audit identifiers are
+  outcome-scoped, and encrypted checkpoint or token snapshot decode failures no
+  longer fall back to ciphertext as plaintext.
+
 ## [0.22.4] - 2026-08-12
 
 ### Added
