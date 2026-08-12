@@ -18,6 +18,7 @@ which model answered.
 
 from __future__ import annotations
 
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
@@ -90,26 +91,31 @@ class CascadingProviderAdapter:
             raise
         incumbent_cost = incumbent.cost_usd
         incumbent_estimated_cost = incumbent.estimated_cost_usd
-        states = (primary_measurement, incumbent.cost_measurement)
-        cost_measurement = (
-            MeasurementState.UNMEASURED
-            if MeasurementState.UNMEASURED in states
-            else MeasurementState.ESTIMATED
-            if MeasurementState.ESTIMATED in states
-            else MeasurementState.MEASURED
+        from zeroth.runtime.agents.runner import AgentRunner
+
+        combined = AgentRunner._measurement_audit(
+            primary
+            or {
+                "cost_measurement": primary_measurement,
+                "usage_measurement": MeasurementState.UNMEASURED,
+            },
+            incumbent,
         )
-        recorded = [cost for cost in (primary_cost, incumbent_cost) if cost is not None]
-        estimates = [
-            cost for cost in (primary_estimated_cost, incumbent_estimated_cost) if cost is not None
-        ]
+        combined_usage = combined.get("token_usage")
         return incumbent.model_copy(
             update={
                 # Attribute EVERY dollar: the cheap attempt AND the incumbent. This sums two
                 # ExecutionEvents into one cost_usd; cost_event_id references the served
                 # incumbent event, and the cheap event id is preserved in metadata.
-                "cost_usd": sum(recorded) if recorded else None,
-                "estimated_cost_usd": sum(estimates) if estimates else None,
-                "cost_measurement": cost_measurement,
+                "cost_usd": combined.get("cost_usd"),
+                "estimated_cost_usd": combined.get("estimated_cost_usd"),
+                "cost_measurement": combined.get("cost_measurement"),
+                "token_usage": (
+                    TokenUsage.model_validate(combined_usage)
+                    if combined_usage is not None
+                    else None
+                ),
+                "usage_measurement": combined.get("usage_measurement"),
                 "metadata": {
                     **incumbent.metadata,
                     "cascade": {

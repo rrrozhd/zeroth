@@ -102,6 +102,13 @@ class RuntimeAuditRecorder:
         return f"{run_id}:{audit_ref}"
 
     @staticmethod
+    def next_branch_audit_ref(run: Run, ctx: BranchContext) -> str:
+        """Allocate the next branch ref across repeated fan-out invocations."""
+        prefix = f"{run.run_id}:branch:{ctx.branch_index}:audit:"
+        prior = sum(ref.startswith(prefix) for ref in run.audit_refs)
+        return f"{prefix}{prior + len(ctx.audit_refs) + 1}"
+
+    @staticmethod
     def typed_fields(
         record: Mapping[str, Any],
     ) -> tuple[list[ToolCallRecord], list[MemoryAccessRecord]]:
@@ -447,8 +454,7 @@ class RuntimeAuditRecorder:
             audit_record.update(operation_audit)
         audit_record["branch_id"] = ctx.branch_id
         audit_record["branch_index"] = ctx.branch_index
-        audit_seq = len(ctx.audit_refs) + 1
-        audit_ref = f"{run.run_id}:branch:{ctx.branch_index}:audit:{audit_seq}"
+        audit_ref = self.next_branch_audit_ref(run, ctx)
         ctx.audit_refs.append(audit_ref)
         redacted_audit_record = self.redact(audit_record)
         # Promote cost/token fields so spend incurred before the failure stays

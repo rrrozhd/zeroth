@@ -276,10 +276,9 @@ def analyze_run(
         cost = record.cost_usd if record.cost_usd is not None else 0.0
         if attempts <= 1 or cost <= 0:
             continue
-        # Failed attempts aren't recorded individually; estimate their cost as the
-        # final (recorded) attempt's. Different dollars from loop_reexecution
-        # (retries within one record vs repeated records), so no double-count.
-        estimated = cost * (attempts - 1)
+        # The audit cost is the aggregate across all attempts. Without per-attempt
+        # amounts, the failed attempts' share cannot be split out honestly.
+        measurement_complete = False
         if failed:
             findings.append(
                 WasteFinding(
@@ -288,10 +287,10 @@ def analyze_run(
                     wasted_usd=0.0,
                     severity="info",
                     detail=(
-                        f"node succeeded after {attempts} attempts "
-                        "(cost already counted in the failed-run total)"
+                        f"node made {attempts} attempts; retry overhead is indeterminate "
+                        "and aggregate cost is already counted in the failed-run total"
                     ),
-                    metadata={"attempts": attempts},
+                    metadata={"attempts": attempts, "aggregate_cost_usd": cost},
                 )
             )
         else:
@@ -299,13 +298,13 @@ def analyze_run(
                 WasteFinding(
                     kind=WasteKind.RETRY_OVERHEAD,
                     node_id=record.node_id,
-                    wasted_usd=estimated,
-                    severity="warning",
+                    wasted_usd=0.0,
+                    severity="info",
                     detail=(
-                        f"node succeeded after {attempts} attempts; "
-                        f"~${estimated:.4f} estimated retry overhead"
+                        f"node succeeded after {attempts} attempts; retry overhead "
+                        "is indeterminate without per-attempt costs"
                     ),
-                    metadata={"attempts": attempts, "final_cost_usd": cost},
+                    metadata={"attempts": attempts, "aggregate_cost_usd": cost},
                 )
             )
 

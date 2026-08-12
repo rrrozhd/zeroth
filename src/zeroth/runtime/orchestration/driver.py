@@ -398,9 +398,10 @@ class GraphDriver:
                     run,
                     node,
                     node_id,
-                    input_payload,
+                    pending_psg.get("source_input", input_payload),
                     source_output,
-                    {"resumed_parallel_fan_out": True},
+                    pending_psg.get("source_audit")
+                    or {"resumed_parallel_fan_out": True},
                     started_at=node_started_at,
                 )
                 self.increment_node_visit(run, node_id)

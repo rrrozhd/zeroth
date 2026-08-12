@@ -1,6 +1,8 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import Numeric, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
@@ -65,6 +67,21 @@ def _ensure_sqlite_compat() -> None:
             "usage_measurement",
             "usage_measurement VARCHAR(16) DEFAULT 'unmeasured'",
         )
+        execution_columns = {
+            row[1]: row for row in conn.execute(text("PRAGMA table_info(execution_events)"))
+        }
+        cost_columns = ("token_cost_usd", "tool_cost_usd", "compute_cost_usd")
+        if any(execution_columns.get(column, (None,) * 4)[3] for column in cost_columns):
+            operations = Operations(MigrationContext.configure(conn))
+            with operations.batch_alter_table(
+                "execution_events", recreate="always"
+            ) as batch:
+                for column in cost_columns:
+                    batch.alter_column(
+                        column,
+                        existing_type=Numeric(12, 4),
+                        nullable=True,
+                    )
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")

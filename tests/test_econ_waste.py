@@ -388,15 +388,20 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
 # --- P2: retry overhead + cache efficiency ---------------------------------------
 
 
-def test_retry_overhead_flagged_on_completed_run() -> None:
-    """A node that took >1 attempt flags estimated retry overhead on a completed run."""
-    audits = [_audit("a", 0.01, execution_metadata={"extra": {"attempts": 3}})]
+def test_aggregate_retry_cost_is_not_multiplied_and_blocks_a_complete_decision() -> None:
+    """An aggregate two-attempt cost cannot reveal the failed attempt's share."""
+    audits = [_audit("a", 0.02, execution_metadata={"extra": {"attempts": 2}})]
     report = analyze_run("r1", RunStatus.COMPLETED, audits)
     retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
     assert retry.confirmed is False
-    assert retry.severity == "warning"
-    assert retry.metadata["attempts"] == 3
-    assert report.flagged_waste_usd == pytest.approx(0.02)  # 0.01 * (3 - 1)
+    assert retry.severity == "info"
+    assert retry.metadata["attempts"] == 2
+    assert retry.wasted_usd == 0.0
+    assert report.total_cost_usd == pytest.approx(0.02)
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)
 
 
 def test_retry_overhead_is_info_on_failed_run() -> None:
@@ -648,4 +653,8 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
     report = analyze_run(run.run_id, run.status, audits)
     retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
     assert retry.metadata["attempts"] == 2
-    assert report.flagged_waste_usd > 0
+    assert retry.wasted_usd == 0.0
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)

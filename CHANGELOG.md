@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.7] - 2026-08-12
+
+- Preserve cost and usage provenance across repeated fan-out, approval resume,
+  cascade fallback, retry analysis, and legacy SQLite startup.
+
 ## [0.23.0.6.1] - 2026-08-12
 
 - Verify retry and tool-loop cost and usage accounting against every provider turn.
