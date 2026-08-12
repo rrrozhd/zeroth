@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
+from zeroth.platform.storage import AsyncDatabase
 
 if TYPE_CHECKING:
     # Annotation-only: importing the service here would put it on this package's
@@ -34,32 +36,28 @@ class RetentionPurgeWorker:
         poll_interval: Seconds between purge sweeps (default 3600).
     """
 
-    tenant_id: str
-    policy_repository: RetentionPolicyRepository
-    erasure_service: RetentionErasureService
+    database: AsyncDatabase
+    erasure_service_factory: Callable[[str], RetentionErasureService]
     poll_interval: float = 3600.0
 
     async def sweep_once(self) -> None:
-        """Sweep the deployment owner's resolved policy once."""
-        policy = await self.policy_repository.resolve()
-        if policy.tenant_id != self.tenant_id:
-            raise ValueError("retention policy does not match bound tenant")
-        if not policy.enabled:
-            return
-        for sweep in (
-            self.erasure_service.purge_runs,
-            self.erasure_service.purge_audits,
-        ):
-            try:
-                await sweep(self.tenant_id)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception(
-                    "retention %s failed for tenant %s",
-                    sweep.__name__,
-                    self.tenant_id,
-                )
+        """Enumerate policies, then sweep through tenant-bound collaborators."""
+        policies = await RetentionPolicyRepository.for_privileged_tenant_maintenance(
+            self.database
+        ).list_all_enabled_for_maintenance()
+        for policy in policies:
+            service = self.erasure_service_factory(policy.tenant_id)
+            for sweep in (service.purge_runs, service.purge_audits):
+                try:
+                    await sweep(policy.tenant_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "retention %s failed for tenant %s",
+                        sweep.__name__,
+                        policy.tenant_id,
+                    )
 
     async def poll_loop(self) -> None:
         """Continuously sweep each tenant's TTL surfaces until cancelled.

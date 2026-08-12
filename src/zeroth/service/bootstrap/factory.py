@@ -405,6 +405,7 @@ async def bootstrap_service(
             f"Unknown artifact store backend: {artifact_settings.backend!r}. "
             "Must be 'filesystem' or 'redis'."
         )
+    artifact_backend = artifact_store
     if artifact_store is not None:
         from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
@@ -582,10 +583,35 @@ async def bootstrap_service(
     )
     retention_worker_obj: object | None = None
     if settings.retention.enabled:
+
+        def retention_service_for(tenant_id: str) -> RetentionErasureService:
+            tenant_scope = (
+                NullWorkspaceScopeContext.for_default_compatibility()
+                if tenant_id == "default"
+                else NullWorkspaceScopeContext(tenant_id=tenant_id)
+            )
+            tenant_artifacts = None
+            if artifact_backend is not None:
+                from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
+
+                tenant_artifacts = TenantScopedArtifactStore(
+                    artifact_backend, tenant_id=tenant_id, workspace_id=None
+                )
+            return RetentionErasureService(
+                audit_repository=AuditRepository.scoped(database, tenant_scope, signer),
+                run_repository=RunRepository(database, tenant_scope),
+                policy_repository=RetentionPolicyRepository(
+                    database, tenant_scope, default_policy=retention_default_policy
+                ),
+                legal_hold_repository=LegalHoldRepository(database, tenant_scope),
+                log_repository=RetentionAuditLogRepository(database, tenant_scope),
+                artifact_store=tenant_artifacts,
+                econ_eraser=None,
+            )
+
         retention_worker_obj = RetentionPurgeWorker(
-            tenant_id=deployment.tenant_id,
-            policy_repository=retention_policy_repository,
-            erasure_service=retention_erasure_service,
+            database=database,
+            erasure_service_factory=retention_service_for,
             poll_interval=settings.retention.worker_poll_interval,
         )
 

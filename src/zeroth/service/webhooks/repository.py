@@ -8,6 +8,7 @@ JSON columns, async with self._database.transaction() as connection.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -32,6 +33,14 @@ from zeroth.service.webhooks.models import (
 def _new_id() -> str:
     """Generate a new unique ID string."""
     return uuid4().hex
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimedWebhookDelivery:
+    """A delivery paired with the generation that fences its completion."""
+
+    delivery: WebhookDelivery
+    generation: int
 
 
 class WebhookRepository:
@@ -155,7 +164,7 @@ class WebhookRepository:
 
     async def claim_pending_delivery(
         self, *, lease_seconds: float = 30.0
-    ) -> WebhookDelivery | None:
+    ) -> ClaimedWebhookDelivery | None:
         """Claim the oldest delivery that is due for an attempt.
 
         Atomically leases the delivery so the polling worker cannot
@@ -163,16 +172,15 @@ class WebhookRepository:
         the chosen row is flipped to ``DELIVERING`` and its
         ``next_attempt_at`` is pushed ``lease_seconds`` into the future, so a
         subsequent claim won't see it until the lease lapses. The
-        SELECT-then-UPDATE is atomic for a single serialized poll loop;
-        concurrent workers would additionally need row-level locking (e.g.
-        ``SELECT ... FOR UPDATE SKIP LOCKED``) to keep the same guarantee.
+        The compare-and-swap predicate includes all observed lease state, so
+        concurrent transactions cannot both claim the same generation.
         A claim covers three due cases:
 
         * ``PENDING`` -- reached its first-attempt time;
         * ``FAILED``  -- its retry backoff has elapsed (the actual retry path);
         * ``DELIVERING`` -- its lease expired, i.e. a worker died mid-delivery.
 
-        Returns the claimed delivery, or ``None`` when nothing is due.
+        Returns the claimed delivery and opaque generation, or ``None``.
         """
         now = utc_now()
         now_iso = now.isoformat()
@@ -185,67 +193,89 @@ class WebhookRepository:
             rows = await deliveries.select(
                 where_lt={"next_attempt_at": now_iso}, order_by=("next_attempt_at",)
             )
-            row = next((candidate for candidate in rows if candidate["status"] in eligible), None)
-            if row is None:
-                return None
-            delivery = self._row_to_delivery(row)
-            lease_until = now + timedelta(seconds=lease_seconds)
-            await deliveries.update(
-                {
-                    "status": DeliveryStatus.DELIVERING.value,
-                    "next_attempt_at": lease_until.isoformat(),
-                    "updated_at": now_iso,
-                },
-                where={"delivery_id": delivery.delivery_id},
-            )
-        return delivery
+            for row in rows:
+                if row["status"] not in eligible:
+                    continue
+                generation = int(row["attempt_count"]) + 1
+                lease_until = now + timedelta(seconds=lease_seconds)
+                claimed = await deliveries.update_if_matches(
+                    {
+                        "status": DeliveryStatus.DELIVERING.value,
+                        "next_attempt_at": lease_until.isoformat(),
+                        "updated_at": now_iso,
+                    },
+                    where={
+                        "delivery_id": row["delivery_id"],
+                        "status": row["status"],
+                        "next_attempt_at": row["next_attempt_at"],
+                        "attempt_count": row["attempt_count"],
+                    },
+                    returning="delivery_id",
+                    increment=("attempt_count",),
+                )
+                if claimed:
+                    delivery = self._row_to_delivery(row).model_copy(
+                        update={
+                            "status": DeliveryStatus.DELIVERING,
+                            "attempt_count": generation,
+                            "next_attempt_at": lease_until,
+                            "updated_at": now,
+                        }
+                    )
+                    return ClaimedWebhookDelivery(delivery, generation)
+        return None
 
-    async def mark_delivered(self, delivery_id: str) -> None:
-        """Mark a delivery as successfully delivered."""
+    async def mark_delivered(self, delivery_id: str, generation: int) -> bool:
+        """Complete only the currently leased generation."""
         now = utc_now().isoformat()
-        await self._deliveries.update(
-            {"status": DeliveryStatus.DELIVERED.value, "updated_at": now},
-            where={"delivery_id": delivery_id},
-        )
+        async with self._deliveries.transaction(write_lock=True) as deliveries:
+            return await deliveries.update_if_matches(
+                {"status": DeliveryStatus.DELIVERED.value, "updated_at": now},
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
+            )
 
     async def mark_failed(
         self,
         delivery_id: str,
+        generation: int,
         *,
         error: str,
         status_code: int | None,
         retry_delay: float,
-    ) -> None:
+    ) -> bool:
         """Mark a delivery as failed and schedule the next retry.
 
-        Increments attempt_count and schedules ``next_attempt_at`` at
-        ``retry_delay`` seconds from now, then records the error details.
+        The claim already incremented ``attempt_count``; this fenced transition
+        schedules the next retry without allowing an older worker to overwrite it.
         ``retry_delay`` is the final, already-jittered backoff in seconds:
         the delivery worker owns the backoff policy (see ``next_retry_delay``)
         and this method persists it verbatim rather than re-deriving it.
         """
         now = utc_now()
+        next_at = now + timedelta(seconds=retry_delay)
         async with self._deliveries.transaction(write_lock=True) as deliveries:
-            row = await deliveries.select_one(
-                where={"delivery_id": delivery_id}, columns=("attempt_count",)
-            )
-            if row is None:
-                return
-            new_count = row["attempt_count"] + 1
-            next_at = now + timedelta(seconds=retry_delay)
-            await deliveries.update(
+            return await deliveries.update_if_matches(
                 {
                     "status": DeliveryStatus.FAILED.value,
-                    "attempt_count": new_count,
                     "next_attempt_at": next_at.isoformat(),
                     "last_error": error,
                     "last_status_code": status_code,
                     "updated_at": now.isoformat(),
                 },
-                where={"delivery_id": delivery_id},
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
             )
 
-    async def dead_letter(self, delivery_id: str) -> None:
+    async def dead_letter(self, delivery_id: str, generation: int) -> bool:
         """Move a delivery to the dead-letter table.
 
         Inserts into webhook_dead_letters from delivery data, then updates
@@ -254,9 +284,29 @@ class WebhookRepository:
         now = utc_now()
         async with self._deliveries.transaction(write_lock=True) as deliveries:
             dead_letters = deliveries.bind(self._dead_letters)
-            row = await deliveries.select_one(where={"delivery_id": delivery_id})
+            row = await deliveries.select_one(
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                }
+            )
             if row is None:
-                return
+                return False
+            transitioned = await deliveries.update_if_matches(
+                {
+                    "status": DeliveryStatus.DEAD_LETTER.value,
+                    "updated_at": now.isoformat(),
+                },
+                where={
+                    "delivery_id": delivery_id,
+                    "status": DeliveryStatus.DELIVERING.value,
+                    "attempt_count": generation,
+                },
+                returning="delivery_id",
+            )
+            if not transitioned:
+                return False
             dead_letter_id = _new_id()
             await dead_letters.insert(
                 {
@@ -273,13 +323,7 @@ class WebhookRepository:
                     "dead_lettered_at": now.isoformat(),
                 }
             )
-            await deliveries.update(
-                {
-                    "status": DeliveryStatus.DEAD_LETTER.value,
-                    "updated_at": now.isoformat(),
-                },
-                where={"delivery_id": delivery_id},
-            )
+            return True
 
     # ── Dead-letter queries ────────────────────────────────────────────
 

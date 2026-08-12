@@ -73,7 +73,9 @@ class TestDeliver:
         response.status_code = 200
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         http_client.post.assert_called_once()
         call_kwargs = http_client.post.call_args
@@ -91,7 +93,9 @@ class TestDeliver:
         response.status_code = 200
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         call_args = http_client.post.call_args
         headers = call_args.kwargs.get("headers", call_args[1].get("headers", {}))
@@ -104,7 +108,9 @@ class TestDeliver:
         response.status_code = 500
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         # Delivery should be marked as failed (status updated in DB)
         # The repository mark_failed increments attempt_count
@@ -120,7 +126,9 @@ class TestDeliver:
         response.status_code = 500
         http_client.post.return_value = response
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 1
@@ -130,7 +138,9 @@ class TestDeliver:
         sub, delivery = await _create_sub_and_delivery(webhook_repo)
         http_client.post.side_effect = httpx.TimeoutException("timed out")
 
-        await worker._deliver(delivery)
+        claim = await webhook_repo.claim_pending_delivery()
+        assert claim is not None
+        await worker._deliver(claim.delivery, claim.generation)
 
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 0  # not dead-lettered yet, just failed
@@ -201,7 +211,9 @@ class TestRetryBackoffWindow:
         # double-compute overshot.
         before = datetime.now(UTC)
         with patch("zeroth.service.webhooks.delivery.random.uniform", lambda _low, high: high):
-            await worker._deliver(delivery)
+            claim = await webhook_repo.claim_pending_delivery()
+            assert claim is not None
+            await worker._deliver(claim.delivery, claim.generation)
         after = datetime.now(UTC)
 
         async with sqlite_db.transaction() as conn:

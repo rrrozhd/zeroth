@@ -116,9 +116,7 @@ class TestListSubscriptions:
         mock_webhook_service.list_subscriptions.return_value = []
         resp = client.get("/webhooks/subscriptions?deployment_ref=other&tenant_id=other")
         assert resp.status_code == 200
-        mock_webhook_service.list_subscriptions.assert_called_once_with(
-            deployment_ref="deploy-1"
-        )
+        mock_webhook_service.list_subscriptions.assert_called_once_with(deployment_ref="deploy-1")
 
 
 class TestGetSubscription:
@@ -400,7 +398,9 @@ async def test_repo_list_dead_letters_scoped_by_subscription_ids(sqlite_db) -> N
                 payload_json="{}",
             )
         )
-        await repo.dead_letter(delivery.delivery_id)
+        claim = await repo.claim_pending_delivery()
+        assert claim is not None
+        await repo.dead_letter(delivery.delivery_id, claim.generation)
 
     scoped = await repo.list_dead_letters(subscription_ids=["own"], limit=50)
     assert [dl.subscription_id for dl in scoped] == ["own"]
