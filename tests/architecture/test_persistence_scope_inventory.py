@@ -2642,10 +2642,11 @@ def _audit_repository_public_call_provenance(
                             state = join(body_state, orelse_state)
                             merge_events(expression_node, state)
                             return state
-                        if isinstance(
-                            expression_node,
-                            (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
-                        ):
+                        if isinstance(expression_node, ast.GeneratorExp):
+                            # Generator bodies are lazy: only the outermost iterable is
+                            # evaluated while constructing the generator object.
+                            return transfer_expression(expression_node.generators[0].iter, state)
+                        if isinstance(expression_node, (ast.ListComp, ast.SetComp, ast.DictComp)):
                             first_generator = expression_node.generators[0]
                             state = transfer_expression(first_generator.iter, state)
                             untouched_state = dict(state)
@@ -8635,6 +8636,65 @@ def test_public_call_inventory_models_comprehension_exception_alias_execution(
         "async def outer(suppressor, candidate, record):\n"
         + setup
         + f"    result = {expression}\n"
+        "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("setup", "expression", "expected"),
+    [
+        (
+            "",
+            "((TypeError := ValueError) for item in (None,))",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "(item for item in (None,) if (TypeError := ValueError))",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "    TypeError = ValueError\n",
+            "(item for item in (None,) for TypeError in records)",
+            frozenset(),
+        ),
+        (
+            "",
+            "list((TypeError := ValueError) for item in (None,))",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["element", "filter", "inner-target", "opaque-list-iteration"],
+)
+def test_public_call_inventory_defers_generator_expression_alias_effects(
+    tmp_path: Path, setup: str, expression: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, records, candidate, record):\n"
+        + setup
+        + f"    generator = {expression}\n"
         "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
