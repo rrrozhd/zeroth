@@ -1861,10 +1861,39 @@ def _audit_repository_public_call_provenance(
                             continuing = bound_after_block(statement.body, names)
                             if continuing is not None:
                                 continuing = bound_after_block(statement.orelse, continuing)
+                            handler_paths = [
+                                bound_after_block(handler.body, names)
+                                for handler in statement.handlers
+                            ]
+                            continuing = join_continuing_names(continuing, *handler_paths)
                             return (
                                 bound_after_block(statement.finalbody, continuing)
                                 if continuing is not None and statement.finalbody
                                 else continuing
+                            )
+                        if isinstance(statement, (ast.With, ast.AsyncWith)):
+                            return bound_after_block(
+                                statement.body,
+                                names
+                                | set().union(
+                                    *(
+                                        _bound_names(item.optional_vars)
+                                        for item in statement.items
+                                        if item.optional_vars is not None
+                                    )
+                                ),
+                            )
+                        if isinstance(statement, ast.Match):
+                            paths = [bound_after_block(case.body, names) for case in statement.cases]
+                            exhaustive = any(
+                                isinstance(case.pattern, ast.MatchAs)
+                                and case.pattern.pattern is None
+                                and case.guard is None
+                                for case in statement.cases
+                            )
+                            return join_continuing_names(
+                                *paths,
+                                *( () if exhaustive else (names,)),
                             )
                         return names | direct_binding_names(statement)
 
@@ -2351,7 +2380,7 @@ def _audit_repository_public_call_provenance(
                                 not isinstance(item, ast.Starred) for item in statement.iter.elts
                             )
                             if guaranteed_nonempty:
-                                body_raises, body_names = class_loop_body_flow(
+                                body_raises, body_names, exit_kind = class_loop_body_flow(
                                     statement.body,
                                     outer_bound_names,
                                     class_bound_names | _bound_names(statement.target),
@@ -2359,6 +2388,13 @@ def _audit_repository_public_call_provenance(
                                 if body_raises:
                                     return True, class_bound_names
                                 class_bound_names = body_names
+                                if exit_kind != "break":
+                                    else_raises, else_names = class_body_flow(
+                                        statement.orelse, outer_bound_names, class_bound_names
+                                    )
+                                    if else_raises:
+                                        return True, class_bound_names
+                                    class_bound_names = else_names
                             continue
                         if isinstance(statement, ast.AnnAssign):
                             if (
@@ -2381,16 +2417,28 @@ def _audit_repository_public_call_provenance(
                     block: list[ast.stmt],
                     outer_bound_names: set[str],
                     class_bound_names: set[str],
-                ) -> tuple[bool, set[str]]:
+                ) -> tuple[bool, set[str], str | None]:
                     for statement in block:
-                        if isinstance(statement, (ast.Break, ast.Continue)):
-                            return False, class_bound_names
+                        if isinstance(statement, ast.Break):
+                            return False, class_bound_names, "break"
+                        if isinstance(statement, ast.Continue):
+                            return False, class_bound_names, "continue"
+                        if isinstance(statement, ast.If):
+                            if expression_may_raise(
+                                statement.test, outer_bound_names | class_bound_names
+                            ):
+                                return True, class_bound_names, None
+                            if any(
+                                isinstance(node, (ast.Break, ast.Continue))
+                                for node in ast.walk(statement)
+                            ):
+                                return False, class_bound_names, "break"
                         raises, class_bound_names = class_body_flow(
                             [statement], outer_bound_names, class_bound_names
                         )
                         if raises:
-                            return True, class_bound_names
-                    return False, class_bound_names
+                            return True, class_bound_names, None
+                    return False, class_bound_names, None
 
                 def class_body_may_raise(
                     block: list[ast.stmt], outer_bound_names: set[str]
@@ -7300,6 +7348,106 @@ def test_public_call_inventory_seeds_completed_closure_flow(tmp_path: Path, pref
 
     assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        "    try:\n"
+        "        raise ValueError\n"
+        "    except ValueError:\n"
+        "        closure = None\n",
+        "    with manager:\n"
+        "        closure = None\n",
+        "    match value:\n"
+        "        case True:\n"
+        "            closure = None\n"
+        "        case _:\n"
+        "            closure = None\n",
+    ],
+    ids=["handler", "with", "exhaustive-match"],
+)
+def test_public_call_inventory_seeds_completed_compound_closure(
+    tmp_path: Path, compound: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(manager, value, suppressor, candidate, record):\n"
+        + compound
+        + "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_applies_class_loop_else_after_continue(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        class Local:\n"
+        "            for item in (None,):\n"
+        "                continue\n"
+        "            else:\n"
+        "                captured = None\n"
+        "            if captured:\n"
+        "                pass\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize("terminal", ["break", "continue"])
+def test_public_call_inventory_keeps_nested_class_loop_exit_conservative(
+    tmp_path: Path, terminal: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(suppressor, condition, candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    with suppressor:\n"
+        "        class Local:\n"
+        "            for item in (None,):\n"
+        "                if condition:\n"
+        f"                    {terminal}\n"
+        "                captured = None\n"
+        "            if captured:\n"
+        "                pass\n"
+        "        Base = None\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 def test_public_call_inventory_keeps_conditional_expression_walrus_conservative(
