@@ -30,6 +30,7 @@ from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.integrations.persistence.runs.run_repository import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
+from zeroth.platform.dispatch.operations import OperationState, SideEffectOperationStore
 from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ResourceOperation
 from zeroth.platform.storage.json import to_json_value
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotConcurrencyError
@@ -746,11 +747,59 @@ async def _drive_attestations(database: AsyncDatabase, operation: ResourceOperat
             assert await foreign.get_attestation("driver-deployment", "unknown-correlation") is None
 
 
+async def _drive_side_effect_operations(
+    database: AsyncDatabase,
+    operation: ResourceOperation,
+) -> None:
+    owner = SideEffectOperationStore(database, _scope("driver-owner"))
+    foreign = SideEffectOperationStore(database, _scope("driver-foreign"))
+    claim = {
+        "run_id": "driver-run",
+        "dispatch_id": "driver-dispatch",
+        "idempotency_key": "driver-idempotency",
+        "target_ref": "unit://driver",
+    }
+    await owner.claim("driver-operation", **claim)
+    if operation is O.CREATE:
+        assert (await foreign.claim("driver-operation", **claim)).first_execution
+        assert await owner.get("driver-operation") is not None
+        assert await foreign.get("driver-operation") is not None
+    elif operation is O.READ:
+        assert await foreign.get("driver-operation") is None
+        assert await foreign.state_of("driver-operation") is OperationState.NOT_STARTED
+        assert await foreign.get("unknown-operation") is None
+        assert await owner.get("driver-operation") is not None
+    elif operation is O.ENUMERATE:
+        await owner.mark_ambiguous("driver-operation", reason="driver")
+        assert await foreign.pending_reconciliation("driver-run") == []
+        assert await foreign.pending_reconciliation("unknown-run") == []
+        assert len(await owner.pending_reconciliation("driver-run")) == 1
+    elif operation is O.UPDATE:
+        assert await foreign.complete("driver-operation", receipt="foreign") is False
+        await foreign.fail("driver-operation", error="foreign")
+        await foreign.mark_ambiguous("driver-operation", reason="foreign")
+        assert (
+            await foreign.record_reconciliation(
+                "driver-operation",
+                resolved=True,
+                receipt="foreign",
+            )
+            is OperationState.NOT_STARTED
+        )
+        assert (await owner.get("driver-operation"))["state"] == OperationState.IN_FLIGHT
+    else:
+        assert await foreign.erase_for_run("driver-run") == 0
+        assert await foreign.erase_for_run("unknown-run") == 0
+        assert await owner.get("driver-operation") is not None
+        assert await owner.erase_for_run("driver-run") == 1
+
+
 _RESOURCE_DRIVERS: dict[str, Callable[[AsyncDatabase, ResourceOperation], Awaitable[None]]] = {
     "service.runs": _drive_runs,
     "service.threads": _drive_threads,
     "service.run_checkpoints": _drive_checkpoints,
     "service.token_engine_snapshots": _drive_snapshots,
+    "service.side_effect_operations": _drive_side_effect_operations,
     "service.webhook_subscriptions": _drive_webhook_subscriptions,
     "service.webhook_deliveries": _drive_webhook_deliveries,
     "service.webhook_dead_letters": _drive_webhook_dead_letters,
@@ -770,6 +819,7 @@ _OPERATIONS = {
     "service.threads": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
     "service.run_checkpoints": frozenset(O),
     "service.token_engine_snapshots": frozenset({O.CREATE, O.READ, O.UPDATE, O.DELETE}),
+    "service.side_effect_operations": frozenset(O),
     "service.webhook_subscriptions": frozenset(O),
     "service.webhook_deliveries": frozenset({O.CREATE, O.READ, O.ENUMERATE, O.UPDATE}),
     "service.webhook_dead_letters": frozenset({O.CREATE, O.READ, O.ENUMERATE}),
