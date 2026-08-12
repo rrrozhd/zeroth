@@ -82,7 +82,20 @@ async def test_check_database_error():
     db = FakeDatabase(should_raise=ConnectionError("connection refused"))
     result = await check_database(db)
     assert result.status == "error"
-    assert "connection refused" in result.detail
+    assert result.detail == "database: unreachable"
+
+
+@pytest.mark.asyncio
+async def test_check_database_error_carries_no_driver_text():
+    """A02-4: the driver's message names the DSN, host, and port it dialled."""
+    leaky = 'connection to server at "db.internal" (172.18.0.2), port 5432 failed'
+    db = FakeDatabase(should_raise=ConnectionError(leaky))
+
+    result = await check_database(db)
+
+    assert leaky not in result.detail
+    for fragment in ("db.internal", "172.18.0.2", "5432"):
+        assert fragment not in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +124,23 @@ async def test_check_redis_error():
     with patch("zeroth.service.api.health.redis_from_url", return_value=mock_redis):
         result = await check_redis("redis://localhost:6379/0")
     assert result.status == "error"
-    assert "Redis down" in result.detail
+    assert result.detail == "redis: unreachable"
+
+
+@pytest.mark.asyncio
+async def test_check_redis_error_carries_no_driver_text():
+    """A02-4: a redis client's message names the host and port it could not reach."""
+    leaky = "Error connecting to 10.0.3.14:6379. Connection refused."
+    mock_redis = AsyncMock()
+    mock_redis.ping.side_effect = ConnectionError(leaky)
+    mock_redis.aclose = AsyncMock()
+
+    with patch("zeroth.service.api.health.redis_from_url", return_value=mock_redis):
+        result = await check_redis("redis://10.0.3.14:6379/0")
+
+    assert leaky not in result.detail
+    for fragment in ("10.0.3.14", "6379"):
+        assert fragment not in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +289,50 @@ async def test_register_health_routes_adds_endpoints():
     routes = [r.path for r in app.routes if hasattr(r, "path")]
     assert "/health/ready" in routes
     assert "/health/live" in routes
+
+
+@pytest.mark.asyncio
+async def test_readiness_body_carries_no_driver_text_when_dependencies_fail():
+    """A02-4 end to end, over the WHOLE body at WHATEVER status code it returns.
+
+    ``/health/ready`` answers before authentication and returns **200** even when
+    a dependency is down -- ``health_ready`` builds a ``ReadinessResponse``
+    regardless of what ``determine_readiness_status`` decides. An assertion scoped
+    to 4xx/5xx bodies would pass while the leak stayed open, so this asserts on
+    the serialized body itself, whatever the status code.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    db_leak = 'connection to server at "db.internal" (172.18.0.2), port 5432 failed'
+    redis_leak = "Error connecting to 10.0.3.14:6379. Connection refused."
+
+    app = FastAPI()
+    mock_bootstrap = MagicMock()
+    mock_bootstrap.database = FakeDatabase(should_raise=ConnectionError(db_leak))
+    mock_bootstrap.regulus_client = None
+    mock_bootstrap.langgraph_gateway_compatibility = None
+    mock_bootstrap.audit_delivery_queue = None
+    app.state.bootstrap = mock_bootstrap
+
+    register_health_routes(app)
+
+    mock_redis = AsyncMock()
+    mock_redis.ping.side_effect = ConnectionError(redis_leak)
+    mock_redis.aclose = AsyncMock()
+
+    with patch("zeroth.service.api.health.redis_from_url", return_value=mock_redis):
+        client = TestClient(app)
+        response = client.get("/health/ready")
+
+    body = response.text
+    assert db_leak not in body
+    assert redis_leak not in body
+    for fragment in ("db.internal", "172.18.0.2", "5432", "10.0.3.14", "6379"):
+        assert fragment not in body, f"{fragment!r} leaked into the readiness body"
+    # The probe must still be USEFUL: the category survives even though the text
+    # does not, or an operator learns nothing from a failing probe.
+    assert "unreachable" in body
 
 
 @pytest.mark.asyncio

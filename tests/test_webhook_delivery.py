@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -77,9 +78,10 @@ class TestDeliver:
 
         http_client.post.assert_called_once()
         call_kwargs = http_client.post.call_args
-        assert call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {})).get(
-            "Content-Type"
-        ) == "application/json"
+        assert (
+            call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {})).get("Content-Type")
+            == "application/json"
+        )
         assert "X-Zeroth-Signature" in call_kwargs.kwargs.get(
             "headers", call_kwargs[1].get("headers", {})
         )
@@ -96,6 +98,27 @@ class TestDeliver:
         headers = call_args.kwargs.get("headers", call_args[1].get("headers", {}))
         sig = headers["X-Zeroth-Signature"]
         assert sig.startswith("sha256=")
+
+    async def test_delivery_pins_ip_and_preserves_host_and_sni(
+        self, worker, webhook_repo, http_client, monkeypatch
+    ):
+        _sub, delivery = await _create_sub_and_delivery(webhook_repo)
+        response = MagicMock(spec=httpx.Response)
+        response.status_code = 200
+        http_client.post.return_value = response
+        monkeypatch.setattr(
+            "zeroth.platform.primitives.boundary._resolved_addresses",
+            lambda _host: [ipaddress.ip_address("93.184.216.34")],
+        )
+
+        await worker._deliver(delivery)
+
+        call = http_client.post.call_args
+        assert call.args[0] == "https://93.184.216.34/hook"
+        assert call.kwargs["headers"]["Host"] == "example.com"
+        assert call.kwargs["headers"]["Connection"] == "close"
+        assert call.kwargs["follow_redirects"] is False
+        assert call.kwargs["extensions"] == {"sni_hostname": "example.com"}
 
     async def test_500_response_calls_mark_failed(self, worker, webhook_repo, http_client):
         sub, delivery = await _create_sub_and_delivery(webhook_repo)
@@ -124,6 +147,33 @@ class TestDeliver:
         dead_letters = await webhook_repo.list_dead_letters()
         assert len(dead_letters) == 1
         assert dead_letters[0].delivery_id == delivery.delivery_id
+
+    async def test_internal_target_url_is_never_posted_to(self, worker, webhook_repo, http_client):
+        """A02-6 defence in depth: a row persisted before the bound existed.
+
+        Creation-time validation cannot reach a subscription that is already in
+        the database, and that row is exactly the SSRF primitive the finding
+        describes. The delivery path refuses it rather than trusting storage.
+        """
+        sub = WebhookSubscription(
+            deployment_ref="deploy-1",
+            target_url="http://169.254.169.254/latest/meta-data/",
+            secret="test-secret",
+            event_types=[WebhookEventType.RUN_COMPLETED],
+        )
+        sub = await webhook_repo.create_subscription(sub)
+        delivery = await webhook_repo.enqueue_delivery(
+            WebhookDelivery(
+                subscription_id=sub.subscription_id,
+                event_type=WebhookEventType.RUN_COMPLETED,
+                event_id="evt-ssrf",
+                payload_json='{"event_type":"run.completed","data":{}}',
+            )
+        )
+
+        await worker._deliver(delivery)
+
+        http_client.post.assert_not_called()
 
     async def test_timeout_calls_mark_failed(self, worker, webhook_repo, http_client):
         sub, delivery = await _create_sub_and_delivery(webhook_repo)
@@ -187,9 +237,7 @@ class TestRetryBackoffWindow:
     async def test_next_attempt_within_single_backoff_window(
         self, worker, webhook_repo, http_client, sqlite_db, attempt_count
     ):
-        sub, delivery = await _create_sub_and_delivery(
-            webhook_repo, attempt_count=attempt_count
-        )
+        sub, delivery = await _create_sub_and_delivery(webhook_repo, attempt_count=attempt_count)
         response = MagicMock(spec=httpx.Response)
         response.status_code = 500
         http_client.post.return_value = response

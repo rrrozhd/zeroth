@@ -6,14 +6,7 @@ are extracted before ``edges`` because edge validation calls into them.
 
 from __future__ import annotations
 
-from zeroth.contracts.graph.validation.cycles import (
-    strongly_connected_components,
-    validate_cycles,
-)
-from zeroth.contracts.graph.validation.mappings import (
-    validate_condition,
-    validate_mapping,
-)
+from zeroth.contracts.graph.limits import CONDITION_EXPRESSION_MAX_CHARS
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -22,6 +15,14 @@ from zeroth.contracts.graph.models import (
     ExecutionSettings,
     Graph,
     Node,
+)
+from zeroth.contracts.graph.validation.cycles import (
+    strongly_connected_components,
+    validate_cycles,
+)
+from zeroth.contracts.graph.validation.mappings import (
+    validate_condition,
+    validate_mapping,
 )
 from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 from zeroth.contracts.mappings import MappingValidator
@@ -84,6 +85,42 @@ def test_valid_condition_produces_nothing() -> None:
         source_node_id="a",
         target_node_id="b",
         condition=Condition(expression="payload.ok == true", operand_refs=["payload.ok"]),
+    )
+    issues: list[ValidationIssue] = []
+    validate_condition("g", edge, issues)
+
+    assert issues == []
+
+
+def test_oversized_condition_expression_is_reported() -> None:
+    """A05-5: the expression had a non-empty check but no ceiling."""
+    edge = Edge(
+        edge_id="e1",
+        source_node_id="a",
+        target_node_id="b",
+        condition=Condition(
+            expression="x" * (CONDITION_EXPRESSION_MAX_CHARS + 1),
+            operand_refs=["payload.ok"],
+        ),
+    )
+    issues: list[ValidationIssue] = []
+    validate_condition("g", edge, issues)
+
+    assert [(issue.code, issue.path) for issue in issues] == [
+        (ValidationCode.INVALID_CONDITION, ("edges", "e1", "condition", "expression")),
+    ]
+    assert "exceeds" in issues[0].message
+
+
+def test_a_condition_expression_at_exactly_the_cap_is_accepted() -> None:
+    edge = Edge(
+        edge_id="e1",
+        source_node_id="a",
+        target_node_id="b",
+        condition=Condition(
+            expression="x" * CONDITION_EXPRESSION_MAX_CHARS,
+            operand_refs=["payload.ok"],
+        ),
     )
     issues: list[ValidationIssue] = []
     validate_condition("g", edge, issues)

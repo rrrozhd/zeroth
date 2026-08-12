@@ -227,17 +227,25 @@ class SidecarExecutor:
             stderr_truncated=response.stderr_truncated,
         )
 
-    async def cancel(self, execution_id: str) -> None:
-        """Stop an active execution and persist an observable cancelled status."""
+    async def cancel(self, execution_id: str) -> bool:
+        """Stop an active execution and persist an observable cancelled status.
+
+        Returns ``False`` when ``execution_id`` was never submitted, so the
+        caller can 404 the same way ``get_status`` does instead of reporting
+        success for an id it has never seen. ``True`` covers both an active
+        execution this call stops and one already finalized (whose
+        ``_states`` entry ``_finalize`` already popped, but whose response
+        still lives in ``_executions``).
+        """
         async with self._registry_lock:
             state = self._states.get(execution_id)
         if state is None:
-            return
+            return execution_id in self._executions
         async with state.lock:
             if state.terminal or (
                 state.process is not None and state.process.returncode is not None
             ):
-                return
+                return True
             state.cancel_requested = True
         await self._stop_process(state)
         self._persist_cancelled(execution_id, time.perf_counter())
@@ -245,6 +253,7 @@ class SidecarExecutor:
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(state.task)
         await state.cleanup_done.wait()
+        return True
 
     async def _finalize(self, execution_id: str, state: _ExecutionState, network_name: str) -> None:
         """Remove owned network state and retire the active execution entry."""

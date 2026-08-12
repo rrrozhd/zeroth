@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.contracts.governed import RunStatus
@@ -59,8 +59,8 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
     async def list_admin_runs(
         request: Request,
         status_filter: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
+        limit: int = Query(default=50, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0, le=1_000_000),
     ) -> AdminRunListResponse:
         bootstrap = _bootstrap(request)
         # Listing is read-only and every individual run is already readable

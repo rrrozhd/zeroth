@@ -324,7 +324,14 @@ class ToolAttachmentBridge:
             "required_capabilities": [cap.value for cap in binding.required_capabilities],
             "timeout_override_seconds": binding.timeout_override_seconds,
             "side_effect_allowed": binding.side_effect_allowed,
-            "metadata": dict(binding.metadata),
+            # Runtime-only declaration restoration data can contain the raw
+            # untrusted strings and can be very large. It must not be copied
+            # into every model-call audit record.
+            "metadata": {
+                key: value
+                for key, value in binding.metadata.items()
+                if not key.startswith("mcp_declaration_")
+            },
         }
 
 

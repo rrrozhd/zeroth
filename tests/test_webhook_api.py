@@ -93,6 +93,60 @@ class TestCreateSubscription:
         assert data["active"] is True
 
 
+class TestCreateSubscriptionTargetBounds:
+    """A02-6: target_url is an outbound destination and declares its bounds."""
+
+    @pytest.mark.parametrize(
+        "target_url",
+        [
+            "http://127.0.0.1:6379/hook",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/hook",
+            "https://localhost/hook",
+            "file:///etc/passwd",
+            "not-a-url",
+        ],
+    )
+    def test_internal_or_malformed_target_is_refused(
+        self, client, mock_webhook_service, target_url
+    ):
+        resp = client.post(
+            "/webhooks/subscriptions",
+            json={
+                "deployment_ref": "deploy-1",
+                "target_url": target_url,
+                "event_types": ["run.completed"],
+            },
+        )
+
+        assert resp.status_code == 400
+        # Refused BEFORE persistence: the AC is "before any socket is opened",
+        # and a persisted row is what later opens one.
+        mock_webhook_service.create_subscription.assert_not_called()
+
+    def test_public_target_is_still_accepted(self, client, mock_webhook_service):
+        sub = WebhookSubscription(
+            subscription_id="sub-ok",
+            deployment_ref="deploy-1",
+            tenant_id="default",
+            target_url="https://example.com/hook",
+            secret="secret-123",
+            event_types=[WebhookEventType.RUN_COMPLETED],
+        )
+        mock_webhook_service.create_subscription.return_value = sub
+
+        resp = client.post(
+            "/webhooks/subscriptions",
+            json={
+                "deployment_ref": "deploy-1",
+                "target_url": "https://example.com/hook",
+                "event_types": ["run.completed"],
+            },
+        )
+
+        assert resp.status_code == 201
+
+
 class TestListSubscriptions:
     """GET /webhooks/subscriptions."""
 
@@ -216,6 +270,18 @@ class TestListDeadLetters:
         mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
         resp = client.get("/webhooks/dead-letters?subscription_id=sub-globex")
         assert resp.status_code == 404
+
+    def test_limit_above_bound_is_rejected(self, client, mock_webhook_service):
+        # A02-12: every paginated route declares bounds instead of accepting an
+        # unbounded caller-supplied limit.
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        resp = client.get("/webhooks/dead-letters?limit=1000000")
+        assert resp.status_code == 422
+
+    def test_limit_zero_is_rejected(self, client, mock_webhook_service):
+        mock_webhook_service.list_subscriptions.return_value = [_served_sub("sub-1")]
+        resp = client.get("/webhooks/dead-letters?limit=0")
+        assert resp.status_code == 422
 
 
 class TestReplayDeadLetter:

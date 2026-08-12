@@ -314,4 +314,10 @@ async def test_probe_unreachable_backend_returns_ok_false(sqlite_db) -> None:
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is False
+    # A02-8: the probe reports WHY it failed, from a closed set -- not the
+    # driver's own text, which names the host and port it dialled. Asserted over
+    # the whole serialized body, and at 200: this route deliberately never 500s,
+    # so a check scoped to error status codes would not see the leak.
     assert body["detail"]
+    for fragment in ("127.0.0.1", ":1/0", "redis://"):
+        assert fragment not in r.text, f"{fragment!r} leaked into the probe body"

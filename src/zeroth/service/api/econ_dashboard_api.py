@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 
+from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import Permission, require_permission
 
 
@@ -49,7 +50,13 @@ async def _dashboard_proxy(request: Request, path: str) -> Any:
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
+        # A02-10: same leak as the three cost_api sites -- an httpx error's
+        # message carries the full URL it dialled, i.e. the internal Regulus
+        # base URL and port.
+        raise HTTPException(
+            status_code=503,
+            detail=safe_error_detail(exc, context="regulus backend"),
+        ) from exc
 
 
 # Read-only dashboard views proxied to the console. Each maps a console path
