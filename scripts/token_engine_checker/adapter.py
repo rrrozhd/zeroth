@@ -19,6 +19,7 @@ from zeroth.contracts.graph.tokens import (
     JoinObligationOutcome,
 )
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.orchestration.token_joins import (
     close_ready_join,
@@ -261,7 +262,9 @@ def _repository_probe() -> dict[str, object]:
 
     async def exercise(path: Path) -> dict[str, object]:
         database = AsyncSQLiteDatabase(path=str(path))
-        repository = RunRepository(database)
+        repository = RunRepository(
+            database, NullWorkspaceScopeContext(tenant_id="checker")
+        )
         try:
             run = Run(
                 run_id="checker-repository-probe",

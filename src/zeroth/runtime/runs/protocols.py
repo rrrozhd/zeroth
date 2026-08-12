@@ -67,8 +67,6 @@ class ThreadStore(Protocol):
         *,
         graph_version_ref: str,
         deployment_ref: str,
-        tenant_id: str = "default",
-        workspace_id: str | None = None,
         participating_agent_refs: Sequence[str] | None = None,
         state_snapshot_refs: Sequence[str] | None = None,
         checkpoint_refs: Sequence[str] | None = None,
