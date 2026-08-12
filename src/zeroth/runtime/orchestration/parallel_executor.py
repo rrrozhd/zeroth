@@ -649,67 +649,76 @@ class RuntimeParallelExecutor:
                 "cannot resume pending_parallel_subgraph without SubgraphExecutor"
             )
 
-        resume_fn = getattr(self.subgraph_executor, "resume", None)
-        if resume_fn is not None:
-            resumed_child_run = await resume_fn(
-                orchestrator=self.orchestrator,
-                parent_graph=graph,
-                parent_run=run,
-                paused_child_run_id=paused_child_run_id,
-                branch_index=paused_branch_index,
-                step_tracker=step_tracker,
-            )
-        else:
-            # Fallback: re-resolve + re-namespace with SAME branch_index for
-            # D-11 idempotency, then resume_graph directly on the child run.
-            subgraph, _ = await self.subgraph_executor.resolver.resolve(
-                paused_graph_ref,
-                paused_version,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
-            )
-            child_run = await self.run_repository.get(paused_child_run_id)
-            depth = child_run.metadata.get("subgraph_depth", 1) if child_run else 1
-            namespaced = namespace_subgraph(
-                subgraph,
-                paused_graph_ref,
-                depth,
-                branch_index=paused_branch_index,
-            )
-            merged = merge_governance(graph, namespaced)
-            assert self.resume_graph is not None
-            resumed_child_run = await self.resume_graph(merged, paused_child_run_id)
+        resumed_child_run: Run | None = None
+        resume_error: Exception | None = None
+        try:
+            resume_fn = getattr(self.subgraph_executor, "resume", None)
+            if resume_fn is not None:
+                resumed_child_run = await resume_fn(
+                    orchestrator=self.orchestrator,
+                    parent_graph=graph,
+                    parent_run=run,
+                    paused_child_run_id=paused_child_run_id,
+                    branch_index=paused_branch_index,
+                    step_tracker=step_tracker,
+                )
+            else:
+                # Fallback: re-resolve + re-namespace with SAME branch_index for
+                # D-11 idempotency, then resume_graph directly on the child run.
+                subgraph, _ = await self.subgraph_executor.resolver.resolve(
+                    paused_graph_ref,
+                    paused_version,
+                    tenant_id=run.tenant_id,
+                    workspace_id=run.workspace_id,
+                )
+                child_run = await self.run_repository.get(paused_child_run_id)
+                depth = child_run.metadata.get("subgraph_depth", 1) if child_run else 1
+                namespaced = namespace_subgraph(
+                    subgraph,
+                    paused_graph_ref,
+                    depth,
+                    branch_index=paused_branch_index,
+                )
+                merged = merge_governance(graph, namespaced)
+                assert self.resume_graph is not None
+                resumed_child_run = await self.resume_graph(merged, paused_child_run_id)
+        except Exception as error:
+            resume_error = error
 
-        if resumed_child_run.status == RunStatus.WAITING_APPROVAL:
-            # Still waiting on a nested approval — keep parent paused.
-            return FanInResult(
-                results=[],
-                pause_state={
-                    "paused": paused_info,
-                    "completed_branch_results": completed_results,
-                    "cancelled_branch_contexts": pending.get("cancelled_branches", []),
-                    "split_input": pending.get("split_input", {}),
-                    "source_audit": pending.get("source_audit", {}),
-                    "source_input": pending.get("source_input", {}),
-                },
-            )
+        if resume_error is None:
+            assert resumed_child_run is not None
+            if resumed_child_run.status == RunStatus.WAITING_APPROVAL:
+                # Still waiting on a nested approval — keep parent paused.
+                return FanInResult(
+                    results=[],
+                    pause_state={
+                        "paused": paused_info,
+                        "completed_branch_results": completed_results,
+                        "cancelled_branch_contexts": pending.get("cancelled_branches", []),
+                        "split_input": pending.get("split_input", {}),
+                        "source_audit": pending.get("source_audit", {}),
+                        "source_input": pending.get("source_input", {}),
+                    },
+                )
 
-        if resumed_child_run.status != RunStatus.COMPLETED:
-            resumed_cost = rollup_run_cost(resumed_child_run)
-            failure = resumed_child_run.failure_state
-            detail = failure.message if failure is not None else "unknown failure"
-            error = RuntimeError(
-                f"parallel child run {resumed_child_run.run_id} ended "
-                f"{resumed_child_run.status.value}: {detail}"
-            )
-            error.audit_record = {  # type: ignore[attr-defined]
-                "subgraph_run_id": resumed_child_run.run_id,
-                "subgraph_graph_ref": paused_graph_ref,
-                "subgraph_status": resumed_child_run.status.value,
-                "cost_usd": resumed_cost.cost_usd,
-                "estimated_cost_usd": resumed_cost.estimated_cost_usd,
-                "cost_measurement": resumed_cost.cost_measurement,
-            }
+            if resumed_child_run.status != RunStatus.COMPLETED:
+                resumed_cost = rollup_run_cost(resumed_child_run)
+                failure = resumed_child_run.failure_state
+                detail = failure.message if failure is not None else "unknown failure"
+                resume_error = RuntimeError(
+                    f"parallel child run {resumed_child_run.run_id} ended "
+                    f"{resumed_child_run.status.value}: {detail}"
+                )
+                resume_error.audit_record = {  # type: ignore[attr-defined]
+                    "subgraph_run_id": resumed_child_run.run_id,
+                    "subgraph_graph_ref": paused_graph_ref,
+                    "subgraph_status": resumed_child_run.status.value,
+                    "cost_usd": resumed_cost.cost_usd,
+                    "estimated_cost_usd": resumed_cost.estimated_cost_usd,
+                    "cost_measurement": resumed_cost.cost_measurement,
+                }
+
+        if resume_error is not None:
             paused_ctx = _restore_branch_context(
                 paused_info.get("branch_context") or {"branch_index": paused_branch_index},
                 run.run_id,
@@ -719,7 +728,7 @@ class RuntimeParallelExecutor:
                 paused_node,
                 paused_node_id,
                 paused_ctx.metadata.get("subgraph_input", paused_ctx.input_payload),
-                error,
+                resume_error,
                 paused_ctx,
             )
             self._merge_histories(
@@ -729,15 +738,16 @@ class RuntimeParallelExecutor:
                     BranchResult(
                         branch_index=paused_branch_index,
                         output=None,
-                        error=str(error),
+                        error=str(resume_error),
                         audit_refs=list(paused_ctx.audit_refs),
                         execution_history=list(paused_ctx.execution_history),
                     ),
                     *self._cancelled_results(run, pending, paused_node_id),
                 ],
             )
-            raise error
+            raise resume_error
 
+        assert resumed_child_run is not None
         resumed_output = resumed_child_run.final_output or {}
         if not isinstance(resumed_output, dict):
             resumed_output = {"result": resumed_output}

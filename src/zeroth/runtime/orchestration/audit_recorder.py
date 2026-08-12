@@ -24,8 +24,9 @@ from zeroth.contracts.graph import Node
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
 from zeroth.governance.audit.models import MemoryAccessRecord, TokenUsage, ToolCallRecord
+from zeroth.integrations.execution.runner import ExecutableUnitAdmissionError
 from zeroth.platform.secrets import SecretResolver
-from zeroth.runtime.agents.errors import AgentProviderError
+from zeroth.runtime.agents.errors import AgentContentBlockedError
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run, RunHistoryEntry
 
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 # dict is not a kind any allowlisted metadata key declares, so the modes are
 # promoted to their own top-level keys or they are not persisted at all.
 _ENFORCEMENT_MODE_KEYS = ("network_mode", "sandbox_strictness_mode")
+_GOVERNANCE_REJECTION_ERRORS = (AgentContentBlockedError, ExecutableUnitAdmissionError)
 
 
 def enforcement_audit_fields(
@@ -305,10 +307,8 @@ class RuntimeAuditRecorder:
     ) -> None:
         """Persist an audit record for execution failures that happen before completion."""
         carried_audit = getattr(error, "audit_record", None)
-        # Provider failures now carry measurement fidelity too, but remain failed
-        # infrastructure attempts rather than governance rejections.
         has_carried_audit = isinstance(carried_audit, Mapping)
-        is_rejection = has_carried_audit and not isinstance(error, AgentProviderError)
+        is_rejection = isinstance(error, _GOVERNANCE_REJECTION_ERRORS)
         audit_record = dict(carried_audit) if has_carried_audit else {}
         if not is_rejection:
             audit_record = {**bare_error_audit_record(error), **audit_record}
@@ -435,13 +435,13 @@ class RuntimeAuditRecorder:
     ) -> None:
         """Persist a branch-scoped audit record for a failed branch-node dispatch.
 
-        Mirrors record_failed_execution: governance errors carrying audit data
-        are rejections, while provider failures remain failed infrastructure
-        attempts even when they carry measurement fidelity.
+        Mirrors record_failed_execution: explicit governance errors are
+        rejections, while operational failures remain failed attempts even when
+        they carry measurement fidelity.
         """
         carried_audit = getattr(error, "audit_record", None)
         has_carried_audit = isinstance(carried_audit, Mapping)
-        is_rejection = has_carried_audit and not isinstance(error, AgentProviderError)
+        is_rejection = isinstance(error, _GOVERNANCE_REJECTION_ERRORS)
         audit_record = dict(carried_audit) if has_carried_audit else {}
         if not is_rejection:
             audit_record = {**bare_error_audit_record(error), **audit_record}

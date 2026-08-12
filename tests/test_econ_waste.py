@@ -277,7 +277,7 @@ async def test_runner_attaches_cost_to_validation_failure() -> None:
 async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -> None:
     """End-to-end: a paid-then-failed node records its cost, and analyze_run flags it.
 
-    Without the runner+runtime cost-on-failure fix the rejected audit would carry
+    Without the runner+runtime cost-on-failure fix the failed audit would carry
     no cost and ``paid_for_failed_run`` would silently under-report — this is the
     proof the signal reaches the detector through the real execution path.
     """
@@ -306,9 +306,9 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
     assert run.status is RunStatus.FAILED
 
     audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
-    rejected = [a for a in audits if a.node_id == "n1" and a.status == "rejected"]
-    assert len(rejected) == 1
-    assert rejected[0].cost_usd == pytest.approx(0.02)  # paid-then-failed spend survived
+    failed = [a for a in audits if a.node_id == "n1" and a.status == "failed"]
+    assert len(failed) == 1
+    assert failed[0].cost_usd == pytest.approx(0.02)  # paid-then-failed spend survived
 
     report = analyze_run(run.run_id, run.status, audits)
     assert report.confirmed_waste_usd == pytest.approx(0.02)

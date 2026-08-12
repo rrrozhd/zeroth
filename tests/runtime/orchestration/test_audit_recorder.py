@@ -17,11 +17,14 @@ import pytest
 
 from zeroth.contracts.graph import AgentNode, AgentNodeData
 from zeroth.governance.audit.models import MemoryAccessRecord, ToolCallRecord
+from zeroth.integrations.execution import ExecutableUnitAdmissionError
 from zeroth.platform.measurement import MeasurementState
+from zeroth.runtime.agents.errors import AgentContentBlockedError
 from zeroth.runtime.orchestration import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.parallel_executor import sum_run_cost
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.runs import Run
+from zeroth.runtime.subgraphs.errors import SubgraphExecutionError
 
 
 class _CollectingAuditRepository:
@@ -181,25 +184,38 @@ async def test_failed_execution_records_a_normalized_reason_code_for_a_bare_erro
     assert record.error == "boom"
 
 
-async def test_failed_execution_preserves_a_carried_audit_record_as_rejected() -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        AgentContentBlockedError(
+            "blocked",
+            direction="output",
+            findings=["unsafe"],
+            audit_record={"guardrail": "content_safety", "cost_usd": 0.25},
+        ),
+        ExecutableUnitAdmissionError(
+            "denied",
+            audit_record={"admitted": False, "cost_usd": 0.25},
+        ),
+    ],
+)
+async def test_failed_execution_preserves_explicit_governance_rejections(
+    error: Exception,
+) -> None:
     repository = _CollectingAuditRepository()
     recorder = RuntimeAuditRecorder(audit_repository=repository)
     run = _run()
-    error = ValueError("blocked")
-    error.audit_record = {"guardrail": "content_safety", "cost_usd": 0.25}  # type: ignore[attr-defined]
-
     await recorder.record_failed_execution(run, _node(), "n1", {}, error)
 
     (record,) = repository.records
     assert record.status == "rejected"
-    assert record.execution_metadata == {"guardrail": "content_safety", "cost_usd": 0.25}
     assert record.cost_usd == 0.25
 
 
 async def test_failed_execution_appends_cost_history_without_a_repository() -> None:
     recorder = RuntimeAuditRecorder()
     run = _run()
-    error = ValueError("blocked")
+    error = SubgraphExecutionError("child failed")
     error.audit_record = {  # type: ignore[attr-defined]
         "estimated_cost_usd": 0.25,
         "cost_measurement": MeasurementState.ESTIMATED,
@@ -208,7 +224,7 @@ async def test_failed_execution_appends_cost_history_without_a_repository() -> N
     await recorder.record_failed_execution(run, _node(), "n1", {}, error)
 
     (history,) = run.execution_history
-    assert history.status == "rejected"
+    assert history.status == "failed"
     assert history.estimated_cost_usd == 0.25
     assert history.cost_measurement is MeasurementState.ESTIMATED
     assert sum_run_cost(run) == 0.25
@@ -262,7 +278,7 @@ async def test_failed_branch_execution_appends_cost_history_without_a_repository
     recorder = RuntimeAuditRecorder()
     run = _run()
     ctx = BranchContext(branch_index=2, branch_id="b2", input_payload={})
-    error = ValueError("blocked")
+    error = SubgraphExecutionError("child failed")
     error.audit_record = {  # type: ignore[attr-defined]
         "cost_usd": 0.5,
         "cost_measurement": MeasurementState.MEASURED,
@@ -271,7 +287,7 @@ async def test_failed_branch_execution_appends_cost_history_without_a_repository
     await recorder.record_failed_branch_execution(run, _node(), "n1", {}, error, ctx)
 
     (history,) = ctx.execution_history
-    assert history.status == "rejected"
+    assert history.status == "failed"
     assert history.cost_usd == 0.5
     assert history.cost_measurement is MeasurementState.MEASURED
 
