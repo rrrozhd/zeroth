@@ -109,6 +109,11 @@ class InstrumentedProviderAdapter:
                 }
             )
 
+        # An inner instrumentation layer already owns this measurement/event.
+        # Repricing it here would count the same provider call twice.
+        if response.cost_measurement is not MeasurementState.UNMEASURED:
+            return response
+
         # No Regulus client (cost tracking on, event stream off): still attribute the
         # local litellm cost estimate so the audit trail and local econ lenses work,
         # but emit no event and leave cost_event_id None — there is no Regulus event to
