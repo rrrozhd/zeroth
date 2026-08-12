@@ -24,6 +24,8 @@ from zeroth.econ.plane.connectors.service import (
     retry_outbox_item,
 )
 from zeroth.econ.plane.connectors.workers import process_connector_outbox
+from zeroth.econ.plane.costing.models import PricingCatalog
+from zeroth.econ.plane.costing.service import PricingCatalogReader, estimate_cost_for_period
 from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
@@ -122,6 +124,54 @@ def test_create_action_uses_the_bound_tenant_for_its_policy_row(econ_engine) -> 
         assert policy.tenant_id == "tenant-a"
     finally:
         raw.close()
+
+
+def test_cost_estimate_reads_global_pricing_through_a_separate_scope(econ_engine) -> None:
+    _seed_capabilities(econ_engine)
+    raw_tenant, tenant_a = _scope(econ_engine, "tenant-a")
+    raw_global = Session(econ_engine)
+    global_pricing = ScopedSession(raw_global, None)
+    try:
+        global_pricing.add(
+            PricingCatalog(
+                provider="provider-a",
+                model="model-a",
+                effective_from=_NOW,
+                input_per_million_usd=2.0,
+                output_per_million_usd=4.0,
+            )
+        )
+        global_pricing.commit()
+        ingest_execution(
+            tenant_a,
+            _execution("inferred-cost", "cap-a", "impl-a").model_copy(
+                update={
+                    "token_cost_usd": Decimal("0"),
+                    "metadata": {
+                        "provider": "provider-a",
+                        "model": "model-a",
+                        "prompt_tokens": 1_000_000,
+                        "completion_tokens": 500_000,
+                    },
+                }
+            ),
+        )
+
+        estimate = estimate_cost_for_period(
+            tenant_a,
+            "cap-a",
+            "impl-a",
+            _NOW,
+            _NOW,
+            pricing=PricingCatalogReader(global_pricing),
+        )
+
+        assert estimate.tenant_id == "tenant-a"
+        assert estimate.data_quality == "inferred"
+        assert float(estimate.llm_cost_estimate_usd) > 0
+    finally:
+        raw_tenant.close()
+        raw_global.close()
 
 
 def test_cross_tenant_duplicate_execution_id_returns_only_bound_row(econ_engine) -> None:
