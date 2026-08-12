@@ -17,6 +17,9 @@ class SecretRedactor:
     def redact(self, value: Any) -> Any:
         """Recursively redact strings, dicts, and lists that contain known secrets."""
         if isinstance(value, str):
+            for ref, secret in self._known_secrets.items():
+                if len(secret) < 8 and secret in value:
+                    return f"[REDACTED:{ref}]"
             redacted = value
             for ref, secret in self._known_secrets.items():
                 redacted = redacted.replace(secret, f"[REDACTED:{ref}]")

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import InvalidToken
 
 from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.platform.storage import EncryptedField
@@ -257,3 +258,19 @@ async def test_reading_falls_back_to_plaintext_written_before_encryption(
 
     assert restored is not None
     assert restored.workflow_name == "demo"
+
+
+async def test_wrong_encryption_key_fails_closed(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "rotated-checkpoint-key.db")
+    run_migrations(f"sqlite:///{db_path}")
+    writer = AsyncSQLiteDatabase(path=db_path, encryption_key=EncryptedField.generate_key())
+    run = _make_run()
+    await _write(CheckpointRowStore(writer), run, checkpoint_id="checkpoint-1", checkpoint_order=0)
+    await writer.close()
+
+    reader = AsyncSQLiteDatabase(path=db_path, encryption_key=EncryptedField.generate_key())
+    try:
+        with pytest.raises(InvalidToken):
+            await CheckpointRowStore(reader).get("checkpoint-1")
+    finally:
+        await reader.close()

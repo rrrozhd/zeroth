@@ -54,6 +54,13 @@ def test_secret_redactor_masks_known_values_in_dicts_and_strings() -> None:
     }
 
 
+def test_secret_redactor_redacts_whole_string_for_short_secret() -> None:
+    redactor = SecretRedactor({"PIN": "7"})
+
+    assert redactor.redact("account 7 is active") == "[REDACTED:PIN]"
+    assert redactor.redact("account 8 is active") == "account 8 is active"
+
+
 # --- async compatibility helpers --------------------------------------------
 
 
