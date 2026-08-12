@@ -41,6 +41,7 @@ def named_isolation_probe(probe_name: str) -> PersistenceProbe:
     _require_non_empty_string(probe_name, "probe_name")
 
     async def execute(database: Any, operation: ResourceOperation) -> None:
+        """Create or resolve execute for structurally scoped persistence."""
         module_name, separator, function_name = probe_name.partition(":")
         if not separator:
             module_name = "zeroth.service.persistence_isolation_probes"
@@ -63,6 +64,7 @@ def persistence_operation(
     declared = frozenset(operations)
 
     def decorate(method: _CallableT) -> _CallableT:
+        """Create or resolve decorate for structurally scoped persistence."""
         if not callable(method):
             raise TypeError("persistence_operation can decorate only callables")
         if hasattr(method, "__persistence_operations__"):
@@ -83,6 +85,7 @@ def persistence_resource_operations(
     declared = frozenset(operations)
 
     def decorate(method: _CallableT) -> _CallableT:
+        """Create or resolve decorate for structurally scoped persistence."""
         resource_operations = dict(getattr(method, "__persistence_resource_operations__", {}))
         if resource_name in resource_operations:
             raise ValueError(f"operations for {resource_name} are already declared")
@@ -97,6 +100,7 @@ def persistence_resource_operations(
 
 @dataclass(frozen=True, slots=True)
 class _PersistenceSurfaceDeclaration:
+    """Represent PersistenceSurfaceDeclaration within the structural tenant-isolation boundary."""
     resource_name: str
     probe: PersistenceProbe | None
     non_persistence_public_methods: frozenset[str]
@@ -117,6 +121,7 @@ def persistence_surface(
     _require_stable_resource_name(resource_name)
 
     def decorate(repository_type: type[Any]) -> type[Any]:
+        """Create or resolve decorate for structurally scoped persistence."""
         declarations = list(getattr(repository_type, "__persistence_surface_declarations__", ()))
         if any(item.resource_name == resource_name for item in declarations):
             raise ValueError(f"surface {resource_name} is already declared")
@@ -295,6 +300,7 @@ def validate_persistence_surface(
 
 
 def _require_non_empty_string(value: object, field_name: str) -> None:
+    """Validate non empty string before accessing scoped persistence."""
     if not isinstance(value, str):
         raise TypeError(f"{field_name} must be a string")
     if not value.strip():
@@ -302,12 +308,14 @@ def _require_non_empty_string(value: object, field_name: str) -> None:
 
 
 def _require_stable_resource_name(value: object) -> None:
+    """Validate stable resource name before accessing scoped persistence."""
     _require_non_empty_string(value, "resource_name")
     if _RESOURCE_NAME.fullmatch(value) is None:  # type: ignore[arg-type]
         raise ValueError("resource_name must be a stable identifier")
 
 
 def _require_sql_identifier(value: object, field_name: str) -> None:
+    """Validate sql identifier before accessing scoped persistence."""
     _require_non_empty_string(value, field_name)
     if _SQL_IDENTIFIER.fullmatch(value) is None:  # type: ignore[arg-type]
         raise ValueError(f"{field_name} must be a SQL identifier")
@@ -322,6 +330,7 @@ class ScopeContext:
     workspace_id: str
 
     def __post_init__(self) -> None:
+        """Validate the immutable scope definition after initialization."""
         _require_non_empty_string(self.tenant_id, "tenant_id")
         _require_non_empty_string(self.workspace_id, "workspace_id")
         if self.tenant_id == _DEFAULT_TENANT_ID:
@@ -345,6 +354,7 @@ class NullWorkspaceScopeContext:
     tenant_id: str
 
     def __post_init__(self) -> None:
+        """Validate the immutable scope definition after initialization."""
         _require_non_empty_string(self.tenant_id, "tenant_id")
         if self.tenant_id == _DEFAULT_TENANT_ID:
             raise ValueError("the reserved default tenant requires for_default_compatibility()")
@@ -365,6 +375,7 @@ class TenantWideScopeContext:
     tenant_id: str
 
     def __post_init__(self) -> None:
+        """Validate the immutable scope definition after initialization."""
         _require_non_empty_string(self.tenant_id, "tenant_id")
         if self.tenant_id == _DEFAULT_TENANT_ID:
             raise ValueError("the reserved default tenant requires for_default_compatibility()")
@@ -388,6 +399,7 @@ class CrossTenantMaintenanceScopeContext:
 
     @classmethod
     def for_scheduled_maintenance(cls) -> CrossTenantMaintenanceScopeContext:
+        """Create or resolve for scheduled maintenance for structurally scoped persistence."""
         return object.__new__(cls)
 
 
@@ -404,6 +416,7 @@ class ResourceScopeDefinition:
     direct_scope_ready: bool = True
 
     def __post_init__(self) -> None:
+        """Validate the immutable scope definition after initialization."""
         _require_stable_resource_name(self.resource_name)
         _require_sql_identifier(self.table_name, "table_name")
         if type(self.scope) is not ResourceScope:
@@ -440,6 +453,7 @@ class _ResourceScopeSnapshot:
 
     @classmethod
     def from_definition(cls, definition: ResourceScopeDefinition) -> _ResourceScopeSnapshot:
+        """Create or resolve from definition for structurally scoped persistence."""
         validated = ResourceScopeDefinition(
             resource_name=definition.resource_name,
             table_name=definition.table_name,
@@ -466,6 +480,7 @@ class _ResourceScopeSnapshot:
         )
 
     def to_definition(self) -> ResourceScopeDefinition:
+        """Create or resolve to definition for structurally scoped persistence."""
         return ResourceScopeDefinition(
             resource_name=self.resource_name,
             table_name=self.table_name,
@@ -482,6 +497,7 @@ class ResourceScopeRegistry:
     __slots__ = ("__by_resource", "__by_table")
 
     def __init__(self, definitions: Iterable[ResourceScopeDefinition] = ()) -> None:
+        """Bind the repository or gateway to its validated scope."""
         self.__by_resource: dict[str, _ResourceScopeSnapshot] = {}
         self.__by_table: dict[str, _ResourceScopeSnapshot] = {}
         for definition in definitions:
@@ -561,6 +577,7 @@ class ResourceScopeRegistry:
         *,
         operation: ResourceOperation,
     ) -> ResourceScopeDefinition:
+        """Validate a maintenance binding against the registered resource scope."""
         if type(context) is not CrossTenantMaintenanceScopeContext:
             raise TypeError("context must be a CrossTenantMaintenanceScopeContext")
         if operation not in {ResourceOperation.READ, ResourceOperation.ENUMERATE}:
@@ -580,6 +597,7 @@ class ResourceScopeRegistry:
         definition: _ResourceScopeSnapshot,
         operation: ResourceOperation | None,
     ) -> None:
+        """Validate operation against the bound resource scope."""
         if operation is None:
             return
         if type(operation) is not ResourceOperation:

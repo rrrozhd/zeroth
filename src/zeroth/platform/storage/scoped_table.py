@@ -306,12 +306,14 @@ SERVICE_SCOPE_REGISTRY = ResourceScopeRegistry(SERVICE_SCOPE_DEFINITIONS)
 
 
 def _identifier(value: str) -> str:
+    """Resolve identifier for structurally scoped persistence."""
     if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
         raise ValueError(f"invalid SQL identifier: {value!r}")
     return value
 
 
 def _definition_table_name(definition: ResourceScopeDefinition) -> str:
+    """Resolve definition table name for structurally scoped persistence."""
     try:
         return _identifier(definition.table_name)
     except ValueError as exc:
@@ -319,6 +321,7 @@ def _definition_table_name(definition: ResourceScopeDefinition) -> str:
 
 
 def _columns(values: tuple[str, ...], *, qualifier: str | None = None) -> str:
+    """Resolve columns for structurally scoped persistence."""
     if values == ("*",):
         return f"{qualifier}.*" if qualifier else "*"
     if not values:
@@ -338,6 +341,7 @@ class ScopedJoin:
     foreign_column: str
 
     def __post_init__(self) -> None:
+        """Validate the immutable scope definition after initialization."""
         if type(self.table) is not ScopedTable:
             raise TypeError("join table must be a ScopedTable")
         _identifier(self.local_column)
@@ -345,6 +349,7 @@ class ScopedJoin:
 
 
 class _StructuredTable:
+    """Represent StructuredTable within the structural tenant-isolation boundary."""
     __slots__ = ("__database", "__registry", "__resource_name")
 
     def __init__(
@@ -353,6 +358,7 @@ class _StructuredTable:
         registry: ResourceScopeRegistry,
         definition: ResourceScopeDefinition,
     ) -> None:
+        """Bind the repository or gateway to its validated scope."""
         if not isinstance(database, AsyncDatabase):
             raise TypeError("database must implement AsyncDatabase")
         if type(registry) is not ResourceScopeRegistry:
@@ -367,13 +373,16 @@ class _StructuredTable:
 
     @property
     def _registry(self) -> ResourceScopeRegistry:
+        """Resolve registry for structurally scoped persistence."""
         return self.__registry
 
     @property
     def _definition(self) -> ResourceScopeDefinition:
+        """Resolve definition for structurally scoped persistence."""
         return self._canonical_definition()
 
     def _canonical_definition(self) -> ResourceScopeDefinition:
+        """Resolve canonical definition for structurally scoped persistence."""
         return self.__registry.definition_for_resource(self.__resource_name)
 
     def _validate_operation(
@@ -381,12 +390,14 @@ class _StructuredTable:
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
     ) -> ResourceScopeDefinition:
+        """Validate operation against the bound resource scope."""
         raise NotImplementedError
 
     def _scope_items(
         self,
         definition: ResourceScopeDefinition,
     ) -> tuple[tuple[str, str | None], ...]:
+        """Resolve scope items for structurally scoped persistence."""
         return ()
 
     def _transaction_scope_identity(self) -> tuple[object, ...]:
@@ -394,6 +405,7 @@ class _StructuredTable:
         return (type(self),)
 
     def _accepts_transaction_scope_from(self, source: _StructuredTable) -> bool:
+        """Resolve accepts transaction scope from for structurally scoped persistence."""
         return self._transaction_scope_identity() == source._transaction_scope_identity()
 
     def in_transaction(
@@ -421,6 +433,7 @@ class _StructuredTable:
         create: bool,
         definition: ResourceScopeDefinition,
     ) -> dict[str, Any]:
+        """Validate values against the bound resource scope."""
         if not isinstance(values, dict):
             raise TypeError("values must be a dict")
         if not values and not create:
@@ -444,6 +457,7 @@ class _StructuredTable:
         include_scope: bool = True,
         definition: ResourceScopeDefinition,
     ) -> tuple[list[str], list[Any]]:
+        """Resolve where for structurally scoped persistence."""
         predicates: list[str] = []
         params: list[Any] = []
         for column, value in (where or {}).items():
@@ -629,6 +643,7 @@ class BoundStructuredTable:
     __slots__ = ("__connection", "__table")
 
     def __init__(self, table: _StructuredTable, connection: AsyncConnection) -> None:
+        """Bind the repository or gateway to its validated scope."""
         if not isinstance(table, _StructuredTable):
             raise TypeError("table must be a structured table")
         self.__table = table
@@ -648,6 +663,7 @@ class BoundStructuredTable:
         return BoundStructuredTable(table, self.__connection)
 
     def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
+        """Resolve definition for structurally scoped persistence."""
         definition = self.__table._canonical_definition()
         return self.__table._validate_operation(operation, definition)
 
@@ -662,6 +678,7 @@ class BoundStructuredTable:
         where_in: dict[str, tuple[Any, ...]] | None = None,
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
     ) -> tuple[list[str], list[Any]]:
+        """Resolve where for structurally scoped persistence."""
         predicates, params = self.__table._where(where, definition=definition)
         for column in where_null:
             predicates.append(f"{_identifier(column)} IS NULL")
@@ -962,6 +979,7 @@ class ScopedTable(_StructuredTable):
         _privileged_tenant_wide: bool = False,
         _cross_tenant_maintenance: bool = False,
     ) -> None:
+        """Bind the repository or gateway to its validated scope."""
         if _cross_tenant_maintenance:
             if type(context) is not CrossTenantMaintenanceScopeContext:
                 raise TypeError("maintenance context must be a CrossTenantMaintenanceScopeContext")
@@ -983,10 +1001,12 @@ class ScopedTable(_StructuredTable):
 
     @property
     def _context(self) -> object:
+        """Resolve context for structurally scoped persistence."""
         return self.__context
 
     @property
     def _privileged_tenant_wide(self) -> bool:
+        """Resolve privileged tenant wide for structurally scoped persistence."""
         return self.__privileged_tenant_wide
 
     @classmethod
@@ -1014,6 +1034,7 @@ class ScopedTable(_StructuredTable):
         resource_name: str,
         context: CrossTenantMaintenanceScopeContext,
     ) -> Self:
+        """Create or resolve for cross tenant maintenance for structurally scoped persistence."""
         return cls(
             database,
             registry,
@@ -1027,6 +1048,7 @@ class ScopedTable(_StructuredTable):
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
     ) -> ResourceScopeDefinition:
+        """Validate operation against the bound resource scope."""
         if self.__cross_tenant_maintenance:
             assert type(self._context) is CrossTenantMaintenanceScopeContext
             return self._registry.validate_cross_tenant_maintenance_binding(
@@ -1051,6 +1073,7 @@ class ScopedTable(_StructuredTable):
         self,
         definition: ResourceScopeDefinition,
     ) -> tuple[tuple[str, str | None], ...]:
+        """Resolve scope items for structurally scoped persistence."""
         if self.__cross_tenant_maintenance:
             return ()
         assert not isinstance(self._context, CrossTenantMaintenanceScopeContext)
@@ -1066,6 +1089,7 @@ class ScopedTable(_StructuredTable):
         return tuple(items)
 
     def _transaction_scope_identity(self) -> tuple[object, ...]:
+        """Resolve transaction scope identity for structurally scoped persistence."""
         return (
             type(self._context),
             self._context,
@@ -1074,6 +1098,7 @@ class ScopedTable(_StructuredTable):
         )
 
     def _accepts_transaction_scope_from(self, source: _StructuredTable) -> bool:
+        """Resolve accepts transaction scope from for structurally scoped persistence."""
         if super()._accepts_transaction_scope_from(source):
             return True
         if type(source) is not ScopedTable:
@@ -1091,6 +1116,7 @@ class ScopedTable(_StructuredTable):
         )
 
     def _validate_join(self, other: ScopedTable) -> None:
+        """Validate join against the bound resource scope."""
         if (
             self._context != other._context
             or self._privileged_tenant_wide != other._privileged_tenant_wide
@@ -1111,6 +1137,7 @@ class GlobalTable(_StructuredTable):
         registry: ResourceScopeRegistry,
         resource_name: str,
     ) -> None:
+        """Bind the repository or gateway to its validated scope."""
         definition = registry.validate_binding(resource_name, None)
         if definition.scope is not ResourceScope.GLOBAL:
             raise ValueError("tenant resources require ScopedTable")
@@ -1121,6 +1148,7 @@ class GlobalTable(_StructuredTable):
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
     ) -> ResourceScopeDefinition:
+        """Validate operation against the bound resource scope."""
         return self._registry.validate_binding(
             definition.resource_name,
             None,
@@ -1134,6 +1162,7 @@ class GlobalTable(_StructuredTable):
         create: bool,
         definition: ResourceScopeDefinition,
     ) -> dict[str, Any]:
+        """Validate values against the bound resource scope."""
         rendered = super()._validate_values(
             values,
             create=create,
@@ -1151,6 +1180,7 @@ class GlobalTable(_StructuredTable):
         include_scope: bool = True,
         definition: ResourceScopeDefinition,
     ) -> tuple[list[str], list[Any]]:
+        """Resolve where for structurally scoped persistence."""
         if where is not None and _OWNERSHIP_COLUMNS.intersection(where):
             raise ValueError("global resources cannot filter by tenant or workspace ownership")
         return super()._where(

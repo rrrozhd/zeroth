@@ -8,10 +8,12 @@ from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, Re
 
 
 def _scope(tenant_id: str) -> NullWorkspaceScopeContext:
+    """Resolve scope for structurally scoped persistence."""
     return NullWorkspaceScopeContext(tenant_id=tenant_id)
 
 
 def _audit(tenant: str, audit_id: str = "driver-audit") -> NodeAuditRecord:
+    """Resolve audit for structurally scoped persistence."""
     return NodeAuditRecord(
         audit_id=audit_id,
         run_id="driver-run",
@@ -26,6 +28,7 @@ def _audit(tenant: str, audit_id: str = "driver-audit") -> NodeAuditRecord:
 async def _drive_audit_resource(
     database: AsyncDatabase, operation: ResourceOperation, *, chain: bool
 ) -> None:
+    """Exercise audit resource operations through the tenant-isolation matrix."""
     owner = AuditRepository.scoped(database, _scope("driver-owner"))
     foreign = AuditRepository.scoped(database, _scope("driver-foreign"))
     owner_written = await owner.write(_audit("driver-owner"))
@@ -55,8 +58,10 @@ async def _drive_audit_resource(
 
 
 async def _drive_audit_chain_heads(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise audit chain heads operations through the tenant-isolation matrix."""
     await _drive_audit_resource(database, operation, chain=True)
 
 
 async def _drive_node_audits(database: AsyncDatabase, operation: ResourceOperation) -> None:
+    """Exercise node audits operations through the tenant-isolation matrix."""
     await _drive_audit_resource(database, operation, chain=False)
