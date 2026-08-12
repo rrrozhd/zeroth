@@ -5,14 +5,20 @@ from datetime import UTC, datetime
 import pytest
 
 from zeroth.governance.audit import AuditContinuityVerifier, AuditRepository, NodeAuditRecord
-from zeroth.platform.storage import ScopeContext
+from zeroth.platform.storage import (
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    TenantWideScopeContext,
+)
 
 
 def _scope(tenant_id: str, workspace_id: str) -> ScopeContext:
     return ScopeContext(tenant_id=tenant_id, workspace_id=workspace_id)
 
 
-def _record(*, audit_id: str, run_id: str, tenant_id: str, workspace_id: str) -> NodeAuditRecord:
+def _record(
+    *, audit_id: str, run_id: str, tenant_id: str, workspace_id: str | None
+) -> NodeAuditRecord:
     now = datetime(2026, 8, 11, tzinfo=UTC)
     return NodeAuditRecord(
         audit_id=audit_id,
@@ -116,3 +122,60 @@ async def test_query_owner_cannot_override_bound_repository_scope(sqlite_db) -> 
         await repository.list_by_run("run", tenant_id="tenant-b")
     with pytest.raises(ValueError, match="workspace_id does not match bound scope"):
         await repository.list_by_run("run", workspace_id="workspace-b", workspace_scoped=True)
+
+
+async def test_null_workspace_repository_never_touches_same_tenant_workspace_row(sqlite_db) -> None:
+    null_repository = AuditRepository.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
+    workspace_repository = AuditRepository.scoped(
+        sqlite_db, ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a")
+    )
+    tenant_wide_repository = AuditRepository.scoped(
+        sqlite_db, TenantWideScopeContext(tenant_id="tenant-a")
+    )
+    null_record = _record(
+        audit_id="null-audit",
+        run_id="null-run",
+        tenant_id="tenant-a",
+        workspace_id=None,
+    )
+    workspace_record = _record(
+        audit_id="workspace-audit",
+        run_id="workspace-run",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+    await null_repository.write(null_record)
+    await workspace_repository.write(workspace_record)
+
+    assert await null_repository.get("workspace-audit") is None
+    assert [record.audit_id for record in await null_repository.list()] == ["null-audit"]
+    assert {record.audit_id for record in await tenant_wide_repository.list()} == {
+        "null-audit",
+        "workspace-audit",
+    }
+
+    await null_repository.crypto_erase("null-audit", reason="canary")
+    assert (await null_repository.get("null-audit")).erased is True  # type: ignore[union-attr]
+    assert (await workspace_repository.get("workspace-audit")).erased is False  # type: ignore[union-attr]
+
+    await null_repository._audits.update(  # noqa: SLF001
+        {"record_json": "{}"}, where={"audit_id": "workspace-audit"}
+    )
+    assert (await workspace_repository.get("workspace-audit")).audit_id == "workspace-audit"  # type: ignore[union-attr]
+    await null_repository._audits.delete(where={"audit_id": "workspace-audit"})  # noqa: SLF001
+    assert await workspace_repository.get("workspace-audit") is not None
+    await null_repository._audits.delete(where={"audit_id": "null-audit"})  # noqa: SLF001
+    assert await null_repository.get("null-audit") is None
+    assert await workspace_repository.get("workspace-audit") is not None
+
+    with pytest.raises(ValueError, match="workspace-scoped creates require a workspace context"):
+        await tenant_wide_repository.write(
+            _record(
+                audit_id="privileged-write",
+                run_id="privileged-run",
+                tenant_id="tenant-a",
+                workspace_id=None,
+            )
+        )
