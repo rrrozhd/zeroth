@@ -296,8 +296,6 @@ class RuntimeAuditRecorder:
         started_at: datetime | None = None,
     ) -> None:
         """Persist an audit record for execution failures that happen before completion."""
-        if self.audit_repository is None:
-            return
         carried_audit = getattr(error, "audit_record", None)
         # Errors that attach an audit_record (content blocks, integrity rejections,
         # paid-then-failed calls) are governance rejections. Bare infrastructure
@@ -325,37 +323,55 @@ class RuntimeAuditRecorder:
         # Promote cost/token fields so spend incurred before the failure -- a paid
         # LLM call that then failed validation or was content-blocked -- is not lost
         # from the audit trail (and stays visible to econ.waste.analyze_run).
-        token_usage_data = redacted_audit_record.get("token_usage")
-        token_usage = (
-            TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
-        )
-        tool_calls, memory_interactions = self.typed_fields(redacted_audit_record)
-        await self.audit_repository.write(
-            NodeAuditRecord(
-                audit_id=self.stored_audit_id(run.run_id, audit_ref),
-                run_id=run.run_id,
-                thread_id=run.thread_id,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
+        redacted_input = self.redact(dict(input_payload))
+        if self.audit_repository is not None:
+            token_usage_data = redacted_audit_record.get("token_usage")
+            token_usage = (
+                TokenUsage.model_validate(token_usage_data)
+                if token_usage_data is not None
+                else None
+            )
+            tool_calls, memory_interactions = self.typed_fields(redacted_audit_record)
+            await self.audit_repository.write(
+                NodeAuditRecord(
+                    audit_id=self.stored_audit_id(run.run_id, audit_ref),
+                    run_id=run.run_id,
+                    thread_id=run.thread_id,
+                    tenant_id=run.tenant_id,
+                    workspace_id=run.workspace_id,
+                    node_id=node_id,
+                    node_version=node.node_version,
+                    graph_version_ref=run.graph_version_ref,
+                    deployment_ref=run.deployment_ref,
+                    attempt=1,
+                    status="rejected" if is_rejection else "failed",
+                    started_at=node_started_at,
+                    completed_at=completed_at,
+                    input_snapshot=redacted_input,
+                    output_snapshot={},
+                    execution_metadata=redacted_audit_record,
+                    token_usage=token_usage,
+                    cost_usd=redacted_audit_record.get("cost_usd"),
+                    estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                    cost_measurement=redacted_audit_record.get("cost_measurement"),
+                    cost_event_id=redacted_audit_record.get("cost_event_id"),
+                    error=self.redact(str(error)),
+                    tool_calls=tool_calls,
+                    memory_interactions=memory_interactions,
+                )
+            )
+        run.execution_history.append(
+            RunHistoryEntry(
                 node_id=node_id,
-                node_version=node.node_version,
-                graph_version_ref=run.graph_version_ref,
-                deployment_ref=run.deployment_ref,
-                attempt=1,
                 status="rejected" if is_rejection else "failed",
+                input_snapshot=redacted_input,
+                output_snapshot={},
+                audit_ref=audit_ref,
                 started_at=node_started_at,
                 completed_at=completed_at,
-                input_snapshot=self.redact(dict(input_payload)),
-                output_snapshot={},
-                execution_metadata=redacted_audit_record,
-                token_usage=token_usage,
                 cost_usd=redacted_audit_record.get("cost_usd"),
                 estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
                 cost_measurement=redacted_audit_record.get("cost_measurement"),
-                cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=self.redact(str(error)),
-                tool_calls=tool_calls,
-                memory_interactions=memory_interactions,
             )
         )
 
@@ -419,8 +435,6 @@ class RuntimeAuditRecorder:
         trail — a failed branch node with no audit record is indistinguishable
         from a node that never ran.
         """
-        if self.audit_repository is None:
-            return
         carried_audit = getattr(error, "audit_record", None)
         is_rejection = isinstance(carried_audit, Mapping)
         audit_record: dict[str, Any] = (
@@ -439,33 +453,51 @@ class RuntimeAuditRecorder:
         redacted_audit_record = self.redact(audit_record)
         # Promote cost/token fields so spend incurred before the failure stays
         # visible in the audit trail (and to econ.waste.analyze_run).
-        token_usage_data = redacted_audit_record.get("token_usage")
-        token_usage = (
-            TokenUsage.model_validate(token_usage_data) if token_usage_data is not None else None
-        )
-        tool_calls, memory_interactions = self.typed_fields(redacted_audit_record)
-        await self.audit_repository.write(
-            NodeAuditRecord(
-                audit_id=audit_ref,
-                run_id=run.run_id,
-                thread_id=run.thread_id,
-                node_id=node_id,
-                node_version=node.node_version,
-                graph_version_ref=run.graph_version_ref,
-                deployment_ref=run.deployment_ref,
-                attempt=1,
-                status="rejected" if is_rejection else "failed",
-                completed_at=datetime.now(UTC),
-                input_snapshot=self.redact(dict(input_payload)),
-                output_snapshot={},
-                execution_metadata=redacted_audit_record,
-                token_usage=token_usage,
-                cost_usd=redacted_audit_record.get("cost_usd"),
-                estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
-                cost_measurement=redacted_audit_record.get("cost_measurement"),
-                cost_event_id=redacted_audit_record.get("cost_event_id"),
-                error=self.redact(str(error)),
-                tool_calls=tool_calls,
-                memory_interactions=memory_interactions,
+        completed_at = datetime.now(UTC)
+        redacted_input = self.redact(dict(input_payload))
+        if self.audit_repository is not None:
+            token_usage_data = redacted_audit_record.get("token_usage")
+            token_usage = (
+                TokenUsage.model_validate(token_usage_data)
+                if token_usage_data is not None
+                else None
             )
+            tool_calls, memory_interactions = self.typed_fields(redacted_audit_record)
+            await self.audit_repository.write(
+                NodeAuditRecord(
+                    audit_id=audit_ref,
+                    run_id=run.run_id,
+                    thread_id=run.thread_id,
+                    node_id=node_id,
+                    node_version=node.node_version,
+                    graph_version_ref=run.graph_version_ref,
+                    deployment_ref=run.deployment_ref,
+                    attempt=1,
+                    status="rejected" if is_rejection else "failed",
+                    completed_at=completed_at,
+                    input_snapshot=redacted_input,
+                    output_snapshot={},
+                    execution_metadata=redacted_audit_record,
+                    token_usage=token_usage,
+                    cost_usd=redacted_audit_record.get("cost_usd"),
+                    estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                    cost_measurement=redacted_audit_record.get("cost_measurement"),
+                    cost_event_id=redacted_audit_record.get("cost_event_id"),
+                    error=self.redact(str(error)),
+                    tool_calls=tool_calls,
+                    memory_interactions=memory_interactions,
+                )
+            )
+        history_entry = RunHistoryEntry(
+            node_id=node_id,
+            status="rejected" if is_rejection else "failed",
+            input_snapshot=redacted_input,
+            output_snapshot={},
+            audit_ref=audit_ref,
+            completed_at=completed_at,
+            cost_usd=redacted_audit_record.get("cost_usd"),
+            estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+            cost_measurement=redacted_audit_record.get("cost_measurement"),
         )
+        ctx.execution_history.append(history_entry)
+        run.execution_history.append(history_entry)

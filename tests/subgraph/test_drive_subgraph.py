@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
@@ -290,6 +291,35 @@ class TestDriveSubgraphNode:
         assert len(result.execution_history) >= 1
         history = result.execution_history[0]
         assert history.node_id == "s1"
+
+    @pytest.mark.asyncio
+    async def test_drive_subgraph_promotes_separate_child_cost_provenance(self) -> None:
+        child_run = Run(
+            run_id="child-run-1",
+            graph_version_ref="child-g:v1",
+            deployment_ref="child-g",
+            status=RunStatus.COMPLETED,
+            final_output={"result": "ok"},
+            metadata={
+                "subgraph_depth": 1,
+                "total_cost_usd": 0.2,
+                "total_estimated_cost_usd": 0.3,
+                "cost_measurement": MeasurementState.ESTIMATED,
+            },
+        )
+        mock_executor = MagicMock(spec=SubgraphExecutor)
+        mock_executor.execute = AsyncMock(return_value=child_run)
+        parent_graph = _make_parent_graph_with_subgraph()
+
+        result = await _make_orchestrator(
+            run_repository=_make_run_repository(),
+            subgraph_executor=mock_executor,
+        )._drive(parent_graph, _make_run(parent_graph))
+
+        (history,) = result.execution_history
+        assert history.cost_usd == 0.2
+        assert history.estimated_cost_usd == 0.3
+        assert history.cost_measurement is MeasurementState.ESTIMATED
 
 
 # ---------------------------------------------------------------------------

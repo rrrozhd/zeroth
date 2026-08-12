@@ -18,6 +18,7 @@ which model answered.
 
 from __future__ import annotations
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 
@@ -46,12 +47,16 @@ class CascadingProviderAdapter:
         incumbent_model = request.model_name  # the node's model_provider = escalation target
         cheap_request = request.model_copy(update={"model_name": self._cheap_model})
 
-        primary_cost = 0.0
+        primary_cost: float | None = None
+        primary_estimated_cost: float | None = None
+        primary_measurement = MeasurementState.UNMEASURED
         primary_event_id: str | None = None
         failure: str | None = None
         try:
             primary = await self._inner.ainvoke(cheap_request)
-            primary_cost = primary.cost_usd or 0.0
+            primary_cost = primary.cost_usd
+            primary_estimated_cost = primary.estimated_cost_usd
+            primary_measurement = primary.cost_measurement
             primary_event_id = primary.cost_event_id
             if not _is_blank_response(primary):
                 return primary.model_copy(
@@ -63,6 +68,7 @@ class CascadingProviderAdapter:
                                 "escalated": False,
                                 "primary_failure": None,
                                 "primary_cost_usd": primary_cost,
+                                "primary_estimated_cost_usd": primary_estimated_cost,
                             },
                         }
                     }
@@ -74,13 +80,28 @@ class CascadingProviderAdapter:
         # Escalate to the incumbent (request.model_name unchanged). If this ALSO raises, the
         # exception propagates -- both models failed; never fabricate a response.
         incumbent = await self._inner.ainvoke(request)
-        incumbent_cost = incumbent.cost_usd or 0.0
+        incumbent_cost = incumbent.cost_usd
+        incumbent_estimated_cost = incumbent.estimated_cost_usd
+        states = (primary_measurement, incumbent.cost_measurement)
+        cost_measurement = (
+            MeasurementState.UNMEASURED
+            if MeasurementState.UNMEASURED in states
+            else MeasurementState.ESTIMATED
+            if MeasurementState.ESTIMATED in states
+            else MeasurementState.MEASURED
+        )
+        recorded = [cost for cost in (primary_cost, incumbent_cost) if cost is not None]
+        estimates = [
+            cost for cost in (primary_estimated_cost, incumbent_estimated_cost) if cost is not None
+        ]
         return incumbent.model_copy(
             update={
                 # Attribute EVERY dollar: the cheap attempt AND the incumbent. This sums two
                 # ExecutionEvents into one cost_usd; cost_event_id references the served
                 # incumbent event, and the cheap event id is preserved in metadata.
-                "cost_usd": primary_cost + incumbent_cost,
+                "cost_usd": sum(recorded) if recorded else None,
+                "estimated_cost_usd": sum(estimates) if estimates else None,
+                "cost_measurement": cost_measurement,
                 "metadata": {
                     **incumbent.metadata,
                     "cascade": {
@@ -88,8 +109,10 @@ class CascadingProviderAdapter:
                         "escalated": True,
                         "primary_failure": failure,
                         "primary_cost_usd": primary_cost,
+                        "primary_estimated_cost_usd": primary_estimated_cost,
                         "primary_cost_event_id": primary_event_id,
                         "incumbent_cost_usd": incumbent_cost,
+                        "incumbent_estimated_cost_usd": incumbent_estimated_cost,
                     },
                 },
             }

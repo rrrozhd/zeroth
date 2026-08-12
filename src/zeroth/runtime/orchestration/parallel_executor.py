@@ -19,7 +19,6 @@ own published contract, so a branch that runs a subgraph has to hand one over.
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,7 +27,6 @@ from typing import Any
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
 from zeroth.governance.audit import NodeAuditRecord
-from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
@@ -43,6 +41,7 @@ from zeroth.runtime.parallel.models import (
     GlobalStepTracker,
 )
 from zeroth.runtime.runs import Run, RunHistoryEntry
+from zeroth.runtime.runs.costs import rollup_run_cost
 from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 
@@ -56,42 +55,13 @@ def sum_run_cost(run: Run) -> float | None:
     The drive loop does NOT write this key — the only writer is
     `SubgraphExecutor.execute`.
     """
-    if "total_cost_usd" in run.metadata:
-        explicit = run.metadata["total_cost_usd"]
-        if explicit is None:
-            return None
-        with contextlib.suppress(TypeError, ValueError):
-            return float(explicit)
-    total = 0.0
-    for entry in run.execution_history or []:
-        cost: Any = None
-        estimated: Any = None
-        measurement: Any = None
-        if isinstance(entry, dict):
-            cost = entry.get("cost_usd")
-            estimated = entry.get("estimated_cost_usd")
-            measurement = entry.get("cost_measurement")
-        else:
-            cost = getattr(entry, "cost_usd", None)
-            estimated = getattr(entry, "estimated_cost_usd", None)
-            measurement = getattr(entry, "cost_measurement", None)
-        if measurement is None:
-            measurement = (
-                MeasurementState.MEASURED
-                if cost is not None
-                else MeasurementState.ESTIMATED
-                if estimated is not None
-                else MeasurementState.UNMEASURED
-            )
-        if measurement == MeasurementState.UNMEASURED:
-            return None
-        if cost is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                total += float(cost)
-        if estimated is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                total += float(estimated)
-    return total
+    if not run.execution_history and not {
+        "total_cost_usd",
+        "total_estimated_cost_usd",
+        "cost_measurement",
+    }.intersection(run.metadata):
+        return 0.0
+    return rollup_run_cost(run).total_usd
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,11 +212,14 @@ class RuntimeParallelExecutor:
                     if not isinstance(child_output, dict):
                         child_output = {"result": child_output}
                     ds_output = child_output
+                    child_cost = rollup_run_cost(child_run)
                     ds_audit = {
                         "subgraph_run_id": child_run.run_id,
                         "subgraph_graph_ref": ds_node.subgraph.graph_ref,
                         "subgraph_status": child_run.status.value,
-                        "cost_usd": sum_run_cost(child_run),
+                        "cost_usd": child_cost.cost_usd,
+                        "estimated_cost_usd": child_cost.estimated_cost_usd,
+                        "cost_measurement": child_cost.cost_measurement,
                     }
                 else:
                     # Dispatch the downstream node with branch-isolated payload
@@ -281,9 +254,7 @@ class RuntimeParallelExecutor:
                 redacted_branch_input = self.audit_recorder.redact(dict(branch_output))
                 redacted_branch_output = self.audit_recorder.redact(dict(ds_output))
 
-                redacted_branch_audit = self.audit_recorder.redact(
-                    dict(ds_audit_with_branch)
-                )
+                redacted_branch_audit = self.audit_recorder.redact(dict(ds_audit_with_branch))
                 # Write audit record if audit repo available
                 if self.audit_recorder.audit_repository is not None:
                     branch_tool_calls, branch_memory = self.audit_recorder.typed_fields(
@@ -307,12 +278,8 @@ class RuntimeParallelExecutor:
                             output_snapshot=redacted_branch_output,
                             execution_metadata=redacted_branch_audit,
                             cost_usd=redacted_branch_audit.get("cost_usd"),
-                            estimated_cost_usd=redacted_branch_audit.get(
-                                "estimated_cost_usd"
-                            ),
-                            cost_measurement=redacted_branch_audit.get(
-                                "cost_measurement"
-                            ),
+                            estimated_cost_usd=redacted_branch_audit.get("estimated_cost_usd"),
+                            cost_measurement=redacted_branch_audit.get("cost_measurement"),
                             tool_calls=branch_tool_calls,
                             memory_interactions=branch_memory,
                         )
@@ -327,9 +294,7 @@ class RuntimeParallelExecutor:
                         output_snapshot=redacted_branch_output,
                         audit_ref=audit_ref,
                         cost_usd=redacted_branch_audit.get("cost_usd"),
-                        estimated_cost_usd=redacted_branch_audit.get(
-                            "estimated_cost_usd"
-                        ),
+                        estimated_cost_usd=redacted_branch_audit.get("estimated_cost_usd"),
                         cost_measurement=redacted_branch_audit.get("cost_measurement"),
                     )
                 )
@@ -387,19 +352,30 @@ class RuntimeParallelExecutor:
                 "split_input": dict(output_data),
             }
             return FanInResult(results=[], pause_state=pause_state)
+        except Exception as exc:
+            # Fail-fast never reaches fan-in, so preserve already-recorded branch
+            # failures on the parent before the driver persists the failed run.
+            failed_histories = getattr(
+                exc,
+                "branch_histories",
+                [(list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts],
+            )
+            for history, refs in failed_histories:
+                run.execution_history.extend(history)
+                run.audit_refs.extend(refs)
+            raise
 
         # Enrich results with branch state + per-branch cost rollup (D-09)
         for ctx, result in zip(branch_contexts, branch_results, strict=False):
-            if result.error is None:
-                result.audit_refs = list(ctx.audit_refs)
-                result.execution_history = list(ctx.execution_history)
-                # Cost rollup: the SubgraphNode branch path stashed per-step
-                # cost in the audit metadata; sum the entries on ctx to get
-                # the per-branch cost (read from ds_audit["cost_usd"] fields
-                # that the factory wrote into the branch history).
-                branch_run = run.model_copy(update={"execution_history": ctx.execution_history})
-                branch_cost = sum_run_cost(branch_run)
-                result.cost_usd = branch_cost if branch_cost is not None else 0.0
+            result.audit_refs = list(ctx.audit_refs)
+            result.execution_history = list(ctx.execution_history)
+            branch_run = run.model_copy(
+                update={"metadata": {}, "execution_history": ctx.execution_history}
+            )
+            branch_cost = rollup_run_cost(branch_run)
+            result.cost_usd = branch_cost.cost_usd
+            result.estimated_cost_usd = branch_cost.estimated_cost_usd
+            result.cost_measurement = branch_cost.cost_measurement
 
         # Collect fan-in
         return self.parallel_executor.collect_fan_in(branch_results, config, output_data)
@@ -439,6 +415,8 @@ class RuntimeParallelExecutor:
                 "output": br.output,
                 "error": br.error,
                 "cost_usd": br.cost_usd,
+                "estimated_cost_usd": br.estimated_cost_usd,
+                "cost_measurement": br.cost_measurement,
                 "audit_refs": list(br.audit_refs),
                 "execution_history": [
                     e.model_dump() if hasattr(e, "model_dump") else e for e in br.execution_history
@@ -522,7 +500,13 @@ class RuntimeParallelExecutor:
                     error=d.get("error"),
                     audit_refs=list(d.get("audit_refs", [])),
                     execution_history=rebuilt_history,
-                    cost_usd=float(d.get("cost_usd", 0.0)),
+                    cost_usd=(float(d["cost_usd"]) if d.get("cost_usd") is not None else None),
+                    estimated_cost_usd=(
+                        float(d["estimated_cost_usd"])
+                        if d.get("estimated_cost_usd") is not None
+                        else None
+                    ),
+                    cost_measurement=d.get("cost_measurement", "unmeasured"),
                 )
             )
 
@@ -584,13 +568,16 @@ class RuntimeParallelExecutor:
         resumed_output = resumed_child_run.final_output or {}
         if not isinstance(resumed_output, dict):
             resumed_output = {"result": resumed_output}
+        resumed_cost = rollup_run_cost(resumed_child_run)
         paused_result = BranchResult(
             branch_index=paused_branch_index,
             output=resumed_output,
             error=None,
             audit_refs=[],
             execution_history=[],
-            cost_usd=sum_run_cost(resumed_child_run),
+            cost_usd=resumed_cost.cost_usd,
+            estimated_cost_usd=resumed_cost.estimated_cost_usd,
+            cost_measurement=resumed_cost.cost_measurement,
         )
 
         # 3. Record cancelled siblings as None-output BranchResults (D-19).
@@ -602,6 +589,7 @@ class RuntimeParallelExecutor:
                 audit_refs=[],
                 execution_history=[],
                 cost_usd=0.0,
+                cost_measurement="measured",
             )
             for ctx in pending.get("cancelled_branches", [])
         ]
@@ -621,7 +609,10 @@ class RuntimeParallelExecutor:
         """
         for branch_result in fan_in_result.results:
             for entry in branch_result.execution_history:
-                run.execution_history.append(entry)
+                if not entry.audit_ref or all(
+                    existing.audit_ref != entry.audit_ref for existing in run.execution_history
+                ):
+                    run.execution_history.append(entry)
             for ref in branch_result.audit_refs:
                 run.audit_refs.append(ref)
         run.completed_steps = [entry.node_id for entry in run.execution_history]
