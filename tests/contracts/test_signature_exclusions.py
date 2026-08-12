@@ -144,6 +144,12 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.service.langgraph_gateway.context:ReservedContextClaims": ("run_id",),
 }
 
+#: Constructor fields whose runtime validation was narrowed while the protected
+#: legacy signature keeps reporting its original annotation.
+SIGNATURE_ANNOTATION_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "zeroth.platform.artifacts.models:ArtifactStoreSettings": ("backend",),
+}
+
 
 def _resolve(reference: str) -> Any:
     module, _, name = reference.partition(":")
@@ -181,6 +187,15 @@ def test_the_recorded_exclusions_match_what_the_class_actually_hides(reference: 
     list shrink-only rather than merely append-only.
     """
     assert hidden_fields(_resolve(reference)) == set(HIDDEN_CONSTRUCTOR_FIELDS[reference])
+
+
+@pytest.mark.parametrize("reference", sorted(SIGNATURE_ANNOTATION_OVERRIDES))
+def test_the_recorded_annotation_overrides_match_real_fields(reference: str) -> None:
+    target = _resolve(reference)
+    assert set(SIGNATURE_ANNOTATION_OVERRIDES[reference]) <= declared_fields(target)
+    for field in SIGNATURE_ANNOTATION_OVERRIDES[reference]:
+        assert inspect.signature(target).parameters[field].annotation is str
+        assert target.model_fields[field].annotation is not str
 
 
 def _module_reference(path: Path) -> str:
@@ -293,7 +308,8 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
     unrecorded = sorted(
         site
         for site in class_signature_assignments()
-        if _recorded_reference(site) not in HIDDEN_CONSTRUCTOR_FIELDS
+        if _recorded_reference(site)
+        not in HIDDEN_CONSTRUCTOR_FIELDS | SIGNATURE_ANNOTATION_OVERRIDES
     )
 
     assert unrecorded == [], (
@@ -305,7 +321,9 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
 def test_the_record_names_no_class_that_stopped_hiding() -> None:
     """The other direction: a recorded entry whose assignment is gone must go too."""
     assigning = {_recorded_reference(site) for site in class_signature_assignments()}
-    stale = sorted(set(HIDDEN_CONSTRUCTOR_FIELDS) - assigning)
+    stale = sorted(
+        (set(HIDDEN_CONSTRUCTOR_FIELDS) | set(SIGNATURE_ANNOTATION_OVERRIDES)) - assigning
+    )
 
     assert stale == [], f"recorded but no longer assigning __signature__: {stale}"
 

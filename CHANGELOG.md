@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-08-13
+
+- Move econ schema compatibility to startup, make instrumentation lazy and
+  observable, and reject invalid backend or standalone signing configuration.
+
 ## [0.23.0.11.2] - 2026-08-12
 
 - Preserve complete provider measurements when a post-response operational step fails.
