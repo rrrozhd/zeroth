@@ -5,7 +5,6 @@ from typing import Optional
 
 from sqlalchemy import func, select
 
-from zeroth.econ.plane.common.tenant import resolve_tenant_id
 from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.enforcement.models import AuditLog, EnforcementAction, PolicyAction, TenantBudget, TrafficPolicy
@@ -17,6 +16,13 @@ def _require_exact_scoped_session(db: object) -> ScopedSession:
     if type(db) is not ScopedSession:
         raise TypeError("enforcement persistence requires an exact ScopedSession")
     return db
+
+
+def _bound_tenant(db: ScopedSession) -> str:
+    db = _require_exact_scoped_session(db)
+    if db.scope is None:
+        raise ValueError("enforcement persistence requires a tenant-bound scope")
+    return db.scope.tenant_id
 
 
 _ACTION_MAP = {
@@ -36,7 +42,7 @@ def _propose_policy_action(
 ) -> PolicyAction:
     db = _require_exact_scoped_session(db)
     row = PolicyAction(
-        tenant_id=resolve_tenant_id(None),
+        tenant_id=_bound_tenant(db),
         capability_id=capability_id,
         proposed_at=datetime.now(timezone.utc),
         proposed_by="system",
