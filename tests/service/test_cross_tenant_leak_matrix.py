@@ -393,17 +393,35 @@ async def test_connector_delete_foreign_matches_unknown(sqlite_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_repository_optional_tenant_filter(sqlite_db) -> None:
-    repo = RunRepository.for_default_compatibility(sqlite_db)
-    await repo.create(
+async def test_run_repository_scope_masks_foreign_and_preserves_collisions(sqlite_db) -> None:
+    owner = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-a"))
+    foreign = RunRepository(sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-b"))
+    await owner.create(
         Run(
-            run_id="run-a",
+            run_id="private-run",
             graph_version_ref="graph:v1",
-            deployment_ref="dep",
+            deployment_ref="owner-deployment",
             tenant_id="tenant-a",
         )
     )
-    # Foreign tenant cannot fetch it; no-filter (internal) path still can.
-    assert await repo.get("run-a", tenant_id="tenant-b") is None
-    assert await repo.get("run-a", tenant_id="tenant-a") is not None
-    assert await repo.get("run-a") is not None
+    assert await foreign.get("private-run") is None
+    assert await foreign.get("unknown-run") is None
+
+    await owner.create(
+        Run(
+            run_id="shared-run",
+            graph_version_ref="graph:v1",
+            deployment_ref="owner-deployment",
+            tenant_id="tenant-a",
+        )
+    )
+    await foreign.create(
+        Run(
+            run_id="shared-run",
+            graph_version_ref="graph:v1",
+            deployment_ref="foreign-deployment",
+            tenant_id="tenant-b",
+        )
+    )
+    assert (await owner.get("shared-run")).deployment_ref == "owner-deployment"
+    assert (await foreign.get("shared-run")).deployment_ref == "foreign-deployment"

@@ -890,8 +890,6 @@ class NodeDispatcher:
                 run.thread_id,
                 graph_version_ref=run.graph_version_ref,
                 deployment_ref=run.deployment_ref,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
                 participating_agent_refs=[node.node_id],
                 run_id=run.run_id,
             )

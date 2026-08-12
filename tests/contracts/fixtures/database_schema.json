@@ -2090,13 +2090,13 @@
           "type": "VARCHAR"
         }
       ],
-      "constraint_definition": "CREATE TABLE \"retention_cleanup_operations\" ( authorization_log_id TEXT NOT NULL, operation_id TEXT NOT NULL, status TEXT NOT NULL, deleted_count INTEGER, error TEXT, revision INTEGER DEFAULT 0 NOT NULL, updated_at TEXT NOT NULL, tenant_id VARCHAR NOT NULL, PRIMARY KEY (authorization_log_id, operation_id), FOREIGN KEY(authorization_log_id) REFERENCES retention_cleanup_state (authorization_log_id) )",
+      "constraint_definition": "CREATE TABLE \"retention_cleanup_operations\" ( authorization_log_id TEXT NOT NULL REFERENCES retention_cleanup_state(authorization_log_id) ON DELETE CASCADE, operation_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'skipped')), deleted_count INTEGER, error TEXT, revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0), updated_at TEXT NOT NULL, tenant_id VARCHAR NOT NULL, PRIMARY KEY (authorization_log_id, operation_id) )",
       "foreign_keys": [
         {
           "from": "authorization_log_id",
           "id": 0,
           "match": "NONE",
-          "on_delete": "NO ACTION",
+          "on_delete": "CASCADE",
           "on_update": "NO ACTION",
           "seq": 0,
           "table": "retention_cleanup_state",
