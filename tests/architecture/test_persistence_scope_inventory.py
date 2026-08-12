@@ -2548,6 +2548,12 @@ def _audit_repository_public_call_provenance(
                     alias_events: dict[
                         str, list[tuple[tuple[int, int], type[BaseException] | None]]
                     ] = {}
+                    annotations_postponed = any(
+                        isinstance(statement, ast.ImportFrom)
+                        and statement.module == "__future__"
+                        and any(alias.name == "annotations" for alias in statement.names)
+                        for statement in module_tree.body
+                    )
 
                     def record_event(
                         name: str, position: tuple[int, int], identity: type[BaseException] | None
@@ -2699,6 +2705,28 @@ def _audit_repository_public_call_provenance(
                             for default in (*expression_node.args.defaults, *expression_node.args.kw_defaults):
                                 if default is not None:
                                     state = transfer_expression(default, state)
+                            if not annotations_postponed:
+                                annotations = (
+                                    *(argument.annotation for argument in expression_node.args.args),
+                                    *(
+                                        argument.annotation
+                                        for argument in expression_node.args.posonlyargs
+                                    ),
+                                    expression_node.args.vararg.annotation
+                                    if expression_node.args.vararg is not None
+                                    else None,
+                                    *(
+                                        argument.annotation
+                                        for argument in expression_node.args.kwonlyargs
+                                    ),
+                                    expression_node.args.kwarg.annotation
+                                    if expression_node.args.kwarg is not None
+                                    else None,
+                                    expression_node.returns,
+                                )
+                                for annotation in annotations:
+                                    if annotation is not None:
+                                        state = transfer_expression(annotation, state)
                             return state
                         if isinstance(expression_node, ast.ClassDef):
                             for decorator in expression_node.decorator_list:
@@ -8696,6 +8724,81 @@ def test_public_call_inventory_defers_generator_expression_alias_effects(
         + setup
         + f"    generator = {expression}\n"
         "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("future_import", "definition", "expected"),
+    [
+        (
+            "",
+            "    def local(value: (TypeError := ValueError)):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "    def local() -> (TypeError := ValueError):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "    def local(\n"
+            "        posonly: (TypeError := ValueError), /,\n"
+            "        value: (TypeError := ValueError),\n"
+            "        *vararg: (TypeError := ValueError),\n"
+            "        kwonly: (TypeError := ValueError),\n"
+            "        **kwarg: (TypeError := ValueError),\n"
+            "    ) -> (TypeError := ValueError):\n"
+            "        pass\n",
+            frozenset(),
+        ),
+        (
+            "from __future__ import annotations\n",
+            "    def local(value: (TypeError := ValueError)):\n"
+            "        pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "    class Local:\n"
+            "        value: (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["parameter", "return", "all-parameter-kinds", "postponed", "class-scope"],
+)
+def test_public_call_inventory_models_definition_annotation_aliases(
+    tmp_path: Path, future_import: str, definition: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        future_import
+        + "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        + definition
+        + "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
         "        closure = None\n"
