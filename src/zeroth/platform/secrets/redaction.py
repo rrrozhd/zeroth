@@ -20,7 +20,7 @@ def _marker(reference: SecretReference) -> str:
 class SecretRedactor:
     """Replace known secret values with stable redaction markers."""
 
-    def __init__(self, known_secrets: SecretSeeds | None = None) -> None:
+    def __init__(self, known_secrets: Mapping[str, str] | None = None) -> None:
         """Build from named mappings or a sequence of ``(reference, value)`` seeds.
 
         String references are normalized to the conventional uppercase marker;

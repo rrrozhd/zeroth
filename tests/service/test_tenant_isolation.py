@@ -7,7 +7,7 @@ from tests.service.helpers import approval_resume_graph, deploy_service, wait_fo
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.artifacts.store import FilesystemArtifactStore
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app as bootstrap_app
 
 
 def _scoped_auth_config() -> ServiceAuthConfig:

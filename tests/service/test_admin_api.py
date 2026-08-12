@@ -17,6 +17,7 @@ from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
 from zeroth.runtime.runs import RunStatus
 from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 
 DEPLOYMENT = "admin-test"
 
@@ -283,7 +284,7 @@ async def test_admin_routes_hide_service_from_foreign_tenant_admin(sqlite_db) ->
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = await bootstrap_app(
+    app = await bootstrap_scoped_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         tenant_id=service.deployment.tenant_id,
