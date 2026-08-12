@@ -64,21 +64,19 @@ def test_the_retired_trees_are_absent_from_the_source_checkout() -> None:
         assert not (REPO_ROOT / tree).exists(), f"{tree} still exists"
 
 
-def test_cross_tenant_maintenance_authority_is_not_shipped() -> None:
+def test_cross_tenant_maintenance_authority_is_exact_and_read_only() -> None:
     result = _cold(
         "import zeroth.platform.storage as storage\n"
-        "import zeroth.governance.retention as retention\n"
-        "assert not hasattr(storage, 'CrossTenantMaintenanceScopeContext')\n"
-        "assert not hasattr(storage.ResourceScopeRegistry, "
+        "context = storage.CrossTenantMaintenanceScopeContext.for_scheduled_maintenance()\n"
+        "assert context.allowed_resource_names == frozenset({"
+        "'service.retention_policies', 'service.runs', 'service.node_audits'})\n"
+        "assert hasattr(storage.ResourceScopeRegistry, "
         "'validate_cross_tenant_maintenance_binding')\n"
-        "assert not hasattr(storage.ScopedTable, 'for_cross_tenant_maintenance')\n"
-        "assert not hasattr(retention.RetentionPurgeWorker, 'for_shared_database')\n"
-        "assert not hasattr(retention, 'EnabledPolicyMaintenanceReader')\n"
-        "assert not hasattr(retention, 'RetentionWorkspaceMaintenanceReader')\n"
+        "assert hasattr(storage.ScopedTable, 'for_cross_tenant_maintenance')\n"
     )
 
     assert result.returncode == 0, result.stderr
-    assert not (REPO_ROOT / "src/zeroth/governance/retention/workspace_reader.py").exists()
+    assert (REPO_ROOT / "src/zeroth/governance/retention/workspace_reader.py").exists()
 
 
 def test_backend_domains_cold_import_without_loading_a_retired_module() -> None:
