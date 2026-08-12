@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import fnmatch
 import importlib
 import inspect as python_inspect
@@ -66,6 +67,12 @@ _AUDIT_REPOSITORY_TYPED_COLLABORATORS = {
 }
 _AuditRepositoryCallSite = tuple[str, tuple[str, ...] | None, int, int]
 type _PotentialState = tuple[set[str], set[str]]
+_UNKNOWN_LITERAL = object()
+_BUILTIN_EXCEPTION_CLASSES = {
+    name: candidate
+    for name, candidate in vars(builtins).items()
+    if isinstance(candidate, type) and issubclass(candidate, BaseException)
+}
 _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
     "examples/04_native_tool.py": {
         (("main",), ("demo", "service", "audit_repository")): _AUDIT_REPOSITORY_OPERATION_NAMES,
@@ -1846,29 +1853,66 @@ def _audit_repository_public_call_provenance(
                 def bind_names(state: _PotentialState, names: set[str]) -> _PotentialState:
                     return state[0] - names, state[1] | names
 
-                def is_provably_nonraising(expression: ast.AST) -> bool:
-                    if isinstance(expression, (ast.Constant, ast.Name)):
-                        return True
+                def literal_value(expression: ast.AST) -> object:
+                    if isinstance(expression, ast.Constant):
+                        return expression.value
                     if isinstance(expression, ast.UnaryOp):
-                        return isinstance(expression.op, (ast.UAdd, ast.USub, ast.Invert)) and (
-                            is_provably_nonraising(expression.operand)
-                        )
+                        operand = literal_value(expression.operand)
+                        if not isinstance(operand, int) or abs(operand) > 2**16:
+                            return _UNKNOWN_LITERAL
+                        try:
+                            if isinstance(expression.op, ast.UAdd):
+                                return +operand
+                            if isinstance(expression.op, ast.USub):
+                                return -operand
+                            if isinstance(expression.op, ast.Invert):
+                                return ~operand
+                        except (ArithmeticError, TypeError, ValueError):
+                            return _UNKNOWN_LITERAL
+                        return _UNKNOWN_LITERAL
                     if isinstance(expression, ast.BinOp):
-                        if not (
-                            is_provably_nonraising(expression.left)
-                            and is_provably_nonraising(expression.right)
+                        left = literal_value(expression.left)
+                        right = literal_value(expression.right)
+                        if (
+                            not isinstance(left, int)
+                            or not isinstance(right, int)
+                            or abs(left) > 2**16
+                            or abs(right) > 2**16
                         ):
-                            return False
-                        if isinstance(expression.op, (ast.Div, ast.FloorDiv, ast.Mod)):
-                            return not (
-                                isinstance(expression.right, ast.Constant)
-                                and expression.right.value == 0
-                            )
-                        return isinstance(
-                            expression.op,
-                            (ast.Add, ast.Sub, ast.Mult, ast.Pow, ast.LShift, ast.RShift, ast.BitAnd, ast.BitOr, ast.BitXor),
-                        )
-                    return False
+                            return _UNKNOWN_LITERAL
+                        try:
+                            if isinstance(expression.op, ast.Add):
+                                return left + right
+                            if isinstance(expression.op, ast.Sub):
+                                return left - right
+                            if isinstance(expression.op, ast.Mult):
+                                return left * right
+                            if isinstance(expression.op, ast.Div):
+                                return left / right
+                            if isinstance(expression.op, ast.FloorDiv):
+                                return left // right
+                            if isinstance(expression.op, ast.Mod):
+                                return left % right
+                            if isinstance(expression.op, ast.LShift):
+                                if not 0 <= right <= 16:
+                                    return _UNKNOWN_LITERAL
+                                return left << right
+                            if isinstance(expression.op, ast.RShift):
+                                if not 0 <= right <= 16:
+                                    return _UNKNOWN_LITERAL
+                                return left >> right
+                            if isinstance(expression.op, ast.BitAnd):
+                                return left & right
+                            if isinstance(expression.op, ast.BitOr):
+                                return left | right
+                            if isinstance(expression.op, ast.BitXor):
+                                return left ^ right
+                        except (ArithmeticError, OverflowError, TypeError, ValueError):
+                            return _UNKNOWN_LITERAL
+                    return _UNKNOWN_LITERAL
+
+                def is_provably_nonraising(expression: ast.AST) -> bool:
+                    return isinstance(expression, ast.Name) or literal_value(expression) is not _UNKNOWN_LITERAL
 
                 def expression_may_raise(expression: ast.AST | None) -> bool:
                     if expression is None or is_provably_nonraising(expression):
@@ -1894,27 +1938,31 @@ def _audit_repository_public_call_provenance(
                         return True
                     return any(expression_may_raise(child) for child in ast.iter_child_nodes(expression))
 
-                def known_raised_exception_name(block: list[ast.stmt]) -> str | None:
+                def builtin_exception_class(expression: ast.AST | None) -> type[BaseException] | None:
+                    dotted = _dotted_ast_path(expression) if expression is not None else None
+                    if dotted is None or len(dotted) > 2 or (len(dotted) == 2 and dotted[0] != "builtins"):
+                        return None
+                    candidate = _BUILTIN_EXCEPTION_CLASSES.get(dotted[-1])
+                    return candidate if candidate is not None else None
+
+                def known_raised_exception_class(block: list[ast.stmt]) -> type[BaseException] | None:
                     if len(block) != 1 or not isinstance(block[0], ast.Raise):
                         return None
                     exception = block[0].exc
-                    if isinstance(exception, ast.Name):
-                        return exception.id
-                    if isinstance(exception, ast.Call) and isinstance(exception.func, ast.Name):
-                        return exception.func.id
-                    return None
+                    return builtin_exception_class(
+                        exception.func if isinstance(exception, ast.Call) else exception
+                    )
 
                 def handler_catches_exception(
-                    handler: ast.ExceptHandler, exception_name: str
+                    handler: ast.ExceptHandler, exception_class: type[BaseException]
                 ) -> bool:
                     def catches(annotation: ast.expr | None) -> bool:
                         if annotation is None:
                             return True
-                        if isinstance(annotation, ast.Name):
-                            return annotation.id in {exception_name, "Exception", "BaseException"}
                         if isinstance(annotation, ast.Tuple):
                             return any(catches(item) for item in annotation.elts)
-                        return False
+                        candidate = builtin_exception_class(annotation)
+                        return candidate is not None and issubclass(exception_class, candidate)
 
                     return catches(handler.type)
 
@@ -2007,7 +2055,7 @@ def _audit_repository_public_call_provenance(
                             handler_flows: list[PotentialFlow] = []
                             handler_state = join_states(*body_flow.exceptions)
                             if handler_state is not None:
-                                known_exception = known_raised_exception_name(statement.body)
+                                known_exception = known_raised_exception_class(statement.body)
                                 handlers = statement.handlers
                                 if known_exception is not None:
                                     handlers = tuple(
@@ -6061,13 +6109,15 @@ def test_public_call_inventory_finally_rebind_transforms_break_exit(tmp_path: Pa
     "compound",
     [
         "if 1 / 0:\n            Base = OtherRepository\n        else:\n            Base = AnotherRepository\n",
+        "if 1 + 'x':\n            Base = OtherRepository\n        else:\n            Base = AnotherRepository\n",
+        "if 1 << -1:\n            Base = OtherRepository\n        else:\n            Base = AnotherRepository\n",
         "match value:\n"
         "            case _ if 1 / 0:\n"
         "                Base = OtherRepository\n"
         "            case _:\n"
         "                Base = AnotherRepository\n",
     ],
-    ids=["if-operator", "match-guard-operator"],
+    ids=["if-zero-division", "if-type-error", "if-negative-shift", "match-guard-operator"],
 )
 def test_public_call_inventory_keeps_potential_after_suppressed_operator_expression(
     tmp_path: Path, compound: str
@@ -6192,6 +6242,62 @@ def test_public_call_inventory_keeps_unknown_exception_handler_conservative(tmp_
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+@pytest.mark.parametrize(
+    ("raised", "first_handler", "second_handler"),
+    [
+        ("SystemExit", "Exception", "BaseException"),
+        ("KeyError", "TypeError", "LookupError"),
+    ],
+    ids=["base-exception-hierarchy", "lookup-error-hierarchy"],
+)
+def test_public_call_inventory_routes_known_exception_to_first_matching_handler(
+    tmp_path: Path, raised: str, first_handler: str, second_handler: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    try:\n"
+        f"        raise {raised}\n"
+        f"    except {first_handler}:\n"
+        "        type Repo = Base\n"
+        f"    except {second_handler}:\n"
+        "        Base = OtherRepository\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_routes_known_exception_through_tuple_handler(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(candidate, record):\n"
+        "    type Base = list[AuditRepository]\n"
+        "    try:\n"
+        "        raise KeyError\n"
+        "    except (TypeError, LookupError):\n"
+        "        Base = OtherRepository\n"
+        "    except KeyError:\n"
+        "        type Repo = Base\n"
+        "    type Repo = Base\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 @pytest.mark.parametrize(
