@@ -79,6 +79,27 @@ def test_secret_redactor_uses_one_longest_match_pass_with_opaque_tenant_markers(
     "known",
     [
         {
+            ("tenant-b", "marker-text"): "SECRET",
+            ("tenant-a", "long"): "tenant-a-secret",
+        },
+        {
+            ("tenant-a", "long"): "tenant-a-secret",
+            ("tenant-b", "marker-text"): "SECRET",
+        },
+    ],
+)
+def test_secret_redactor_does_not_rescan_opaque_tuple_marker_text(
+    known: dict[tuple[str, str], str],
+) -> None:
+    redactor = SecretRedactor(known)
+
+    assert redactor.redact("tenant-a-secret SECRET") == ("[REDACTED:SECRET] [REDACTED:SECRET]")
+
+
+@pytest.mark.parametrize(
+    "known",
+    [
+        {
             ("tenant-b", "shared"): "duplicate-secret",
             ("tenant-a", "shared"): "duplicate-secret",
         },
