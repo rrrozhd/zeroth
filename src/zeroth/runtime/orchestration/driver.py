@@ -54,6 +54,7 @@ from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelExecut
 from zeroth.runtime.parallel.models import GlobalStepTracker
 from zeroth.runtime.parallel.reducers import dispatch_strategy
 from zeroth.runtime.runs import Run, RunFailureState
+from zeroth.runtime.runs.costs import rollup_cost_history
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -518,6 +519,12 @@ class GraphDriver:
 
                     # Resume the child run (not create a new one).
                     child_run = await self.resume_graph(subgraph, child_run_id)
+                    child_cost = rollup_cost_history(child_run.execution_history)
+                    child_run.metadata.update(
+                        total_cost_usd=child_cost.cost_usd,
+                        total_estimated_cost_usd=child_cost.estimated_cost_usd,
+                        cost_measurement=child_cost.cost_measurement,
+                    )
 
                     if child_run.status == RunStatus.WAITING_APPROVAL:
                         # Still waiting (nested approval or another gate in subgraph).
