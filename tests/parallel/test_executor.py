@@ -233,6 +233,35 @@ class TestExecuteBranches:
             await executor.execute_branches(contexts, branch_coro, config)
 
     @pytest.mark.asyncio
+    async def test_fail_fast_multiple_simultaneous_pauses_fail_loud(
+        self, executor: ParallelExecutor
+    ) -> None:
+        config = ParallelConfig(split_path="items", fail_mode="fail_fast")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(2)
+        ]
+        release = asyncio.Event()
+        arrived = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal arrived
+            arrived += 1
+            if arrived == len(contexts):
+                release.set()
+            await release.wait()
+            raise BranchApprovalPauseSignal(
+                branch_index=ctx.branch_index,
+                child_run_id=f"child-{ctx.branch_index}",
+                graph_ref="child-wf",
+                version=1,
+                node_id="sub",
+            )
+
+        with pytest.raises(MultipleBranchPauseError, match="2 branches paused"):
+            await executor.execute_branches(contexts, branch_coro, config)
+
+    @pytest.mark.asyncio
     async def test_best_effort_single_pause_still_propagates(
         self, executor: ParallelExecutor
     ) -> None:

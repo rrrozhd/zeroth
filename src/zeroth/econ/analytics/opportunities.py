@@ -94,16 +94,23 @@ def spend_opportunities(
     nodes: list[NodeSpend] = []
     total_cost = 0.0
     for node_id, records in by_node.items():
-        node_cost = sum(r.cost_usd or 0.0 for r in records)
-        total_cost += node_cost
+        total_cost += sum(r.cost_usd or 0.0 for r in records)
+        attributed_records = [
+            record
+            for record in records
+            if record.token_usage is not None and record.token_usage.model_name
+        ]
+        node_cost = sum(r.cost_usd or 0.0 for r in attributed_records)
         if node_cost <= 0:  # code/retrieval/approval nodes don't spend on models
             continue
 
-        models = [r.token_usage.model_name for r in records if r.token_usage is not None]
+        models = [r.token_usage.model_name for r in attributed_records if r.token_usage]
         incumbent = _dominant_model(models)
-        uses_tools = any(r.tool_calls for r in records)
+        uses_tools = any(r.tool_calls for r in attributed_records)
         tool_free_runs = sum(
-            1 for r in records if r.status in _SUCCESS_STATUSES and not r.tool_calls
+            1
+            for r in attributed_records
+            if r.status in _SUCCESS_STATUSES and not r.tool_calls
         )
 
         candidates = _candidates(incumbent, uses_tools) if incumbent else []
@@ -113,9 +120,9 @@ def spend_opportunities(
         nodes.append(
             NodeSpend(
                 node_id=node_id,
-                runs=len(records),
+                runs=len(attributed_records),
                 total_cost_usd=round(node_cost, 6),
-                mean_cost_per_call_usd=round(node_cost / len(records), 6),
+                mean_cost_per_call_usd=round(node_cost / len(attributed_records), 6),
                 incumbent_model=incumbent,
                 uses_tools=uses_tools,
                 tool_free_runs=tool_free_runs,

@@ -16,7 +16,7 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.runtime.orchestration import RuntimeOrchestrator
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -320,6 +320,36 @@ class TestDriveSubgraphNode:
         assert history.cost_usd == 0.2
         assert history.estimated_cost_usd == 0.3
         assert history.cost_measurement is MeasurementState.ESTIMATED
+
+    @pytest.mark.asyncio
+    async def test_failed_child_cost_rolls_once_into_sequential_parent(self) -> None:
+        child_run = Run(
+            run_id="child-run-1",
+            graph_version_ref="child-g:v1",
+            deployment_ref="child-g",
+            status=RunStatus.FAILED,
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+        mock_executor = MagicMock(spec=SubgraphExecutor)
+        mock_executor.execute = AsyncMock(return_value=child_run)
+        parent_graph = _make_parent_graph_with_subgraph()
+
+        result = await _make_orchestrator(subgraph_executor=mock_executor)._drive(
+            parent_graph, _make_run(parent_graph)
+        )
+
+        assert result.status is RunStatus.FAILED
+        summaries = [entry for entry in result.execution_history if entry.node_id == "s1"]
+        assert len(summaries) == 1
+        assert summaries[0].cost_usd == pytest.approx(0.2)
+        assert summaries[0].cost_measurement is MeasurementState.MEASURED
 
 
 # ---------------------------------------------------------------------------

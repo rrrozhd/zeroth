@@ -58,7 +58,11 @@ def _audit(
         status=status,
         input_snapshot=inp,
         output_snapshot=out,
-        token_usage=TokenUsage(input_tokens=tokens[0], output_tokens=tokens[1]) if tokens else None,
+        token_usage=(
+            TokenUsage(input_tokens=tokens[0], output_tokens=tokens[1], model_name="gpt-4o")
+            if tokens
+            else None
+        ),
         tool_calls=[ToolCallRecord(tool_ref=t, alias=t) for t in (tool_calls or [])],
     )
 
@@ -155,6 +159,26 @@ def test_harvest_keeps_records_without_a_recorded_model():
     dataset, stats = build_experiment_dataset([rec], incumbent_model="openai/gpt-4o")
     assert stats.cases == 1
     assert stats.skipped_other_model == 0
+
+
+def test_both_harvesters_exclude_neutral_mixed_model_usage():
+    record = _audit("agent", {"q": "1"}, {"content": "x"})
+    assert record.token_usage is not None
+    record.token_usage.model_name = ""
+
+    experiment, experiment_stats = build_experiment_dataset(
+        [record], incumbent_model="openai/gpt-4o"
+    )
+    labeled, labeled_stats = build_labeled_dataset(
+        [record], {record.run_id: "x"}, incumbent_model="openai/gpt-4o"
+    )
+
+    assert experiment.cases == []
+    assert labeled.cases == []
+    assert experiment_stats.skipped_other_model == 1
+    assert labeled_stats.skipped_other_model == 1
+    assert experiment_stats.token_profile_measured is False
+    assert labeled_stats.token_profile_measured is False
 
 
 # --- Equivalence scorer --------------------------------------------------------

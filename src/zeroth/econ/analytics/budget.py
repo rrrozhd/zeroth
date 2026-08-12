@@ -127,9 +127,11 @@ class BudgetEnforcer:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                if data.get("measurement_complete") is False:
+                if data.get("measurement_complete") is not True:
                     raise ValueError("budget spend contains unmeasured execution cost")
-                spend = float(data.get("total_cost_usd", 0))
+                if "total_cost_usd" not in data or data["total_cost_usd"] is None:
+                    raise ValueError("budget response omitted total_cost_usd")
+                spend = float(data["total_cost_usd"])
                 # No configured cap comes back as null — unlimited, not an error.
                 cap_raw = data.get("budget_cap_usd")
                 cap = float(cap_raw) if cap_raw is not None else None
