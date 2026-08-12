@@ -20,10 +20,12 @@ def test_regulus_settings_defaults():
 
 def test_regulus_settings_accessible_via_zeroth_settings():
     """RegulusSettings is accessible via ZerothSettings().regulus."""
+    from zeroth.platform.config.models import RegulusSettings
     from zeroth.platform.config.settings import ZerothSettings
 
-    settings = ZerothSettings()
+    settings = ZerothSettings(regulus=RegulusSettings())
     assert hasattr(settings, "regulus")
+    assert isinstance(settings.regulus, RegulusSettings)
     # G1: enabled by default (see test_regulus_settings_defaults).
     assert settings.regulus.enabled is True
     assert settings.regulus.base_url == "http://localhost:8000/v1"
