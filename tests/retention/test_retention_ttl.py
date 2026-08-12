@@ -146,7 +146,7 @@ def test_settings_worker_poll_interval_stays_float() -> None:
 async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> None:
     from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
-    repo = RetentionPolicyRepository(
+    repo = RetentionPolicyRepository.scoped(
         sqlite_db,
         NullWorkspaceScopeContext(tenant_id="tenant-without-policy"),
         default_policy=RetentionPolicy(
@@ -162,7 +162,7 @@ async def test_missing_tenant_policy_inherits_configured_defaults(sqlite_db) -> 
 async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
     from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
-    repo = RetentionPolicyRepository(
+    repo = RetentionPolicyRepository.scoped(
         sqlite_db,
         NullWorkspaceScopeContext(tenant_id="tenant-forever"),
         default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),
@@ -176,7 +176,7 @@ async def test_explicit_none_ttl_beats_configured_default(sqlite_db) -> None:
 async def test_configured_defaults_are_not_persisted_as_rows(sqlite_db) -> None:
     from zeroth.governance.retention.policy_repository import RetentionPolicyRepository
 
-    repo = RetentionPolicyRepository(
+    repo = RetentionPolicyRepository.scoped(
         sqlite_db,
         NullWorkspaceScopeContext(tenant_id="tenant-ephemeral"),
         default_policy=RetentionPolicy(tenant_id="default", audit_ttl_seconds=3600),

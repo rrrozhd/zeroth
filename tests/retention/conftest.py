@@ -221,7 +221,7 @@ class RetentionEnv:
             return self.policy_repo
         return self._policy_repos.setdefault(
             tenant_id,
-            RetentionPolicyRepository(
+            RetentionPolicyRepository.scoped(
                 self.database, NullWorkspaceScopeContext(tenant_id=tenant_id)
             ),
         )
