@@ -427,8 +427,8 @@ async def _drive_webhook_dead_letters(
 
 
 async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation) -> None:
-    owner = RetentionPolicyRepository(database, _scope("driver-owner"))
-    foreign = RetentionPolicyRepository(database, _scope("driver-foreign"))
+    owner = RetentionPolicyRepository.scoped(database, _scope("driver-owner"))
+    foreign = RetentionPolicyRepository.scoped(database, _scope("driver-foreign"))
     await owner.upsert(RetentionPolicy(tenant_id="driver-owner", audit_ttl_seconds=10))
     if operation is O.CREATE:
         await foreign.upsert(RetentionPolicy(tenant_id="driver-foreign", audit_ttl_seconds=20))
@@ -437,14 +437,14 @@ async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation)
     elif operation is O.READ:
         assert await foreign.get() is None
         assert (
-            await RetentionPolicyRepository(database, _scope("driver-unknown")).get() is None
+            await RetentionPolicyRepository.scoped(database, _scope("driver-unknown")).get() is None
         )
         assert (await owner.get()).tenant_id == "driver-owner"
     elif operation is O.ENUMERATE:
         assert [row.tenant_id for row in await owner.list_for_tenant()] == ["driver-owner"]
         assert await foreign.list_for_tenant() == []
         assert (
-            await RetentionPolicyRepository(
+            await RetentionPolicyRepository.scoped(
                 database, _scope("driver-unknown")
             ).list_for_tenant()
             == []
