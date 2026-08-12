@@ -115,15 +115,8 @@ def test_redactor_preserves_same_name_secret_identity_across_tenants(
                 "tenant-b": "shared-prefix-suffix",
             }[tenant]
         )
-    assert provider._redactor_known() == {
-        ("tenant-a", "shared.token"): "shared-prefix",
-        ("tenant-b", "shared.token"): "shared-prefix-suffix",
-    }
-
     redacted = provider._redactor.redact("shared-prefix shared-prefix-suffix")
-    assert redacted == (
-        "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
-    )
+    assert redacted == "[REDACTED:SECRET] [REDACTED:SECRET]"
 
 
 @pytest.mark.asyncio
@@ -148,7 +141,7 @@ async def test_warm_preserves_same_name_secret_identity_across_tenants() -> None
     await provider.warm([("tenant-a", "shared.token"), ("tenant-b", "shared.token")])
 
     assert provider._redactor.redact("tenant-a-secret tenant-b-secret") == (
-        "[REDACTED:('tenant-a', 'shared.token')] [REDACTED:('tenant-b', 'shared.token')]"
+        "[REDACTED:SECRET] [REDACTED:SECRET]"
     )
     await provider.aclose()
 
@@ -176,8 +169,36 @@ async def test_warm_redacts_earlier_value_from_later_failure(
         await provider.warm([("tenant-a", "first"), ("tenant-a", "second")])
 
     assert "first-secret" not in caplog.text
-    assert "[REDACTED:('tenant-a', 'first')]" in caplog.text
+    assert "[REDACTED:SECRET]" in caplog.text
     await provider.aclose()
+
+
+def test_redactor_retains_rotated_secret_values_after_cache_expiry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    responses = iter(["old-secret", "new-secret"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        try:
+            value = next(responses)
+        except StopIteration:
+            raise RuntimeError("transport echoed old-secret") from None
+        return httpx.Response(200, json={"data": {"data": {"value": value}}})
+
+    provider = VaultSecretProvider(
+        addr="https://vault.test:8200",
+        token="root-token",
+        cache_ttl=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert provider.resolve_secret("rotating", tenant_id="tenant-a") == "old-secret"
+    assert provider.resolve_secret("rotating", tenant_id="tenant-a") == "new-secret"
+    with caplog.at_level(logging.WARNING):
+        assert provider.resolve_secret("rotating", tenant_id="tenant-a") is None
+
+    assert "old-secret" not in caplog.text
+    assert "[REDACTED:SECRET]" in caplog.text
 
 
 def test_resolve_never_logs_secret_value(caplog: pytest.LogCaptureFixture) -> None:

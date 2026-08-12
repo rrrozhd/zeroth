@@ -54,6 +54,54 @@ def test_secret_redactor_masks_known_values_in_dicts_and_strings() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "known",
+    [
+        {
+            ("tenant-b", "short"): "tenant-a",
+            ("tenant-a", "long"): "tenant-a-secret",
+        },
+        {
+            ("tenant-a", "long"): "tenant-a-secret",
+            ("tenant-b", "short"): "tenant-a",
+        },
+    ],
+)
+def test_secret_redactor_uses_one_longest_match_pass_with_opaque_tenant_markers(
+    known: dict[tuple[str, str], str],
+) -> None:
+    redactor = SecretRedactor(known)
+
+    assert redactor.redact("tenant-a tenant-a-secret") == "[REDACTED:SECRET] [REDACTED:SECRET]"
+
+
+@pytest.mark.parametrize(
+    "known",
+    [
+        {
+            ("tenant-b", "shared"): "duplicate-secret",
+            ("tenant-a", "shared"): "duplicate-secret",
+        },
+        {
+            ("tenant-a", "shared"): "duplicate-secret",
+            ("tenant-b", "shared"): "duplicate-secret",
+        },
+    ],
+)
+def test_secret_redactor_deduplicates_equal_tenant_values_without_identity_leakage(
+    known: dict[tuple[str, str], str],
+) -> None:
+    redactor = SecretRedactor(known)
+
+    assert redactor.redact("duplicate-secret") == "[REDACTED:SECRET]"
+
+
+def test_secret_redactor_normalizes_string_aliases_before_deduplicating_values() -> None:
+    redactor = SecretRedactor({"alias.one": "shared", "alias-two": "shared"})
+
+    assert redactor.redact("shared") == "[REDACTED:ALIAS_ONE]"
+
+
 # --- async compatibility helpers --------------------------------------------
 
 
