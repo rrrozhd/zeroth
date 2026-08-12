@@ -10,7 +10,6 @@ from typing import Any, Self
 
 from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase
 from zeroth.platform.storage.scoping import (
-    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
@@ -746,9 +745,7 @@ class BoundStructuredTable:
         definition = self._definition(ResourceOperation.READ)
         table_name = _definition_table_name(definition)
         predicates, params = self._where(definition, where)
-        sql = f"SELECT {_columns(columns)} FROM {table_name} WHERE " + " AND ".join(
-            predicates
-        )
+        sql = f"SELECT {_columns(columns)} FROM {table_name} WHERE " + " AND ".join(predicates)
         if order_by:
             sql += " ORDER BY " + ", ".join(_identifier(column) for column in order_by)
         elif order_by_desc:
@@ -934,30 +931,18 @@ class BoundStructuredTable:
 class ScopedTable(_StructuredTable):
     """A structured tenant-scoped table bound to one trusted scope context."""
 
-    __slots__ = ("__context", "__privileged_tenant_wide", "__cross_tenant_maintenance")
+    __slots__ = ("__context", "__privileged_tenant_wide")
 
     def __init__(
         self,
         database: AsyncDatabase,
         registry: ResourceScopeRegistry,
         resource_name: str,
-        context: (
-            ScopeContext
-            | NullWorkspaceScopeContext
-            | TenantWideScopeContext
-            | CrossTenantMaintenanceScopeContext
-        ),
+        context: ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext,
         *,
         _privileged_tenant_wide: bool = False,
-        _cross_tenant_maintenance: bool = False,
     ) -> None:
-        if _cross_tenant_maintenance:
-            if type(context) is not CrossTenantMaintenanceScopeContext:
-                raise TypeError("maintenance context must be a CrossTenantMaintenanceScopeContext")
-            definition = registry.validate_cross_tenant_maintenance_binding(
-                resource_name, context, operation=ResourceOperation.ENUMERATE
-            )
-        elif _privileged_tenant_wide:
+        if _privileged_tenant_wide:
             if type(context) is not TenantWideScopeContext:
                 raise TypeError("privileged context must be a TenantWideScopeContext")
             definition = registry.validate_privileged_tenant_wide_binding(resource_name, context)
@@ -968,7 +953,6 @@ class ScopedTable(_StructuredTable):
         super().__init__(database, registry, definition)
         self.__context = context
         self.__privileged_tenant_wide = _privileged_tenant_wide
-        self.__cross_tenant_maintenance = _cross_tenant_maintenance
 
     @property
     def _context(self) -> object:
@@ -995,32 +979,11 @@ class ScopedTable(_StructuredTable):
             _privileged_tenant_wide=True,
         )
 
-    @classmethod
-    def for_cross_tenant_maintenance(
-        cls,
-        database: AsyncDatabase,
-        registry: ResourceScopeRegistry,
-        resource_name: str,
-        context: CrossTenantMaintenanceScopeContext,
-    ) -> Self:
-        return cls(
-            database,
-            registry,
-            resource_name,
-            context,
-            _cross_tenant_maintenance=True,
-        )
-
     def _validate_operation(
         self,
         operation: ResourceOperation,
         definition: ResourceScopeDefinition,
     ) -> ResourceScopeDefinition:
-        if self.__cross_tenant_maintenance:
-            assert type(self._context) is CrossTenantMaintenanceScopeContext
-            return self._registry.validate_cross_tenant_maintenance_binding(
-                definition.resource_name, self._context, operation=operation
-            )
         if self._privileged_tenant_wide:
             assert type(self._context) is TenantWideScopeContext
             if operation is ResourceOperation.CREATE and definition.workspace_scoped:
@@ -1040,9 +1003,6 @@ class ScopedTable(_StructuredTable):
         self,
         definition: ResourceScopeDefinition,
     ) -> tuple[tuple[str, str | None], ...]:
-        if self.__cross_tenant_maintenance:
-            return ()
-        assert not isinstance(self._context, CrossTenantMaintenanceScopeContext)
         items = [("tenant_id", self._context.tenant_id)]
         if definition.workspace_scoped and type(self._context) is ScopeContext:
             items.append(("workspace_id", self._context.workspace_id))
@@ -1059,7 +1019,6 @@ class ScopedTable(_StructuredTable):
             type(self._context),
             self._context,
             self.__privileged_tenant_wide,
-            self.__cross_tenant_maintenance,
         )
 
     def _accepts_transaction_scope_from(self, source: _StructuredTable) -> bool:
@@ -1071,9 +1030,7 @@ class ScopedTable(_StructuredTable):
         return (
             not self._definition.workspace_scoped
             and not self.__privileged_tenant_wide
-            and not self.__cross_tenant_maintenance
             and not source.__privileged_tenant_wide
-            and not source.__cross_tenant_maintenance
             and type(self._context) is NullWorkspaceScopeContext
             and type(source._context) is ScopeContext
             and self._context.tenant_id == source._context.tenant_id
