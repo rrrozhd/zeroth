@@ -14,12 +14,19 @@ Callers map their own identity types onto these primitives.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    ScopedTable,
+)
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 
 # The support vocabulary mirrors zeroth.contracts.graph.SideEffectSupport. It is
 # duplicated as plain strings, not imported, because platform may not depend on
@@ -64,8 +71,34 @@ class SideEffectOperationStore:
     """Persists one row per logical operation and converges duplicate reports."""
 
     database: AsyncDatabase
+    scope_context: ScopeContext | NullWorkspaceScopeContext
     max_reconciliation_attempts: int = 3
     metrics_collector: Any | None = None
+    table: ScopedTable = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.table = ScopedTable(
+            self.database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.side_effect_operations",
+            self.scope_context,
+        )
+
+    @classmethod
+    def for_default_compatibility(
+        cls,
+        database: AsyncDatabase,
+        *,
+        max_reconciliation_attempts: int = 3,
+        metrics_collector: Any | None = None,
+    ) -> Self:
+        """Construct the explicitly named legacy default/null-workspace binding."""
+        return cls(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            max_reconciliation_attempts=max_reconciliation_attempts,
+            metrics_collector=metrics_collector,
+        )
 
     def _encrypt(self, receipt: str | None) -> str | None:
         """Encrypt a receipt at rest when the database exposes an encrypted field.
@@ -104,11 +137,7 @@ class SideEffectOperationStore:
 
     async def get(self, operation_key: str) -> dict[str, Any] | None:
         """Return the stored record, with ``dedupe_supported`` derived."""
-        async with self.database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT * FROM side_effect_operations WHERE operation_key = ?",
-                (operation_key,),
-            )
+        row = await self.table.select_one(where={"operation_key": operation_key})
         if row is None:
             return None
         record = dict(row)
@@ -124,14 +153,10 @@ class SideEffectOperationStore:
 
     async def pending_reconciliation(self, run_id: str) -> list[dict[str, Any]]:
         """Ambiguous operations for a run -- durable work, not an in-memory flag."""
-        async with self.database.transaction() as conn:
-            rows = await conn.fetch_all(
-                """
-                SELECT * FROM side_effect_operations
-                WHERE run_id = ? AND state = ?
-                ORDER BY created_at ASC
-                """,
-                (run_id, OperationState.AMBIGUOUS.value),
+        async with self.table.transaction() as operations:
+            rows = await operations.select(
+                where={"run_id": run_id, "state": OperationState.AMBIGUOUS.value},
+                order_by=("created_at",),
             )
         return [dict(row) | {"receipt": self._decrypt(row["receipt"])} for row in rows]
 
@@ -158,41 +183,31 @@ class SideEffectOperationStore:
         whether the effect landed.  That becomes AMBIGUOUS, never FAILED.
         """
         now = _utc_now()
-        async with self.database.transaction() as conn:
-            row = await conn.fetch_one(
-                "SELECT * FROM side_effect_operations WHERE operation_key = ?",
-                (operation_key,),
-            )
+        async with self.table.transaction(write_lock=True) as operations:
+            row = await operations.select_one(where={"operation_key": operation_key})
 
             if row is None:
                 # ON CONFLICT DO NOTHING ... RETURNING is the compare-and-set:
                 # a concurrent claimer that lost the race gets no row back
                 # instead of a uniqueness error, and only the winner is told it
                 # may perform the effect.
-                won = await conn.fetch_one(
-                    """
-                    INSERT INTO side_effect_operations (
-                        operation_key, run_id, dispatch_id, idempotency_key,
-                        target_ref, attempt, state, support,
-                        reconciliation_attempts, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-                    ON CONFLICT (operation_key) DO NOTHING
-                    RETURNING operation_key
-                    """,
-                    (
-                        operation_key,
-                        run_id,
-                        dispatch_id,
-                        idempotency_key,
-                        target_ref,
-                        attempt,
-                        OperationState.IN_FLIGHT.value,
-                        support,
-                        now,
-                        now,
-                    ),
+                won = await operations.insert_if_absent(
+                    {
+                        "operation_key": operation_key,
+                        "run_id": run_id,
+                        "dispatch_id": dispatch_id,
+                        "idempotency_key": idempotency_key,
+                        "target_ref": target_ref,
+                        "attempt": attempt,
+                        "state": OperationState.IN_FLIGHT.value,
+                        "support": support,
+                        "reconciliation_attempts": 0,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    conflict_columns=("tenant_id", "workspace_scope", "operation_key"),
                 )
-                if won is not None:
+                if won:
                     self._count("zeroth_side_effect_first_execution_total")
                     return OperationClaim(
                         state=OperationState.IN_FLIGHT,
@@ -228,22 +243,20 @@ class SideEffectOperationStore:
             if state is OperationState.FAILED:
                 # Guarded on the observed state so two claimers retrying the
                 # same failed operation cannot both be authorised.
-                won = await conn.fetch_one(
-                    """
-                    UPDATE side_effect_operations
-                    SET state = ?, attempt = ?, error = NULL, updated_at = ?
-                    WHERE operation_key = ? AND state = ?
-                    RETURNING operation_key
-                    """,
-                    (
-                        OperationState.IN_FLIGHT.value,
-                        attempt,
-                        now,
-                        operation_key,
-                        OperationState.FAILED.value,
-                    ),
+                won = await operations.update_if_matches(
+                    {
+                        "state": OperationState.IN_FLIGHT.value,
+                        "attempt": attempt,
+                        "error": None,
+                        "updated_at": now,
+                    },
+                    where={
+                        "operation_key": operation_key,
+                        "state": OperationState.FAILED.value,
+                    },
+                    returning="operation_key",
                 )
-                if won is not None:
+                if won:
                     self._count("zeroth_side_effect_first_execution_total")
                     return OperationClaim(
                         state=OperationState.IN_FLIGHT,
@@ -265,27 +278,27 @@ class SideEffectOperationStore:
                 # may complete between the read above and this write, and an
                 # unguarded update would demote a COMPLETED operation back to
                 # AMBIGUOUS -- losing a known-good receipt.
-                await conn.execute(
-                    """
-                    UPDATE side_effect_operations
-                    SET state = ?, attempt = ?, ambiguity_reason = ?, updated_at = ?
-                    WHERE operation_key = ? AND state = ?
-                    """,
-                    (
-                        OperationState.AMBIGUOUS.value,
-                        attempt,
-                        "claimed while a previous attempt was still in flight",
-                        now,
-                        operation_key,
-                        OperationState.IN_FLIGHT.value,
-                    ),
+                await operations.update_if_matches(
+                    {
+                        "state": OperationState.AMBIGUOUS.value,
+                        "attempt": attempt,
+                        "ambiguity_reason": (
+                            "claimed while a previous attempt was still in flight"
+                        ),
+                        "updated_at": now,
+                    },
+                    where={
+                        "operation_key": operation_key,
+                        "state": OperationState.IN_FLIGHT.value,
+                    },
+                    returning="operation_key",
                 )
                 # The guard may have refused because the in-flight attempt
                 # settled first -- either way. Report what is actually stored
                 # rather than asserting an ambiguity we no longer have.
-                settled = await conn.fetch_one(
-                    "SELECT state, receipt FROM side_effect_operations WHERE operation_key = ?",
-                    (operation_key,),
+                settled = await operations.select_one(
+                    where={"operation_key": operation_key},
+                    columns=("state", "receipt"),
                 )
                 settled_state = None if settled is None else OperationState(settled["state"])
                 if settled_state is OperationState.COMPLETED:
@@ -331,27 +344,23 @@ class SideEffectOperationStore:
         workers that both believe they own the operation.
         """
         now = _utc_now()
-        async with self.database.transaction() as conn:
+        async with self.table.transaction(write_lock=True) as operations:
             # One guarded statement, not read-then-write. The guard is the
             # state itself, so exactly one of two concurrent completers gets a
             # row back -- the earlier version read the state and then updated
             # separately, which let both observe a non-completed row.
-            won = await conn.fetch_one(
-                """
-                UPDATE side_effect_operations
-                SET state = ?, receipt = ?, error = NULL, updated_at = ?
-                WHERE operation_key = ? AND state != ?
-                RETURNING operation_key
-                """,
-                (
-                    OperationState.COMPLETED.value,
-                    self._encrypt(receipt),
-                    now,
-                    operation_key,
-                    OperationState.COMPLETED.value,
-                ),
+            won = await operations.update_if_matches(
+                {
+                    "state": OperationState.COMPLETED.value,
+                    "receipt": self._encrypt(receipt),
+                    "error": None,
+                    "updated_at": now,
+                },
+                where={"operation_key": operation_key},
+                where_not_in={"state": (OperationState.COMPLETED.value,)},
+                returning="operation_key",
             )
-        return won is not None
+        return won
 
     async def fail(self, operation_key: str, *, error: str) -> None:
         """Record a *confirmed* failure.
@@ -363,41 +372,37 @@ class SideEffectOperationStore:
         reconciliation work that exists precisely because the answer is unknown.
         """
         now = _utc_now()
-        async with self.database.transaction() as conn:
-            await conn.execute(
-                """
-                UPDATE side_effect_operations
-                SET state = ?, error = ?, updated_at = ?
-                WHERE operation_key = ? AND state NOT IN (?, ?)
-                """,
-                (
-                    OperationState.FAILED.value,
-                    error,
-                    now,
-                    operation_key,
-                    OperationState.COMPLETED.value,
-                    OperationState.AMBIGUOUS.value,
-                ),
+        async with self.table.transaction(write_lock=True) as operations:
+            await operations.update_if_matches(
+                {
+                    "state": OperationState.FAILED.value,
+                    "error": error,
+                    "updated_at": now,
+                },
+                where={"operation_key": operation_key},
+                where_not_in={
+                    "state": (
+                        OperationState.COMPLETED.value,
+                        OperationState.AMBIGUOUS.value,
+                    )
+                },
+                returning="operation_key",
             )
 
     async def mark_ambiguous(self, operation_key: str, *, reason: str) -> None:
         """Record that the outcome is unknown -- distinct from known-failed."""
         self._count("zeroth_side_effect_ambiguous_total")
         now = _utc_now()
-        async with self.database.transaction() as conn:
-            await conn.execute(
-                """
-                UPDATE side_effect_operations
-                SET state = ?, ambiguity_reason = ?, updated_at = ?
-                WHERE operation_key = ? AND state != ?
-                """,
-                (
-                    OperationState.AMBIGUOUS.value,
-                    reason,
-                    now,
-                    operation_key,
-                    OperationState.COMPLETED.value,
-                ),
+        async with self.table.transaction(write_lock=True) as operations:
+            await operations.update_if_matches(
+                {
+                    "state": OperationState.AMBIGUOUS.value,
+                    "ambiguity_reason": reason,
+                    "updated_at": now,
+                },
+                where={"operation_key": operation_key},
+                where_not_in={"state": (OperationState.COMPLETED.value,)},
+                returning="operation_key",
             )
 
     async def record_reconciliation(
@@ -424,28 +429,23 @@ class SideEffectOperationStore:
         still does not know what the external system did.
         """
         now = _utc_now()
-        async with self.database.transaction() as conn:
+        async with self.table.transaction(write_lock=True) as operations:
             if resolved:
                 # Guarded on "not already completed", so the first reconciler to
                 # discover the outcome wins and a later one cannot overwrite it.
-                won = await conn.fetch_one(
-                    """
-                    UPDATE side_effect_operations
-                    SET state = ?, receipt = ?, error = NULL,
-                        reconciliation_attempts = reconciliation_attempts + 1,
-                        updated_at = ?
-                    WHERE operation_key = ? AND state != ?
-                    RETURNING operation_key
-                    """,
-                    (
-                        OperationState.COMPLETED.value,
-                        self._encrypt(receipt),
-                        now,
-                        operation_key,
-                        OperationState.COMPLETED.value,
-                    ),
+                won = await operations.update_if_matches(
+                    {
+                        "state": OperationState.COMPLETED.value,
+                        "receipt": self._encrypt(receipt),
+                        "error": None,
+                        "updated_at": now,
+                    },
+                    where={"operation_key": operation_key},
+                    where_not_in={"state": (OperationState.COMPLETED.value,)},
+                    increment=("reconciliation_attempts",),
+                    returning="operation_key",
                 )
-                if won is not None:
+                if won:
                     self._count("zeroth_side_effect_reconciliation_succeeded_total")
                     return OperationState.COMPLETED
                 # Either it was already completed, or the row is gone.
@@ -454,24 +454,18 @@ class SideEffectOperationStore:
             if confirmed_failed:
                 # The target answered "no effect". That is knowledge, not a
                 # timeout, so it may settle an ambiguous operation.
-                settled = await conn.fetch_one(
-                    """
-                    UPDATE side_effect_operations
-                    SET state = ?, error = ?,
-                        reconciliation_attempts = reconciliation_attempts + 1,
-                        updated_at = ?
-                    WHERE operation_key = ? AND state != ?
-                    RETURNING operation_key
-                    """,
-                    (
-                        OperationState.FAILED.value,
-                        error,
-                        now,
-                        operation_key,
-                        OperationState.COMPLETED.value,
-                    ),
+                settled = await operations.update_if_matches(
+                    {
+                        "state": OperationState.FAILED.value,
+                        "error": error,
+                        "updated_at": now,
+                    },
+                    where={"operation_key": operation_key},
+                    where_not_in={"state": (OperationState.COMPLETED.value,)},
+                    increment=("reconciliation_attempts",),
+                    returning="operation_key",
                 )
-                if settled is not None:
+                if settled:
                     self._count("zeroth_side_effect_reconciliation_succeeded_total")
                     return OperationState.FAILED
                 return await self.state_of(operation_key)
@@ -479,52 +473,40 @@ class SideEffectOperationStore:
             # An unresolved attempt burns budget and leaves the operation
             # AMBIGUOUS. Exhausting the budget must not manufacture a verdict:
             # the runtime still does not know what the external system did.
-            moved = await conn.fetch_one(
-                """
-                UPDATE side_effect_operations
-                SET state = ?, error = ?,
-                    reconciliation_attempts = reconciliation_attempts + 1,
-                    updated_at = ?
-                WHERE operation_key = ? AND state != ?
-                RETURNING operation_key
-                """,
-                (
-                    OperationState.AMBIGUOUS.value,
-                    error,
-                    now,
-                    operation_key,
-                    OperationState.COMPLETED.value,
-                ),
+            moved = await operations.update_if_matches(
+                {
+                    "state": OperationState.AMBIGUOUS.value,
+                    "error": error,
+                    "updated_at": now,
+                },
+                where={"operation_key": operation_key},
+                where_not_in={"state": (OperationState.COMPLETED.value,)},
+                increment=("reconciliation_attempts",),
+                returning="operation_key",
             )
-        if moved is None:
+        if not moved:
             return await self.state_of(operation_key)
         self._count("zeroth_side_effect_reconciliation_failed_total")
         return OperationState.AMBIGUOUS
+
+    async def erase_for_run(self, run_id: str) -> int:
+        """Delete this scope's receipts for one run."""
+        async with self.table.transaction(write_lock=True) as operations:
+            return await self.erase_for_run_in_transaction(operations, run_id)
+
+    async def erase_for_run_in_transaction(
+        self,
+        transaction: BoundStructuredTable,
+        run_id: str,
+    ) -> int:
+        """Delete this scope's receipts inside a caller-owned transaction."""
+        operations = self.table.in_transaction(transaction)
+        rows = await operations.select(where={"run_id": run_id}, columns=("operation_key",))
+        if rows:
+            await operations.delete(where={"run_id": run_id})
+        return len(rows)
 
 
 def record_is_dedupe_supported(record: Mapping[str, Any]) -> bool:
     """Whether a stored record's target can collapse a repeat."""
     return record["support"] != SUPPORT_AT_LEAST_ONCE
-
-
-async def erase_operations_for_run(connection: Any, run_id: str) -> int:
-    """Delete a run's side-effect receipts, returning how many rows were removed.
-
-    Receipts are a plaintext-adjacent PII surface of exactly the kind run
-    erasure exists to reach -- the target's own response to a side effect -- and
-    neither deleting checkpoints nor redacting the run row touches them.
-    Idempotent: a second call deletes nothing and returns 0.
-    """
-    structured_delete = getattr(connection, "delete_side_effect_operations_for_run", None)
-    if structured_delete is not None:
-        return await structured_delete(run_id)
-    rows = await connection.fetch_all(
-        "SELECT operation_key FROM side_effect_operations WHERE run_id = ?",
-        (run_id,),
-    )
-    if rows:
-        await connection.execute(
-            "DELETE FROM side_effect_operations WHERE run_id = ?",
-            (run_id,),
-        )
-    return len(rows)

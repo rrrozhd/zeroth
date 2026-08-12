@@ -66,7 +66,7 @@ from zeroth.platform.signing import (
     build_signing_provider_async,
     build_verification_provider_async,
 )
-from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext, ScopeContext
+from zeroth.platform.storage import AsyncDatabase, NullWorkspaceScopeContext
 from zeroth.runtime.agents import AgentRunner
 from zeroth.runtime.agents.factory import build_agent_runners
 from zeroth.runtime.agents.provider import ProviderAdapter
@@ -189,7 +189,11 @@ async def bootstrap_service(
     # boundary into a recognisable repeat. Constructed here so live executions get
     # replay suppression and operation metrics -- the dispatch path is a
     # pass-through whenever this is absent.
-    operation_store = SideEffectOperationStore(database, metrics_collector=metrics_collector)
+    operation_store = SideEffectOperationStore(
+        database,
+        deployment_scope,
+        metrics_collector=metrics_collector,
+    )
     orchestrator = RuntimeOrchestrator(
         run_repository=run_repository,
         agent_runners=resolved_agent_runners,
@@ -401,7 +405,6 @@ async def bootstrap_service(
             f"Unknown artifact store backend: {artifact_settings.backend!r}. "
             "Must be 'filesystem' or 'redis'."
         )
-    artifact_backend = artifact_store
     if artifact_store is not None:
         from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
 
@@ -579,43 +582,10 @@ async def bootstrap_service(
     )
     retention_worker_obj: object | None = None
     if settings.retention.enabled:
-
-        def retention_service_for_tenant(tenant_id: str) -> RetentionErasureService:
-            tenant_scope = (
-                NullWorkspaceScopeContext.for_default_compatibility()
-                if tenant_id == "default"
-                else NullWorkspaceScopeContext(tenant_id=tenant_id)
-            )
-            if deployment.workspace_id is None:
-                run_scope = tenant_scope
-            elif tenant_id == "default":
-                run_scope = ScopeContext.for_default_compatibility(
-                    workspace_id=deployment.workspace_id
-                )
-            else:
-                run_scope = ScopeContext(tenant_id=tenant_id, workspace_id=deployment.workspace_id)
-            tenant_artifacts = None
-            if artifact_backend is not None:
-                from zeroth.platform.artifacts.tenant_scoped import TenantScopedArtifactStore
-
-                tenant_artifacts = TenantScopedArtifactStore(
-                    artifact_backend,
-                    tenant_id=tenant_id,
-                    workspace_id=deployment.workspace_id,
-                )
-            return RetentionErasureService(
-                audit_repository=AuditRepository.scoped(database, run_scope, signer),
-                run_repository=RunRepository(database, run_scope),
-                policy_repository=RetentionPolicyRepository(database, tenant_scope),
-                legal_hold_repository=LegalHoldRepository(database, tenant_scope),
-                log_repository=RetentionAuditLogRepository(database, tenant_scope),
-                artifact_store=tenant_artifacts,
-                econ_eraser=None,
-            )
-
         retention_worker_obj = RetentionPurgeWorker(
-            database=database,
-            erasure_service_factory=retention_service_for_tenant,
+            tenant_id=deployment.tenant_id,
+            policy_repository=retention_policy_repository,
+            erasure_service=retention_erasure_service,
             poll_interval=settings.retention.worker_poll_interval,
         )
 

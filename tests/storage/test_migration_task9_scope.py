@@ -17,6 +17,7 @@ from tests.conftest import requires_docker
 
 _TABLES = (
     "runs",
+    "side_effect_operations",
     "token_engine_snapshots",
     "webhook_subscriptions",
     "webhook_deliveries",
@@ -102,6 +103,17 @@ def _seed_024(engine: Engine) -> None:
                     run_id, revision, schema_version, next_token_ordinal,
                     snapshot_json, updated_at
                 ) VALUES ('shared-run', 1, 1, 2, '{}', '2026-08-12')"""
+            )
+        )
+        connection.execute(
+            text(
+                """INSERT INTO side_effect_operations (
+                    operation_key, run_id, dispatch_id, idempotency_key, target_ref,
+                    state, support, created_at, updated_at
+                ) VALUES (
+                    'shared-operation', 'shared-run', 'dispatch-a', 'idempotency-a',
+                    'unit://a', 'IN_FLIGHT', 'at_least_once', '2026-08-12', '2026-08-12'
+                )"""
             )
         )
         connection.execute(
@@ -265,6 +277,116 @@ def _assert_cleanup_operation_constraints(engine: Engine) -> None:
         )
 
 
+def _assert_workspace_and_webhook_constraints(engine: Engine) -> None:
+    inspector = inspect(engine)
+    for table in (
+        "runs",
+        "threads",
+        "run_checkpoints",
+        "token_engine_snapshots",
+        "side_effect_operations",
+    ):
+        checks = " ".join(
+            str(constraint["sqltext"]) for constraint in inspector.get_check_constraints(table)
+        )
+        assert "workspace_id IS NULL" in checks
+        assert "workspace_scope" in checks
+
+    delivery_foreign_key = next(
+        constraint
+        for constraint in inspector.get_foreign_keys("webhook_deliveries")
+        if constraint["constrained_columns"] == ["tenant_id", "subscription_id"]
+    )
+    assert delivery_foreign_key["referred_table"] == "webhook_subscriptions"
+    assert delivery_foreign_key["referred_columns"] == ["tenant_id", "subscription_id"]
+    assert _foreign_key_ondelete(engine, "webhook_deliveries", delivery_foreign_key) in {
+        "",
+        "NO ACTION",
+        "RESTRICT",
+    }
+    assert inspector.get_foreign_keys("webhook_dead_letters") == []
+
+    suffix = uuid4().hex
+    subscription_id = f"constraint-subscription-{suffix}"
+    with engine.begin() as connection:
+        _enable_foreign_keys(connection)
+        connection.execute(
+            text(
+                """INSERT INTO webhook_subscriptions (
+                    tenant_id, subscription_id, deployment_ref, target_url, secret,
+                    event_types, created_at, updated_at
+                ) VALUES (
+                    'tenant-constraint', :subscription_id, 'deployment:v1',
+                    'https://example.test/hook', 'secret', '[]',
+                    '2026-08-12', '2026-08-12'
+                )"""
+            ),
+            {"subscription_id": subscription_id},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO webhook_deliveries (
+                    tenant_id, delivery_id, subscription_id, event_type, event_id,
+                    payload_json, next_attempt_at, created_at, updated_at
+                ) VALUES (
+                    'tenant-constraint', :delivery_id, :subscription_id,
+                    'run.completed', 'event', '{}', '2026-08-12',
+                    '2026-08-12', '2026-08-12'
+                )"""
+            ),
+            {
+                "delivery_id": f"constraint-delivery-{suffix}",
+                "subscription_id": subscription_id,
+            },
+        )
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _enable_foreign_keys(connection)
+        connection.execute(
+            text(
+                """INSERT INTO side_effect_operations (
+                    tenant_id, workspace_id, workspace_scope, operation_key, run_id,
+                    dispatch_id, idempotency_key, target_ref, state, support,
+                    created_at, updated_at
+                ) VALUES (
+                    'tenant-a', 'workspace-a', 'value:workspace-forged',
+                    'forged-operation', 'shared-run', 'dispatch', 'idempotency',
+                    'unit://forged', 'IN_FLIGHT', 'at_least_once',
+                    '2026-08-12', '2026-08-12'
+                )"""
+            )
+        )
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _enable_foreign_keys(connection)
+        connection.execute(
+            text(
+                """INSERT INTO webhook_deliveries (
+                    tenant_id, delivery_id, subscription_id, event_type, event_id,
+                    payload_json, next_attempt_at, created_at, updated_at
+                ) VALUES (
+                    'tenant-foreign', :delivery_id, :subscription_id,
+                    'run.completed', 'event', '{}', '2026-08-12',
+                    '2026-08-12', '2026-08-12'
+                )"""
+            ),
+            {
+                "delivery_id": f"foreign-delivery-{suffix}",
+                "subscription_id": subscription_id,
+            },
+        )
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _enable_foreign_keys(connection)
+        connection.execute(
+            text(
+                "DELETE FROM webhook_subscriptions "
+                "WHERE tenant_id='tenant-constraint' AND subscription_id=:subscription_id"
+            ),
+            {"subscription_id": subscription_id},
+        )
+
+
 def _assert_upgrade_and_collisions(database_url: str) -> dict[str, dict[str, object]]:
     config = _config(database_url)
     command.upgrade(config, "024")
@@ -290,6 +412,11 @@ def _assert_upgrade_and_collisions(database_url: str) -> dict[str, dict[str, obj
             "tenant_id",
             "subscription_id",
         ]
+        assert inspector.get_pk_constraint("side_effect_operations")["constrained_columns"] == [
+            "tenant_id",
+            "workspace_scope",
+            "operation_key",
+        ]
         with engine.begin() as connection:
             assert connection.execute(
                 text(
@@ -305,6 +432,13 @@ def _assert_upgrade_and_collisions(database_url: str) -> dict[str, dict[str, obj
                 ).scalar_one()
                 == "tenant-a"
             )
+            assert connection.execute(
+                text(
+                    """SELECT tenant_id, workspace_id, workspace_scope
+                       FROM side_effect_operations
+                       WHERE operation_key='shared-operation'"""
+                )
+            ).one() == ("tenant-a", "workspace-a", "value:workspace-a")
             assert (
                 connection.execute(
                     text(
@@ -335,6 +469,20 @@ def _assert_upgrade_and_collisions(database_url: str) -> dict[str, dict[str, obj
                         'tenant-b', 'workspace-b', 'value:workspace-b', 'shared-run', 0,
                         'workflow', 'completed', '[]', '{}', '{}', '2026-08-12',
                         '2026-08-12', '{}', 'graph:v1', 'deployment:v1', 'thread-b', '[]'
+                    )"""
+                )
+            )
+            connection.execute(
+                text(
+                    """INSERT INTO side_effect_operations (
+                        tenant_id, workspace_id, workspace_scope, operation_key, run_id,
+                        dispatch_id, idempotency_key, target_ref, state, support,
+                        created_at, updated_at
+                    ) VALUES (
+                        'tenant-b', 'workspace-b', 'value:workspace-b',
+                        'shared-operation', 'shared-run', 'dispatch-b', 'idempotency-b',
+                        'unit://b', 'IN_FLIGHT', 'at_least_once',
+                        '2026-08-12', '2026-08-12'
                     )"""
                 )
             )
@@ -388,6 +536,15 @@ def _assert_upgrade_and_collisions(database_url: str) -> dict[str, dict[str, obj
             assert (
                 connection.execute(
                     text(
+                        "SELECT COUNT(*) FROM side_effect_operations "
+                        "WHERE operation_key='shared-operation'"
+                    )
+                ).scalar_one()
+                == 2
+            )
+            assert (
+                connection.execute(
+                    text(
                         "SELECT COUNT(*) FROM webhook_subscriptions "
                         "WHERE subscription_id='shared-subscription'"
                     )
@@ -415,6 +572,7 @@ def test_upgrade_from_024_preserves_owners_and_allows_scope_local_collisions(
     engine = create_engine(database_url)
     try:
         _assert_cleanup_operation_constraints(engine)
+        _assert_workspace_and_webhook_constraints(engine)
     finally:
         engine.dispose()
 
@@ -428,6 +586,7 @@ def test_fresh_head_matches_upgraded_task9_schema(tmp_path: Path) -> None:
     try:
         assert _signature(fresh_engine) == upgraded_signature
         _assert_cleanup_operation_constraints(fresh_engine)
+        _assert_workspace_and_webhook_constraints(fresh_engine)
     finally:
         fresh_engine.dispose()
 
@@ -482,6 +641,12 @@ def test_025_downgrade_round_trip_preserves_representable_024_rows(tmp_path: Pat
             assert (
                 connection.execute(text("SELECT tenant_id FROM webhook_subscriptions")).scalar_one()
                 == "tenant-a"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT operation_key FROM side_effect_operations")
+                ).scalar_one()
+                == "shared-operation"
             )
     finally:
         engine.dispose()

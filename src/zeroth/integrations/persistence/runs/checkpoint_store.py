@@ -25,10 +25,6 @@ from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.runtime.runs import Run
 
 
-def _workspace_scope(workspace_id: str | None) -> str:
-    return "null" if workspace_id is None else f"value:{workspace_id}"
-
-
 def new_checkpoint_id() -> str:
     """Generate a new random hex ID for a checkpoint."""
     return uuid4().hex
@@ -129,9 +125,6 @@ class CheckpointRowStore:
         state_json: str,
         created_at: str,
     ) -> None:
-        workspace_id = (
-            self.scope_context.workspace_id if type(self.scope_context) is ScopeContext else None
-        )
         await checkpoints.upsert(
             {
                 "checkpoint_id": checkpoint_id,
@@ -140,7 +133,6 @@ class CheckpointRowStore:
                 "checkpoint_order": checkpoint_order,
                 "state_json": self.encrypt_state_json(state_json),
                 "created_at": created_at,
-                "workspace_scope": _workspace_scope(workspace_id),
             },
             conflict_columns=("tenant_id", "workspace_scope", "checkpoint_id"),
             update_columns=(

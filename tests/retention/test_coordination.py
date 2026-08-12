@@ -223,6 +223,23 @@ async def test_connection_aware_hold_operations_share_caller_transaction(
 
 
 @pytest.mark.asyncio
+async def test_connection_aware_hold_rejects_foreign_tenant_transaction(
+    async_database: AsyncSQLiteDatabase,
+) -> None:
+    tenant_a = NullWorkspaceScopeContext(tenant_id="tenant-a")
+    tenant_b = NullWorkspaceScopeContext(tenant_id="tenant-b")
+    coordinator = RetentionCoordinator(async_database, tenant_a)
+    foreign_repository = LegalHoldRepository(async_database, tenant_b)
+
+    async with coordinator.transaction() as transaction:
+        with pytest.raises(ValueError, match="same structural scope"):
+            await foreign_repository.place_in_transaction(transaction, run_id="shared-run")
+
+    assert await foreign_repository.list_for_tenant() == []
+    assert await LegalHoldRepository(async_database, tenant_a).list_for_tenant() == []
+
+
+@pytest.mark.asyncio
 async def test_retention_transaction_binds_tenant_identity(
     async_database: AsyncSQLiteDatabase,
 ) -> None:
