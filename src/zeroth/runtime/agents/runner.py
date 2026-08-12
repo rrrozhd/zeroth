@@ -20,6 +20,7 @@ from pydantic import BaseModel, ValidationError
 
 from zeroth.contracts.governed import MemoryScope
 from zeroth.governance.audit import MemoryAccessRecord
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.governance.guardrails.content import (
     BlocklistFilter,
     ContentFilter,
@@ -28,6 +29,7 @@ from zeroth.governance.guardrails.content import (
 )
 from zeroth.governance.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.governance.policy.models import Capability
+from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents.errors import (
     AgentContentBlockedError,
@@ -670,14 +672,55 @@ class AgentRunner:
                         record["response"] = self.content_guardrail.inspect(
                             record["response"], direction="output"
                         ).payload
-                    # Copy token usage from provider response to audit record (per D-11)
-                    if response.token_usage is not None:
-                        record["token_usage"] = response.token_usage.model_dump(mode="json")
-                    # Promote cost to the top level so per-node spend reaches the
-                    # NodeAuditRecord (and econ.waste). serialize_record only nests it
-                    # under "response"; the runtime lifts these top-level keys.
-                    if response.cost_usd is not None:
-                        record["cost_usd"] = response.cost_usd
+                    usage_parts = [
+                        usage
+                        for usage in (
+                            response.token_usage,
+                            getattr(compaction_result, "token_usage", None),
+                        )
+                        if isinstance(usage, TokenUsage)
+                    ]
+                    if usage_parts:
+                        record["token_usage"] = TokenUsage(
+                            input_tokens=sum(usage.input_tokens for usage in usage_parts),
+                            output_tokens=sum(usage.output_tokens for usage in usage_parts),
+                            total_tokens=sum(usage.total_tokens for usage in usage_parts),
+                            model_name=response.token_usage.model_name
+                            if response.token_usage is not None
+                            else usage_parts[0].model_name,
+                        ).model_dump(mode="json")
+                    cost_parts = tuple(
+                        part
+                        for part in (response, compaction_result)
+                        if part is not None
+                        and isinstance(getattr(part, "cost_measurement", None), MeasurementState)
+                    )
+                    measured_cost = sum(
+                        part.cost_usd if part.cost_usd is not None else 0.0
+                        for part in cost_parts
+                    )
+                    estimated_cost = sum(
+                        part.estimated_cost_usd
+                        if part.estimated_cost_usd is not None
+                        else 0.0
+                        for part in cost_parts
+                    )
+                    states = [part.cost_measurement for part in cost_parts]
+                    record["cost_measurement"] = (
+                        MeasurementState.UNMEASURED
+                        if MeasurementState.UNMEASURED in states
+                        else MeasurementState.ESTIMATED
+                        if MeasurementState.ESTIMATED in states
+                        else MeasurementState.MEASURED
+                    )
+                    if measured_cost or any(
+                        part.cost_measurement is MeasurementState.MEASURED
+                        and part.cost_usd == 0.0
+                        for part in cost_parts
+                    ):
+                        record["cost_usd"] = measured_cost
+                    if estimated_cost:
+                        record["estimated_cost_usd"] = estimated_cost
                     if response.cost_event_id is not None:
                         record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
@@ -688,6 +731,12 @@ class AgentRunner:
                             "tokens_after": compaction_result.tokens_after,
                             "messages_before": compaction_result.original_count,
                             "messages_after": compaction_result.compacted_count,
+                            "token_usage": (
+                                compaction_result.token_usage.model_dump(mode="json")
+                                if isinstance(compaction_result.token_usage, TokenUsage)
+                                else None
+                            ),
+                            "cost_measurement": compaction_result.cost_measurement,
                         }
                     memory_interactions.extend(
                         await self._store_memory(
@@ -780,9 +829,13 @@ class AgentRunner:
         (real-cost) calls are touched; merges into any ``audit_record`` the error
         already carries (e.g. content-safety findings).
         """
-        if response is None or response.cost_usd is None:
+        if response is None:
             return
-        fragment: dict[str, Any] = {"cost_usd": response.cost_usd}
+        fragment: dict[str, Any] = {"cost_measurement": response.cost_measurement}
+        if response.cost_usd is not None:
+            fragment["cost_usd"] = response.cost_usd
+        if response.estimated_cost_usd is not None:
+            fragment["estimated_cost_usd"] = response.estimated_cost_usd
         if response.cost_event_id is not None:
             fragment["cost_event_id"] = response.cost_event_id
         if response.token_usage is not None:

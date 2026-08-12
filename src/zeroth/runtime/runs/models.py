@@ -12,6 +12,7 @@ overall status of the run.
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -27,6 +28,7 @@ from zeroth.contracts.governed import (
     RunStatus as RunStatus,  # re-exported as zeroth.runtime.runs API
 )
 from zeroth.governance.identity import ActorIdentity
+from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.primitives import utc_now
 
 __all__ = [
@@ -82,6 +84,29 @@ class RunHistoryEntry(BaseModel):
     # own history — the basis for the local per-run cost ceiling. ``None`` when
     # no cost estimator populated a cost for the node.
     cost_usd: float | None = None
+    estimated_cost_usd: float | None = None
+    cost_measurement: MeasurementState | None = None
+
+    @model_validator(mode="after")
+    def _infer_cost_measurement(self) -> RunHistoryEntry:
+        if self.cost_measurement is None:
+            self.cost_measurement = (
+                MeasurementState.MEASURED
+                if self.cost_usd is not None
+                else MeasurementState.ESTIMATED
+                if self.estimated_cost_usd is not None
+                else MeasurementState.UNMEASURED
+            )
+        return self
+
+
+RunHistoryEntry.__signature__ = inspect.signature(RunHistoryEntry).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(RunHistoryEntry).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement"}
+    ]
+)
 
 
 class RunFailureState(BaseModel):

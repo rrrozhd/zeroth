@@ -27,6 +27,21 @@
             ],
             "title": "Budget Cap Usd"
           },
+          "cost_measurement": {
+            "default": "measured",
+            "enum": [
+              "measured",
+              "estimated",
+              "unmeasured"
+            ],
+            "title": "Cost Measurement",
+            "type": "string"
+          },
+          "measurement_complete": {
+            "default": true,
+            "title": "Measurement Complete",
+            "type": "boolean"
+          },
           "tenant_id": {
             "title": "Tenant Id",
             "type": "string"
@@ -1202,15 +1217,27 @@
               {
                 "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
+              },
+              {
+                "type": "null"
               }
             ],
-            "default": "0",
             "title": "Compute Cost Usd"
           },
           "compute_time_ms": {
             "default": 0,
             "title": "Compute Time Ms",
             "type": "integer"
+          },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeasurementState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "execution_id": {
             "title": "Execution Id",
@@ -1269,9 +1296,11 @@
               {
                 "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
+              },
+              {
+                "type": "null"
               }
             ],
-            "default": "0",
             "title": "Token Cost Usd"
           },
           "tool_cost_usd": {
@@ -1282,10 +1311,16 @@
               {
                 "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
+              },
+              {
+                "type": "null"
               }
             ],
-            "default": "0",
             "title": "Tool Cost Usd"
+          },
+          "usage_measurement": {
+            "$ref": "#/components/schemas/MeasurementState",
+            "default": "unmeasured"
           }
         },
         "required": [
@@ -1826,6 +1861,16 @@
         ],
         "title": "LoginRequest",
         "type": "object"
+      },
+      "MeasurementState": {
+        "description": "Whether a value was observed, derived, or unavailable.",
+        "enum": [
+          "measured",
+          "estimated",
+          "unmeasured"
+        ],
+        "title": "MeasurementState",
+        "type": "string"
       },
       "OutcomeBatchIngestRequest": {
         "properties": {

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.3] - 2026-08-12
+
+### Fixed
+
+- Preserve measured, estimated, and unmeasured provider cost and usage through execution,
+  compaction, budget, cap, and waste accounting boundaries.
+- Keep masked tool messages structurally intact and retain fractional experiment allocation.
+
 ## [0.23.0.2] - 2026-08-12
 
 ### Fixed

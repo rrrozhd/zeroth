@@ -163,11 +163,18 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             )
             if failed is not None:
                 return failed
-            if (
-                self.driver.per_run_cap_usd is not None
-                and sum_run_cost(run) >= self.driver.per_run_cap_usd
-            ):
+            spent: float | None = None
+            if self.driver.per_run_cap_usd is not None:
                 spent = sum_run_cost(run)
+                if spent is None:
+                    return await self.driver.fail_run(
+                        run,
+                        "node_execution_failed",
+                        "per-run budget cannot be evaluated: cost is unmeasured",
+                    )
+                if spent < self.driver.per_run_cap_usd:
+                    spent = None
+            if spent is not None:
                 return await self.driver.fail_run(
                     run,
                     "node_execution_failed",

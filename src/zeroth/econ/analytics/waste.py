@@ -22,6 +22,7 @@ cross-model shape that does not fit a per-run audit pass and lives outside
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any
@@ -29,6 +30,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.econ.measurement import MeasurementState
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.runtime.runs import Run
 
@@ -69,6 +71,8 @@ class EconReport(BaseModel):
     run_id: str
     run_status: str
     total_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
+    cost_measurement_complete: bool = True
     cost_by_node: dict[str, float] = Field(default_factory=dict)
     findings: list[WasteFinding] = Field(default_factory=list)
 
@@ -95,11 +99,22 @@ class EconReport(BaseModel):
             "run_id": self.run_id,
             "run_status": self.run_status,
             "total_cost_usd": self.total_cost_usd,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "cost_measurement_complete": self.cost_measurement_complete,
             "confirmed_waste_usd": self.confirmed_waste_usd,
             "flagged_waste_usd": self.flagged_waste_usd,
             "waste_ratio": self.waste_ratio,
             "findings": len(self.findings),
         }
+
+
+EconReport.__signature__ = inspect.signature(EconReport).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(EconReport).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement_complete"}
+    ]
+)
 
 
 def _attempts(record: NodeAuditRecord) -> int:
@@ -168,8 +183,15 @@ def analyze_run(
     cost_by_node: dict[str, float] = {}
     exec_costs: dict[str, list[float]] = {}
     total_cost = 0.0
+    estimated_cost = 0.0
+    measurement_complete = True
     for record in audits:
-        cost = record.cost_usd or 0.0
+        if record.cost_measurement is MeasurementState.UNMEASURED:
+            measurement_complete = False
+        estimated_cost += (
+            record.estimated_cost_usd if record.estimated_cost_usd is not None else 0.0
+        )
+        cost = record.cost_usd if record.cost_usd is not None else 0.0
         total_cost += cost
         cost_by_node[record.node_id] = cost_by_node.get(record.node_id, 0.0) + cost
         exec_costs.setdefault(record.node_id, []).append(cost)
@@ -251,7 +273,7 @@ def analyze_run(
 
     for record in audits:
         attempts = _attempts(record)
-        cost = record.cost_usd or 0.0
+        cost = record.cost_usd if record.cost_usd is not None else 0.0
         if attempts <= 1 or cost <= 0:
             continue
         # Failed attempts aren't recorded individually; estimate their cost as the
@@ -309,6 +331,8 @@ def analyze_run(
         run_id=run_id,
         run_status=getattr(run_status, "value", str(run_status)),
         total_cost_usd=total_cost,
+        estimated_cost_usd=estimated_cost,
+        cost_measurement_complete=measurement_complete,
         cost_by_node=cost_by_node,
         findings=findings,
     )
@@ -332,6 +356,10 @@ def waste_gate(
     unset limit is never enforced.
     """
     problems: list[str] = []
+    if not report.cost_measurement_complete and any(
+        limit is not None for limit in (max_confirmed_usd, max_flagged_usd, max_waste_ratio)
+    ):
+        problems.append("cost measurement is incomplete; waste thresholds cannot be decided")
     if max_confirmed_usd is not None and report.confirmed_waste_usd > max_confirmed_usd:
         problems.append(
             f"confirmed_waste ${report.confirmed_waste_usd:.4f} > max ${max_confirmed_usd:.4f}"

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.models import Graph, SubgraphNode
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.runtime.runs import Run
 from zeroth.runtime.subgraphs.errors import (
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _sum_audit_cost(history: list) -> float:
+def _sum_audit_cost(history: list) -> float | None:
     """Aggregate per-step cost from a Run's execution history (W-4).
 
     Walks the execution history records and sums any ``cost_usd`` field
@@ -49,13 +50,32 @@ def _sum_audit_cost(history: list) -> float:
     total = 0.0
     for entry in history or []:
         cost: Any = None
+        estimated: Any = None
+        measurement: Any = None
         if isinstance(entry, dict):
             cost = entry.get("cost_usd")
+            estimated = entry.get("estimated_cost_usd")
+            measurement = entry.get("cost_measurement")
         else:
             cost = getattr(entry, "cost_usd", None)
-        if cost:
+            estimated = getattr(entry, "estimated_cost_usd", None)
+            measurement = getattr(entry, "cost_measurement", None)
+        if measurement is None:
+            measurement = (
+                MeasurementState.MEASURED
+                if cost is not None
+                else MeasurementState.ESTIMATED
+                if estimated is not None
+                else MeasurementState.UNMEASURED
+            )
+        if measurement == MeasurementState.UNMEASURED:
+            return None
+        if cost is not None:
             with contextlib.suppress(TypeError, ValueError):
                 total += float(cost)
+        if estimated is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                total += float(estimated)
     return total
 
 

@@ -350,8 +350,10 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
     assert {event.tenant_id for event in regulus.events} == {"tenant-A", "tenant-B"}
     assert {event.token_cost_usd for event in regulus.events} == {Decimal("0.25")}
     assert {event.metadata["run_id"] for event in regulus.events} == {"run-A", "run-B"}
-    assert audit_a["cost_usd"] == 0.25
-    assert audit_b["cost_usd"] == 0.25
+    assert audit_a["estimated_cost_usd"] == 0.25
+    assert audit_b["estimated_cost_usd"] == 0.25
+    assert audit_a["cost_measurement"] == "estimated"
+    assert audit_b["cost_measurement"] == "estimated"
 
     assert prototype.config is original_config
     assert prototype.provider is original_provider

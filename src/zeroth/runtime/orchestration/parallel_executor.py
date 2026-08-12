@@ -28,6 +28,7 @@ from typing import Any
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, Node, SubgraphNode
 from zeroth.governance.audit import NodeAuditRecord
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration.audit_recorder import RuntimeAuditRecorder
 from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
 from zeroth.runtime.orchestration.errors import OrchestratorError
@@ -45,7 +46,7 @@ from zeroth.runtime.runs import Run, RunHistoryEntry
 from zeroth.runtime.subgraphs.resolver import merge_governance, namespace_subgraph
 
 
-def sum_run_cost(run: Run) -> float:
+def sum_run_cost(run: Run) -> float | None:
     """Return the child Run's aggregated cost_usd for BranchResult rollup.
 
     Reads the `total_cost_usd` key written by `SubgraphExecutor.execute`
@@ -55,20 +56,41 @@ def sum_run_cost(run: Run) -> float:
     The drive loop does NOT write this key — the only writer is
     `SubgraphExecutor.execute`.
     """
-    explicit = run.metadata.get("total_cost_usd")
-    if explicit is not None:
+    if "total_cost_usd" in run.metadata:
+        explicit = run.metadata["total_cost_usd"]
+        if explicit is None:
+            return None
         with contextlib.suppress(TypeError, ValueError):
             return float(explicit)
     total = 0.0
     for entry in run.execution_history or []:
         cost: Any = None
+        estimated: Any = None
+        measurement: Any = None
         if isinstance(entry, dict):
             cost = entry.get("cost_usd")
+            estimated = entry.get("estimated_cost_usd")
+            measurement = entry.get("cost_measurement")
         else:
             cost = getattr(entry, "cost_usd", None)
-        if cost:
+            estimated = getattr(entry, "estimated_cost_usd", None)
+            measurement = getattr(entry, "cost_measurement", None)
+        if measurement is None:
+            measurement = (
+                MeasurementState.MEASURED
+                if cost is not None
+                else MeasurementState.ESTIMATED
+                if estimated is not None
+                else MeasurementState.UNMEASURED
+            )
+        if measurement == MeasurementState.UNMEASURED:
+            return None
+        if cost is not None:
             with contextlib.suppress(TypeError, ValueError):
                 total += float(cost)
+        if estimated is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                total += float(estimated)
     return total
 
 

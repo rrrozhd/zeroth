@@ -2953,6 +2953,16 @@
         "title": "ManifestSummaryResponse",
         "type": "object"
       },
+      "MeasurementState": {
+        "description": "Whether a value was observed, derived, or unavailable.",
+        "enum": [
+          "measured",
+          "estimated",
+          "unmeasured"
+        ],
+        "title": "MeasurementState",
+        "type": "string"
+      },
       "MemoryAccessRecord": {
         "additionalProperties": false,
         "description": "A record of a single memory read or write during a node execution.\n\nTracks which memory store was accessed, what operation was performed\n(e.g. read, write, delete), and the key/value involved.",
@@ -3135,6 +3145,16 @@
             ],
             "title": "Cost Event Id"
           },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeasurementState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cost_usd": {
             "anyOf": [
               {
@@ -3193,6 +3213,17 @@
               }
             ],
             "title": "Error"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd"
           },
           "execution_metadata": {
             "additionalProperties": true,

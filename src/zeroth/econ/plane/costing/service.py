@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from zeroth.econ.plane.costing.models import CalibrationMetric, CostEstimate, CostProfile, GroundTruthCost, PricingCatalog
 from zeroth.econ.plane.costing.schemas import CostProfileCreate, PricingCatalogCreate
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.statistics.service import hierarchical_interval
 
 
@@ -67,16 +68,22 @@ def estimate_cost_for_period(
     inferred_samples: list[float] = []
 
     for e in executions:
-        measured_llm += float(e.token_cost_usd)
-        measured_tool += float(e.tool_cost_usd)
-        measured_compute += float(e.compute_cost_usd)
+        state = MeasurementState(e.cost_measurement)
+        if state is MeasurementState.MEASURED:
+            measured_llm += float(e.token_cost_usd or 0)
+            measured_tool += float(e.tool_cost_usd or 0)
+            measured_compute += float(e.compute_cost_usd or 0)
+        elif state is MeasurementState.ESTIMATED:
+            inferred_samples.append(
+                float((e.token_cost_usd or 0) + (e.tool_cost_usd or 0) + (e.compute_cost_usd or 0))
+            )
 
         md = e.event_metadata or {}
         provider = str(md.get("provider", ""))
         model = str(md.get("model", e.model_version))
         in_tokens = float(md.get("prompt_tokens", 0.0))
         out_tokens = float(md.get("completion_tokens", md.get("output_tokens", 0.0)))
-        if (float(e.token_cost_usd) <= 0.0) and provider and model and (in_tokens or out_tokens):
+        if state is MeasurementState.UNMEASURED and provider and model and (in_tokens or out_tokens):
             price = _lookup_pricing(db, provider, model, e.timestamp)
             if price:
                 token_cost = (in_tokens / 1_000_000.0) * float(price.input_per_million_usd) + (
@@ -85,7 +92,7 @@ def estimate_cost_for_period(
                 inferred_samples.append(token_cost)
 
     inferred_llm_mean, inferred_low, inferred_high = hierarchical_interval(inferred_samples, prior_mean=0.0)
-    inferred_llm_total = inferred_llm_mean * max(len(executions), 1)
+    inferred_llm_total = sum(inferred_samples)
 
     llm_total = measured_llm if measured_llm > 0 else inferred_llm_total
     tool_total = measured_tool
@@ -93,11 +100,13 @@ def estimate_cost_for_period(
     overhead_total = (llm_total + tool_total + infra_total) * 0.05
     total = llm_total + tool_total + infra_total + overhead_total
 
-    data_quality = "measured"
-    if measured_llm <= 0 and inferred_samples:
-        data_quality = "inferred"
-    elif measured_llm > 0 and inferred_samples:
+    data_quality = "unmeasured"
+    if inferred_samples and measured_llm + measured_tool + measured_compute > 0:
         data_quality = "mixed"
+    elif inferred_samples:
+        data_quality = "inferred"
+    elif executions and all(e.cost_measurement == "measured" for e in executions):
+        data_quality = "measured"
 
     low = max(0.0, total - abs(inferred_high - inferred_llm_mean) * max(len(executions), 1))
     high = total + abs(inferred_high - inferred_llm_mean) * max(len(executions), 1)

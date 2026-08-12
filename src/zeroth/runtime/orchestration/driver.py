@@ -666,6 +666,11 @@ class GraphDriver:
                 # cost_usd, so the run halts on the NEXT node once it crosses the cap.
                 if self.per_run_cap_usd is not None:
                     spent = sum_run_cost(run)
+                    if spent is None:
+                        raise BudgetExceededError(
+                            "per-run budget cannot be evaluated: cost is unmeasured",
+                            cap=self.per_run_cap_usd,
+                        )
                     if spent >= self.per_run_cap_usd:
                         raise BudgetExceededError(
                             f"per-run budget exceeded: ${spent:.4f} >= ${self.per_run_cap_usd:.4f}",

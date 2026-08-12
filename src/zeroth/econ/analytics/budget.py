@@ -34,6 +34,7 @@ class BudgetCheckResult(BaseModel):
     cap_usd: float | None = Field(allow_inf_nan=False)
     degraded: bool = False
     failure_mode: Literal["none", "fail_open", "fail_closed"] = "none"
+    measurement_complete: bool = True
 
 
 class BudgetEnforcer:
@@ -126,6 +127,8 @@ class BudgetEnforcer:
                 )
                 resp.raise_for_status()
                 data = resp.json()
+                if data.get("measurement_complete") is False:
+                    raise ValueError("budget spend contains unmeasured execution cost")
                 spend = float(data.get("total_cost_usd", 0))
                 # No configured cap comes back as null — unlimited, not an error.
                 cap_raw = data.get("budget_cap_usd")
