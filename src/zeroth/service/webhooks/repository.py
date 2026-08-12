@@ -21,7 +21,13 @@ from zeroth.platform.storage import (
     ScopedTable,
 )
 from zeroth.platform.storage.json import load_typed_value, to_json_value
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_resource_operations,
+    persistence_surface,
+)
 from zeroth.service.webhooks.models import (
     DeliveryStatus,
     WebhookDeadLetter,
@@ -44,6 +50,38 @@ class ClaimedWebhookDelivery:
     generation: int
 
 
+@persistence_surface(
+    "service.webhook_subscriptions",
+    probe=named_isolation_probe("_drive_webhook_subscriptions"),
+    method_names=frozenset(
+        {
+            "create_subscription",
+            "get_subscription",
+            "list_subscriptions",
+            "list_subscriptions_for_event",
+            "deactivate_subscription",
+            "delete_subscription",
+        }
+    ),
+)
+@persistence_surface(
+    "service.webhook_deliveries",
+    probe=named_isolation_probe("_drive_webhook_deliveries"),
+    method_names=frozenset(
+        {
+            "enqueue_delivery",
+            "claim_pending_delivery",
+            "mark_delivered",
+            "mark_failed",
+            "dead_letter",
+        }
+    ),
+)
+@persistence_surface(
+    "service.webhook_dead_letters",
+    probe=named_isolation_probe("_drive_webhook_dead_letters"),
+    method_names=frozenset({"dead_letter", "list_dead_letters", "get_dead_letter"}),
+)
 class WebhookRepository:
     """Saves and loads webhook subscriptions, deliveries, and dead-letter entries.
 
@@ -288,6 +326,10 @@ class WebhookRepository:
                 returning="delivery_id",
             )
 
+    @persistence_resource_operations(
+        "service.webhook_deliveries", ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    @persistence_resource_operations("service.webhook_dead_letters", ResourceOperation.CREATE)
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
     )

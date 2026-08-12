@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -35,9 +36,16 @@ from zeroth.service.langgraph_gateway.enforcement_store import (
 from zeroth.service.webhooks.repository import WebhookRepository
 from tests.task9_operation_driver_registry import semantic_driver_for
 from zeroth.platform.storage.service_surfaces import (
+    executable_probe_for,
     load_service_persistence_surfaces,
     surface_operation_pairs,
 )
+from zeroth.platform.storage.scoping import (
+    discover_persistence_surfaces,
+    persistence_operation,
+    persistence_surface,
+)
+from zeroth.platform.storage import scoping as scoping_module
 
 O = ResourceOperation  # noqa: E741 - compact operation matrix alias
 
@@ -400,3 +408,39 @@ def test_task9_executable_driver_keys_exactly_match_manifest_pairs() -> None:
 def test_task9_driver_completeness_rejects_one_removed_key() -> None:
     pair = next(iter(surface_operation_pairs(load_service_persistence_surfaces())))
     assert semantic_driver_for(*pair) is not None
+
+
+def test_production_surface_discovery_has_no_manual_module_class_inventory() -> None:
+    source = Path("src/zeroth/platform/storage/service_surfaces.py").read_text()
+
+    assert "_SURFACES" not in source
+    assert '"zeroth.' not in source
+
+
+def test_semantic_probe_discovery_has_no_resource_name_driver_dictionary() -> None:
+    source = Path("tests/task9_operation_driver_registry.py").read_text()
+
+    assert "_SEMANTIC_DRIVER_OVERRIDES" not in source
+    assert "raw ScopedTable" not in source
+
+
+def test_new_decorated_production_method_is_structurally_discovered(monkeypatch) -> None:
+    monkeypatch.setattr(scoping_module, "_PERSISTENCE_REPOSITORY_TYPES", set())
+
+    @persistence_surface("service.synthetic")
+    class SyntheticRepository:
+        @persistence_operation(ResourceOperation.CREATE)
+        async def persist_new(self) -> None:
+            pass
+
+    surfaces = discover_persistence_surfaces()
+
+    assert surface_operation_pairs(surfaces) == {("service.synthetic", ResourceOperation.CREATE)}
+
+
+def test_duplicate_executable_surface_is_rejected() -> None:
+    surface = next(item for item in load_service_persistence_surfaces() if item.probe is not None)
+    operation = next(iter(next(iter(surface.operation_methods.values()))))
+
+    with pytest.raises(AssertionError, match="found 2"):
+        executable_probe_for((surface, surface), surface.resource_name, operation)

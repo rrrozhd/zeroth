@@ -44,7 +44,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from zeroth.contracts.langgraph_gateway.models import GovernanceLevel, RunCapabilityEvidence
 from zeroth.platform.config.settings import LangGraphGatewaySettings
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 _HEARTBEAT_COLUMNS = (
     "heartbeat_id, tenant_id, deployment_ref, graph_version, adapter_version, "
@@ -132,12 +137,16 @@ def _row_to_heartbeat(row: dict[str, Any]) -> Heartbeat:
     )
 
 
+@persistence_surface(
+    "service.enforcement_heartbeats", probe=named_isolation_probe("_drive_heartbeats")
+)
 class HeartbeatRepository:
     """Append and read deployment heartbeats, scoped per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def record(self, heartbeat: Heartbeat) -> Heartbeat:
         """Append one heartbeat row.
 
@@ -168,6 +177,7 @@ class HeartbeatRepository:
             )
         return heartbeat
 
+    @persistence_operation(ResourceOperation.READ)
     async def latest_for_deployment(
         self,
         tenant_id: str,

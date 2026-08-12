@@ -44,7 +44,12 @@ from zeroth.governance.attestations.payload import (
     SignedRunAttestation,
 )
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 _REGISTRATION_COLUMNS = (
     "registration_id, tenant_id, deployment_ref, graph_version, adapter_version, "
@@ -194,12 +199,17 @@ def _row_to_registration(row: dict[str, Any]) -> InventoryRegistration:
     )
 
 
+@persistence_surface(
+    "service.tool_inventory_registrations",
+    probe=named_isolation_probe("_drive_tool_inventories"),
+)
 class InventoryRegistrationRepository:
     """Append and read tool-inventory registrations, scoped per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    @persistence_operation(ResourceOperation.CREATE)
     async def register(self, registration: InventoryRegistration) -> InventoryRegistration:
         """Append one registration event for a deployment.
 
@@ -234,13 +244,12 @@ class InventoryRegistrationRepository:
                     # ``tool_identities_json``.
                     json.dumps([tool.name for tool in registration.tools]),
                     registration.registered_at.isoformat(),
-                    json.dumps(
-                        [tool.model_dump(mode="json") for tool in registration.tools]
-                    ),
+                    json.dumps([tool.model_dump(mode="json") for tool in registration.tools]),
                 ),
             )
         return registration
 
+    @persistence_operation(ResourceOperation.READ)
     async def latest_for_deployment(
         self,
         tenant_id: str,
@@ -339,12 +348,16 @@ def _row_to_attestation(row: dict[str, Any]) -> SignedRunAttestation:
     )
 
 
+@persistence_surface(
+    "service.run_attestations", probe=named_isolation_probe("_drive_run_attestations")
+)
 class RunAttestationRepository:
     """Append and read signed run-start attestations, scoped per tenant."""
 
     def __init__(self, database: AsyncDatabase) -> None:
         self._database = database
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def record(self, signed: SignedRunAttestation) -> AttestationRecordOutcome:
         """Store an attestation unless the run already has one.
 
@@ -460,6 +473,7 @@ class RunAttestationRepository:
             ),
         )
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_by_correlation(
         self,
         tenant_id: str,
@@ -480,6 +494,7 @@ class RunAttestationRepository:
             row = await connection.fetch_one(_SELECT_ATTESTATION, (tenant_id, correlation_id))
         return None if row is None else _row_to_attestation(row)
 
+    @persistence_operation(ResourceOperation.READ)
     async def find_for_deployment(
         self,
         tenant_id: str,

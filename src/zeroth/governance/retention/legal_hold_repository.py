@@ -18,9 +18,15 @@ from zeroth.platform.storage import (
     NullWorkspaceScopeContext,
     ScopedTable,
 )
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 
+@persistence_surface("service.legal_holds", probe=named_isolation_probe("_drive_legal_holds"))
 class LegalHoldRepository:
     """Place, release, and query legal holds over ``legal_holds``."""
 

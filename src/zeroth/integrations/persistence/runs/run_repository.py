@@ -50,7 +50,12 @@ from zeroth.platform.storage import (
 )
 from zeroth.platform.storage.json import to_json_value
 from zeroth.platform.storage.scoped_table import BoundStructuredTable
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.runs import (
     Run,
     RunConditionResult,
@@ -715,6 +720,71 @@ class _RunThreadStore:
         ]
 
 
+@persistence_surface(
+    "service.runs",
+    probe=named_isolation_probe("_drive_runs"),
+    non_persistence_public_methods=frozenset({"install_fence", "clear_fence"}),
+    method_names=frozenset(
+        {
+            "create",
+            "get",
+            "list_runs",
+            "list_dead_letter_runs",
+            "put",
+            "transition",
+            "record_history",
+            "record_condition_result",
+            "increment_failure_count",
+            "delete",
+            "count_pending",
+            "redact_run",
+            "redact_run_in_transaction",
+            "erasure_payloads_in_transaction",
+            "tenant_id_for_run_in_transaction",
+            "list_erasable_run_ids",
+            "lock_and_recheck_erasable_run",
+            "fence_token_snapshot_writes_in_transaction",
+        }
+    ),
+)
+@persistence_surface(
+    "service.threads",
+    method_names=frozenset(
+        {
+            "get_active_run_id",
+            "get_latest_run_id",
+            "list_run_ids",
+            "set_active_run_id",
+            "clear_active_run_id",
+        }
+    ),
+)
+@persistence_surface(
+    "service.run_checkpoints",
+    method_names=frozenset(
+        {
+            "write_checkpoint",
+            "get_checkpoint",
+            "get_latest_checkpoint",
+            "get_latest_checkpoint_id_for_run",
+            "list_checkpoints",
+            "erase_checkpoints_for_run",
+            "erase_checkpoints_for_run_in_transaction",
+        }
+    ),
+)
+@persistence_surface(
+    "service.token_engine_snapshots",
+    probe=named_isolation_probe("_drive_snapshots"),
+    method_names=frozenset(
+        {
+            "get_token_snapshot",
+            "compare_and_swap_token_snapshot",
+            "erase_token_snapshot_for_run_in_transaction",
+            "fence_and_erase_token_snapshot_for_run_in_transaction",
+        }
+    ),
+)
 class RunRepository:
     """High-level async interface for saving and loading runs.
 

@@ -15,7 +15,12 @@ from zeroth.contracts.graph.models import Graph, GraphStatus
 from zeroth.contracts.graph.serialization import deserialize_graph, serialize_graph
 from zeroth.contracts.graph.storage import GRAPH_SCHEMA_VERSION
 from zeroth.contracts.graph.versioning import clone_graph_version
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncDatabase, ResourceOperation
+from zeroth.platform.storage.scoping import (
+    named_isolation_probe,
+    persistence_operation,
+    persistence_surface,
+)
 
 if TYPE_CHECKING:
     # Annotation-only: importing the validator eagerly would put the whole
@@ -24,6 +29,7 @@ if TYPE_CHECKING:
     from zeroth.runtime.graph_validation import GraphValidator
 
 
+@persistence_surface("service.graph_versions", probe=named_isolation_probe("_drive_graph_versions"))
 class GraphRepository:
     """Persistence layer for versioned graph documents."""
 
@@ -35,6 +41,9 @@ class GraphRepository:
         self._database: AsyncDatabase = database
         self._validator: GraphValidator | None = validator
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def save(
         self,
         graph: Graph,
@@ -77,6 +86,7 @@ class GraphRepository:
             workspace_id=graph.workspace_id,
         )  # type: ignore[return-value]
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.READ)
     async def create(
         self,
         graph: Graph,
@@ -87,6 +97,7 @@ class GraphRepository:
         """Create a new graph (alias for save)."""
         return await self.save(graph, tenant_id=tenant_id, workspace_id=workspace_id)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(
         self,
         graph_id: str,
@@ -113,6 +124,7 @@ class GraphRepository:
             return None
         return deserialize_graph(row["payload"])
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list(
         self, *, tenant_id: str | None = None, workspace_id: str | None = None
     ) -> list[Graph]:
@@ -131,6 +143,7 @@ class GraphRepository:
             latest[graph.graph_id] = graph
         return list(latest.values())
 
+    @persistence_operation(ResourceOperation.ENUMERATE)
     async def list_versions(
         self,
         graph_id: str,
@@ -150,6 +163,7 @@ class GraphRepository:
             rows = await connection.fetch_all(sql, params)
         return [deserialize_graph(row["payload"]) for row in rows]
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def publish(
         self,
         graph_id: str,
@@ -177,6 +191,7 @@ class GraphRepository:
             graph.publish(), tenant_id=graph.tenant_id, workspace_id=graph.workspace_id
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def archive(
         self,
         graph_id: str,
@@ -195,6 +210,9 @@ class GraphRepository:
             graph.archive(), tenant_id=graph.tenant_id, workspace_id=graph.workspace_id
         )
 
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
     async def clone_published_to_draft(
         self,
         graph_id: str,
@@ -230,6 +248,7 @@ class GraphRepository:
             workspace_id=graph.workspace_id,
         )
 
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def update_status(
         self,
         graph_id: str,
@@ -268,6 +287,7 @@ class GraphRepository:
         msg = f"unsupported graph status: {status}"
         raise GraphLifecycleError(msg)
 
+    @persistence_operation(ResourceOperation.READ)
     async def get_latest_version(
         self,
         graph_id: str,
@@ -281,6 +301,7 @@ class GraphRepository:
             raise KeyError(graph_id)
         return graph.version
 
+    @persistence_operation(ResourceOperation.READ)
     async def diff(
         self,
         graph_id: str,

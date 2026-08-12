@@ -16,7 +16,11 @@ from zeroth.platform.storage import (
     ScopeContext,
     ScopedTable,
 )
-from zeroth.platform.storage.scoping import ResourceOperation, persistence_operation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
@@ -32,6 +36,7 @@ _TERMINAL_STATES = {
 
 
 @dataclass(slots=True)
+@persistence_surface("service.token_engine_snapshots")
 class TokenSnapshotRowStore:
     """Owns the one-row-per-run ``token_engine_snapshots`` table."""
 
