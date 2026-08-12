@@ -23,13 +23,14 @@ def test_retention_repository_constructors_require_scope_context(repository_type
     assert parameters["scope_context"].default is inspect.Parameter.empty
 
 
-def test_policy_repository_requires_explicit_scope_context() -> None:
+def test_policy_repository_preserves_default_compatibility_constructor() -> None:
     parameters = inspect.signature(RetentionPolicyRepository).parameters
 
-    assert parameters["scope_context"].default is inspect.Parameter.empty
+    assert "scope_context" not in parameters
+    assert list(parameters) == ["database", "default_policy"]
 
-    compatibility = inspect.signature(RetentionPolicyRepository.for_default_compatibility)
-    assert compatibility.parameters["database"].default is inspect.Parameter.empty
+    scoped_parameters = inspect.signature(RetentionPolicyRepository.scoped).parameters
+    assert scoped_parameters["scope_context"].default is inspect.Parameter.empty
 
 
 async def test_foreign_legal_hold_read_and_list_match_unknown_scope(async_database) -> None:

@@ -25,7 +25,7 @@ class _RecordingErasureService:
 async def test_legacy_policy_repository_is_bound_to_reserved_default_scope(
     async_database,
 ) -> None:
-    compatibility = RetentionPolicyRepository.for_default_compatibility(async_database)
+    compatibility = RetentionPolicyRepository(async_database)
     named = RetentionPolicyRepository.scoped(
         async_database,
         NullWorkspaceScopeContext(tenant_id="tenant-a"),
@@ -42,7 +42,7 @@ async def test_legacy_policy_repository_is_bound_to_reserved_default_scope(
 
 
 async def test_legacy_policy_repository_cannot_write_named_tenant(async_database) -> None:
-    compatibility = RetentionPolicyRepository.for_default_compatibility(async_database)
+    compatibility = RetentionPolicyRepository(async_database)
 
     with pytest.raises(ValueError, match="tenant_id does not match bound scope"):
         await compatibility.upsert(RetentionPolicy(tenant_id="tenant-a"))
