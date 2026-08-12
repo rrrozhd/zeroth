@@ -33,6 +33,7 @@ from zeroth.governance.audit.capture_projection import (
     ALLOWED_METADATA_KEYS,
     ContentFreeProjection,
     ENTRIES_KEY,
+    canonical_entries,
     canonicalize,
     digest,
     key_digest,
@@ -84,6 +85,37 @@ def test_dropped_content_digest_is_keyed() -> None:
     assert initial == repeated
     assert initial["hmac_sha256"] != separate["hmac_sha256"]
     assert initial["hmac_sha256"] != digest(canonicalize(payload))
+
+
+def test_persisted_mapping_key_fingerprints_are_policy_scoped() -> None:
+    mapping_key = "AKIAIOSFODNN7EXAMPLE"
+    record = _record(input_snapshot={mapping_key: "value"})
+    first = AuditCapturePolicy()
+    second = AuditCapturePolicy()
+    public_sha256 = hashlib.sha256(mapping_key.encode("utf-8")).hexdigest()[:16]
+    standalone = canonical_entries(canonicalize(record.input_snapshot))
+
+    assert standalone == [[public_sha256, "value"]]
+
+    def fingerprint(policy: AuditCapturePolicy) -> str:
+        captured = policy.apply(record)
+        assert mapping_key not in captured.model_dump_json()
+        schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"][
+            "input_snapshot"
+        ]["schema"]
+        entries = canonical_entries(schema)
+        assert entries is not None
+        assert [value for _key, value in entries] == ["str"]
+        return entries[0][0]
+
+    initial = fingerprint(first)
+    repeated = fingerprint(first)
+    separate = fingerprint(second)
+
+    assert initial == repeated
+    assert initial != separate
+    assert initial != public_sha256
+    assert separate != public_sha256
 
 
 def _record(**overrides: object) -> NodeAuditRecord:
@@ -189,15 +221,20 @@ def test_approval_metadata_is_projected_onto_the_allowlist() -> None:
 def test_a_mapping_key_that_renders_as_a_secret_never_reaches_the_persisted_schema() -> None:
     # R5: the key's __str__ authored the schema entry, so the secret was
     # persisted as a "shape". Keys are gated by type now, never printed: an
-    # exact ``str`` key becomes its digest, and anything else -- this key
-    # included -- becomes a marker naming only the type it had.
+    # exact ``str`` key becomes a projection-scoped fingerprint, and anything
+    # else -- this key included -- becomes a marker naming only the type it had.
     captured = _captured(input_snapshot={"outer": {_LeakingKey(): "value"}})
 
     assert SECRET not in captured.model_dump_json()
     schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
         "schema"
     ]
-    assert schema == {ENTRIES_KEY: [[key_digest("outer"), {ENTRIES_KEY: [["<key:other>", "str"]]}]]}
+    entries = canonical_entries(schema)
+    assert entries is not None
+    [[fingerprint, nested]] = entries
+    assert len(fingerprint) == 16
+    assert fingerprint != key_digest("outer")
+    assert nested == {ENTRIES_KEY: [["<key:other>", "str"]]}
 
 
 def test_a_payload_with_an_unrenderable_key_still_produces_a_digest() -> None:
@@ -368,9 +405,7 @@ def test_the_structural_values_an_allowlisted_key_is_for_still_survive() -> None
     assert metadata["input_sha256"] == "a" * 64
     assert metadata["compatibility_fingerprint"] == "sha256:" + "b" * 64
     assert set(metadata["operation"]) == {"hmac_sha256", "schema", "count"}
-    assert metadata["operation"]["hmac_sha256"] != hashlib.sha256(
-        b'"threads.create"'
-    ).hexdigest()
+    assert metadata["operation"]["hmac_sha256"] != hashlib.sha256(b'"threads.create"').hexdigest()
     assert metadata["operation"]["schema"] == "str"
     assert metadata["operation"]["count"] == len("threads.create")
 
@@ -438,14 +473,19 @@ def test_a_value_of_the_wrong_kind_for_its_key_is_summarized_rather_than_kept() 
 def test_an_identifier_shaped_credential_used_as_a_mapping_key_never_reaches_the_schema() -> None:
     # The probe: ``AKIAIOSFODNN7EXAMPLE`` passes every "looks like a name" test
     # there is, so gating schema keys on shape persisted it verbatim inside the
-    # dropped-content summary. Keys are hashed now, never printed.
+    # dropped-content summary. Persisted keys are keyed now, never printed.
     captured = _captured(input_snapshot={ROOT_KEY: "value"})
 
     assert ROOT_KEY not in captured.model_dump_json()
     schema = captured.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]["input_snapshot"][
         "schema"
     ]
-    assert schema == {ENTRIES_KEY: [[key_digest(ROOT_KEY), "str"]]}
+    entries = canonical_entries(schema)
+    assert entries is not None
+    [[fingerprint, value_type]] = entries
+    assert value_type == "str"
+    assert len(fingerprint) == 16
+    assert fingerprint != key_digest(ROOT_KEY)
 
 
 def test_a_dynamically_named_type_cannot_author_a_schema_entry() -> None:
