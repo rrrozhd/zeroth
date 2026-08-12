@@ -840,11 +840,12 @@ class AgentRunner:
                     )
         fragment: dict[str, Any] = {}
         if usage_parts:
+            usage_models = {usage.model_name for usage in usage_parts}
             fragment["token_usage"] = TokenUsage(
                 input_tokens=sum(usage.input_tokens for usage in usage_parts),
                 output_tokens=sum(usage.output_tokens for usage in usage_parts),
                 total_tokens=sum(usage.total_tokens for usage in usage_parts),
-                model_name=usage_parts[0].model_name,
+                model_name=usage_parts[0].model_name if len(usage_models) == 1 else "",
             ).model_dump(mode="json")
         if usage_states:
             fragment["usage_measurement"] = (
