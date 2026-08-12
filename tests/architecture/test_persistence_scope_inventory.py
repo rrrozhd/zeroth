@@ -1513,6 +1513,36 @@ def _audit_repository_public_call_provenance(
                             ".".join((*_lexical_owner_path(class_owner, parents), alias.name.id))
                         ] = binding
                         changed = True
+            class_potential_alias_names: dict[ast.ClassDef, set[str]] = {}
+            for alias in ast.walk(tree):
+                if not isinstance(alias, ast.TypeAlias):
+                    continue
+                class_owner = _enclosing_class(alias, parents)
+                if class_owner is None or _enclosing_function(alias, parents) is not None:
+                    continue
+                type_parameter_names = _type_parameter_names(alias) | _type_parameter_names(
+                    class_owner
+                )
+                binding = _resolved_receiver_annotation_repository_name(
+                    alias.value,
+                    (repository_names | class_repository_names.get(class_owner, set()))
+                    - type_parameter_names,
+                    {
+                        name: identity
+                        for name, identity in module_names.items()
+                        if name not in type_parameter_names
+                    },
+                )
+                if binding == _AUDIT_REPOSITORY_CLASS:
+                    continue
+                if any(
+                    _has_repository_annotation_evidence(option, repository_names, module_names)
+                    or _has_repository_annotation_evidence(
+                        option, potential_imported_repository_names, {}
+                    )
+                    for option in _assignment_value_options(alias.value)
+                ):
+                    class_potential_alias_names.setdefault(class_owner, set()).add(alias.name.id)
             class_alias_events = {
                 class_owner: _must_alias_events(
                     class_owner,
@@ -1520,8 +1550,17 @@ def _audit_repository_public_call_provenance(
                     module_names,
                     initial_state={name: None for name in _type_parameter_names(class_owner)},
                 )
-                for class_owner in class_repository_names
+                for class_owner in class_repository_names | class_potential_alias_names
             }
+            for class_owner, names in class_potential_alias_names.items():
+                events = class_alias_events[class_owner]
+                for alias in class_owner.body:
+                    if not isinstance(alias, ast.TypeAlias) or alias.name.id not in names:
+                        continue
+                    position = (alias.lineno, alias.col_offset)
+                    events.setdefault(alias.name.id, []).extend(
+                        ((position, _AUDIT_REPOSITORY_CLASS), (position, None))
+                    )
             for class_owner, events in class_alias_events.items():
                 for name, bindings in events.items():
                     if bindings and bindings[-1][1] != _AUDIT_REPOSITORY_CLASS:
@@ -1731,6 +1770,7 @@ def _audit_repository_public_call_provenance(
                     initial_state=initial_state,
                     potential_import_aliases=True,
                 )
+            potential_alias_events.update(class_alias_events)
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -1872,6 +1912,7 @@ def _audit_repository_public_call_provenance(
                             parents,
                         ).intersection(_annotation_names(node.annotation))
                         or _is_potential_repository_annotation(node.annotation)
+                        or is_potential_qualified_class_alias(node.annotation)
                     ):
                         potential_paths.add((_provenance_scope(node, target, parents), target))
                     if target is not None:
@@ -4940,6 +4981,55 @@ def test_public_call_inventory_invalidates_qualified_class_type_alias_after_rebi
         "Holder.Repo = OtherRepository\n"
         "async def use(repository: Holder.Repo, record):\n"
         "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "type Repo = AuditRepository | OtherRepository",
+        "type Repo = list[AuditRepository]",
+        "type Repo = AR",
+        "type Repo = AuditRepository if cond else OtherRepository",
+    ],
+    ids=["union", "generic", "noncanonical-import", "conditional"],
+)
+def test_public_call_inventory_reports_potential_class_type_aliases(
+    tmp_path: Path, alias: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from my_adapter import AuditRepository as AR\n"
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        f"    {alias}\n"
+        "    async def use(self, candidate: Repo, record):\n"
+        "        await candidate.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_reports_potential_qualified_class_type_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "class Holder:\n"
+        "    type Repo = list[AuditRepository]\n"
+        "async def use(candidate: Holder.Repo, record):\n"
+        "    await candidate.write(record)\n",
         encoding="utf-8",
     )
 
