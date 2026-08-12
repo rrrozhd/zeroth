@@ -2747,7 +2747,18 @@ def _audit_repository_public_call_provenance(
                         state = dict(state)
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
-                            state = transfer_expression(statement, state)
+                            if isinstance(statement, ast.AnnAssign):
+                                if (
+                                    not isinstance(
+                                        scope, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                    )
+                                    and not annotations_postponed
+                                ):
+                                    state = transfer_expression(statement.annotation, state)
+                                if statement.value is not None:
+                                    state = transfer_expression(statement.value, state)
+                            else:
+                                state = transfer_expression(statement, state)
                             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                                 targets = (
                                     statement.targets
@@ -8798,6 +8809,94 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         + "from zeroth.governance.audit import AuditRepository\n"
         "async def outer(suppressor, candidate, record):\n"
         + definition
+        + "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("future_import", "module_setup", "statement", "expected"),
+    [
+        (
+            "",
+            "",
+            "    marker: (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "",
+            "    marker: (TypeError := ValueError) = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "",
+            "    marker: object = (TypeError := ValueError)\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "marker: (TypeError := ValueError)\n",
+            "    pass\n",
+            frozenset(),
+        ),
+        (
+            "from __future__ import annotations\n",
+            "marker: (TypeError := ValueError)\n",
+            "    pass\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "",
+            "    class Local:\n"
+            "        marker: (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=[
+        "function-local-no-value",
+        "function-local-with-value",
+        "function-local-rhs",
+        "module-eager",
+        "module-postponed",
+        "class-local-scope",
+    ],
+)
+def test_public_call_inventory_models_variable_annotation_alias_evaluation(
+    tmp_path: Path,
+    future_import: str,
+    module_setup: str,
+    statement: str,
+    expected: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        future_import
+        + "from zeroth.governance.audit import AuditRepository\n"
+        + module_setup
+        + "async def outer(suppressor, candidate, record):\n"
+        + statement
         + "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
