@@ -89,12 +89,12 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("capabilities", "is_protected", "is_protected BOOLEAN DEFAULT 0")
         ensure_col("capabilities", "created_at", "created_at DATETIME")
 
-        ensure_col("implementations", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("implementations", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")  # noqa: E501
         ensure_col("implementations", "provider", "provider VARCHAR(32) DEFAULT 'custom'")
         ensure_col("implementations", "model_name", "model_name VARCHAR(255) DEFAULT ''")
-        ensure_col("implementations", "model_version_hash", "model_version_hash VARCHAR(128) DEFAULT ''")
-        ensure_col("implementations", "prompt_version_hash", "prompt_version_hash VARCHAR(128) DEFAULT ''")
-        ensure_col("implementations", "pipeline_version_hash", "pipeline_version_hash VARCHAR(128) DEFAULT ''")
+        ensure_col("implementations", "model_version_hash", "model_version_hash VARCHAR(128) DEFAULT ''")  # noqa: E501
+        ensure_col("implementations", "prompt_version_hash", "prompt_version_hash VARCHAR(128) DEFAULT ''")  # noqa: E501
+        ensure_col("implementations", "pipeline_version_hash", "pipeline_version_hash VARCHAR(128) DEFAULT ''")  # noqa: E501
         ensure_col("implementations", "config_json", "config_json JSON DEFAULT '{}'")
         ensure_col("implementations", "status", "status VARCHAR(32) DEFAULT 'ACTIVE'")
 
@@ -128,28 +128,39 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
-        ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")
+        ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")  # noqa: E501
         ensure_col("outcome_events", "occurred_at", "occurred_at DATETIME")
         ensure_col("outcome_events", "ingested_at", "ingested_at DATETIME")
         ensure_col("outcome_events", "provenance", "provenance VARCHAR(16) DEFAULT 'MEASURED'")
 
-        ensure_col("value_estimates", "relative_interval_width", "relative_interval_width FLOAT DEFAULT 0.0")
-        ensure_col("value_estimates", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 0")
-        ensure_col("value_estimates", "estimation_method_version", "estimation_method_version VARCHAR(32) DEFAULT 'v1'")
-        ensure_col("value_estimates", "cost_data_quality", "cost_data_quality VARCHAR(32) DEFAULT 'measured'")
-        ensure_col("value_estimates", "value_data_quality", "value_data_quality VARCHAR(32) DEFAULT 'measured'")
-        ensure_col("value_estimates", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
-        ensure_col("value_estimates", "interval_method", "interval_method VARCHAR(32) DEFAULT 'hierarchical'")
+        ensure_col("value_estimates", "relative_interval_width", "relative_interval_width FLOAT DEFAULT 0.0")  # noqa: E501
+        ensure_col("value_estimates", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 0")  # noqa: E501
+        ensure_col("value_estimates", "estimation_method_version", "estimation_method_version VARCHAR(32) DEFAULT 'v1'")  # noqa: E501
+        ensure_col("value_estimates", "cost_data_quality", "cost_data_quality VARCHAR(32) DEFAULT 'measured'")  # noqa: E501
+        ensure_col("value_estimates", "value_data_quality", "value_data_quality VARCHAR(32) DEFAULT 'measured'")  # noqa: E501
+        ensure_col("value_estimates", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")  # noqa: E501
+        ensure_col("value_estimates", "interval_method", "interval_method VARCHAR(32) DEFAULT 'hierarchical'")  # noqa: E501
         ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("value_estimates", "implementation_id", "implementation_id VARCHAR(128)")
 
         ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("valuation_runs", "implementation_id", "implementation_id VARCHAR(128)")
 
-        ensure_col("performance_snapshots", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 1")
-        ensure_col("performance_snapshots", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("performance_snapshots", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 1")  # noqa: E501
+        ensure_col("performance_snapshots", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")  # noqa: E501
         ensure_col("performance_snapshots", "implementation_id", "implementation_id VARCHAR(128)")
-        ensure_col("performance_snapshots", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
+        ensure_col("performance_snapshots", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")  # noqa: E501
+
+        # Base.metadata.create_all is create-if-absent and never alters an existing
+        # table, so a pre-existing database only reaches the policy/enforcement link
+        # column through this ALTER.  Nullable with no default and no backfill: NULL
+        # means "unlinked", which the enforcement service refuses to resolve by
+        # recency (A01-11).
+        ensure_col(
+            "policy_actions",
+            "enforcement_action_id",
+            "enforcement_action_id INTEGER REFERENCES enforcement_actions(id)",
+        )
 
         # Converge pre-Alembic/create_all compatibility databases on the same
         # ownership constraints as revision 20260811_05.  Loading the revision
