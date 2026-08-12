@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Optional
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 import threading
 import warnings
 
@@ -45,9 +46,9 @@ class InstrumentationClient:
         self.transport.enqueue_outcome(outcome)
 
 
-_default_client = InstrumentationClient()
 _current_join_key: ContextVar[str | None] = ContextVar("ecp_join_key", default=None)
-_execution_join_key: dict[str, str] = {}
+_MAX_EXECUTION_JOIN_KEYS = 1000
+_execution_join_key: OrderedDict[str, str] = OrderedDict()
 _execution_join_key_lock = threading.Lock()
 
 
@@ -78,13 +79,16 @@ def track_execution(event: ExecutionEvent) -> None:
         raise ValueError("join_key is required for execution telemetry in strict mode")
     with _execution_join_key_lock:
         _execution_join_key[event.execution_id] = event.join_key
+        _execution_join_key.move_to_end(event.execution_id)
+        if len(_execution_join_key) > _MAX_EXECUTION_JOIN_KEYS:
+            _execution_join_key.popitem(last=False)
     runtime.transport.enqueue_execution(event)
 
 
 def track_outcome(outcome: OutcomeEvent) -> None:
     if not outcome.join_key:
         with _execution_join_key_lock:
-            outcome.join_key = _execution_join_key.get(outcome.execution_id)
+            outcome.join_key = _execution_join_key.pop(outcome.execution_id, None)
         if not outcome.join_key:
             context_join_key = _current_join_key.get()
             outcome.join_key = context_join_key or outcome.execution_id
@@ -142,7 +146,7 @@ def build_cost_profile_input(
 @contextmanager
 def with_instrumentation(capability_id: str, implementation_id: str, tags: Optional[dict[str, Any]] = None) -> Iterator[dict[str, Any]]:
     started_at = perf_counter()
-    exec_id = f"ctx_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    exec_id = f"ctx_{uuid4().hex}"
     resolved_join_key = resolve_join_key(exec_id, {"capability_id": capability_id, "implementation_id": implementation_id, **(tags or {})})
     state = {"execution_id": exec_id, "join_key": resolved_join_key, "capability_id": capability_id, "implementation_id": implementation_id}
     token = _current_join_key.set(resolved_join_key)
