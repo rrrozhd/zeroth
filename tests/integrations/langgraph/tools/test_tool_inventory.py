@@ -501,7 +501,7 @@ def test_only_the_level_term_survives_the_capture_projection() -> None:
 
     summarized, _ = projection.metadata({"governance_level": report.level})
     assert type(summarized["governance_level"]) is dict
-    assert "sha256" in summarized["governance_level"]
+    assert "hmac_sha256" in summarized["governance_level"]
 
 
 def test_importing_the_inventory_module_pulls_in_no_optional_dependency() -> None:
