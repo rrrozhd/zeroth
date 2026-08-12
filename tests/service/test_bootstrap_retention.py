@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.service.helpers import agent_graph, default_service_auth_config, deploy_service
-from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 
 
 async def test_bootstrap_seeds_policy_repository_default_from_settings(
@@ -19,7 +19,7 @@ async def test_bootstrap_seeds_policy_repository_default_from_settings(
     service, _ = await deploy_service(
         sqlite_db, agent_graph(graph_id="graph-ret-defaults"), tenant_id="tenant-ret-defaults"
     )
-    bootstrap = await bootstrap_service(
+    bootstrap = await bootstrap_scoped_service(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         tenant_id=service.deployment.tenant_id,
@@ -44,7 +44,7 @@ async def test_bootstrap_retention_worker_uses_current_deployment_scope_and_defa
     service, _ = await deploy_service(
         sqlite_db, agent_graph(graph_id="graph-ret-worker"), tenant_id="tenant-ret-worker"
     )
-    bootstrap = await bootstrap_service(
+    bootstrap = await bootstrap_scoped_service(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
         tenant_id=service.deployment.tenant_id,

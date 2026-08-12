@@ -20,8 +20,7 @@ from zeroth.governance.audit import NodeAuditRecord
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.signing import EnvHmacSigner, SigningKeyProvider
 from zeroth.service.api.authentication import ServiceAuthConfig, StaticApiKeyCredential
-from zeroth.service.bootstrap import bootstrap_app
-from zeroth.service.bootstrap.factory import bootstrap_service
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app, bootstrap_scoped_service
 from zeroth.service.deployments import DeploymentService, SQLiteDeploymentRepository
 
 _KEY = EnvHmacSigner(key_id="k1", keys={"k1": b"provenance-endpoint-key"})
@@ -72,7 +71,7 @@ async def _signed_setup(
     )
 
     resolved_auth = auth_config or default_service_auth_config()
-    service = await bootstrap_service(
+    service = await bootstrap_scoped_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         tenant_id=deployment.tenant_id,
@@ -85,7 +84,7 @@ async def _signed_setup(
     service.audit_repository._signer = signer
     service.deployment_service.signer = signer
 
-    app = await bootstrap_app(
+    app = await bootstrap_scoped_app(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
         tenant_id=deployment.tenant_id,

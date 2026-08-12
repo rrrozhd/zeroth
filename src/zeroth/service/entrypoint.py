@@ -61,7 +61,7 @@ async def _bootstrap():
     from zeroth.platform.config.settings import get_settings
     from zeroth.platform.storage.factory import create_database
     from zeroth.service.app import create_app
-    from zeroth.service.bootstrap.factory import bootstrap_service
+    from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 
     settings = get_settings()
     database = await create_database(settings)
@@ -107,7 +107,7 @@ async def _bootstrap():
                 sorted(agent_runners),
             )
 
-    bootstrap = await bootstrap_service(
+    bootstrap = await bootstrap_scoped_service(
         database,
         deployment_ref=deployment_ref,
         tenant_id=tenant_id,
