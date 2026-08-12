@@ -1,7 +1,7 @@
 """Link each policy action to the enforcement action that proposed it.
 
 Revision ID: 20260812_06
-Revises: 20260811_05
+Revises: 20260812_04
 Create Date: 2026-08-12
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "20260812_06"
-down_revision = "20260811_05"
+down_revision = "20260812_04"
 branch_labels = None
 depends_on = None
 

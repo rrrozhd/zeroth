@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import DateTime, Index, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,7 +23,12 @@ class ExecutionEvent(Base):
             "execution_id",
             name="uq_execution_events_tenant_execution_id",
         ),
-        Index("ix_execution_events_tenant_time_capability", "tenant_id", "timestamp", "capability_id"),
+        Index(
+            "ix_execution_events_tenant_time_capability",
+            "tenant_id",
+            "timestamp",
+            "capability_id",
+        ),
         Index("ix_execution_events_tenant_join_key", "tenant_id", "join_key"),
     )
 
@@ -51,7 +56,35 @@ class OutcomeEvent(Base):
         resource_name="econ.outcome_event", table_name=__tablename__, operations=_ALL_OPERATIONS
     )
     __table_args__ = (
-        Index("ix_outcome_events_tenant_time_capability", "tenant_id", "occurred_at", "capability_id"),
+        # Outcome identity.  ExecutionEvent carries one
+        # (uq_execution_events_tenant_execution_id); without the equivalent here a
+        # client that retries an ingest whose response it never saw silently
+        # duplicates the outcome (A01-38).  The tuple is the identity the plane
+        # already uses for an outcome elsewhere -- the connector outbox event_key
+        # is f"{join_key}:{occurred_at}:{outcome_type}" (instrumentation/service.py)
+        # -- widened by the attributed implementation.
+        #
+        # implementation_id is nullable and both SQLite and PostgreSQL treat NULLs
+        # as distinct inside a unique key, which would exempt exactly the most
+        # common batch shape (unlinked outcomes carry no implementation).  The
+        # COALESCE expression collapses that hole; it costs reflection visibility
+        # (SQLAlchemy skips expression-based indexes when reflecting) but a
+        # constraint that does not fire on NULL would not be a constraint at all.
+        Index(
+            "uq_outcome_events_tenant_identity",
+            "tenant_id",
+            "join_key",
+            "outcome_type",
+            "occurred_at",
+            text("coalesce(implementation_id, '')"),
+            unique=True,
+        ),
+        Index(
+            "ix_outcome_events_tenant_time_capability",
+            "tenant_id",
+            "occurred_at",
+            "capability_id",
+        ),
         Index("ix_outcome_events_tenant_join_key", "tenant_id", "join_key"),
     )
 

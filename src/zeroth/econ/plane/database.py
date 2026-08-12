@@ -1,13 +1,18 @@
+import logging
 from collections.abc import Generator
+from pathlib import Path
+from types import ModuleType
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import Numeric, create_engine, text
+from sqlalchemy import Connection, Numeric, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import ScopeContext
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -33,6 +38,33 @@ def get_scoped_db(context: ScopeContext) -> Generator[ScopedSession, None, None]
         yield ScopedSession(db, context)
     finally:
         db.close()
+
+
+def _load_compat_migration(conn: Connection, filename: str) -> ModuleType:
+    """Load an econ revision as a fresh module whose ``op`` is bound to ``conn``.
+
+    Executing the revision itself -- rather than restating its DDL here -- is
+    what keeps the runtime convergence path and the offline Alembic chain from
+    drifting: the index names, columns and expressions are the migration's own.
+    A fresh module per call mirrors Alembic's own migration test harness and
+    avoids sharing the module-level ``Operations`` proxy across startups.
+    """
+    import importlib.util
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    migration_path = Path(__file__).parent / "_migrations/versions" / filename
+    spec = importlib.util.spec_from_file_location(
+        f"_zeroth_runtime_{migration_path.stem}",
+        migration_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load econ compatibility migration: {filename}")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    migration.op = Operations(MigrationContext.configure(conn))
+    return migration
 
 
 def _ensure_sqlite_compat() -> None:
@@ -163,23 +195,38 @@ def _ensure_sqlite_compat() -> None:
         )
 
         # Converge pre-Alembic/create_all compatibility databases on the same
-        # ownership constraints as revision 20260811_05.  Loading the revision
-        # in a fresh module mirrors Alembic's own migration test harness and
-        # avoids sharing its module-level Operations proxy across startups.
-        import importlib.util
-        from pathlib import Path
+        # ownership constraints as revision 20260811_05.
+        _load_compat_migration(conn, "20260811_05_tenant_scope.py").upgrade()
 
-        migration_path = (
-            Path(__file__).parent
-            / "_migrations/versions/20260811_05_tenant_scope.py"
-        )
-        spec = importlib.util.spec_from_file_location(
-            "_zeroth_runtime_20260811_05_tenant_scope",
-            migration_path,
-        )
-        if spec is None or spec.loader is None:
-            raise RuntimeError("unable to load econ tenant-scope compatibility migration")
-        migration = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(migration)
-        migration.op = Operations(MigrationContext.configure(conn))
-        migration.upgrade()
+        # ...and on the outcome identity of revision 20260812_07.  A fresh
+        # database gets that index from OutcomeEvent.__table_args__, but
+        # create_all(checkfirst=True) skips a *pre-existing* table wholesale and
+        # never alters one, while _migrations/ is offline Postgres tooling that
+        # runtime never invokes (PROVENANCE.md).  This call is the only door the
+        # index reaches such a database through -- and it has to run after
+        # 20260811_05, whose SQLite batch ALTER rebuilds the table from a
+        # reflection that cannot see an expression index.  The revision returns
+        # early once the index exists, so the duplicate scan it performs is
+        # bounded to databases that have not converged yet.
+        identity = _load_compat_migration(conn, "20260812_07_outcome_event_identity.py")
+        try:
+            identity.upgrade()
+        except RuntimeError:
+            # The revision refuses rather than deleting a row out of an
+            # erasure-audited table, which is right for an operator running it
+            # offline.  Here it runs per request and at startup, so propagating
+            # would turn a data condition into a total outage of the plane.
+            # Contain it inside this transaction -- letting it escape
+            # engine.begin() would roll back every compatibility ALTER above --
+            # and skip only the index; ingest still pre-checks the identity.
+            #
+            # The refusal names the colliding rows by join_key, which is the
+            # erasure subject key (SqlAlchemyEconEventEraser deletes by it).
+            # Interpolating it here would republish, into application logs and
+            # on every subsequent request, precisely what an erasure receipt
+            # exists to retire.  Point at the offline revision instead.
+            logger.warning(
+                "econ outcome identity index not converged: outcome_events holds rows "
+                "that collide on it. Run revision 20260812_07 offline to see and "
+                "reconcile them; outcome ingest pre-checks the identity meanwhile."
+            )

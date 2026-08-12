@@ -257,10 +257,23 @@ class TokenRuntimeSupport:
         results = dict(run.metadata.get("token_fanout_results", {}))
         fork_results = dict(results.get(fork_id, {}))
         fork_results[token.token_id] = output
-        results[fork_id] = fork_results
-        run.metadata["token_fanout_results"] = results
         fork = next(item for item in after.forks if item.fork_id == fork_id)
-        if fork.lifecycle_state.value != "closed":
+        closed = fork.lifecycle_state.value == "closed"
+        # A16-12: this runs only when a branch output arrives, so a fork that
+        # has closed is never revisited and its bucket has no later reader. The
+        # cleanup used to sit past two early returns, which left the bucket in
+        # ``run.metadata`` -- and in the persisted run -- whenever a closed
+        # fork's owner reported no parallel_config. Publish once, here, with the
+        # bucket kept only while the fork can still receive branches.
+        if closed:
+            results.pop(fork_id, None)
+        else:
+            results[fork_id] = fork_results
+        if results:
+            run.metadata["token_fanout_results"] = results
+        else:
+            run.metadata.pop("token_fanout_results", None)
+        if not closed:
             return output
         parent = next(item for item in before.tokens if item.token_id == fork.parent_token_id)
         source = node_by_id(graph, parent.current_node_id)
@@ -271,11 +284,6 @@ class TokenRuntimeSupport:
         reduced = dispatch_strategy(config.merge_strategy, ordered, reducer_ref=config.reducer_ref)
         merged: dict[str, Any] = {}
         _set_path(merged, config.split_path, reduced)
-        results.pop(fork_id, None)
-        if results:
-            run.metadata["token_fanout_results"] = results
-        else:
-            run.metadata.pop("token_fanout_results", None)
         return merged
 
     async def _route_join(
