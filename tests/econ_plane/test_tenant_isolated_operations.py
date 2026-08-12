@@ -31,7 +31,9 @@ from zeroth.econ.plane.counterfactual.schemas import EvaluationRunRequest
 from zeroth.econ.plane.counterfactual.service import run_evaluation
 from zeroth.econ.plane.counterfactual.models import ValueEstimate, ValuationRun
 from zeroth.econ.plane.database import Base
-from zeroth.econ.plane.enforcement.models import PolicyAction  # noqa: F401
+from zeroth.econ.plane.enforcement.models import PolicyAction
+from zeroth.econ.plane.enforcement.schemas import EnforcementActionCreate
+from zeroth.econ.plane.enforcement.service import create_action
 from zeroth.econ.plane.performance.models import PerformanceSnapshot  # noqa: F401
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
@@ -101,6 +103,25 @@ def _execution(
         model_version="v1",
         token_cost_usd=Decimal("1"),
     )
+
+
+def test_create_action_uses_the_bound_tenant_for_its_policy_row(econ_engine) -> None:
+    raw, tenant_a = _scope(econ_engine, "tenant-a")
+    try:
+        action = create_action(
+            tenant_a,
+            EnforcementActionCreate(
+                capability_id="cap-a",
+                action_type="TriggerInvestigation",
+                reason="review",
+            ),
+        )
+
+        policy = tenant_a.scalars(select(PolicyAction)).one()
+        assert action.tenant_id == "tenant-a"
+        assert policy.tenant_id == "tenant-a"
+    finally:
+        raw.close()
 
 
 def test_cross_tenant_duplicate_execution_id_returns_only_bound_row(econ_engine) -> None:
