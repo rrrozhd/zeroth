@@ -24,6 +24,13 @@ def test_standalone_startup_refuses_placeholder_jwt_secret(monkeypatch) -> None:
         config.validate_startup_settings()
 
 
+@pytest.mark.parametrize("secret", ["", "   "])
+def test_standalone_startup_refuses_blank_jwt_secret(monkeypatch, secret: str) -> None:
+    monkeypatch.setattr(config.settings, "jwt_secret", secret)
+    with pytest.raises(config.EconConfigError, match="ECP_JWT_SECRET"):
+        config.validate_startup_settings()
+
+
 def test_standalone_startup_accepts_configured_jwt_secret(monkeypatch) -> None:
     monkeypatch.setattr(config.settings, "jwt_secret", "configured-secret")
     config.validate_startup_settings()

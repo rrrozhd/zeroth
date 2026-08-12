@@ -47,5 +47,5 @@ class EconConfigError(RuntimeError):
 
 
 def validate_startup_settings() -> None:
-    if settings.jwt_secret == "change-me":
+    if not settings.jwt_secret.strip() or settings.jwt_secret == "change-me":
         raise EconConfigError("ECP_JWT_SECRET must be configured before standalone startup")

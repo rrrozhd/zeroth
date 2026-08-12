@@ -94,3 +94,13 @@ def test_postgres_requires_dsn_during_settings_validation() -> None:
 
     with pytest.raises(ValidationError, match="postgres backend requires postgres_dsn"):
         DatabaseSettings(backend="postgres")
+
+
+@pytest.mark.parametrize("dsn", ["", "   "])
+def test_postgres_requires_nonblank_dsn(dsn: str) -> None:
+    from pydantic import ValidationError
+
+    from zeroth.platform.config.settings import DatabaseSettings
+
+    with pytest.raises(ValidationError, match="postgres backend requires postgres_dsn"):
+        DatabaseSettings(backend="postgres", postgres_dsn=dsn)

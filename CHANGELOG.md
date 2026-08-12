@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1.1] - 2026-08-13
+
+- Reject blank startup secrets and database DSNs, and make LangChain execution
+  identifiers collision-resistant.
+
 ## [0.23.1] - 2026-08-13
 
 - Move econ schema compatibility to startup, make instrumentation lazy and
