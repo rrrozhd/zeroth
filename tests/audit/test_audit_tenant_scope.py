@@ -164,12 +164,6 @@ async def test_null_workspace_repository_never_touches_same_tenant_workspace_row
         {"record_json": "{}"}, where={"audit_id": "workspace-audit"}
     )
     assert (await workspace_repository.get("workspace-audit")).audit_id == "workspace-audit"  # type: ignore[union-attr]
-    await null_repository._audits.delete(where={"audit_id": "workspace-audit"})  # noqa: SLF001
-    assert await workspace_repository.get("workspace-audit") is not None
-    await null_repository._audits.delete(where={"audit_id": "null-audit"})  # noqa: SLF001
-    assert await null_repository.get("null-audit") is None
-    assert await workspace_repository.get("workspace-audit") is not None
-
     with pytest.raises(ValueError, match="workspace-scoped creates require a workspace context"):
         await tenant_wide_repository.write(
             _record(

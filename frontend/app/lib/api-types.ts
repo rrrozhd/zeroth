@@ -3788,10 +3788,7 @@ export interface components {
             stdout?: string | null;
             /** Supersedes Audit Id */
             supersedes_audit_id?: string | null;
-            /**
-             * Tenant Id
-             * @default default
-             */
+            /** Tenant Id */
             tenant_id: string;
             /** Thread Id */
             thread_id?: string | null;
