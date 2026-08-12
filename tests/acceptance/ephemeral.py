@@ -43,7 +43,7 @@ from tests.service.helpers import (
 from zeroth.governance.identity import ServiceRole
 from zeroth.platform.config import settings as settings_module
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 from zeroth.service.bootstrap.migrations import run_migrations
 
 APPROVAL_NODE = "approval-step"
@@ -401,9 +401,11 @@ class EphemeralCandidate:
 
     async def _build_app(self):
         database = AsyncSQLiteDatabase(path=str(self._db_path))
-        app = await bootstrap_app(
+        app = await bootstrap_scoped_app(
             database,
             deployment_ref=self.deployment_ref,
+            tenant_id=self.tenant_id,
+            workspace_id=None,
             agent_runners={FINISH_NODE: self.finish_runner},
             auth_config=self._auth_config(),
         )

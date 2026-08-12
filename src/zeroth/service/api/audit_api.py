@@ -663,6 +663,8 @@ async def _load_bound_deployment(bootstrap: AuditApiBootstrapLike) -> object:
     deployment = await bootstrap.deployment_service.get(
         bootstrap.deployment.deployment_ref,
         bootstrap.deployment.version,
+        tenant_id=bootstrap.deployment.tenant_id,
+        workspace_id=bootstrap.deployment.workspace_id,
     )
     if deployment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="deployment not found")

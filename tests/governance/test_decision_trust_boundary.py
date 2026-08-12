@@ -661,8 +661,8 @@ async def test_the_production_policy_resolver_denies_an_unloadable_deployment(
     would survive.
     """
 
-    async def _missing(deployment_ref: str) -> Any:
-        del deployment_ref
+    async def _missing(deployment_ref: str, **scope: Any) -> Any:
+        del deployment_ref, scope
         return None
 
     guard = RecordingPolicyGuard()
@@ -688,8 +688,8 @@ async def test_the_production_policy_resolver_allows_a_deployment_holding_no_bin
     above while denying every legitimately unbound deployment.
     """
 
-    async def _unbound(deployment_ref: str) -> Any:
-        del deployment_ref
+    async def _unbound(deployment_ref: str, **scope: Any) -> Any:
+        del deployment_ref, scope
         return _Deployment(())
 
     service = make_guarded_service(
@@ -711,8 +711,8 @@ async def test_the_production_policy_resolver_passes_the_deployments_bindings_th
     answering with a constant -- which both tests above would tolerate.
     """
 
-    async def _bound(deployment_ref: str) -> Any:
-        del deployment_ref
+    async def _bound(deployment_ref: str, **scope: Any) -> Any:
+        del deployment_ref, scope
         return _Deployment(("deployment-required",))
 
     guard = RecordingPolicyGuard()
@@ -726,3 +726,32 @@ async def test_the_production_policy_resolver_passes_the_deployments_bindings_th
 
     assert len(guard.calls) == 1
     assert "deployment-required" in guard.calls[0].policy_bindings
+
+
+async def test_the_production_policy_resolver_passes_the_trusted_tenant_to_lookup(
+    sqlite_db: Any,
+) -> None:
+    """A caller tenant is part of deployment identity, never discarded."""
+    calls: list[tuple[str, str, str | None]] = []
+
+    async def _tenant_bound(
+        deployment_ref: str,
+        *,
+        tenant_id: str,
+        workspace_id: str | None,
+    ) -> Any:
+        calls.append((tenant_id, deployment_ref, workspace_id))
+        return _Deployment(()) if tenant_id == "tenant-alpha" else None
+
+    service = make_guarded_service(
+        sqlite_db,
+        deployment_policies=DeploymentRecordPolicyResolver(
+            _tenant_bound,
+            workspace_id="workspace-alpha",
+        ),
+    )
+
+    response = await service.decide(make_request(policy_bindings=()))
+
+    assert response.kind is DecisionKind.ALLOW
+    assert calls == [("tenant-alpha", "dep-alpha", "workspace-alpha")]
