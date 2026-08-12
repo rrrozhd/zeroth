@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.6.1] - 2026-08-12
+
+- Verify retry and tool-loop cost and usage accounting against every provider turn.
+
 ## [0.23.0.6] - 2026-08-12
 
 - Close provider retry, cascade failure, subgraph resume, and fan-out cost accounting gaps.
