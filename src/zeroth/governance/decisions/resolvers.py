@@ -105,8 +105,14 @@ class DeploymentRecordPolicyResolver:
     ``policy_unavailable`` denial, so an unloadable deployment refuses instead.
     """
 
-    def __init__(self, get_deployment: Callable[[str], Awaitable[Any]]) -> None:
+    def __init__(
+        self,
+        get_deployment: Callable[..., Awaitable[Any]],
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
         self._get_deployment = get_deployment
+        self._workspace_id = workspace_id
 
     async def policy_bindings_for(
         self,
@@ -119,8 +125,11 @@ class DeploymentRecordPolicyResolver:
             LookupError: If no deployment answers to *deployment_ref*. The
                 bindings are unknown, not empty.
         """
-        del tenant_id
-        deployment = await self._get_deployment(deployment_ref)
+        deployment = await self._get_deployment(
+            deployment_ref,
+            tenant_id=tenant_id,
+            workspace_id=self._workspace_id,
+        )
         if deployment is None:
             raise LookupError("deployment carries no resolvable policy bindings")
         return tuple(getattr(deployment, "policy_bindings", ()) or ())

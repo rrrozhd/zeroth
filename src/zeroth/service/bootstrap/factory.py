@@ -629,7 +629,10 @@ async def bootstrap_scoped_service(
             budget_checker=budget_enforcer,
         ),
         inventory=RegisteredInventoryLookup(inventory_registration_repository),
-        deployment_policies=DeploymentRecordPolicyResolver(deployment_service.get),
+        deployment_policies=DeploymentRecordPolicyResolver(
+            deployment_service.get,
+            workspace_id=deployment.workspace_id,
+        ),
         # Without a gate the service defaults to ``NoApprovalRequired``,
         # which answers "no hold" for every call -- so a policy carrying
         # ``approval_required_for_side_effects`` was silently ignored for
