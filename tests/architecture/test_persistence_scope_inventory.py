@@ -3128,38 +3128,44 @@ def _audit_repository_public_call_provenance(
                                 header, before[2]
                             ):
                                 exceptions.append(before)
-                            loop_state = before
-                            if isinstance(statement, (ast.For, ast.AsyncFor)):
-                                known_target_shape = (
-                                    isinstance(statement, ast.For)
-                                    and isinstance(statement.iter, (ast.Tuple, ast.List))
-                                    and not any(
-                                        isinstance(item, ast.Starred)
-                                        for item in statement.iter.elts
-                                    )
-                                    and all(
-                                        target_shape_matches(item, statement.target)
-                                        for item in statement.iter.elts
-                                    )
+                            literal_items = (
+                                list(statement.iter.elts)
+                                if isinstance(statement, ast.For)
+                                and isinstance(statement.iter, (ast.Tuple, ast.List))
+                                and not any(
+                                    isinstance(item, ast.Starred)
+                                    for item in statement.iter.elts
                                 )
-                                loop_state, target_exceptions = bind_target(
+                                else [None]
+                            )
+                            element_flows: list[PotentialFlow] = []
+                            for item_value in literal_items:
+                                loop_state = before
+                                target_exceptions: list[_PotentialState] = []
+                                if isinstance(statement, (ast.For, ast.AsyncFor)):
+                                    loop_state, target_exceptions = bind_target(
+                                        loop_state,
+                                        statement.target,
+                                        known_shape=(
+                                            item_value is not None
+                                            and target_shape_matches(item_value, statement.target)
+                                        ),
+                                        may_fail_unpack=True,
+                                        value=item_value,
+                                    )
+                                element_flow = walk_potential_bindings(
+                                    statement.body,
                                     loop_state,
-                                    statement.target,
-                                    known_shape=known_target_shape,
-                                    may_fail_unpack=True,
-                                    value=(
-                                        statement.iter.elts[0]
-                                        if isinstance(statement, ast.For)
-                                        and isinstance(statement.iter, (ast.Tuple, ast.List))
-                                        and len(statement.iter.elts) == 1
-                                        else None
-                                    ),
+                                    evaluate_variable_annotations=evaluate_variable_annotations,
                                 )
-                                exceptions.extend(target_exceptions)
-                            body_flow = walk_potential_bindings(
-                                statement.body,
-                                loop_state,
-                                evaluate_variable_annotations=evaluate_variable_annotations,
+                                element_flow.exceptions.extend(target_exceptions)
+                                element_flows.append(element_flow)
+                            body_flow = PotentialFlow(
+                                join_states(*(flow.continuing for flow in element_flows)),
+                                [state for flow in element_flows for state in flow.breaks],
+                                [state for flow in element_flows for state in flow.continues],
+                                [state for flow in element_flows for state in flow.returns],
+                                [state for flow in element_flows for state in flow.exceptions],
                             )
                             iteration_state = join_states(
                                 body_flow.continuing, *body_flow.continues
@@ -8563,6 +8569,41 @@ def test_public_call_inventory_models_nested_starred_target_shapes(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
 
 
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ("(None, None, None), (None, None, None)", frozenset()),
+        (
+            "(None, None, None), (None,)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["all-valid", "heterogeneous-short"],
+)
+def test_public_call_inventory_models_each_literal_loop_element(
+    tmp_path: Path, values: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    with suppressor:\n"
+        f"        for first, *(closure, last) in ({values}):\n"
+        "            pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n                Base = None\n"
+        "            else:\n                Base = None\n"
+        "        type Repo = Base\n        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
 @pytest.mark.parametrize("has_value", [False, True], ids=["annotation-only", "valued"])
 def test_public_call_inventory_skips_function_local_variable_annotation_evaluation(
     tmp_path: Path, has_value: bool
@@ -10659,6 +10700,8 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         "raw",
         "transaction",
     }
+    _TRUSTED_TRANSACTION_PROVIDER_MODULE = "zeroth.governance.retention.coordination"
+    _TRUSTED_TRANSACTION_PROVIDER_TYPE = "RetentionCoordinator"
 
     def __init__(self, relative_path: str) -> None:
         self.relative_path = relative_path
@@ -10668,6 +10711,8 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         self._connection_paths: set[str] = set()
         self._database_paths: set[str] = set()
         self._transaction_factory_paths: set[str] = set()
+        self._trusted_transaction_provider_names: set[str] = set()
+        self._trusted_transaction_provider_paths: set[str] = set()
 
     def _record(self, method: str) -> None:
         key = (self.function, method)
@@ -10722,10 +10767,37 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
         dotted = self._dotted_name(node)
         if dotted is None:
             return False
+        if dotted in self._trusted_transaction_provider_paths:
+            return False
         leaf = dotted.rsplit(".", 1)[-1]
         return leaf in self._DATABASE_RECEIVER_NAMES or any(
             dotted == path or dotted.startswith(f"{path}.") for path in self._database_paths
         )
+
+    def _is_trusted_transaction_provider(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        dotted = self._dotted_name(node.func)
+        return dotted in self._trusted_transaction_provider_names or dotted == (
+            f"{self._TRUSTED_TRANSACTION_PROVIDER_MODULE}."
+            f"{self._TRUSTED_TRANSACTION_PROVIDER_TYPE}"
+        )
+
+    def _is_trusted_transaction_provider_annotation(self, node: ast.AST | None) -> bool:
+        dotted = self._dotted_name(node) if node is not None else None
+        return dotted in self._trusted_transaction_provider_names or dotted == (
+            f"{self._TRUSTED_TRANSACTION_PROVIDER_MODULE}."
+            f"{self._TRUSTED_TRANSACTION_PROVIDER_TYPE}"
+        )
+
+    def _update_trusted_transaction_provider_target(
+        self, target: ast.AST, value: ast.AST
+    ) -> None:
+        paths = self._assigned_paths(target)
+        if self._is_trusted_transaction_provider(value):
+            self._trusted_transaction_provider_paths.update(paths)
+        else:
+            self._trusted_transaction_provider_paths.difference_update(paths)
 
     def _is_connection_receiver(self, node: ast.AST) -> bool:
         dotted = self._dotted_name(node)
@@ -10825,6 +10897,7 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
+            self._update_trusted_transaction_provider_target(target, node.value)
             self._update_connection_target(target, node.value)
             self._update_database_target(target, node.value)
             self._update_transaction_factory_target(target, node.value)
@@ -10832,11 +10905,25 @@ class _RawAsyncRepositoryVisitor(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
+            self._update_trusted_transaction_provider_target(node.target, node.value)
             self._update_connection_target(node.target, node.value)
             self._update_database_target(node.target, node.value)
             if self._is_connection_annotation(node.annotation):
                 self._connection_paths.update(self._assigned_paths(node.target))
             self._update_transaction_factory_target(node.target, node.value)
+        elif self._is_trusted_transaction_provider_annotation(node.annotation):
+            paths = self._assigned_paths(node.target)
+            self._trusted_transaction_provider_paths.update(paths)
+            self._trusted_transaction_provider_paths.update(
+                f"self.{path}" for path in paths if "." not in path
+            )
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        if node.module == self._TRUSTED_TRANSACTION_PROVIDER_MODULE:
+            for alias in node.names:
+                if alias.name == self._TRUSTED_TRANSACTION_PROVIDER_TYPE:
+                    self._trusted_transaction_provider_names.add(alias.asname or alias.name)
         self.generic_visit(node)
 
     def _visit_with(self, node: ast.With | ast.AsyncWith) -> None:
@@ -10956,9 +11043,6 @@ governance/decisions/repository.py::_insert_then_read::fetch_one#1
 governance/decisions/repository.py::_insert_then_read::transaction#1
 governance/decisions/repository.py::find_by_idempotency_key::fetch_one#1
 governance/decisions/repository.py::find_by_idempotency_key::transaction#1
-governance/retention/legal_hold_repository.py::active_holds_for_tenant::transaction#1
-governance/retention/legal_hold_repository.py::place::transaction#1
-governance/retention/legal_hold_repository.py::release::transaction#1
 integrations/memory/config_repository.py::delete::execute#1
 integrations/memory/config_repository.py::delete::fetch_one#1
 integrations/memory/config_repository.py::delete::transaction#1
@@ -10996,10 +11080,6 @@ governance/attestations/store.py::record::fetch_one#1
 governance/attestations/store.py::record::transaction#1
 governance/attestations/store.py::register::execute#1
 governance/attestations/store.py::register::transaction#1
-governance/retention/claims.py::record_heartbeat::transaction#1
-governance/retention/claims.py::record_operation_delta::transaction#1
-governance/retention/claims.py::record_terminal::transaction#1
-governance/retention/claims.py::release::transaction#1
 """.split()  # noqa: SIM905 - readable exact snapshot
 )
 
@@ -11365,6 +11445,39 @@ def test_raw_async_repository_guard_reports_new_transaction_and_execute_calls(
 
     assert any("::transaction#" in violation for violation in violations)
     assert any("::execute#" in violation for violation in violations)
+
+
+def test_raw_async_guard_accepts_only_proven_scoped_coordinator_transactions(
+    tmp_path: Path,
+) -> None:
+    trusted = tmp_path / "trusted.py"
+    trusted.write_text(
+        "from zeroth.governance.retention.coordination import RetentionCoordinator\n\n"
+        "class Repository:\n"
+        "    def __init__(self, database, scope):\n"
+        "        self.coordinator = RetentionCoordinator(database, scope)\n"
+        "    async def write(self):\n"
+        "        async with self.coordinator.transaction() as transaction:\n"
+        "            return transaction\n",
+        encoding="utf-8",
+    )
+    arbitrary = tmp_path / "arbitrary.py"
+    arbitrary.write_text(
+        "class Repository:\n"
+        "    def __init__(self, coordinator):\n"
+        "        self.coordinator = coordinator\n"
+        "    async def write(self):\n"
+        "        async with self.coordinator.transaction() as transaction:\n"
+        "            return transaction\n",
+        encoding="utf-8",
+    )
+
+    assert _raw_async_repository_violations(
+        tmp_path, frozenset({"trusted.py"})
+    ) == set()
+    assert _raw_async_repository_violations(
+        tmp_path, frozenset({"arbitrary.py"})
+    ) == {"arbitrary.py::write::transaction#1"}
 
 
 def test_raw_async_repository_guard_tracks_aliases_and_getattr(tmp_path: Path) -> None:
