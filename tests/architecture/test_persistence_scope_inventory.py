@@ -2748,6 +2748,14 @@ def _audit_repository_public_call_provenance(
                             for keyword in expression_node.keywords:
                                 state = transfer_expression(keyword.value, state)
                             return state
+                        if isinstance(expression_node, ast.Dict):
+                            for key, value in zip(
+                                expression_node.keys, expression_node.values, strict=True
+                            ):
+                                if key is not None:
+                                    state = transfer_expression(key, state)
+                                state = transfer_expression(value, state)
+                            return state
                         for child in ast.iter_child_nodes(expression_node):
                             if not isinstance(child, ast.stmt):
                                 state = transfer_expression(child, state)
@@ -9064,12 +9072,33 @@ def test_public_call_inventory_models_definition_annotation_aliases(
             "mapping[(TypeError := BuiltinTypeError)] = None\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\n",
+            "    marker = {(TypeError := ValueError): (TypeError := BuiltinTypeError), "
+            "(TypeError := ValueError): None}\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\n",
+            "    marker = {(TypeError := BuiltinTypeError): (TypeError := ValueError), "
+            "(TypeError := BuiltinTypeError): None}\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\n",
+            "    marker = {**(mapping := {(TypeError := ValueError): None}), "
+            "(TypeError := BuiltinTypeError): None}\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        ("", "", "    marker = {'safe': None}\n", frozenset({"apps/candidate.py::use::write"})),
         ("", "", "    alias = (TypeError := ValueError)\n", frozenset()),
         (
             "",
             "",
-            "    class Local:\n"
-            "        marker: (TypeError := ValueError)\n",
+            "    class Local:\n        marker: (TypeError := ValueError)\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
     ],
@@ -9088,6 +9117,10 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         "assign-target-then-rhs-reversed",
         "assign-chain-target-order",
         "assign-multiple-target-address-order",
+        "dict-key-value-order",
+        "dict-key-value-order-reversed",
+        "dict-unpack-order",
+        "dict-literal-control",
         "assign-simple-alias",
         "class-local-scope",
     ],
