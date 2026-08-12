@@ -251,7 +251,7 @@ def _receiver_annotation_type_nodes(node: ast.AST | None) -> tuple[ast.AST, ...]
             return
         if isinstance(candidate, ast.Subscript):
             base = _dotted_ast_path(candidate.value)
-            if base is not None and base[-1] == "Annotated":
+            if base is not None and base[-1] in {"Annotated", "Optional", "Union"}:
                 arguments = (
                     candidate.slice.elts
                     if isinstance(candidate.slice, ast.Tuple)
@@ -577,9 +577,12 @@ _AliasEvents = dict[str, list[tuple[tuple[int, int], _AliasIdentity]]]
 
 
 def _must_alias_events(
-    owner: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner: ast.Module | ast.FunctionDef | ast.AsyncFunctionDef,
     repository_names: set[str],
     module_names: dict[str, tuple[str, ...]],
+    *,
+    initial_state: dict[str, _AliasIdentity] | None = None,
+    potential_import_aliases: bool = False,
 ) -> _AliasEvents:
     events: _AliasEvents = {}
 
@@ -719,6 +722,22 @@ def _must_alias_events(
                 for path_state in path_states[1:]:
                     state = join(state, path_state)
                 merge_event(statement, state)
+            elif isinstance(statement, ast.ImportFrom) and potential_import_aliases:
+                for alias in statement.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    state[name] = (
+                        _AUDIT_REPOSITORY_CLASS
+                        if (
+                            alias.name == "AuditRepository"
+                            and statement.module
+                            not in {
+                                "zeroth.governance.audit",
+                                "zeroth.governance.audit.repository",
+                            }
+                        )
+                        else None
+                    )
+                merge_event(statement, state)
             elif isinstance(statement, (ast.Import, ast.ImportFrom)):
                 invalidate(
                     statement,
@@ -744,7 +763,7 @@ def _must_alias_events(
                 merge_event(statement, state)
         return state
 
-    walk_block(owner.body, {})
+    walk_block(owner.body, initial_state or {})
     return events
 
 
@@ -768,6 +787,31 @@ def _visible_annotation_repository_names(
     shadowed_names: set[str] = set()
     for candidate_scope in _provenance_scope_chain(scope, parents):
         events_by_name = local_alias_events.get(candidate_scope, {})
+        candidate_names = local_names.get(candidate_scope, set()) | set(events_by_name)
+        for name in candidate_names - shadowed_names:
+            visible.discard(name)
+            visible_events = [
+                identity for event, identity in events_by_name.get(name, []) if event < position
+            ]
+            if visible_events and visible_events[-1] == _AUDIT_REPOSITORY_CLASS:
+                visible.add(name)
+            shadowed_names.add(name)
+    return visible
+
+
+def _visible_potential_annotation_repository_names(
+    node: ast.AST,
+    scope: ast.AST | None,
+    potential_repository_names: set[str],
+    local_names: dict[ast.AST, set[str]],
+    potential_alias_events: dict[ast.AST | None, _AliasEvents],
+    parents: dict[ast.AST, ast.AST],
+) -> set[str]:
+    visible = set(potential_repository_names)
+    position = (node.lineno, node.col_offset)
+    shadowed_names: set[str] = set()
+    for candidate_scope in _provenance_scope_chain(scope, parents):
+        events_by_name = potential_alias_events.get(candidate_scope, {})
         candidate_names = local_names.get(candidate_scope, set()) | set(events_by_name)
         for name in candidate_names - shadowed_names:
             visible.discard(name)
@@ -842,17 +886,39 @@ def _binding_targets(node: ast.AST) -> tuple[ast.AST, ...]:
 
 def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
     def structural_pairs(target: ast.AST, value: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
-        if (
-            isinstance(target, (ast.Tuple, ast.List))
-            and isinstance(value, (ast.Tuple, ast.List))
-            and len(target.elts) == len(value.elts)
-            and not any(isinstance(element, ast.Starred) for element in target.elts)
-        ):
-            return tuple(
-                pair
-                for target_element, value_element in zip(target.elts, value.elts, strict=True)
-                for pair in structural_pairs(target_element, value_element)
-            )
+        if isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List)):
+            starred = [
+                index
+                for index, element in enumerate(target.elts)
+                if isinstance(element, ast.Starred)
+            ]
+            if not starred and len(target.elts) == len(value.elts):
+                return tuple(
+                    pair
+                    for target_element, value_element in zip(target.elts, value.elts, strict=True)
+                    for pair in structural_pairs(target_element, value_element)
+                )
+            if len(starred) != 1 or len(value.elts) < len(target.elts) - 1:
+                return ((target, value),)
+            starred_index = starred[0]
+            suffix_length = len(target.elts) - starred_index - 1
+            starred_target = target.elts[starred_index]
+            assert isinstance(starred_target, ast.Starred)
+            pairs: list[tuple[ast.AST, ast.AST]] = []
+            for target_element, value_element in zip(
+                target.elts[:starred_index], value.elts[:starred_index], strict=True
+            ):
+                pairs.extend(structural_pairs(target_element, value_element))
+            starred_values = value.elts[
+                starred_index : len(value.elts) - suffix_length if suffix_length else None
+            ]
+            pairs.append((starred_target.value, ast.List(elts=starred_values, ctx=ast.Load())))
+            if suffix_length:
+                for target_element, value_element in zip(
+                    target.elts[-suffix_length:], value.elts[-suffix_length:], strict=True
+                ):
+                    pairs.extend(structural_pairs(target_element, value_element))
+            return tuple(pairs)
         return ((target, value),)
 
     if isinstance(node, ast.Assign):
@@ -865,6 +931,12 @@ def _assignment_bindings(node: ast.AST) -> tuple[tuple[ast.AST, ast.AST], ...]:
     if isinstance(node, ast.NamedExpr):
         return ((node.target, node.value),)
     return ()
+
+
+def _assignment_value_options(value: ast.AST) -> tuple[ast.AST, ...]:
+    if isinstance(value, ast.IfExp):
+        return (*_assignment_value_options(value.body), *_assignment_value_options(value.orelse))
+    return (value,)
 
 
 def _compound_body_shadowed(node: ast.AST, name: str, parents: dict[ast.AST, ast.AST]) -> bool:
@@ -994,8 +1066,10 @@ def _annotation_repository_operations(
     ):
         return _AUDIT_REPOSITORY_OPERATION_NAMES
     operations: set[str] = set()
-    for name in _annotation_names(node):
-        operations.update(collaborator_names.get(name, ()))
+    for candidate in annotation_types:
+        dotted = _dotted_ast_path(candidate)
+        if dotted is not None:
+            operations.update(collaborator_names.get(dotted[-1], ()))
     return frozenset(operations)
 
 
@@ -1228,7 +1302,6 @@ def _audit_repository_public_call_provenance(
                 set(repository_names)
                 | potential_module_repository_names
                 | potential_local_repository_names
-                | potential_imported_repository_names
             )
             for names in local_repository_names.values():
                 potential_repository_type_names.update(names)
@@ -1243,6 +1316,31 @@ def _audit_repository_public_call_provenance(
                 for name, events in aliases.items():
                     if _AUDIT_REPOSITORY_CLASS in {identity for _position, identity in events}:
                         potential_repository_type_names.add(name)
+            potential_alias_seed = {
+                name: _AUDIT_REPOSITORY_CLASS for name in potential_imported_repository_names
+            }
+            potential_alias_events: dict[ast.AST | None, _AliasEvents] = {
+                None: _must_alias_events(
+                    tree,
+                    potential_imported_repository_names,
+                    {},
+                    initial_state=potential_alias_seed,
+                    potential_import_aliases=True,
+                )
+            }
+            for owner in local_names:
+                if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                initial_state = dict(potential_alias_seed)
+                for name in local_names[owner] & potential_imported_repository_names:
+                    initial_state[name] = None
+                potential_alias_events[owner] = _must_alias_events(
+                    owner,
+                    potential_imported_repository_names,
+                    {},
+                    initial_state=initial_state,
+                    potential_import_aliases=True,
+                )
             typed_repository_attributes: dict[tuple[str, ...], dict[str, frozenset[str]]] = {}
             potential_typed_repository_attributes: dict[tuple[str, ...], set[str]] = {}
             potential_typed_attribute_names: dict[str, set[str]] = {}
@@ -1321,9 +1419,20 @@ def _audit_repository_public_call_provenance(
                         )
                         if operations and argument.arg not in reassigned_names[node]:
                             bound_paths[(node, (argument.arg,))] = operations
-                        elif potential_repository_type_names.intersection(
-                            _annotation_names(argument.annotation)
-                        ) or _is_potential_repository_annotation(argument.annotation):
+                        elif (
+                            potential_repository_type_names.intersection(
+                                _annotation_names(argument.annotation)
+                            )
+                            or _visible_potential_annotation_repository_names(
+                                node,
+                                node,
+                                potential_imported_repository_names,
+                                local_names,
+                                potential_alias_events,
+                                parents,
+                            ).intersection(_annotation_names(argument.annotation))
+                            or _is_potential_repository_annotation(argument.annotation)
+                        ):
                             potential_paths.add((node, (argument.arg,)))
                         for annotation_name in _annotation_names(argument.annotation):
                             class_identity = _annotation_class_identity(
@@ -1363,6 +1472,14 @@ def _audit_repository_public_call_provenance(
                         potential_repository_type_names.intersection(
                             _annotation_names(node.annotation)
                         )
+                        or _visible_potential_annotation_repository_names(
+                            node,
+                            annotation_scope,
+                            potential_imported_repository_names,
+                            local_names,
+                            potential_alias_events,
+                            parents,
+                        ).intersection(_annotation_names(node.annotation))
                         or _is_potential_repository_annotation(node.annotation)
                     ):
                         potential_paths.add((_provenance_scope(node, target, parents), target))
@@ -1389,15 +1506,9 @@ def _audit_repository_public_call_provenance(
                 for node in ast.walk(tree):
                     for target_node, value in _assignment_bindings(node):
                         target = _dotted_ast_path(target_node)
-                        source = (
-                            _dotted_ast_path(value.func)
-                            if isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
-                            else _dotted_ast_path(value)
-                        )
                         if target is None:
                             continue
                         target_scope = _binding_scope(node, target, parents)
-                        source_scope = _provenance_scope(node, source, parents)
                         control_flow_gated = _inside_unmodeled_control_flow(node, parents)
                         owner = _enclosing_function(node, parents)
                         visible_repository_names = _visible_repository_names(
@@ -1407,30 +1518,85 @@ def _audit_repository_public_call_provenance(
                             local_names,
                             parents,
                         )
-                        factory_identity, shadowed_scoped_factory = (
-                            _resolved_scoped_factory(
-                                value.func,
-                                owner,
-                                repository_names,
-                                module_names,
-                                local_alias_events,
-                                local_names,
-                                parents,
+                        value_states: list[
+                            tuple[
+                                tuple[str, ...] | None,
+                                ast.AST | None,
+                                frozenset[str] | None,
+                                bool,
+                                tuple[str, ...] | None,
+                                bool,
+                                bool,
+                            ]
+                        ] = []
+                        for value_option in _assignment_value_options(value):
+                            option_source = (
+                                _dotted_ast_path(value_option.func)
+                                if isinstance(value_option, ast.Call)
+                                and isinstance(value_option.func, ast.Name)
+                                else _dotted_ast_path(value_option)
                             )
-                            if isinstance(value, ast.Call)
-                            else (None, False)
+                            option_scope = _provenance_scope(node, option_source, parents)
+                            option_operations = _bound_repository_operations(
+                                bound_paths,
+                                owner
+                                if option_source and option_source[0] == "self"
+                                else option_scope,
+                                option_source,
+                                parents,
+                                local_names,
+                                competing_names,
+                            )
+                            factory_identity, factory_is_shadowed = (
+                                _resolved_scoped_factory(
+                                    value_option.func,
+                                    owner,
+                                    repository_names,
+                                    module_names,
+                                    local_alias_events,
+                                    local_names,
+                                    parents,
+                                )
+                                if isinstance(value_option, ast.Call)
+                                else (None, False)
+                            )
+                            if factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped"):
+                                option_operations = _AUDIT_REPOSITORY_OPERATION_NAMES
+                            value_states.append(
+                                (
+                                    option_source,
+                                    option_scope,
+                                    option_operations,
+                                    _has_potential_repository_path(
+                                        potential_paths, option_scope, option_source, parents
+                                    ),
+                                    factory_identity,
+                                    factory_is_shadowed,
+                                    isinstance(value_option, ast.Call)
+                                    and isinstance(value_option.func, ast.Name)
+                                    and value_option.func.id in ambiguous_module_names,
+                                )
+                            )
+                        sources = [state[0] for state in value_states]
+                        source = sources[0] if all(item == sources[0] for item in sources) else None
+                        source_scope = _provenance_scope(node, source, parents)
+                        branch_operations = [state[2] for state in value_states]
+                        operations = (
+                            branch_operations[0]
+                            if branch_operations[0] is not None
+                            and all(item == branch_operations[0] for item in branch_operations)
+                            else None
                         )
-                        operations = _bound_repository_operations(
-                            bound_paths,
-                            owner if source and source[0] == "self" else source_scope,
-                            source,
-                            parents,
-                            local_names,
-                            competing_names,
+                        source_is_potential = operations is None and any(
+                            state[2] is not None or state[3] or state[5] or state[6]
+                            for state in value_states
                         )
-                        source_is_potential = _has_potential_repository_path(
-                            potential_paths, source_scope, source, parents
+                        factory_identity = (
+                            value_states[0][4]
+                            if all(state[4] == value_states[0][4] for state in value_states)
+                            else None
                         )
+                        shadowed_scoped_factory = any(state[5] for state in value_states)
                         if isinstance(node, ast.NamedExpr):
                             source_is_potential = False
                         source_is_compound_shadowed = (
@@ -1451,16 +1617,7 @@ def _audit_repository_public_call_provenance(
                                 source_is_potential = True
                                 bound_paths.pop((target_scope, target), None)
                             compound_body_paths.add((target_scope, target))
-                        if (
-                            factory_identity == (*_AUDIT_REPOSITORY_CLASS, "scoped")
-                            and not source_is_compound_shadowed
-                        ):
-                            operations = _AUDIT_REPOSITORY_OPERATION_NAMES
-                        ambiguous_module_factory = (
-                            isinstance(value, ast.Call)
-                            and isinstance(value.func, ast.Name)
-                            and value.func.id in ambiguous_module_names
-                        )
+                        ambiguous_module_factory = any(state[6] for state in value_states)
                         if control_flow_gated:
                             source_is_reviewed_edge = (owner, source) in reviewed_edge_paths
                             if (
@@ -2020,6 +2177,75 @@ def test_public_call_inventory_recursively_invalidates_instance_assignments(
     )
 
 
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "repo, *rest = (AuditRepository.scoped(db, scope), object())",
+        "first, *middle, repo = (object(), object(), AuditRepository.scoped(db, scope))",
+        "first, (*middle, repo) = (object(), (object(), AuditRepository.scoped(db, scope)))",
+    ],
+)
+def test_public_call_inventory_decomposes_statically_sized_starred_assignments(
+    tmp_path: Path, assignment: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record):\n"
+        f"    {assignment}\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_joins_trusted_conditional_assignment(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    repo = (\n"
+        "        AuditRepository.scoped(db, scope)\n"
+        "        if cond\n"
+        "        else AuditRepository.scoped(db, scope)\n"
+        "    )\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_reports_mixed_conditional_assignment(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    repo = AuditRepository.scoped(db, scope) if cond else client\n"
+        "    await repo.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
 def test_public_call_inventory_tracks_current_local_type_alias(tmp_path: Path) -> None:
     module = tmp_path / "apps" / "candidate.py"
     module.parent.mkdir(parents=True)
@@ -2570,6 +2796,107 @@ def test_public_call_inventory_rejects_generic_repository_type_positions(
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
         {"apps/candidate.py::use::write"}
     )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "typing.Optional[AuditRepository]",
+        "typing.Union[AuditRepository, None]",
+    ],
+)
+def test_public_call_inventory_unwraps_typing_repository_wrappers(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "import typing\n"
+        "from zeroth.governance.audit import AuditRepository\n"
+        f"async def use(repository: {annotation}, record):\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ["list[AuditRecordWriter]", "Callable[[AuditRecordWriter], None]"],
+)
+def test_public_call_inventory_rejects_generic_collaborator_type_positions(
+    tmp_path: Path, annotation: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from collections.abc import Callable\n"
+        "from zeroth.governance.audit.delivery_state import AuditRecordWriter\n"
+        f"async def use(writer: {annotation}, record):\n"
+        "    await writer.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_public_call_inventory_propagates_current_unresolved_repository_alias(
+    tmp_path: Path, local: bool
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    prefix = (
+        "async def use(record):\n"
+        "    from my_adapter import AuditRepository as AR\n"
+        "    Alias = AR\n"
+        "    repository: Alias = candidate\n"
+        if local
+        else "from my_adapter import AuditRepository as AR\n"
+        "Alias = AR\n"
+        "async def use(repository: Alias, record):\n"
+    )
+    module.write_text(
+        prefix + "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_public_call_inventory_invalidates_rebound_unresolved_repository_alias(
+    tmp_path: Path, local: bool
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    prefix = (
+        "async def use(record):\n"
+        "    from my_adapter import AuditRepository as AR\n"
+        "    Alias = AR\n"
+        "    Alias = OtherRepository\n"
+        "    repository: Alias = candidate\n"
+        if local
+        else "from my_adapter import AuditRepository as AR\n"
+        "Alias = AR\n"
+        "Alias = OtherRepository\n"
+        "async def use(repository: Alias, record):\n"
+    )
+    module.write_text(
+        prefix + "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
 
 
 @pytest.mark.parametrize("annotation", ["AR", "'AR'"])
