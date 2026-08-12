@@ -2650,7 +2650,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT NOT NULL, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT run_checkpoints_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, checkpoint_id) )",
+      "constraint_definition": "CREATE TABLE run_checkpoints ( checkpoint_id TEXT NOT NULL, run_id TEXT NOT NULL, thread_id TEXT NOT NULL, checkpoint_order INTEGER NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT run_checkpoints_task9_checked_pkey PRIMARY KEY (tenant_id, workspace_scope, checkpoint_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3036,7 +3036,7 @@
           "type": "INTEGER"
         }
       ],
-      "constraint_definition": "CREATE TABLE runs ( run_id TEXT NOT NULL, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT, token_snapshot_write_disabled INTEGER NOT NULL DEFAULT 0, lease_generation INTEGER NOT NULL DEFAULT 0, CONSTRAINT runs_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, run_id) )",
+      "constraint_definition": "CREATE TABLE runs ( run_id TEXT NOT NULL, checkpoint_id TEXT, parent_checkpoint_id TEXT, epoch INTEGER NOT NULL, workflow_name TEXT NOT NULL, status TEXT NOT NULL, current_step TEXT, completed_steps TEXT NOT NULL, artifacts TEXT NOT NULL, channels TEXT NOT NULL, pending_approval TEXT, pending_interrupt_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT, metadata TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, thread_id TEXT NOT NULL, current_node_ids TEXT NOT NULL, pending_node_ids TEXT NOT NULL DEFAULT '[]', execution_history TEXT NOT NULL DEFAULT '[]', node_visit_counts TEXT NOT NULL DEFAULT '{}', condition_results TEXT NOT NULL DEFAULT '[]', audit_refs TEXT NOT NULL DEFAULT '[]', final_output TEXT, failure_state TEXT, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, submitted_by TEXT, lease_worker_id TEXT, lease_acquired_at TEXT, lease_expires_at TEXT, failure_count INTEGER NOT NULL DEFAULT 0, recovery_checkpoint_id TEXT, token_snapshot_write_disabled INTEGER NOT NULL DEFAULT 0, lease_generation INTEGER NOT NULL DEFAULT 0, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT runs_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, run_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3137,8 +3137,8 @@
           "default": null,
           "hidden": 0,
           "name": "operation_key",
-          "not_null": false,
-          "primary_key_position": 1,
+          "not_null": true,
+          "primary_key_position": 3,
           "type": "TEXT"
         },
         {
@@ -3257,13 +3257,42 @@
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE side_effect_operations ( operation_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, target_ref TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, support TEXT NOT NULL DEFAULT 'at_least_once', receipt TEXT, error TEXT, ambiguity_reason TEXT, reconciliation_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE side_effect_operations ( operation_key TEXT NOT NULL, run_id TEXT NOT NULL, dispatch_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, target_ref TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, support TEXT NOT NULL DEFAULT 'at_least_once', receipt TEXT, error TEXT, ambiguity_reason TEXT, reconciliation_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , PRIMARY KEY (tenant_id, workspace_scope, operation_key) )",
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "run_id",
             "state"
           ],
@@ -3274,6 +3303,8 @@
         },
         {
           "columns": [
+            "tenant_id",
+            "workspace_scope",
             "operation_key"
           ],
           "name": "sqlite_autoindex_side_effect_operations_1",
@@ -3430,7 +3461,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, workspace_scope TEXT NOT NULL, CONSTRAINT threads_scope_pkey PRIMARY KEY (tenant_id, workspace_scope, thread_id) )",
+      "constraint_definition": "CREATE TABLE threads ( thread_id TEXT NOT NULL, graph_version_ref TEXT NOT NULL, deployment_ref TEXT NOT NULL, status TEXT NOT NULL, participating_agent_refs TEXT NOT NULL, state_snapshot_refs TEXT NOT NULL, checkpoint_refs TEXT NOT NULL, memory_bindings TEXT NOT NULL, run_ids TEXT NOT NULL, active_run_id TEXT, last_run_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, workspace_scope TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , CONSTRAINT threads_task9_checked_pkey PRIMARY KEY (tenant_id, workspace_scope, thread_id) )",
       "foreign_keys": [],
       "indexes": [
         {
@@ -3542,7 +3573,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE token_engine_snapshots ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, run_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (tenant_id, workspace_scope, run_id), FOREIGN KEY (tenant_id, workspace_scope, run_id) REFERENCES runs (tenant_id, workspace_scope, run_id) ON DELETE CASCADE )",
+      "constraint_definition": "CREATE TABLE token_engine_snapshots ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, run_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 0), schema_version INTEGER NOT NULL CHECK (schema_version >= 1), next_token_ordinal INTEGER NOT NULL CHECK (next_token_ordinal >= 0), snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL, CHECK ( (workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id) ) , PRIMARY KEY (tenant_id, workspace_scope, run_id), FOREIGN KEY (tenant_id, workspace_scope, run_id) REFERENCES runs (tenant_id, workspace_scope, run_id) ON DELETE CASCADE )",
       "foreign_keys": [
         {
           "from": "tenant_id",
@@ -3982,8 +4013,29 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE webhook_deliveries ( delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, tenant_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (tenant_id, delivery_id) )",
-      "foreign_keys": [],
+      "constraint_definition": "CREATE TABLE webhook_deliveries ( delivery_id TEXT NOT NULL, subscription_id TEXT NOT NULL, tenant_id TEXT NOT NULL, event_type TEXT NOT NULL, event_id TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, next_attempt_at TEXT NOT NULL, last_error TEXT, last_status_code INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (tenant_id, delivery_id), FOREIGN KEY (tenant_id, subscription_id) REFERENCES webhook_subscriptions (tenant_id, subscription_id) )",
+      "foreign_keys": [
+        {
+          "from": "tenant_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "webhook_subscriptions",
+          "to": "tenant_id"
+        },
+        {
+          "from": "subscription_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 1,
+          "table": "webhook_subscriptions",
+          "to": "subscription_id"
+        }
+      ],
       "indexes": [
         {
           "columns": [
