@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0.11] - 2026-08-12
+
+- Preserve child-run costs across successful token dispatch and failed parallel
+  resume, while reserving rejected audits for explicit governance decisions.
+
 ## [0.23.0.10.1] - 2026-08-12
 
 - Preserve incomplete provider attempts and paused or failed child-run spend,

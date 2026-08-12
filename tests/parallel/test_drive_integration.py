@@ -378,7 +378,7 @@ async def test_fan_out_fail_fast_persists_paid_failed_branch_history(sqlite_db) 
     ).run_graph(graph, {"value": 1})
 
     assert run.status is RunStatus.FAILED
-    failed = [entry for entry in run.execution_history if entry.status == "rejected"]
+    failed = [entry for entry in run.execution_history if entry.status == "failed"]
     assert len(failed) == 1, [
         (entry.node_id, entry.status, entry.estimated_cost_usd) for entry in run.execution_history
     ]
