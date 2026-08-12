@@ -7,6 +7,7 @@ import importlib
 import pytest
 
 from zeroth.platform.storage import ResourceOperation
+from zeroth.platform.storage.scoped_table import _StructuredTable
 from zeroth.platform.storage.service_surfaces import (
     executable_probe_for,
     load_service_persistence_surfaces,
@@ -123,3 +124,35 @@ async def test_each_concrete_repository_predicate_bypass_is_detected(
 
     with pytest.raises(AssertionError):
         await probe(async_database, operation=operation)
+
+
+async def test_audit_chain_read_predicate_bypass_is_detected(
+    async_database, monkeypatch
+) -> None:
+    original_where = _StructuredTable._where
+
+    def without_chain_head_scope(
+        self,
+        where,
+        *,
+        qualifier=None,
+        include_scope=True,
+        definition,
+    ):
+        return original_where(
+            self,
+            where,
+            qualifier=qualifier,
+            include_scope=(
+                include_scope and definition.resource_name != "service.audit_chain_heads"
+            ),
+            definition=definition,
+        )
+
+    monkeypatch.setattr(_StructuredTable, "_where", without_chain_head_scope)
+    probe = executable_probe_for(
+        _SURFACES, "service.audit_chain_heads", ResourceOperation.READ
+    )
+
+    with pytest.raises(AssertionError):
+        await probe(async_database, operation=ResourceOperation.READ)
