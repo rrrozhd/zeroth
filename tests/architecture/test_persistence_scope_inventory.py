@@ -2430,6 +2430,26 @@ def _audit_repository_public_call_provenance(
                         )
                     return None
 
+                def is_primitive_literal(expression: ast.AST) -> bool:
+                    value = literal_value(expression)
+                    return value is not _UNKNOWN_LITERAL and type(value) in {
+                        type(None),
+                        bool,
+                        bytes,
+                        complex,
+                        float,
+                        int,
+                        str,
+                    }
+
+                def is_static_literal_iterable(expression: ast.AST) -> bool:
+                    if isinstance(expression, ast.Constant):
+                        return isinstance(expression.value, (bytes, str))
+                    return isinstance(expression, (ast.List, ast.Tuple)) and all(
+                        not isinstance(item, ast.Starred) and is_primitive_literal(item)
+                        for item in expression.elts
+                    )
+
                 def expression_may_raise(
                     expression: ast.AST | None,
                     bound_names: set[str],
@@ -2449,6 +2469,44 @@ def _audit_repository_public_call_provenance(
                         return expression_may_raise(expression.value, bound_names)
                     if isinstance(expression, ast.Lambda):
                         return False
+                    if isinstance(expression, ast.FormattedValue):
+                        return (
+                            not is_primitive_literal(expression.value)
+                            or expression.format_spec is not None
+                        )
+                    if isinstance(expression, (ast.List, ast.Tuple)):
+                        return any(
+                            (
+                                not is_static_literal_iterable(item.value)
+                                if isinstance(item, ast.Starred)
+                                else expression_may_raise(item, bound_names)
+                            )
+                            for item in expression.elts
+                        )
+                    if isinstance(expression, ast.Set):
+                        return any(
+                            (
+                                not is_static_literal_iterable(item.value)
+                                if isinstance(item, ast.Starred)
+                                else not is_primitive_literal(item)
+                            )
+                            for item in expression.elts
+                        )
+                    if isinstance(expression, ast.Dict):
+                        for key, value in zip(expression.keys, expression.values, strict=True):
+                            if key is None:
+                                if not is_static_literal_iterable(value):
+                                    return True
+                            elif not is_primitive_literal(key) or expression_may_raise(
+                                value, bound_names
+                            ):
+                                return True
+                        return False
+                    if isinstance(
+                        expression,
+                        (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp),
+                    ):
+                        return True
                     if isinstance(expression, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         annotations = (
                             *(argument.annotation for argument in expression.args.posonlyargs),
@@ -9398,6 +9456,90 @@ def test_public_call_inventory_models_assert_message_aliases(
             frozenset({"apps/candidate.py::use::write"}),
         ),
         (
+            "class FormattingMessage:\n"
+            "    def __format__(self, specification):\n"
+            "        raise ValueError\n"
+            "formatting_message = FormattingMessage()\n",
+            'assert False, f"{formatting_message}"',
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "class IteratingMessage:\n"
+            "    def __iter__(self):\n"
+            "        raise ValueError\n"
+            "iterating_message = IteratingMessage()\n",
+            "assert False, (*iterating_message,)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "class HashingMessage:\n"
+            "    def __hash__(self):\n"
+            "        raise ValueError\n"
+            "hashing_message = HashingMessage()\n",
+            "assert False, {hashing_message}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "class HashingMessage:\n"
+            "    def __hash__(self):\n"
+            "        raise ValueError\n"
+            "hashing_message = HashingMessage()\n",
+            "assert False, {hashing_message: None}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            'assert False, f"{1}"',
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, (*('safe',),)",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, {1, 2}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "assert False, {'safe': None}",
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except AssertionError:\n"
+            "        closure = None\n",
+            frozenset(),
+        ),
+        (
             "",
             "assert True",
             "    except AssertionError:\n"
@@ -9439,6 +9581,14 @@ def test_public_call_inventory_models_assert_message_aliases(
         "constant-f-string-message-is-safe",
         "unknown-message-remains-conservative",
         "raising-message-remains-conservative",
+        "formatted-value-protocol-remains-conservative",
+        "starred-iteration-protocol-remains-conservative",
+        "set-hash-protocol-remains-conservative",
+        "dict-key-hash-protocol-remains-conservative",
+        "primitive-formatted-value-is-safe",
+        "primitive-starred-tuple-is-safe",
+        "primitive-set-is-safe",
+        "primitive-dict-is-safe",
         "true-raises-none",
         "unknown-remains-conservative",
         "shadowed-assertion-error",
