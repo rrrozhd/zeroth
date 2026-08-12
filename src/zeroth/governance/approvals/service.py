@@ -223,7 +223,15 @@ class ApprovalService:
             graph_version_ref=graph_version_ref,
         )
 
-    async def escalate(self, approval_id: str) -> ApprovalRecord:
+    async def escalate(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED,
+        deployment_ref: str | None = None,
+        graph_version_ref: str | None = None,
+    ) -> ApprovalRecord:
         """Escalate an overdue approval based on its configured escalation action.
 
         Supports three actions:
@@ -233,7 +241,13 @@ class ApprovalService:
 
         If the approval is already ESCALATED, this is a no-op (prevents double-escalation).
         """
-        record = await self._require(approval_id)
+        record = await self._require(
+            approval_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            deployment_ref=deployment_ref,
+            graph_version_ref=graph_version_ref,
+        )
         if record.status is ApprovalStatus.ESCALATED:
             return record  # already escalated, no-op per pitfall 3
 
@@ -290,6 +304,10 @@ class ApprovalService:
                 approval_id,
                 decision=ApprovalDecision.REJECT,
                 actor=system_actor,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
+                deployment_ref=record.deployment_ref,
+                graph_version_ref=record.graph_version_ref,
             )
 
         else:  # "alert" or unknown

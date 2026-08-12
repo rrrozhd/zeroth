@@ -223,6 +223,8 @@ async def deploy_service(
     service = await bootstrap_service(
         sqlite_db,
         deployment_ref=deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
         auth_config=auth_config or default_service_auth_config(),
     )
     return service, deployment

@@ -102,6 +102,8 @@ async def test_metrics_hides_service_from_foreign_tenant_admin(sqlite_db) -> Non
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service

@@ -25,6 +25,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_record(
     *,
     approval_id: str = "appr-1",
@@ -68,9 +69,7 @@ class TestOverdueApprovalMaintenanceReader:
 
     @pytest.fixture
     async def stores(self, async_database):
-        return ApprovalRepository(async_database), OverdueApprovalMaintenanceReader(
-            async_database
-        )
+        return ApprovalRepository(async_database), OverdueApprovalMaintenanceReader(async_database)
 
     async def test_returns_pending_past_deadline(self, stores):
         """list_overdue returns PENDING approvals whose sla_deadline is in the past."""
@@ -128,6 +127,48 @@ class TestOverdueApprovalMaintenanceReader:
 
         overdue = await reader.list_overdue()
         assert len(overdue) == 0
+
+    async def test_non_default_overdue_record_escalates_through_exact_scope(self, async_database):
+        repository = ApprovalRepository(async_database)
+        reader = OverdueApprovalMaintenanceReader(async_database)
+        service = ApprovalService(
+            repository=repository,
+            run_repository=AsyncMock(spec=RunRepository),
+        )
+        record = _make_record(
+            approval_id="tenant-overdue",
+            sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
+            escalation_action="alert",
+        )
+        await repository.write(record)
+
+        overdue = await reader.list_overdue()
+        assert overdue == [record]
+        with pytest.raises(KeyError, match=record.approval_id):
+            await service.escalate(
+                record.approval_id,
+                tenant_id=record.tenant_id,
+                workspace_id="other-workspace",
+                deployment_ref=record.deployment_ref,
+                graph_version_ref=record.graph_version_ref,
+            )
+        escalated = await service.escalate(
+            record.approval_id,
+            tenant_id=record.tenant_id,
+            workspace_id=record.workspace_id,
+            deployment_ref=record.deployment_ref,
+            graph_version_ref=record.graph_version_ref,
+        )
+
+        assert escalated.status is ApprovalStatus.ESCALATED
+        assert (
+            await repository.get(
+                record.approval_id,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
+            )
+            == escalated
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +391,13 @@ class TestApprovalSLAChecker:
             await task
 
         maintenance_reader.list_overdue.assert_called()
-        service.escalate.assert_called_with(overdue.approval_id)
+        service.escalate.assert_called_with(
+            overdue.approval_id,
+            tenant_id=overdue.tenant_id,
+            workspace_id=overdue.workspace_id,
+            deployment_ref=overdue.deployment_ref,
+            graph_version_ref=overdue.graph_version_ref,
+        )
 
     async def test_emits_webhook_event(self):
         """SLA checker emits approval.escalated webhook event via optional WebhookService."""
