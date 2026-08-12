@@ -37,6 +37,7 @@ from zeroth.platform.storage.scoped_table import (
     ScopedTable,
 )
 from zeroth.platform.storage.scoping import (
+    CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
     ResourceOperation,
     ResourceScope,
@@ -57,6 +58,7 @@ __all__ = [
     "AsyncDatabase",
     "AsyncPostgresDatabase",
     "AsyncSQLiteDatabase",
+    "CrossTenantMaintenanceScopeContext",
     "EncryptedField",
     "ECON_MIGRATION_SCOPE_DEFINITIONS",
     "GlobalTable",

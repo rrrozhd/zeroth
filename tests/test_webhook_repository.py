@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,6 +15,95 @@ from zeroth.service.webhooks.models import (
     WebhookEventType,
     WebhookSubscription,
 )
+from tests.conftest import requires_docker
+
+
+@pytest.mark.asyncio
+async def test_stale_delivery_lease_cannot_overwrite_reclaimed_success(
+    async_database, make_subscription, make_delivery, monkeypatch
+) -> None:
+    from zeroth.service.webhooks.repository import WebhookRepository
+
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(webhook_repository, "utc_now", lambda: now)
+    repo = WebhookRepository.for_default_compatibility(async_database)
+    sub = make_subscription()
+    await repo.create_subscription(sub)
+    delivery = make_delivery(
+        subscription_id=sub.subscription_id,
+        next_attempt_at=now - timedelta(seconds=1),
+    )
+    await repo.enqueue_delivery(delivery)
+    claim_a = await repo.claim_pending_delivery(lease_seconds=1)
+    assert claim_a is not None
+
+    monkeypatch.setattr(webhook_repository, "utc_now", lambda: now + timedelta(seconds=2))
+    claim_b = await repo.claim_pending_delivery(lease_seconds=30)
+    assert claim_b is not None and claim_b.generation > claim_a.generation
+    assert await repo.mark_delivered(delivery.delivery_id, claim_b.generation)
+    assert not await repo.mark_failed(
+        delivery.delivery_id,
+        claim_a.generation,
+        error="stale",
+        status_code=500,
+        retry_delay=0,
+    )
+    assert not await repo.dead_letter(delivery.delivery_id, claim_a.generation)
+
+    async with async_database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT status FROM webhook_deliveries WHERE delivery_id = ?",
+            (delivery.delivery_id,),
+        )
+    assert row["status"] == DeliveryStatus.DELIVERED.value
+    assert await repo.list_dead_letters() == []
+
+
+@pytest.mark.asyncio
+async def test_repeated_dead_letter_transition_is_idempotent(
+    async_database, make_subscription, make_delivery
+) -> None:
+    from zeroth.service.webhooks.repository import WebhookRepository
+
+    repo = WebhookRepository.for_default_compatibility(async_database)
+    sub = make_subscription()
+    await repo.create_subscription(sub)
+    delivery = make_delivery(
+        subscription_id=sub.subscription_id,
+        next_attempt_at=datetime.now(UTC) - timedelta(seconds=1),
+    )
+    await repo.enqueue_delivery(delivery)
+    claim = await repo.claim_pending_delivery()
+    assert claim is not None
+
+    assert await repo.dead_letter(delivery.delivery_id, claim.generation)
+    assert not await repo.dead_letter(delivery.delivery_id, claim.generation)
+    rows = await repo.list_dead_letters()
+    assert len(rows) == 1
+    assert rows[0].delivery_id == delivery.delivery_id
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_postgres_concurrent_claim_returns_delivery_exactly_once(
+    postgres_database, make_subscription, make_delivery
+) -> None:
+    from zeroth.service.webhooks.repository import WebhookRepository
+
+    repo_a = WebhookRepository.for_default_compatibility(postgres_database)
+    repo_b = WebhookRepository.for_default_compatibility(postgres_database)
+    sub = make_subscription()
+    await repo_a.create_subscription(sub)
+    await repo_a.enqueue_delivery(
+        make_delivery(
+            subscription_id=sub.subscription_id,
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=1),
+        )
+    )
+
+    claims = await asyncio.gather(repo_a.claim_pending_delivery(), repo_b.claim_pending_delivery())
+
+    assert sum(claim is not None for claim in claims) == 1
 
 
 def test_webhook_repository_constructor_requires_scope_context() -> None:
@@ -268,7 +358,7 @@ class TestWebhookRepositoryDeliveries:
         await repo.enqueue_delivery(delivery)
         claimed = await repo.claim_pending_delivery()
         assert claimed is not None
-        assert claimed.delivery_id == delivery.delivery_id
+        assert claimed.delivery.delivery_id == delivery.delivery_id
 
     @pytest.mark.asyncio
     async def test_claim_returns_none_when_empty(self, async_database):
@@ -299,16 +389,20 @@ class TestWebhookRepositoryDeliveries:
         await repo.enqueue_delivery(delivery)
 
         first = await repo.claim_pending_delivery()
-        assert first is not None and first.delivery_id == delivery.delivery_id
+        assert first is not None and first.delivery.delivery_id == delivery.delivery_id
 
         # Worker reports failure; retry_delay=0 => the retry is due immediately.
         await repo.mark_failed(
-            delivery.delivery_id, error="HTTP 500", status_code=500, retry_delay=0.0
+            delivery.delivery_id,
+            first.generation,
+            error="HTTP 500",
+            status_code=500,
+            retry_delay=0.0,
         )
 
         retry = await repo.claim_pending_delivery()
         assert retry is not None, "failed delivery was never re-claimed for retry"
-        assert retry.delivery_id == delivery.delivery_id
+        assert retry.delivery.delivery_id == delivery.delivery_id
 
     @pytest.mark.asyncio
     async def test_claimed_delivery_is_not_double_claimed(
@@ -331,7 +425,7 @@ class TestWebhookRepositoryDeliveries:
         await repo.enqueue_delivery(delivery)
 
         first = await repo.claim_pending_delivery()
-        assert first is not None and first.delivery_id == delivery.delivery_id
+        assert first is not None and first.delivery.delivery_id == delivery.delivery_id
 
         second = await repo.claim_pending_delivery()
         assert second is None, "same delivery claimed twice (would double-deliver)"
@@ -355,7 +449,7 @@ class TestWebhookRepositoryDeliveries:
 
         claimed = await repo.claim_pending_delivery()
         assert claimed is not None, "expired DELIVERING lease was not reclaimed"
-        assert claimed.delivery_id == delivery.delivery_id
+        assert claimed.delivery.delivery_id == delivery.delivery_id
 
     @pytest.mark.asyncio
     async def test_mark_delivered(self, async_database, make_subscription, make_delivery):
@@ -366,7 +460,9 @@ class TestWebhookRepositoryDeliveries:
         await repo.create_subscription(sub)
         delivery = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(delivery)
-        await repo.mark_delivered(delivery.delivery_id)
+        claim = await repo.claim_pending_delivery()
+        assert claim is not None
+        await repo.mark_delivered(delivery.delivery_id, claim.generation)
 
         # Verify status updated
         async with async_database.transaction() as conn:
@@ -387,8 +483,14 @@ class TestWebhookRepositoryDeliveries:
         await repo.create_subscription(sub)
         delivery = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(delivery)
+        claim = await repo.claim_pending_delivery()
+        assert claim is not None
         await repo.mark_failed(
-            delivery.delivery_id, error="timeout", status_code=504, retry_delay=1.0
+            delivery.delivery_id,
+            claim.generation,
+            error="timeout",
+            status_code=504,
+            retry_delay=1.0,
         )
 
         async with async_database.transaction() as conn:
@@ -411,10 +513,9 @@ class TestWebhookRepositoryDeliveries:
         delivery = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(delivery)
 
-        # Simulate some failures first
-        await repo.mark_failed(delivery.delivery_id, error="err", status_code=500, retry_delay=1.0)
-
-        await repo.dead_letter(delivery.delivery_id)
+        claim = await repo.claim_pending_delivery()
+        assert claim is not None
+        await repo.dead_letter(delivery.delivery_id, claim.generation)
 
         # Delivery status should be dead_letter
         async with async_database.transaction() as conn:
@@ -448,8 +549,12 @@ class TestWebhookRepositoryDeadLetters:
         d2 = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(d1)
         await repo.enqueue_delivery(d2)
-        await repo.dead_letter(d1.delivery_id)
-        await repo.dead_letter(d2.delivery_id)
+        claim1 = await repo.claim_pending_delivery()
+        assert claim1 is not None
+        await repo.dead_letter(claim1.delivery.delivery_id, claim1.generation)
+        claim2 = await repo.claim_pending_delivery()
+        assert claim2 is not None
+        await repo.dead_letter(claim2.delivery.delivery_id, claim2.generation)
 
         dls = await repo.list_dead_letters(subscription_id=sub.subscription_id)
         assert len(dls) == 2
@@ -465,7 +570,9 @@ class TestWebhookRepositoryDeadLetters:
         await repo.create_subscription(sub)
         delivery = make_delivery(subscription_id=sub.subscription_id)
         await repo.enqueue_delivery(delivery)
-        await repo.dead_letter(delivery.delivery_id)
+        claim = await repo.claim_pending_delivery()
+        assert claim is not None
+        await repo.dead_letter(delivery.delivery_id, claim.generation)
 
         dls = await repo.list_dead_letters(subscription_id=sub.subscription_id)
         assert len(dls) == 1

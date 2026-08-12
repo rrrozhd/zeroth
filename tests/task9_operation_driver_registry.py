@@ -319,17 +319,20 @@ async def _drive_webhook_deliveries(database: AsyncDatabase, operation: Resource
         )
         assert await _delivery_status(database, "driver-owner") == DeliveryStatus.PENDING
     elif operation is O.ENUMERATE:
-        assert (await owner.claim_pending_delivery()).delivery_id == "driver-delivery"
+        claim = await owner.claim_pending_delivery()
+        assert claim is not None and claim.delivery.delivery_id == "driver-delivery"
         assert await foreign.claim_pending_delivery() is None
         assert (
             await WebhookRepository(database, _scope("driver-unknown")).claim_pending_delivery()
             is None
         )
     else:
-        await foreign.mark_delivered("driver-delivery")
-        await foreign.mark_delivered("unknown-delivery")
+        await foreign.mark_delivered("driver-delivery", 1)
+        await foreign.mark_delivered("unknown-delivery", 1)
         assert await _delivery_status(database, "driver-owner") == DeliveryStatus.PENDING
-        await owner.mark_delivered("driver-delivery")
+        claim = await owner.claim_pending_delivery()
+        assert claim is not None
+        await owner.mark_delivered("driver-delivery", claim.generation)
         assert await _delivery_status(database, "driver-owner") == DeliveryStatus.DELIVERED
 
 
@@ -339,13 +342,17 @@ async def _drive_webhook_dead_letters(
     owner = WebhookRepository(database, _scope("driver-owner"))
     foreign = WebhookRepository(database, _scope("driver-foreign"))
     await _seed_delivery(owner, "driver-owner")
-    await owner.dead_letter("driver-delivery")
+    owner_claim = await owner.claim_pending_delivery()
+    assert owner_claim is not None
+    await owner.dead_letter("driver-delivery", owner_claim.generation)
     owner_rows = await owner.list_dead_letters()
     assert len(owner_rows) == 1
     if operation is O.CREATE:
         # Dead-letter IDs are generated: a foreign append must not change owner state.
         await _seed_delivery(foreign, "driver-foreign")
-        await foreign.dead_letter("driver-delivery")
+        foreign_claim = await foreign.claim_pending_delivery()
+        assert foreign_claim is not None
+        await foreign.dead_letter("driver-delivery", foreign_claim.generation)
         assert await owner.list_dead_letters() == owner_rows
         foreign_rows = await foreign.list_dead_letters()
         assert len(foreign_rows) == 1
@@ -381,6 +388,9 @@ async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation)
             await RetentionPolicyRepository(database, _scope("driver-unknown")).list_for_tenant()
             == []
         )
+        maintenance = RetentionPolicyRepository.for_privileged_tenant_maintenance(database)
+        tenant_ids = {row.tenant_id for row in await maintenance.list_all_enabled_for_maintenance()}
+        assert {"driver-owner"}.issubset(tenant_ids)
     else:
         await foreign.upsert(RetentionPolicy(tenant_id="driver-foreign", audit_ttl_seconds=20))
         assert (await owner.get()).audit_ttl_seconds == 10
