@@ -683,6 +683,37 @@ def _must_alias_events(
             state = join(body_state, orelse_state)
             merge_event(node, state)
             return state
+        if isinstance(node, ast.BoolOp):
+            state = record_named_expressions(node.values[0], state)
+            for value in node.values[1:]:
+                evaluated_state = record_named_expressions(value, dict(state))
+                state = join(state, evaluated_state)
+                merge_event(value, state)
+            return state
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            state = record_named_expressions(node.generators[0].iter, state)
+            evaluated_state = dict(state)
+            for index, generator in enumerate(node.generators):
+                if index:
+                    evaluated_state = record_named_expressions(generator.iter, evaluated_state)
+                for condition in generator.ifs:
+                    evaluated_state = record_named_expressions(condition, evaluated_state)
+            if isinstance(node, ast.DictComp):
+                evaluated_state = record_named_expressions(node.key, evaluated_state)
+                evaluated_state = record_named_expressions(node.value, evaluated_state)
+            else:
+                evaluated_state = record_named_expressions(node.elt, evaluated_state)
+            state = join(state, evaluated_state)
+            merge_event(node, state)
+            return state
+        if isinstance(node, ast.Match):
+            state = record_named_expressions(node.subject, state)
+            for case in node.cases:
+                if case.guard is not None:
+                    guarded_state = record_named_expressions(case.guard, dict(state))
+                    state = join(state, guarded_state)
+                    merge_event(case.guard, state)
+            return state
         if isinstance(node, ast.Lambda):
             for default in (*node.args.defaults, *node.args.kw_defaults):
                 if default is not None:
@@ -2185,6 +2216,104 @@ def test_public_call_inventory_joins_conditional_walrus_factory_aliases(
 
     assert _audit_repository_public_call_inventory(tmp_path) == expected
     assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected", "unreviewed"),
+    [
+        (
+            "cond and (factory := AuditRepository.scoped)",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "cond or (factory := AuditRepository.scoped)",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "(factory := AuditRepository.scoped) and cond",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "(factory := AuditRepository.scoped) or cond",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+    ],
+    ids=["and-later", "or-later", "and-first", "or-first"],
+)
+def test_public_call_inventory_joins_short_circuit_walrus_factory_aliases(
+    tmp_path: Path,
+    expression: str,
+    expected: frozenset[str],
+    unreviewed: frozenset[str],
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, cond):\n"
+        "    factory = other_factory\n"
+        f"    result = {expression}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == expected
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == unreviewed
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "[(factory := AuditRepository.scoped) for item in items]",
+        "[item for item in items if (factory := AuditRepository.scoped)]",
+    ],
+    ids=["body", "filter"],
+)
+def test_public_call_inventory_joins_zero_or_more_comprehension_walrus_factory_alias(
+    tmp_path: Path, expression: str
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, items):\n"
+        "    factory = other_factory\n"
+        f"    result = {expression}\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
+
+
+def test_public_call_inventory_joins_match_guard_walrus_factory_alias(tmp_path: Path) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def use(record, choice):\n"
+        "    factory = other_factory\n"
+        "    match choice:\n"
+        "        case _ if (factory := AuditRepository.scoped):\n"
+        "            pass\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {"apps/candidate.py::use::write"}
+    )
 
 
 def test_public_call_inventory_tracks_local_canonical_repository_import_alias(
