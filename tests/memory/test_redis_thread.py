@@ -6,9 +6,9 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+
 from zeroth.integrations.memory.governed.connector import MemoryConnector
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
-
 from zeroth.integrations.memory.redis_thread import RedisThreadMemoryConnector
 
 # ---------------------------------------------------------------------------
@@ -64,9 +64,7 @@ class TestRead:
         assert result is not None
         assert result.key == "messages"
         assert result.value == {"role": "user", "content": "hello"}
-        mock_redis.zrevrange.assert_awaited_once_with(
-            "zeroth:mem:thread:thread:t-1:messages", 0, 0
-        )
+        mock_redis.zrevrange.assert_awaited_once_with("zeroth:mem:thread:thread:t-1:messages", 0, 0)
 
     @pytest.mark.asyncio
     async def test_read_empty_set_returns_none(self) -> None:
@@ -137,9 +135,7 @@ class TestDelete:
 
         await connector.delete("messages", MemoryScope.THREAD, target="t-1")
 
-        mock_redis.delete.assert_awaited_once_with(
-            "zeroth:mem:thread:thread:t-1:messages"
-        )
+        mock_redis.delete.assert_awaited_once_with("zeroth:mem:thread:thread:t-1:messages")
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_raises_key_error(self) -> None:
@@ -155,33 +151,56 @@ class TestDelete:
 # ---------------------------------------------------------------------------
 
 
+def _thread_entry(content: str, key: str = "messages") -> MemoryEntry:
+    """Build a thread entry whose value carries *content*."""
+    return MemoryEntry(
+        key=key,
+        value={"role": "user", "content": content},
+        scope=MemoryScope.THREAD,
+        scope_target="t-1",
+    )
+
+
+def _install_sorted_sets(mock_redis: AsyncMock, sets: dict[bytes, list[tuple[float, str]]]) -> None:
+    """Wire ``scan_iter``/``zrevrange`` onto *mock_redis* over in-memory sets.
+
+    ``sets`` maps a Redis key to ``(score, member)`` pairs. ``scan_iter``
+    yields keys in the given order -- the point being that it is *not* score
+    order, so a connector that trusts scan order is caught.
+    """
+
+    async def fake_scan_iter(match: str = "*"):
+        for redis_key in sets:
+            yield redis_key
+
+    async def fake_zrevrange(
+        redis_key: bytes, start: int, stop: int, withscores: bool = False
+    ) -> list:
+        bucket = sorted(sets[redis_key], key=lambda pair: pair[0], reverse=True)
+        window = bucket[start:] if stop == -1 else bucket[start : stop + 1]
+        if withscores:
+            return [(member.encode(), score) for score, member in window]
+        return [member.encode() for _, member in window]
+
+    mock_redis.scan_iter = fake_scan_iter
+    mock_redis.zrevrange = AsyncMock(side_effect=fake_zrevrange)
+
+
 class TestSearch:
     @pytest.mark.asyncio
     async def test_search_by_text(self) -> None:
         connector, mock_redis = _make_connector()
 
-        entry_hello = MemoryEntry(
-            key="messages",
-            value={"role": "user", "content": "hello world"},
-            scope=MemoryScope.THREAD,
-            scope_target="t-1",
-        )
-        entry_bye = MemoryEntry(
-            key="messages",
-            value={"role": "user", "content": "goodbye"},
-            scope=MemoryScope.THREAD,
-            scope_target="t-1",
-        )
-
-        async def fake_scan_iter(match: str = "*"):  # noqa: ANN001
-            yield b"zeroth:mem:thread:thread:t-1:messages"
-
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.zrevrange = AsyncMock(
-            return_value=[
-                entry_hello.model_dump_json().encode(),
-                entry_bye.model_dump_json().encode(),
-            ]
+        entry_hello = _thread_entry("hello world")
+        entry_bye = _thread_entry("goodbye")
+        _install_sorted_sets(
+            mock_redis,
+            {
+                b"zeroth:mem:thread:thread:t-1:messages": [
+                    (2.0, entry_hello.model_dump_json()),
+                    (1.0, entry_bye.model_dump_json()),
+                ]
+            },
         )
 
         results = await connector.search({"text": "hello"}, MemoryScope.THREAD, target="t-1")
@@ -193,27 +212,76 @@ class TestSearch:
     async def test_search_with_limit(self) -> None:
         connector, mock_redis = _make_connector()
 
-        entries = [
-            MemoryEntry(
-                key="messages",
-                value={"role": "user", "content": f"msg-{i}"},
-                scope=MemoryScope.THREAD,
-                scope_target="t-1",
-            )
-            for i in range(10)
-        ]
-
-        async def fake_scan_iter(match: str = "*"):  # noqa: ANN001
-            yield b"zeroth:mem:thread:thread:t-1:messages"
-
-        mock_redis.scan_iter = fake_scan_iter
-        mock_redis.zrevrange = AsyncMock(
-            return_value=[e.model_dump_json().encode() for e in entries[:5]]
+        entries = [_thread_entry(f"msg-{i}") for i in range(10)]
+        _install_sorted_sets(
+            mock_redis,
+            {
+                b"zeroth:mem:thread:thread:t-1:messages": [
+                    (float(i), e.model_dump_json()) for i, e in enumerate(entries)
+                ]
+            },
         )
 
         results = await connector.search({"limit": 5}, MemoryScope.THREAD, target="t-1")
 
-        assert len(results) <= 5
+        assert [r.value["content"] for r in results] == [f"msg-{i}" for i in (9, 8, 7, 6, 5)]
+
+    @pytest.mark.asyncio
+    async def test_search_merges_across_keys_by_recency_not_scan_order(self) -> None:
+        """A07-21: the newest entries win, whichever key ``scan_iter`` reached first.
+
+        The old code appended each key's ``zrevrange`` run in scan order and
+        sliced, so with ``limit=3`` it returned the three oldest entries --
+        they merely happened to live in the key Redis scanned first.
+        """
+        connector, mock_redis = _make_connector()
+
+        old = [_thread_entry(f"old-{i}", key="a") for i in range(3)]
+        new = [_thread_entry(f"new-{i}", key="b") for i in range(3)]
+        _install_sorted_sets(
+            mock_redis,
+            {
+                # Scanned first, but every score here is lower.
+                b"zeroth:mem:thread:thread:t-1:a": [
+                    (10.0 + i, e.model_dump_json()) for i, e in enumerate(old)
+                ],
+                b"zeroth:mem:thread:thread:t-1:b": [
+                    (100.0 + i, e.model_dump_json()) for i, e in enumerate(new)
+                ],
+            },
+        )
+
+        results = await connector.search({"limit": 3}, MemoryScope.THREAD, target="t-1")
+
+        assert [r.value["content"] for r in results] == ["new-2", "new-1", "new-0"]
+
+    @pytest.mark.asyncio
+    async def test_search_with_zero_limit_reads_nothing(self) -> None:
+        """A07-21: ``limit=0`` must mean zero results, not ``zrevrange(key, 0, -1)``."""
+        connector, mock_redis = _make_connector()
+
+        entries = [_thread_entry(f"msg-{i}") for i in range(3)]
+        _install_sorted_sets(
+            mock_redis,
+            {
+                b"zeroth:mem:thread:thread:t-1:messages": [
+                    (float(i), e.model_dump_json()) for i, e in enumerate(entries)
+                ]
+            },
+        )
+
+        results = await connector.search({"limit": 0}, MemoryScope.THREAD, target="t-1")
+
+        assert results == []
+        mock_redis.zrevrange.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_rejects_a_negative_limit(self) -> None:
+        connector, mock_redis = _make_connector()
+        _install_sorted_sets(mock_redis, {})
+
+        with pytest.raises(ValueError, match="non-negative integer"):
+            await connector.search({"limit": -1}, MemoryScope.THREAD, target="t-1")
 
 
 # ---------------------------------------------------------------------------
@@ -307,9 +375,7 @@ class TestRedisThreadIntegration:
             # search preserves the full history and supports text filtering.
             all_msgs = await connector.search({}, MemoryScope.THREAD, target="t-1")
             assert len(all_msgs) >= 2
-            filtered = await connector.search(
-                {"text": "hello"}, MemoryScope.THREAD, target="t-1"
-            )
+            filtered = await connector.search({"text": "hello"}, MemoryScope.THREAD, target="t-1")
             assert any(m.value.get("content") == "hello" for m in filtered)
 
             # Delete drops the whole history; a second delete raises KeyError.

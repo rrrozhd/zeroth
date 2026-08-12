@@ -15,10 +15,10 @@ from __future__ import annotations
 import fnmatch
 
 import pytest
-from zeroth.integrations.memory.governed.models import MemoryScope
-from zeroth.integrations.memory.governed.scoped import ScopedMemoryConnector
 
 from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryScope
+from zeroth.integrations.memory.governed.scoped import ScopedMemoryConnector
 from zeroth.integrations.memory.redis_kv import RedisKVMemoryConnector
 from zeroth.integrations.memory.redis_thread import RedisThreadMemoryConnector
 from zeroth.integrations.memory.tenant_scoped import (
@@ -65,12 +65,14 @@ class _FakeAsyncRedis:
         for member, score in mapping.items():
             bucket.append((score, member))
 
-    async def zrevrange(self, key: str, start: int, stop: int) -> list[str]:
+    async def zrevrange(
+        self, key: str, start: int, stop: int, withscores: bool = False
+    ) -> list[str] | list[tuple[str, float]]:
         bucket = sorted(self._z.get(key, []), key=lambda item: item[0], reverse=True)
-        members = [member for _, member in bucket]
-        if stop == -1:
-            return members[start:]
-        return members[start : stop + 1]
+        window = bucket[start:] if stop == -1 else bucket[start : stop + 1]
+        if withscores:
+            return [(member, score) for score, member in window]
+        return [member for _, member in window]
 
 
 # ---------------------------------------------------------------------------

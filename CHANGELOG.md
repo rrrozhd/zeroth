@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.4] - 2026-08-12
+
+### Fixed
+
+- Memory connectors are constructed with mandatory timeouts. redis-py leaves `socket_timeout`
+  and `socket_connect_timeout` at `None`, and chromadb 1.5.6 builds its transport as
+  `httpx.Client(timeout=None)` — explicitly disabled, not merely unset. `HttpClient` accepts no
+  timeout argument at all and its `chroma_*_request_timeout_seconds` settings are gRPC-only, so
+  the ceiling is bound to the session the client actually uses, and construction *raises* rather
+  than returning an unbounded client if that session is not exposed. Elasticsearch is out of
+  scope: elasticsearch-py already stamps `request_timeout=10.0` (ZER-48 / A07-14).
+- Every synchronous Chroma call is offloaded off the event loop, including the
+  `get_or_create_collection` round-trip inside `_get_collection`, which runs ahead of every
+  read, write, delete and search — so the loop was stalled twice per operation, not once
+  (ZER-48 / A07-15).
+- The pgvector connector owns only the connections it creates. An injected connection is no
+  longer closed after one operation nor given a blanket commit. The audit's stated harm —
+  "breaks every other user of that pool" — is refuted against psycopg 3.3.3, whose `__aexit__`
+  closes only when there is no pool; this fixes the narrower residual that is real
+  (ZER-48 / A07-12).
+- Concurrent first callers no longer both run schema creation. The ready flag was checked and
+  set across an `await`, and the module held no lock (ZER-48 / A07-24).
+- Thread search returns the highest-scoring entries across keys rather than an arbitrary
+  cross-key subset ordered only within each key, and `limit=0` returns nothing instead of
+  reading every member of every set (ZER-48 / A07-21).
+- An Elasticsearch write is visible to the search that follows it. `refresh` appeared nowhere in
+  the module, so no write opted in and a write was invisible for the default refresh interval
+  (ZER-48 / A07-25).
+
+### Added
+
+- Memory-connector suites inject real degradation — malformed embeddings, malformed backend
+  responses, a wrong key, and a slow peer driven against a real black-hole TCP socket. Across
+  all five suites the only exception previously injected was a single Elasticsearch
+  `NotFoundError`. The two measured parser breakages (`{}` → `KeyError('ids')`, a flat
+  `{"ids": []}` → `IndexError`) now raise a typed connector error, deliberately not a
+  `KeyError` subclass, because `delete`'s `KeyError` is the genuine not-found signal
+  (ZER-48 / A07-32, acceptance criterion 4).
+
 ## [0.23.3] - 2026-08-12
 
 ### Added
