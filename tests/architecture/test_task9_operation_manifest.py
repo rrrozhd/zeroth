@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import ast
+import importlib
 import inspect
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import zeroth
 
 from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.cleanup_state_repository import CleanupStateRepository
@@ -412,9 +415,19 @@ def test_task9_driver_completeness_rejects_one_removed_key() -> None:
 
 def test_production_surface_discovery_has_no_manual_module_class_inventory() -> None:
     source = Path("src/zeroth/platform/storage/service_surfaces.py").read_text()
+    tree = ast.parse(source)
+    package_object_inventories = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and isinstance(node.value, (ast.Tuple, ast.List, ast.Set))
+        and any(isinstance(item, (ast.Name, ast.Attribute)) for item in node.value.elts)
+    ]
 
     assert "_SURFACES" not in source
-    assert '"zeroth.' not in source
+    assert "_PERSISTENCE_ROOTS" not in source
+    assert source.count('"zeroth.') == 1  # the authoritative package-walk prefix only
+    assert package_object_inventories == []
 
 
 def test_semantic_probe_discovery_has_no_resource_name_driver_dictionary() -> None:
@@ -436,6 +449,31 @@ def test_new_decorated_production_method_is_structurally_discovered(monkeypatch)
     surfaces = discover_persistence_surfaces()
 
     assert surface_operation_pairs(surfaces) == {("service.synthetic", ResourceOperation.CREATE)}
+
+
+def test_cold_discovery_walks_an_otherwise_unlisted_zeroth_package(
+    tmp_path: Path, monkeypatch
+) -> None:
+    package_root = tmp_path / "zeroth"
+    unlisted = package_root / "unlisted_persistence"
+    unlisted.mkdir(parents=True)
+    (unlisted / "__init__.py").write_text("", encoding="utf-8")
+    (unlisted / "repository.py").write_text(
+        "from zeroth.platform.storage import ResourceOperation\n"
+        "from zeroth.platform.storage.scoping import persistence_operation, persistence_surface\n"
+        "@persistence_surface('service.cold_unlisted')\n"
+        "class ColdRepository:\n"
+        "    @persistence_operation(ResourceOperation.READ)\n"
+        "    async def load(self): pass\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(zeroth, "__path__", [str(package_root)])
+    monkeypatch.setattr(scoping_module, "_PERSISTENCE_REPOSITORY_TYPES", set())
+    importlib.invalidate_caches()
+
+    surfaces = load_service_persistence_surfaces()
+
+    assert surface_operation_pairs(surfaces) == {("service.cold_unlisted", ResourceOperation.READ)}
 
 
 def test_duplicate_executable_surface_is_rejected() -> None:
