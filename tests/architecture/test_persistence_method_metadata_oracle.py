@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 from types import MappingProxyType
 
 import pytest
 
-from zeroth.platform.storage import ResourceOperation
+from zeroth.platform.storage import ResourceOperation, validate_persistence_surface
 from zeroth.platform.storage.service_surfaces import load_service_persistence_surfaces
 
 O = ResourceOperation  # noqa: E741
@@ -245,10 +246,38 @@ def _assert_exact_metadata(actual):
     assert actual == METHOD_METADATA_ORACLE
 
 
+def _assert_runtime_metadata() -> None:
+    for surface in load_service_persistence_surfaces():
+        validate_persistence_surface(surface)
+    _assert_exact_metadata(_runtime_method_metadata())
+
+
+def test_discovered_repository_type_is_the_exported_class_identity() -> None:
+    mismatches = []
+    for repository_type in {
+        surface.repository_type for surface in load_service_persistence_surfaces()
+    }:
+        exported = importlib.import_module(repository_type.__module__)
+        for part in repository_type.__qualname__.split("."):
+            exported = getattr(exported, part)
+        if exported is not repository_type:
+            mismatches.append((repository_type.__module__, repository_type.__qualname__))
+
+    assert sorted(mismatches) == []
+
+
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
     assert len(METHOD_METADATA_ORACLE) == 181
     _assert_exact_metadata(_discovered_method_operations())
-    _assert_exact_metadata(_runtime_method_metadata())
+    _assert_runtime_metadata()
+
+
+def test_exact_metadata_oracle_rejects_an_undecorated_public_method(monkeypatch) -> None:
+    repository_type = next(iter(load_service_persistence_surfaces())).repository_type
+    monkeypatch.setattr(repository_type, "persist_new", lambda self: None, raising=False)
+
+    with pytest.raises(AssertionError, match="persist_new"):
+        _assert_runtime_metadata()
 
 
 def test_exact_metadata_oracle_is_immutable() -> None:
