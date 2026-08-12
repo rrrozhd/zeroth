@@ -20,6 +20,8 @@ def _rec(
     tools: bool = False,
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=f"{node_id}-{cost}-{status}-{tools}",
         run_id="r",
         node_id=node_id,
@@ -54,6 +56,8 @@ def test_zero_cost_nodes_excluded():
         _rec("agent", cost=0.10),
         # a code/retrieval node: cost 0, no model
         NodeAuditRecord(
+            tenant_id="default",
+            workspace_id=None,
             audit_id="code-1",
             run_id="r",
             node_id="transform",

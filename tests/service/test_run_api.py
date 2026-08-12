@@ -152,7 +152,13 @@ async def test_explicit_foreign_tenant_thread_id_matches_unknown_scope_local_cre
     sqlite_db, monkeypatch
 ) -> None:
     service, _ = await deploy_service(sqlite_db, agent_graph(graph_id="graph-thread-scope"))
-    await service.thread_repository.create(
+    from zeroth.integrations.persistence.runs import ThreadRepository
+    from zeroth.platform.storage import NullWorkspaceScopeContext
+
+    foreign_repository = ThreadRepository(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-b")
+    )
+    await foreign_repository.create(
         Thread(
             thread_id="shared-external-id",
             graph_version_ref="foreign:v1",
@@ -163,9 +169,9 @@ async def test_explicit_foreign_tenant_thread_id_matches_unknown_scope_local_cre
     calls = []
     original = service.thread_repository.get
 
-    async def recording_get(thread_id, **scope):
-        calls.append(scope)
-        return await original(thread_id, **scope)
+    async def recording_get(thread_id):
+        calls.append(thread_id)
+        return await original(thread_id)
 
     monkeypatch.setattr(service.thread_repository, "get", recording_get)
     foreign = await _validate_thread_id(service, "shared-external-id")
@@ -173,10 +179,7 @@ async def test_explicit_foreign_tenant_thread_id_matches_unknown_scope_local_cre
 
     assert foreign == "shared-external-id"
     assert unknown == "unknown-external-id"
-    assert calls == [
-        {"tenant_id": service.deployment.tenant_id, "workspace_id": None},
-        {"tenant_id": service.deployment.tenant_id, "workspace_id": None},
-    ]
+    assert calls == ["shared-external-id", "unknown-external-id"]
 
 
 async def test_run_status_reports_running_and_completed_state(sqlite_db) -> None:

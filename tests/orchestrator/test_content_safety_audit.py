@@ -64,8 +64,8 @@ async def test_blocked_agent_output_persists_rejected_audit(sqlite_db) -> None:
         edges=[],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=content_capture(AuditRepository(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )
@@ -76,7 +76,7 @@ async def test_blocked_agent_output_persists_rejected_audit(sqlite_db) -> None:
     assert run.status is RunStatus.FAILED
 
     # and a rejected audit record carries the structured content-safety finding
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert len(audits) == 1
     rejected = audits[0]
     assert rejected.status == "rejected"

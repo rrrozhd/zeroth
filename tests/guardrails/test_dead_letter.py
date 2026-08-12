@@ -19,7 +19,7 @@ async def _make_run(run_repo: RunRepository) -> Run:
 
 
 async def test_dead_letter_not_triggered_below_threshold(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     manager = DeadLetterManager(run_repository=run_repo, max_failure_count=3)
 
     run = await _make_run(run_repo)
@@ -36,7 +36,7 @@ async def test_dead_letter_not_triggered_below_threshold(sqlite_db) -> None:
 
 
 async def test_dead_letter_triggered_at_threshold(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     manager = DeadLetterManager(run_repository=run_repo, max_failure_count=3)
 
     run = await _make_run(run_repo)
@@ -56,7 +56,7 @@ async def test_dead_letter_triggered_at_threshold(sqlite_db) -> None:
 
 
 async def test_dead_letter_metadata_captured(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     manager = DeadLetterManager(run_repository=run_repo, max_failure_count=1)
 
     run = await _make_run(run_repo)
@@ -69,7 +69,7 @@ async def test_dead_letter_metadata_captured(sqlite_db) -> None:
 
 
 async def test_list_dead_letter_runs_returns_dead_lettered_runs(sqlite_db) -> None:
-    run_repo = RunRepository(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
     manager = DeadLetterManager(run_repository=run_repo, max_failure_count=1)
 
     run1 = await _make_run(run_repo)

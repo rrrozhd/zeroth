@@ -19,6 +19,7 @@ from zeroth.governance.audit import (
 )
 from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import ScopeContext
 
 
 def test_audit_models_consume_platform_clock_per_instance() -> None:
@@ -36,6 +37,8 @@ def _record(
     *, audit_id: str, run_id: str, node_id: str, deployment_ref: str = "deploy"
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id=run_id,
         thread_id="thread-1",
@@ -71,7 +74,7 @@ def _record(
 
 
 async def test_audit_repository_writes_queries_and_assembles_timeline(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     first = _record(audit_id="audit:1", run_id="run-1", node_id="start")
     second = _record(audit_id="audit:2", run_id="run-1", node_id="finish")
     third = _record(audit_id="audit:3", run_id="run-2", node_id="start", deployment_ref="deploy-2")
@@ -127,7 +130,10 @@ def test_payload_sanitizer_redacts_keys_and_omits_fields() -> None:
 
 
 async def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.scoped(
+        sqlite_db,
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-1"),
+    )
     record = _record(audit_id="audit:scope", run_id="run-scope", node_id="scope-node").model_copy(
         update={
             "tenant_id": "tenant-a",
@@ -151,7 +157,7 @@ async def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
 
 
 async def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(sqlite_db) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     first = await repository.write(_record(audit_id="audit:1", run_id="run-chain", node_id="start"))
     second = await repository.write(
         _record(audit_id="audit:2", run_id="run-chain", node_id="finish")
@@ -169,7 +175,7 @@ async def test_audit_repository_assigns_digest_chain_and_rejects_duplicate_ids(s
 async def test_audit_continuity_verifier_detects_tampering_and_preserves_supersession(
     sqlite_db,
 ) -> None:
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     await repository.write(_record(audit_id="audit:1", run_id="run-verify", node_id="start"))
     await repository.write(
         _record(audit_id="audit:2", run_id="run-verify", node_id="finish").model_copy(
@@ -206,7 +212,7 @@ async def test_concurrent_writes_same_run_keep_a_linear_digest_chain(sqlite_db) 
     """
     import asyncio
 
-    repository = AuditRepository(sqlite_db)
+    repository = AuditRepository.for_default_compatibility(sqlite_db)
     n = 8
     records = [_record(audit_id=f"race:{i}", run_id="run-race", node_id=f"n{i}") for i in range(n)]
     await asyncio.gather(*(repository.write(r) for r in records))

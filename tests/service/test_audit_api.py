@@ -21,6 +21,8 @@ def _record(
     started_at: datetime | None = None,
 ) -> NodeAuditRecord:
     return NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id=audit_id,
         run_id=run_id,
         thread_id=thread_id,
@@ -179,12 +181,12 @@ async def test_run_audit_routes_forward_tenant_and_workspace_to_run_query(
         auth_config=service.auth_config,
     )
     app.state.bootstrap = service
-    calls: list[dict[str, object]] = []
+    calls: list[str] = []
     original_get = service.run_repository.get
 
-    async def recording_get(run_id: str, **scope):
-        calls.append(scope)
-        return await original_get(run_id, **scope)
+    async def recording_get(run_id: str):
+        calls.append(run_id)
+        return await original_get(run_id)
 
     monkeypatch.setattr(service.run_repository, "get", recording_get)
     with TestClient(app) as client:
@@ -195,7 +197,8 @@ async def test_run_audit_routes_forward_tenant_and_workspace_to_run_query(
         ):
             calls.clear()
             assert client.get(path, headers=admin_headers()).status_code == 200
-            assert {"tenant_id": "default", "workspace_id": None} in calls
+            assert calls
+            assert set(calls) == {"query-scoped-run"}
 
 
 async def test_reviewer_can_list_audits(sqlite_db) -> None:

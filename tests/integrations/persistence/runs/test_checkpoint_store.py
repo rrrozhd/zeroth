@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from zeroth.service.bootstrap.migrations import run_migrations
-from zeroth.platform.storage import EncryptedField
+from zeroth.platform.storage import EncryptedField, NullWorkspaceScopeContext
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage.json import to_json_value
 from zeroth.integrations.persistence.runs.checkpoint_store import (
@@ -63,12 +63,14 @@ async def _write(
         checkpoint_id=checkpoint_id,
         run_id=run.run_id,
         thread_id=run.thread_id,
-        tenant_id=run.tenant_id,
-        workspace_id=run.workspace_id,
         checkpoint_order=checkpoint_order,
         state_json=to_json_value(run.model_dump(mode="json")),
         created_at=run.updated_at.isoformat(),
     )
+
+
+def _store(database: AsyncSQLiteDatabase, tenant_id: str = "tenant-1") -> CheckpointRowStore:
+    return CheckpointRowStore(database, NullWorkspaceScopeContext(tenant_id=tenant_id))
 
 
 def test_new_checkpoint_id_returns_a_unique_hex_id() -> None:
@@ -85,7 +87,7 @@ async def test_write_row_then_get_round_trips_the_run_state(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A written checkpoint reads back as the run it snapshotted."""
-    store = CheckpointRowStore(sqlite_db)
+    store = _store(sqlite_db)
     run = _make_run()
 
     await _write(store, run, checkpoint_id="checkpoint-1", checkpoint_order=0)
@@ -101,7 +103,7 @@ async def test_get_returns_none_for_an_unknown_checkpoint(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Missing checkpoints are absent, not an error."""
-    store = CheckpointRowStore(sqlite_db)
+    store = _store(sqlite_db)
 
     assert await store.get("missing") is None
 
@@ -110,7 +112,7 @@ async def test_write_row_upserts_an_existing_checkpoint_id(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Re-writing a checkpoint ID replaces its state rather than failing."""
-    store = CheckpointRowStore(sqlite_db)
+    store = _store(sqlite_db)
     run = _make_run()
     await _write(store, run, checkpoint_id="checkpoint-1", checkpoint_order=0)
 
@@ -125,7 +127,8 @@ async def test_write_row_upserts_an_existing_checkpoint_id(
 async def test_same_checkpoint_id_is_atomic_and_independent_across_tenants(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    store = CheckpointRowStore(sqlite_db)
+    owner_store = _store(sqlite_db)
+    foreign_store = _store(sqlite_db, "tenant-2")
     owner = _make_run("run-a")
     foreign = _make_run("run-b")
     foreign.tenant_id = "tenant-2"
@@ -133,49 +136,39 @@ async def test_same_checkpoint_id_is_atomic_and_independent_across_tenants(
     foreign.workflow_name = "foreign-value"
 
     await asyncio.gather(
-        _write(store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0),
-        _write(store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0),
+        _write(owner_store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0),
+        _write(foreign_store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0),
     )
 
-    owner_copy = await store.get("shared-checkpoint", tenant_id="tenant-1", workspace_id=None)
-    foreign_copy = await store.get("shared-checkpoint", tenant_id="tenant-2", workspace_id=None)
+    owner_copy = await owner_store.get("shared-checkpoint")
+    foreign_copy = await foreign_store.get("shared-checkpoint")
     assert owner_copy is not None and owner_copy.workflow_name == "owner-secret"
     assert foreign_copy is not None and foreign_copy.workflow_name == "foreign-value"
-    assert await store.get("shared-checkpoint") is None
 
 
 async def test_checkpoint_list_and_delete_use_durable_owner_scope(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    store = CheckpointRowStore(sqlite_db)
+    owner_store = _store(sqlite_db)
+    foreign_store = _store(sqlite_db, "tenant-2")
     owner = _make_run("run-a", thread_id="shared-thread")
     foreign = _make_run("run-b", thread_id="shared-thread")
     foreign.tenant_id = "tenant-2"
-    await _write(store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0)
-    await _write(store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0)
+    await _write(owner_store, owner, checkpoint_id="shared-checkpoint", checkpoint_order=0)
+    await _write(foreign_store, foreign, checkpoint_id="shared-checkpoint", checkpoint_order=0)
 
-    assert await store.list_ids(
-        "shared-thread", tenant_id="tenant-1", workspace_id=None
-    ) == ["shared-checkpoint"]
-    assert await store.list_ids(
-        "unknown-thread", tenant_id="tenant-1", workspace_id=None
-    ) == []
-    assert await store.delete(
-        "shared-checkpoint", tenant_id="tenant-2", workspace_id=None
-    ) is True
-    assert await store.get(
-        "shared-checkpoint", tenant_id="tenant-1", workspace_id=None
-    ) is not None
-    assert await store.get(
-        "shared-checkpoint", tenant_id="tenant-2", workspace_id=None
-    ) is None
+    assert await owner_store.list_ids("shared-thread") == ["shared-checkpoint"]
+    assert await owner_store.list_ids("unknown-thread") == []
+    assert await foreign_store.delete("shared-checkpoint") is True
+    assert await owner_store.get("shared-checkpoint") is not None
+    assert await foreign_store.get("shared-checkpoint") is None
 
 
 async def test_latest_id_for_run_returns_the_highest_ordered_checkpoint(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Checkpoint recency is decided by ``checkpoint_order``, not insertion order."""
-    store = CheckpointRowStore(sqlite_db)
+    store = _store(sqlite_db)
     run = _make_run()
     await _write(store, run, checkpoint_id="checkpoint-b", checkpoint_order=2)
     await _write(store, run, checkpoint_id="checkpoint-a", checkpoint_order=1)
@@ -187,7 +180,7 @@ async def test_latest_id_for_run_returns_none_without_checkpoints(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A run that never checkpointed has no latest checkpoint."""
-    store = CheckpointRowStore(sqlite_db)
+    store = _store(sqlite_db)
 
     assert await store.latest_id_for_run("run-1") is None
 
@@ -209,7 +202,7 @@ async def test_state_json_is_encrypted_at_rest_when_a_key_is_configured(
     encrypted_database: AsyncSQLiteDatabase,
 ) -> None:
     """Checkpoint state is the richest plaintext surface, so it must not sit in the clear."""
-    store = CheckpointRowStore(encrypted_database)
+    store = _store(encrypted_database)
     run = _make_run()
 
     await _write(store, run, checkpoint_id="checkpoint-1", checkpoint_order=0)
@@ -253,7 +246,7 @@ async def test_reading_falls_back_to_plaintext_written_before_encryption(
                 ),
         )
 
-    restored = await CheckpointRowStore(encrypted_database).get("plaintext-checkpoint")
+    restored = await _store(encrypted_database).get("plaintext-checkpoint")
 
     assert restored is not None
     assert restored.workflow_name == "demo"

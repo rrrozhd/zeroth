@@ -12,7 +12,7 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 from zeroth.governance.identity import ServiceRole
-from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app as bootstrap_app
 from zeroth.service.deployments.repository import SQLiteDeploymentRepository
 
 DEPLOYMENT = "deployments-test"
@@ -99,6 +99,8 @@ async def test_list_deployments_uses_principal_scope_without_serving_deployment(
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=owned.deployment_ref,
+        tenant_id=owned.tenant_id,
+        workspace_id=owned.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap.deployment = None
@@ -143,6 +145,8 @@ async def test_list_deployments_is_exactly_workspace_scoped(sqlite_db) -> None:
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=serving.deployment_ref,
+        tenant_id=serving.tenant_id,
+        workspace_id=serving.workspace_id,
         auth_config=auth_config,
     )
 
@@ -174,6 +178,8 @@ async def test_create_deployment_hides_foreign_workspace_graph(sqlite_db) -> Non
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=serving.deployment_ref,
+        tenant_id=serving.tenant_id,
+        workspace_id=serving.workspace_id,
         auth_config=auth_config,
     )
     payload = {
@@ -230,6 +236,8 @@ async def test_rollback_deployment_hides_foreign_workspace_ref(sqlite_db) -> Non
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=serving.deployment_ref,
+        tenant_id=serving.tenant_id,
+        workspace_id=serving.workspace_id,
         auth_config=auth_config,
     )
 

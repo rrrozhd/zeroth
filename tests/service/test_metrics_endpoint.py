@@ -14,6 +14,7 @@ from tests.service.helpers import (
 )
 from zeroth.governance.identity import ServiceRole
 from zeroth.service.bootstrap import bootstrap_app
+from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 
 DEPLOYMENT = "metrics-test"
 
@@ -99,9 +100,11 @@ async def test_metrics_hides_service_from_foreign_tenant_admin(sqlite_db) -> Non
         auth_config=auth_config,
         tenant_id="tenant-a",
     )
-    app = await bootstrap_app(
+    app = await bootstrap_scoped_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service

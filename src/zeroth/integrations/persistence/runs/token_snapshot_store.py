@@ -4,11 +4,23 @@ from __future__ import annotations
 
 from contextlib import suppress
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
 from zeroth.contracts.graph.tokens import DispatchLifecycleState, SchedulingState
 from zeroth.platform.primitives import utc_now
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import (
+    SERVICE_SCOPE_REGISTRY,
+    AsyncDatabase,
+    NullWorkspaceScopeContext,
+    ScopeContext,
+    ScopedTable,
+)
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    persistence_operation,
+    persistence_surface,
+)
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
@@ -23,11 +35,26 @@ _TERMINAL_STATES = {
 }
 
 
+@persistence_surface("service.token_engine_snapshots")
 @dataclass(slots=True)
 class TokenSnapshotRowStore:
     """Owns the one-row-per-run ``token_engine_snapshots`` table."""
 
     database: AsyncDatabase
+    scope_context: ScopeContext | NullWorkspaceScopeContext
+    runs: ScopedTable = dataclass_field(init=False)
+    snapshots: ScopedTable = dataclass_field(init=False)
+
+    def __post_init__(self) -> None:
+        self.runs = ScopedTable(
+            self.database, SERVICE_SCOPE_REGISTRY, "service.runs", self.scope_context
+        )
+        self.snapshots = ScopedTable(
+            self.database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.token_engine_snapshots",
+            self.scope_context,
+        )
 
     def _encode(self, snapshot: TokenEngineSnapshot) -> str:
         payload = snapshot.model_dump_json()
@@ -140,15 +167,15 @@ class TokenSnapshotRowStore:
         if current.state in _TERMINAL_STATES and proposed.state is not current.state:
             raise TokenSnapshotTransitionError("terminal snapshot state is absorbing")
 
+    @persistence_operation(ResourceOperation.READ)
     async def get(self, run_id: str) -> TokenEngineSnapshot | None:
-        async with self.database.transaction() as connection:
-            row = await connection.fetch_one(
-                "SELECT run_id, revision, schema_version, next_token_ordinal, snapshot_json "
-                "FROM token_engine_snapshots WHERE run_id = ?",
-                (run_id,),
-            )
+        row = await self.snapshots.select_one(
+            where={"run_id": run_id},
+            columns=("run_id", "revision", "schema_version", "next_token_ordinal", "snapshot_json"),
+        )
         return None if row is None else self._decode_row(row)
 
+    @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def compare_and_swap(
         self,
         run_id: str,
@@ -168,12 +195,12 @@ class TokenSnapshotRowStore:
 
         encoded = self._encode(snapshot)
         updated_at = utc_now().isoformat()
-        async with self.database.transaction(write_lock=True) as connection:
-            lock_suffix = " FOR UPDATE" if self.database.backend == "postgres" else ""
-            run = await connection.fetch_one(
-                "SELECT run_id, token_snapshot_write_disabled FROM runs WHERE run_id = ?"
-                + lock_suffix,
-                (run_id,),
+        async with self.snapshots.transaction(write_lock=True) as snapshots:
+            runs = snapshots.bind(self.runs)
+            run = await runs.select_one(
+                where={"run_id": run_id},
+                columns=("run_id", "token_snapshot_write_disabled"),
+                for_update=True,
             )
             if run is None:
                 raise KeyError(run_id)
@@ -185,10 +212,15 @@ class TokenSnapshotRowStore:
             if write_disabled:
                 raise TokenSnapshotWriteDisabledError(run_id)
 
-            current_row = await connection.fetch_one(
-                "SELECT run_id, revision, schema_version, next_token_ordinal, snapshot_json "
-                "FROM token_engine_snapshots WHERE run_id = ?",
-                (run_id,),
+            current_row = await snapshots.select_one(
+                where={"run_id": run_id},
+                columns=(
+                    "run_id",
+                    "revision",
+                    "schema_version",
+                    "next_token_ordinal",
+                    "snapshot_json",
+                ),
             )
             current = None if current_row is None else self._decode_row(current_row)
             self._validate_transition(current, snapshot)
@@ -205,48 +237,31 @@ class TokenSnapshotRowStore:
                 )
 
             if expected_revision is None:
-                written = await connection.fetch_one(
-                    """
-                    INSERT INTO token_engine_snapshots (
-                        run_id, revision, schema_version, next_token_ordinal,
-                        snapshot_json, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(run_id) DO NOTHING
-                    RETURNING revision
-                    """,
-                    (
-                        run_id,
-                        snapshot.revision,
-                        snapshot.schema_version,
-                        snapshot.next_token_ordinal,
-                        encoded,
-                        updated_at,
-                    ),
+                written = await snapshots.insert_if_absent(
+                    {
+                        "run_id": run_id,
+                        "revision": snapshot.revision,
+                        "schema_version": snapshot.schema_version,
+                        "next_token_ordinal": snapshot.next_token_ordinal,
+                        "snapshot_json": encoded,
+                        "updated_at": updated_at,
+                    },
+                    conflict_columns=("tenant_id", "workspace_scope", "run_id"),
                 )
             else:
-                written = await connection.fetch_one(
-                    """
-                    UPDATE token_engine_snapshots
-                    SET revision = ?, schema_version = ?, next_token_ordinal = ?,
-                        snapshot_json = ?, updated_at = ?
-                    WHERE run_id = ? AND revision = ?
-                    RETURNING revision
-                    """,
-                    (
-                        snapshot.revision,
-                        snapshot.schema_version,
-                        snapshot.next_token_ordinal,
-                        encoded,
-                        updated_at,
-                        run_id,
-                        expected_revision,
-                    ),
+                written = await snapshots.update_if_matches(
+                    {
+                        "revision": snapshot.revision,
+                        "schema_version": snapshot.schema_version,
+                        "next_token_ordinal": snapshot.next_token_ordinal,
+                        "snapshot_json": encoded,
+                        "updated_at": updated_at,
+                    },
+                    where={"run_id": run_id, "revision": expected_revision},
+                    returning="revision",
                 )
-            if written is None:
-                winner = await connection.fetch_one(
-                    "SELECT revision FROM token_engine_snapshots WHERE run_id = ?",
-                    (run_id,),
-                )
+            if not written:
+                winner = await snapshots.select_one(where={"run_id": run_id}, columns=("revision",))
                 raise TokenSnapshotConcurrencyError(
                     run_id,
                     expected_revision=expected_revision,

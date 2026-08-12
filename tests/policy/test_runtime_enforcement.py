@@ -167,8 +167,8 @@ async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_au
         edges=[Edge(edge_id="edge-1", source_node_id="agent", target_node_id="eu")],
     )
     orchestrator = RuntimeOrchestrator(
-        audit_repository=AuditRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"agent": agent_runner},
         executable_unit_runner=eu_runner,  # type: ignore[arg-type]
         policy_guard=RecordingPolicyGuard(),  # type: ignore[arg-type]
@@ -181,7 +181,7 @@ async def test_runtime_orchestrator_passes_enforcement_context_to_runners_and_au
     assert agent_runner.calls[0]["enforcement_context"]["sandbox_strictness_mode"] == "strict"
     assert eu_runner.calls[0]["enforcement_context"]["allowed_secrets"] == ["API_KEY"]
 
-    audits = await AuditRepository(sqlite_db).list_by_run(run.run_id)
+    audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
     assert audits[0].execution_metadata["network_mode"] == "disabled"
     assert audits[1].execution_metadata["sandbox_strictness_mode"] == "strict"
     assert audits[0].execution_metadata["enforcement_applied"] is True
@@ -212,13 +212,13 @@ async def test_runtime_orchestrator_gates_side_effecting_nodes_behind_approval(s
 
     approval_service = ApprovalService(
         repository=ApprovalRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
-        audit_repository=AuditRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
     )
     orchestrator = RuntimeOrchestrator(
         approval_service=approval_service,
-        audit_repository=AuditRepository(sqlite_db),
-        run_repository=RunRepository(sqlite_db),
+        audit_repository=AuditRepository.for_default_compatibility(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={},
         executable_unit_runner=eu_runner,  # type: ignore[arg-type]
         policy_guard=RecordingPolicyGuard(),  # type: ignore[arg-type]

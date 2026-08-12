@@ -20,10 +20,12 @@ def test_regulus_settings_defaults():
 
 def test_regulus_settings_accessible_via_zeroth_settings():
     """RegulusSettings is accessible via ZerothSettings().regulus."""
+    from zeroth.platform.config.models import RegulusSettings
     from zeroth.platform.config.settings import ZerothSettings
 
-    settings = ZerothSettings()
+    settings = ZerothSettings(regulus=RegulusSettings())
     assert hasattr(settings, "regulus")
+    assert isinstance(settings.regulus, RegulusSettings)
     # G1: enabled by default (see test_regulus_settings_defaults).
     assert settings.regulus.enabled is True
     assert settings.regulus.base_url == "http://localhost:8000/v1"
@@ -85,6 +87,8 @@ def test_node_audit_record_accepts_cost_fields():
     from zeroth.governance.audit.models import NodeAuditRecord
 
     record = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a1",
         run_id="r1",
         node_id="n1",
@@ -99,6 +103,8 @@ def test_node_audit_record_accepts_cost_fields():
 
     # Defaults should be None
     record2 = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="a2",
         run_id="r2",
         node_id="n2",

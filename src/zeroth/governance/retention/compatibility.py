@@ -94,8 +94,9 @@ class CompatibilityLog:
     ) -> None:
         """Write one best-effort compatibility log entry; failures are logged, never raised."""
         try:
+            if result.tenant_id != self.log.tenant_id:
+                raise ValueError("tenant_id does not match bound scope")
             await self.log.record(
-                tenant_id=result.tenant_id,
                 run_id=result.run_id,
                 action=action,
                 reason=result.reason,

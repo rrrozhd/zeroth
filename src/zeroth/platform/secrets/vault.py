@@ -26,13 +26,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import httpx
 
 from zeroth.platform.secrets.provider import SecretResolutionError, normalize_secret_name
 from zeroth.platform.secrets.redaction import SecretRedactor
+from zeroth.platform.storage.scoped_resource import ScopedOperation
+from zeroth.platform.storage.scoping import (
+    ResourceOperation,
+    ResourceScopeDefinition,
+    persistence_operation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +109,10 @@ class VaultSecretProvider:
         self._async_transport = async_transport
         self._timeout = timeout
         self._cache: dict[tuple[str, str], _CacheEntry] = {}
-        # Redactor is (re)seeded with resolved values so any accidental error
-        # surface that echoes a value gets masked.
+        # Values stay redacted for this provider's lifetime, including after
+        # TTL expiry or rotation, because later transport errors can echo them.
+        self._redactor_lock = threading.RLock()
+        self._redaction_history: list[tuple[tuple[str, str], str]] = []
         self._redactor = SecretRedactor()
         # Async path: one pooled client for the provider's lifetime, plus
         # single-flight locks so N concurrent misses collapse into one fetch
@@ -156,10 +166,9 @@ class VaultSecretProvider:
                 self._redactor.redact(str(exc)),
             )
             return None
-        self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         if value is not None:
-            # Keep the redactor aware of live values so error paths stay masked.
-            self._redactor = SecretRedactor({**self._redactor_known(), key[1]: value})
+            self._remember_secret(key, value)
+        self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         return value
 
     # ------------------------------------------------------------------
@@ -224,11 +233,11 @@ class VaultSecretProvider:
                     self._redactor.redact(str(exc)),
                 )
                 return None
+            if value is not None:
+                self._remember_secret(key, value)
             self._cache[key] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
-            if value is not None:
-                self._redactor = SecretRedactor({**self._redactor_known(), logical_name: value})
             return value
 
     async def _get_async_client(self) -> httpx.AsyncClient:
@@ -261,8 +270,12 @@ class VaultSecretProvider:
         """
         if not entries:
             return
-        token = await self._ensure_token_async()
-        client = await self._get_async_client()
+        try:
+            token = await self._ensure_token_async()
+            client = await self._get_async_client()
+        except Exception as exc:
+            logger.warning("vault warm setup failed: %s", self._redactor.redact(str(exc)))
+            return
         for tenant, logical_name in entries:
             try:
                 value = await self._fetch_async(client, token, tenant, logical_name)
@@ -274,6 +287,8 @@ class VaultSecretProvider:
                     self._redactor.redact(str(exc)),
                 )
                 continue
+            if value is not None:
+                self._remember_secret((tenant, logical_name), value)
             self._cache[(tenant, logical_name)] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
@@ -454,10 +469,57 @@ class VaultSecretProvider:
             raise SecretResolutionError("vault AppRole login returned no client_token")
         return token
 
-    def _redactor_known(self) -> dict[str, str]:
-        """Rebuild the redactor's name -> value seed map from cached entries."""
-        # SecretRedactor keeps its map private; rebuild from cache values.
-        return {name: entry.value for (_tenant, name), entry in self._cache.items() if entry.value}
+    def _remember_secret(self, reference: tuple[str, str], value: str) -> None:
+        """Add a value to lifetime redaction history and rebuild its matcher."""
+        with self._redactor_lock:
+            if value not in {secret for _reference, secret in self._redaction_history}:
+                self._redaction_history.append((reference, value))
+            self._redactor = SecretRedactor(self._redaction_history)
 
 
-__all__ = ["VaultSecretProvider"]
+class TenantScopedVaultDriver:
+    """Bind a shared Vault provider to one tenant before exposing persistence."""
+
+    def __init__(self, provider: VaultSecretProvider, *, tenant_id: str) -> None:
+        if type(provider) is not VaultSecretProvider:
+            raise TypeError("provider must be a VaultSecretProvider")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("tenant_id must be non-empty")
+        self._provider = provider
+        self._tenant_id = tenant_id
+        self._resource_definition = ResourceScopeDefinition(
+            resource_name="vault.secrets",
+            table_name="vault_secrets",
+            operations=frozenset({ResourceOperation.READ, ResourceOperation.ENUMERATE}),
+        )
+        self._operations = MappingProxyType(
+            {
+                ResourceOperation.READ: self.resolve,
+                ResourceOperation.ENUMERATE: self.resolve_many,
+            }
+        )
+
+    @property
+    def resource_definition(self) -> ResourceScopeDefinition:
+        """Return the immutable logical-resource contract."""
+        return self._resource_definition
+
+    @property
+    def operations(self) -> MappingProxyType[ResourceOperation, ScopedOperation]:
+        """Return immutable canonical operations bound to this tenant scope."""
+        return self._operations
+
+    @persistence_operation(ResourceOperation.READ)
+    async def resolve(self, logical_name: str) -> str | None:
+        """Resolve one logical secret through the bound production provider."""
+        return await self._provider.resolve_secret_async(logical_name, tenant_id=self._tenant_id)
+
+    @persistence_operation(ResourceOperation.ENUMERATE)
+    async def resolve_many(self, logical_names: list[str]) -> dict[str, str]:
+        """Resolve several logical secrets within the bound tenant."""
+        return {
+            name: value for name in logical_names if (value := await self.resolve(name)) is not None
+        }
+
+
+__all__ = ["TenantScopedVaultDriver", "VaultSecretProvider"]

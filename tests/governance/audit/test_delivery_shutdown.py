@@ -216,7 +216,7 @@ async def test_the_real_repository_write_cannot_outlive_the_shutdown_deadline(
 ) -> None:
     # The bound only means something against the writer this stage is pointed
     # at in production, so this one runs the real append-only repository.
-    queue = _queue(AuditRepository(sqlite_db), max_queue_size=64)
+    queue = _queue(AuditRepository.for_default_compatibility(sqlite_db), max_queue_size=64)
     loop = asyncio.get_running_loop()
 
     for index in range(40):

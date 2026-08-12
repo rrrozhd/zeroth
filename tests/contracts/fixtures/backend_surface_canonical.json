@@ -1618,7 +1618,7 @@
       ],
       "module": "zeroth.governance.audit",
       "name": "AuditRepository",
-      "signature": "(database: 'AsyncDatabase', signer: 'SigningKeyProvider | None' = None)"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext | TenantWideScopeContext', signer: 'SigningKeyProvider | None' = None)"
     },
     {
       "evidence": [
@@ -1674,7 +1674,7 @@
       ],
       "module": "zeroth.governance.audit",
       "name": "NodeAuditRecord",
-      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.governance.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
+      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str, workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.governance.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
@@ -1840,7 +1840,7 @@
       ],
       "module": "zeroth.governance.audit.models",
       "name": "NodeAuditRecord",
-      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str = 'default', workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.governance.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
+      "signature": "(*, audit_id: str, run_id: str, thread_id: str | None = None, node_id: str, node_version: int = 1, graph_version_ref: str, deployment_ref: str, tenant_id: str, workspace_id: str | None = None, attempt: int = 1, status: str, actor: zeroth.governance.identity.models.ActorIdentity | None = None, input_snapshot: dict[str, typing.Any] = <factory>, output_snapshot: dict[str, typing.Any] = <factory>, validation_results: dict[str, typing.Any] = <factory>, execution_metadata: dict[str, typing.Any] = <factory>, token_usage: zeroth.governance.audit.models.TokenUsage | None = None, cost_usd: float | None = None, cost_event_id: str | None = None, error: str | None = None, condition_results: list[dict[str, typing.Any]] = <factory>, memory_interactions: list[zeroth.governance.audit.models.MemoryAccessRecord] = <factory>, tool_calls: list[zeroth.governance.audit.models.ToolCallRecord] = <factory>, approval_actions: list[zeroth.governance.audit.models.ApprovalActionRecord] = <factory>, stdout: str | None = None, stderr: str | None = None, supersedes_audit_id: str | None = None, chain_sequence: int | None = None, previous_record_digest: str | None = None, record_digest: str | None = None, record_signature: str | None = None, signing_key_id: str | None = None, signing_algorithm: str | None = None, erased: bool = False, erased_at: datetime.datetime | None = None, erasure_reason: str | None = None, digest_version: int = 1, pii_commitments: dict[str, str] | None = None, started_at: datetime.datetime = <factory>, completed_at: datetime.datetime | None = None) -> None"
     },
     {
       "evidence": [
@@ -8462,7 +8462,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "LegalHoldRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -8475,7 +8475,7 @@
       ],
       "module": "zeroth.governance.retention",
       "name": "RetentionAuditLogRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -8674,7 +8674,7 @@
       ],
       "module": "zeroth.integrations.persistence.runs",
       "name": "RunRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -8748,7 +8748,7 @@
       ],
       "module": "zeroth.integrations.persistence.runs",
       "name": "ThreadRepository",
-      "signature": "(database: 'AsyncDatabase')"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext')"
     },
     {
       "evidence": [
@@ -11133,7 +11133,7 @@
       ],
       "module": "zeroth.service.webhooks",
       "name": "WebhookRepository",
-      "signature": "(database: 'AsyncDatabase') -> 'None'"
+      "signature": "(database: 'AsyncDatabase', scope_context: 'ScopeContext | NullWorkspaceScopeContext') -> 'None'"
     },
     {
       "evidence": [
@@ -11300,6 +11300,26 @@
       "module": "zeroth.econ.plane.auth.schemas",
       "name": "UserClaims",
       "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], exp: int, iss: str) -> None"
+    },
+    {
+      "evidence": [
+        "versioned_auth_scope:zeroth.econ.plane.auth.scoped"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.auth.scoped",
+      "name": "ScopedLoginRequest",
+      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], tenant_id: str = 'default', workspace_id: str | None = None) -> None"
+    },
+    {
+      "evidence": [
+        "versioned_auth_scope:zeroth.econ.plane.auth.scoped"
+      ],
+      "kind": "class",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.auth.scoped",
+      "name": "ScopedUserClaims",
+      "signature": "(*, sub: str, email: pydantic.networks.EmailStr, roles: list[str], tenant_id: str, workspace_id: str | None = None, exp: int, iss: str) -> None"
     },
     {
       "evidence": [
@@ -11912,6 +11932,26 @@
       "module": "zeroth.econ.plane.reconciliation.service",
       "name": "compute_calibration_summary",
       "signature": "(db: 'Session') -> 'list[CalibrationMetric]'"
+    },
+    {
+      "evidence": [
+        "scoped_reconciliation:zeroth.econ.plane.costing.service"
+      ],
+      "kind": "function",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.costing.service",
+      "name": "add_ground_truth_rows",
+      "signature": "(db: 'ScopedSession', rows: 'list[GroundTruthCost]') -> 'int'"
+    },
+    {
+      "evidence": [
+        "scoped_reconciliation:zeroth.econ.plane.costing.service"
+      ],
+      "kind": "function",
+      "legacy_ids": [],
+      "module": "zeroth.econ.plane.costing.service",
+      "name": "compute_calibration_summary",
+      "signature": "(db: 'ScopedSession') -> 'list[CalibrationMetric]'"
     },
     {
       "evidence": [

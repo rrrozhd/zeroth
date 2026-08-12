@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.scoped_session import ScopedSession
+from zeroth.platform.storage.scoping import ScopeContext
 
 
 class Base(DeclarativeBase):
@@ -24,6 +26,17 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def get_scoped_db(context: ScopeContext) -> Generator[ScopedSession, None, None]:
+    """Yield a tenant-scoped econ gateway from an explicit trusted context."""
+    Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_compat()
+    db = SessionLocal()
+    try:
+        yield ScopedSession(db, context)
+    finally:
+        db.close()
+
+
 def _ensure_sqlite_compat() -> None:
     with engine.begin() as conn:
         if conn.dialect.name != "sqlite":
@@ -34,8 +47,42 @@ def _ensure_sqlite_compat() -> None:
             return any(r[1] == column for r in rows)
 
         def ensure_col(table: str, column: str, ddl: str) -> None:
-            if has_column(table, "id") and not has_column(table, column):
+            if has_column(table, column):
+                return
+            table_exists = conn.execute(
+                text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table"),
+                {"table": table},
+            ).first()
+            if table_exists:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+        tenant_ownership_tables = (
+            "users",
+            "deployment_implementations",
+            "cost_profiles",
+            "cost_estimates",
+            "ground_truth_costs",
+            "calibration_metrics",
+            "dashboard_views",
+            "enforcement_actions",
+            "traffic_policies",
+            "budget_policies",
+            "audit_log",
+        )
+        for table in tenant_ownership_tables:
+            ensure_col(table, "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("connector_delivery_log", "tenant_id", "tenant_id VARCHAR(128)")
+
+        ensure_col("users", "workspace_id", "workspace_id VARCHAR(128)")
+        if conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+        ).first():
+            conn.execute(
+                text(
+                    "UPDATE users SET tenant_id = 'default' "
+                    "WHERE tenant_id IS NULL OR tenant_id = 'tenant_default'"
+                )
+            )
 
         ensure_col("capabilities", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("capabilities", "type", "type VARCHAR(64) DEFAULT 'RISK'")
@@ -53,9 +100,9 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("implementations", "config_json", "config_json JSON DEFAULT '{}'")
         ensure_col("implementations", "status", "status VARCHAR(32) DEFAULT 'ACTIVE'")
 
-        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("execution_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
-        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")
@@ -70,13 +117,38 @@ def _ensure_sqlite_compat() -> None:
         ensure_col("value_estimates", "value_data_quality", "value_data_quality VARCHAR(32) DEFAULT 'measured'")
         ensure_col("value_estimates", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
         ensure_col("value_estimates", "interval_method", "interval_method VARCHAR(32) DEFAULT 'hierarchical'")
-        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("value_estimates", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("value_estimates", "implementation_id", "implementation_id VARCHAR(128)")
 
-        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
+        ensure_col("valuation_runs", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("valuation_runs", "implementation_id", "implementation_id VARCHAR(128)")
 
         ensure_col("performance_snapshots", "confidence_gate_passed", "confidence_gate_passed BOOLEAN DEFAULT 1")
         ensure_col("performance_snapshots", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("performance_snapshots", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("performance_snapshots", "confidence_breakdown", "confidence_breakdown JSON DEFAULT '{}'")
+
+        # Converge pre-Alembic/create_all compatibility databases on the same
+        # ownership constraints as revision 20260811_05.  Loading the revision
+        # in a fresh module mirrors Alembic's own migration test harness and
+        # avoids sharing its module-level Operations proxy across startups.
+        import importlib.util
+        from pathlib import Path
+
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+
+        migration_path = (
+            Path(__file__).parent
+            / "_migrations/versions/20260811_05_tenant_scope.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_zeroth_runtime_20260811_05_tenant_scope",
+            migration_path,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("unable to load econ tenant-scope compatibility migration")
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        migration.op = Operations(MigrationContext.configure(conn))
+        migration.upgrade()

@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 from zeroth.contracts.graph.models import Graph
 from zeroth.contracts.graph.repository import GraphRepository
+from zeroth.contracts.registry import ContractRegistry
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
+from zeroth.platform.storage import ScopeContext
 from zeroth.service.api.studio_api import router as studio_router
 
 
@@ -17,11 +19,14 @@ def _studio_app(
     *,
     tenant_id: str = "tenant-a",
     workspace_id: str | None,
+    contract_registry: ContractRegistry | None = None,
 ) -> FastAPI:
     app = FastAPI()
     bootstrap = type("Bootstrap", (), {})()
     bootstrap.graph_repository = repo
     bootstrap.audit_repository = None
+    if contract_registry is not None:
+        bootstrap.contract_registry = contract_registry
     app.state.bootstrap = bootstrap
     principal = AuthenticatedPrincipal(
         subject=f"{tenant_id}:{workspace_id}:admin",
@@ -38,6 +43,41 @@ def _studio_app(
 
     app.include_router(studio_router)
     return app
+
+
+@pytest.mark.asyncio
+async def test_contract_endpoints_use_the_authenticated_tenant(sqlite_db) -> None:
+    repo = GraphRepository(sqlite_db)
+    registry = ContractRegistry.scoped(
+        sqlite_db,
+        ScopeContext(tenant_id="tenant-a", workspace_id="workspace-a"),
+    )
+    app_a = _studio_app(
+        repo,
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        contract_registry=registry,
+    )
+    app_b = _studio_app(
+        repo,
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+        contract_registry=registry,
+    )
+    payload = {
+        "name": "shared-name",
+        "json_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
+    }
+
+    with TestClient(app_a) as client_a, TestClient(app_b) as client_b:
+        assert client_a.post("/api/studio/v1/contracts", json=payload).status_code == 201
+        assert [row["name"] for row in client_a.get("/api/studio/v1/contracts").json()] == [
+            "shared-name"
+        ]
+        assert client_b.get("/api/studio/v1/contracts").json() == []
+        created_b = client_b.post("/api/studio/v1/contracts", json=payload)
+        assert created_b.status_code == 201
+        assert created_b.json()["version"] == 1
 
 
 def _create(client: TestClient, name: str) -> str:

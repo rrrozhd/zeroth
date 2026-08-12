@@ -28,10 +28,8 @@ class _Out(BaseModel):
     value: int
 
 
-async def _signed_service(
-    sqlite_db, signer: SigningKeyProvider | None
-) -> DeploymentService:
-    contract_registry = ContractRegistry(sqlite_db)
+async def _signed_service(sqlite_db, signer: SigningKeyProvider | None) -> DeploymentService:
+    contract_registry = ContractRegistry.for_default_compatibility(sqlite_db)
     await contract_registry.register(_In, name="contract://input")
     await contract_registry.register(_Out, name="contract://output")
     return DeploymentService(

@@ -25,7 +25,7 @@ async def test_crypto_erase_preserves_chain_verification(sqlite_db) -> None:
     stronger, signed proof.
     """
     signer = EnvHmacSigner(key_id="k1", keys={"k1": b"secret"})
-    repo = AuditRepository(sqlite_db, signer=signer)
+    repo = AuditRepository.for_default_compatibility(sqlite_db, signer=signer)
     for i in range(3):
         await repo.write(make_audit_record(audit_id=f"a{i}", run_id="run-x", node_id=f"n{i}"))
 
@@ -44,7 +44,7 @@ async def test_crypto_erase_preserves_chain_verification(sqlite_db) -> None:
 
 
 async def test_crypto_erase_removes_plaintext_keeps_commitment(sqlite_db) -> None:
-    repo = AuditRepository(sqlite_db)
+    repo = AuditRepository.for_default_compatibility(sqlite_db)
     await repo.write(make_audit_record(audit_id="a0", run_id="run-y"))
 
     original = await repo.get("a0")
@@ -76,6 +76,8 @@ async def test_legacy_v1_record_cannot_be_erased(sqlite_db) -> None:
     # Forge a legacy v1 row exactly as pre-WS-E code would: whole-payload digest,
     # no commitments, digest_version=1, written straight to the table.
     legacy = NodeAuditRecord(
+        tenant_id="default",
+        workspace_id=None,
         audit_id="legacy-1",
         run_id="run-legacy",
         node_id="n1",
@@ -112,7 +114,7 @@ async def test_legacy_v1_record_cannot_be_erased(sqlite_db) -> None:
             ),
         )
 
-    repo = AuditRepository(sqlite_db)
+    repo = AuditRepository.for_default_compatibility(sqlite_db)
     stored = await repo.get("legacy-1")
     assert stored.digest_version == 1
     try:
@@ -162,7 +164,7 @@ async def test_v2_uncommitted_structured_payload_cannot_be_erased(sqlite_db) -> 
             ),
         )
 
-    repo = AuditRepository(sqlite_db)
+    repo = AuditRepository.for_default_compatibility(sqlite_db)
     before = await AuditContinuityVerifier(repo).verify_run("run-v2")
     assert before.verified is True
     try:
@@ -176,7 +178,7 @@ async def test_v2_uncommitted_structured_payload_cannot_be_erased(sqlite_db) -> 
 
 
 async def test_connection_aware_tombstone_rejects_cross_record_mismatch(sqlite_db) -> None:
-    repo = AuditRepository(sqlite_db)
+    repo = AuditRepository.for_default_compatibility(sqlite_db)
     await repo.write(make_audit_record(audit_id="audit-a", run_id="run-mismatch"))
     await repo.write(make_audit_record(audit_id="audit-b", run_id="run-mismatch"))
     record_b = await repo.get("audit-b")
@@ -196,7 +198,7 @@ async def test_connection_aware_tombstone_rejects_cross_record_mismatch(sqlite_d
 
 
 async def test_list_erasable_excludes_legacy_and_held(sqlite_db) -> None:
-    repo = AuditRepository(sqlite_db)
+    repo = AuditRepository.for_default_compatibility(sqlite_db)
     await repo.write(make_audit_record(audit_id="v2-a", run_id="run-a"))
     await repo.write(make_audit_record(audit_id="v2-b", run_id="run-b"))
 

@@ -51,8 +51,8 @@ async def _tool_handler(_ctx, data: ToolInput) -> dict[str, str]:  # noqa: ANN00
 
 @pytest.mark.asyncio
 async def test_repository_thread_state_store_integrates_with_agent_runner(sqlite_db) -> None:
-    thread_repository = ThreadRepository(sqlite_db)
-    run_repository = RunRepository(sqlite_db)
+    thread_repository = ThreadRepository.for_default_compatibility(sqlite_db)
+    run_repository = RunRepository.for_default_compatibility(sqlite_db)
     resolver = RepositoryThreadResolver(thread_repository)
     resolved = await resolver.resolve(
         None,

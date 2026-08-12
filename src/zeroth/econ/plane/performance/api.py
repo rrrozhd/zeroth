@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
-from zeroth.econ.plane.auth.deps import require_roles
-from zeroth.econ.plane.auth.schemas import UserClaims
-from zeroth.econ.plane.database import get_db
+from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
+from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
+from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.econ.plane.performance.schemas import CapabilityPerformance, PerformanceSummary
 from zeroth.econ.plane.performance.service import calculate_snapshots, latest_snapshots
 
@@ -12,7 +11,7 @@ router = APIRouter(tags=["performance"])
 
 @router.get("/performance/capabilities", response_model=list[CapabilityPerformance])
 def capabilities(
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> list[CapabilityPerformance]:
     snapshots = latest_snapshots(db)
@@ -23,7 +22,7 @@ def capabilities(
 
 @router.get("/performance/summary", response_model=PerformanceSummary)
 def summary(
-    db: Session = Depends(get_db),
+    db: ScopedSession = Depends(get_current_scoped_db),
     _user: UserClaims = Depends(require_roles("Admin", "Analyst")),
 ) -> PerformanceSummary:
     snapshots = latest_snapshots(db)

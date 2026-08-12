@@ -12,8 +12,38 @@ from zeroth.governance.guardrails.rate_limit import (
     guardrail_identity_key,
 )
 from zeroth.platform.primitives import utc_now
+from zeroth.platform.storage import NullWorkspaceScopeContext
 
 BUCKET = "tenant:default:deployment:test"
+
+
+async def test_same_guardrail_key_is_independent_across_bound_tenants(sqlite_db) -> None:
+    owner_scope = NullWorkspaceScopeContext(tenant_id="tenant-owner")
+    foreign_scope = NullWorkspaceScopeContext(tenant_id="tenant-foreign")
+    owner_bucket = TokenBucketRateLimiter.scoped(sqlite_db, owner_scope)
+    foreign_bucket = TokenBucketRateLimiter.scoped(sqlite_db, foreign_scope)
+    owner_quota = QuotaEnforcer.scoped(sqlite_db, owner_scope)
+    foreign_quota = QuotaEnforcer.scoped(sqlite_db, foreign_scope)
+
+    assert await owner_bucket.check_and_consume("same", capacity=1, refill_rate=0)
+    assert not await owner_bucket.check_and_consume("same", capacity=1, refill_rate=0)
+    assert await foreign_bucket.check_and_consume("same", capacity=1, refill_rate=0)
+    assert await owner_quota.check_and_increment("same", limit=1)
+    assert not await owner_quota.check_and_increment("same", limit=1)
+    assert await foreign_quota.check_and_increment("same", limit=1)
+
+
+async def test_foreign_guardrail_scope_cannot_observe_owner_row(sqlite_db) -> None:
+    owner = TokenBucketRateLimiter.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-owner")
+    )
+    foreign = TokenBucketRateLimiter.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-foreign")
+    )
+    await owner.check_and_consume("same", capacity=2, refill_rate=0)
+
+    assert await foreign.get("same") is None
+    assert (await owner.get("same"))["token_count"] == 1
 
 
 def test_guardrail_identity_is_canonical_opaque_and_null_unicode_safe() -> None:
