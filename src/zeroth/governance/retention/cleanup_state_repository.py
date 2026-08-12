@@ -81,6 +81,7 @@ class CleanupStateRepository:
     def __init__(self, database: AsyncDatabase, scope_context: NullWorkspaceScopeContext) -> None:
         if type(scope_context) is not NullWorkspaceScopeContext:
             raise TypeError("scope_context must be a trusted tenant scope")
+        self._scope_context = scope_context
         self._states = ScopedTable(
             database,
             SERVICE_SCOPE_REGISTRY,
@@ -109,6 +110,10 @@ class CleanupStateRepository:
         terminal_status: str | None = None,
         terminal_log_id: str | None = None,
     ) -> None:
+        if manifest.tenant_id != self._scope_context.tenant_id:
+            raise ValueError("cleanup manifest tenant does not match bound scope")
+        if any(operation.tenant_id != manifest.tenant_id for operation in manifest.operations):
+            raise ValueError("cleanup operation tenant does not match manifest")
         now = datetime.now(UTC).isoformat()
         states = self._states.in_transaction(connection)
         operations = states.bind(self._operations)
@@ -131,8 +136,6 @@ class CleanupStateRepository:
             }
         )
         for operation in manifest.operations:
-            if operation.tenant_id != manifest.tenant_id:
-                raise ValueError("cleanup operation tenant does not match manifest")
             await operations.insert(
                 {
                     "authorization_log_id": authorization_log_id,
