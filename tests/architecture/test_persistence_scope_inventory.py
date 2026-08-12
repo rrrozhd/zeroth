@@ -2665,6 +2665,46 @@ def _audit_repository_public_call_provenance(
                                 state,
                             )
                             return state
+                        if isinstance(expression_node, ast.Compare):
+                            state = transfer_expression(expression_node.left, state)
+
+                            def transfer_comparators(
+                                index: int,
+                                comparison_state: dict[
+                                    str, type[BaseException] | None
+                                ],
+                            ) -> dict[str, type[BaseException] | None]:
+                                if index == len(expression_node.comparators):
+                                    return comparison_state
+                                comparator = expression_node.comparators[index]
+                                comparison_state = transfer_expression(
+                                    comparator, comparison_state
+                                )
+                                truth = literal_truth(
+                                    ast.Compare(
+                                        left=(
+                                            expression_node.left
+                                            if index == 0
+                                            else expression_node.comparators[index - 1]
+                                        ),
+                                        ops=[expression_node.ops[index]],
+                                        comparators=[comparator],
+                                    )
+                                )
+                                if truth is False:
+                                    return comparison_state
+                                if truth is True:
+                                    return transfer_comparators(
+                                        index + 1, comparison_state
+                                    )
+                                continued = transfer_comparators(
+                                    index + 1, dict(comparison_state)
+                                )
+                                comparison_state = join(comparison_state, continued)
+                                merge_events(comparator, comparison_state)
+                                return comparison_state
+
+                            return transfer_comparators(0, state)
                         if isinstance(expression_node, ast.BoolOp):
                             state = transfer_expression(expression_node.values[0], state)
                             for index, value in enumerate(expression_node.values[1:], start=1):
@@ -2930,7 +2970,19 @@ def _audit_repository_public_call_provenance(
                         state = dict(state)
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
-                            if isinstance(statement, ast.Assign):
+                            if isinstance(statement, ast.Assert):
+                                state = transfer_expression(statement.test, state)
+                                truth = literal_truth(statement.test)
+                                if statement.msg is not None and truth is not True:
+                                    failed_state = transfer_expression(
+                                        statement.msg, dict(state)
+                                    )
+                                    if truth is False:
+                                        state = failed_state
+                                        break
+                                    state = join(state, failed_state)
+                                    merge_events(statement.msg, state)
+                            elif isinstance(statement, ast.Assign):
                                 state, value_identity = transfer_assignment_value(
                                     statement.value, state
                                 )
@@ -2984,9 +3036,20 @@ def _audit_repository_public_call_provenance(
                                     )
                                     merge_events(statement, state)
                             elif isinstance(statement, (ast.Try, ast.TryStar)):
-                                paths = [walk(statement.body, state)]
+                                body_state = walk(statement.body, state)
+                                handler_state = (
+                                    body_state
+                                    if (
+                                        len(statement.body) == 1
+                                        and isinstance(statement.body[0], ast.Assert)
+                                        and literal_truth(statement.body[0].test) is False
+                                    )
+                                    else state
+                                )
+                                paths = [body_state]
                                 paths.extend(
-                                    walk(handler.body, state) for handler in statement.handlers
+                                    walk(handler.body, handler_state)
+                                    for handler in statement.handlers
                                 )
                                 state = join(*paths)
                                 state = walk(statement.finalbody, state)
@@ -3282,6 +3345,26 @@ def _audit_repository_public_call_provenance(
                         if isinstance(statement, ast.Continue):
                             continues.append(before)
                             continuing = None
+                            continue
+                        if isinstance(statement, ast.Assert):
+                            tested = bind_names(
+                                before, evaluated_named_expression_names(statement.test)
+                            )
+                            if expression_may_raise(statement.test, before[2]):
+                                exceptions.append(before)
+                            truth = literal_truth(statement.test)
+                            if truth is True:
+                                continuing = tested
+                                continue
+                            failed = bind_names(
+                                tested, evaluated_named_expression_names(statement.msg)
+                            )
+                            if statement.msg is not None and expression_may_raise(
+                                statement.msg, tested[2]
+                            ):
+                                exceptions.append(tested)
+                            exceptions.append(failed)
+                            continuing = None if truth is False else tested
                             continue
                         if isinstance(statement, ast.If):
                             if expression_may_raise(statement.test, before[2]):
@@ -9087,6 +9170,30 @@ def test_public_call_inventory_models_definition_annotation_aliases(
             "(TypeError := BuiltinTypeError): None}\n",
             frozenset({"apps/candidate.py::use::write"}),
         ),
+        (
+            "",
+            "",
+            "    marker = False == True == (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "",
+            "    marker = True == True == (TypeError := ValueError)\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "",
+            "    marker = candidate == True == (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\n",
+            "    marker = (TypeError := ValueError) == (TypeError := BuiltinTypeError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
         ("", "", "    marker = {'safe': None}\n", frozenset({"apps/candidate.py::use::write"})),
         ("", "", "    alias = (TypeError := ValueError)\n", frozenset()),
         (
@@ -9115,6 +9222,10 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         "dict-key-value-order-reversed",
         "dict-unpack-order",
         "dict-literal-control",
+        "compare-known-false-skips-final",
+        "compare-known-true-evaluates-final",
+        "compare-unknown-joins-final",
+        "compare-operands-left-to-right",
         "assign-simple-alias",
         "class-local-scope",
     ],
@@ -9135,6 +9246,56 @@ def test_public_call_inventory_models_variable_annotation_alias_evaluation(
         + "async def outer(suppressor, candidate, record):\n"
         + statement
         + "    try:\n"
+        "        raise TypeError\n"
+        "    except ValueError:\n"
+        "        closure = None\n"
+        "    except TypeError:\n"
+        "        pass\n"
+        "    async def use():\n"
+        "        type Base = list[AuditRepository]\n"
+        "        with suppressor:\n"
+        "            if closure:\n"
+        "                Base = None\n"
+        "            else:\n"
+        "                Base = None\n"
+        "        type Repo = Base\n"
+        "        repository: Repo = candidate\n"
+        "        await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == expected
+
+
+@pytest.mark.parametrize(
+    ("assertion", "expected"),
+    [
+        (
+            "assert True, (TypeError := ValueError)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        ("assert False, (TypeError := ValueError)", frozenset()),
+        (
+            "assert candidate, (TypeError := ValueError)",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+    ],
+    ids=["true-skips-message", "false-evaluates-message", "unknown-joins-message"],
+)
+def test_public_call_inventory_models_assert_message_aliases(
+    tmp_path: Path, assertion: str, expected: frozenset[str]
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def outer(suppressor, candidate, record):\n"
+        "    try:\n"
+        f"        {assertion}\n"
+        "    except AssertionError:\n"
+        "        pass\n"
+        "    try:\n"
         "        raise TypeError\n"
         "    except ValueError:\n"
         "        closure = None\n"
