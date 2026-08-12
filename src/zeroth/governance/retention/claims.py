@@ -54,6 +54,10 @@ class CleanupClaims:
     lease_seconds: float
     replay: Callable[[dict[str, Any], list[dict[str, Any]]], CleanupReplayState]
 
+    def _require_tenant(self, tenant_id: str) -> None:
+        if tenant_id != self.coordinator.tenant_id:
+            raise ValueError("tenant_id does not match bound scope")
+
     async def load_or_materialize(
         self,
         connection: Any,
@@ -175,13 +179,13 @@ class CleanupClaims:
         run_id: str,
     ) -> str:
         """Extend the active claim's lease (fenced against stale claims); return the log id."""
-        async with self.coordinator.transaction(tenant_id) as transaction:
+        self._require_tenant(tenant_id)
+        async with self.coordinator.transaction() as transaction:
             state = await self.state_record(transaction.connection, authorization_log_id)
             self.verify_active(state, claim_id, generation)
             lease_expires_at = datetime.now(UTC) + timedelta(seconds=self.lease_seconds)
             log_id = await self.log.record_in_transaction(
                 transaction.connection,
-                tenant_id=tenant_id,
                 run_id=run_id,
                 action="external_cleanup_heartbeat",
                 reason=state.reason,
@@ -211,13 +215,13 @@ class CleanupClaims:
         operation: CleanupOperation,
     ) -> str:
         """Persist one operation's status delta (log entry + state row) under the claim fence."""
-        async with self.coordinator.transaction(operation.tenant_id) as transaction:
+        self._require_tenant(operation.tenant_id)
+        async with self.coordinator.transaction() as transaction:
             state = await self.state_record(transaction.connection, authorization_log_id)
             self.verify_active(state, claim_id, generation)
             lease_expires_at = datetime.now(UTC) + timedelta(seconds=self.lease_seconds)
             log_id = await self.log.record_in_transaction(
                 transaction.connection,
-                tenant_id=operation.tenant_id,
                 run_id=operation.run_id,
                 action="external_cleanup_operation",
                 reason=state.reason,
@@ -254,13 +258,13 @@ class CleanupClaims:
         failed: bool,
     ) -> str:
         """Record the completed/failed terminal event and state, fenced against stale claims."""
-        async with self.coordinator.transaction(manifest.tenant_id) as transaction:
+        self._require_tenant(manifest.tenant_id)
+        async with self.coordinator.transaction() as transaction:
             state = await self.state_record(transaction.connection, authorization_log_id)
             self.verify_active(state, claim_id, generation)
             terminal_status = "failed" if failed else "completed"
             log_id = await self.log.record_in_transaction(
                 transaction.connection,
-                tenant_id=manifest.tenant_id,
                 run_id=manifest.run_id,
                 action=("external_cleanup_failed" if failed else "external_cleanup_completed"),
                 reason=manifest.reason,
@@ -299,9 +303,9 @@ class CleanupClaims:
         used to inspect the state, so it takes the connection rather than opening
         its own -- re-entering the coordinator here would deadlock on that lock.
         """
+        self._require_tenant(tenant_id)
         terminal_log_id = await self.log.record_in_transaction(
             connection,
-            tenant_id=tenant_id,
             run_id=run_id,
             action="external_cleanup_completed",
             reason=reason,
@@ -342,9 +346,9 @@ class CleanupClaims:
         under the tenant lock and must claim without releasing it, or another
         worker slips in between the check and the claim.
         """
+        self._require_tenant(tenant_id)
         claim_log_id = await self.log.record_in_transaction(
             connection,
-            tenant_id=tenant_id,
             run_id=run_id,
             action="external_cleanup_claimed",
             reason=reason,
@@ -387,13 +391,13 @@ class CleanupClaims:
         it here -- letting this one escape would mask the original cause.
         """
         try:
-            async with self.coordinator.transaction(tenant_id) as transaction:
+            self._require_tenant(tenant_id)
+            async with self.coordinator.transaction() as transaction:
                 state = await self.state_record(transaction.connection, authorization_log_id)
                 if state.active_claim_id != claim_id or state.generation != generation:
                     return
                 await self.log.record_in_transaction(
                     transaction.connection,
-                    tenant_id=tenant_id,
                     run_id=run_id,
                     action="external_cleanup_claim_released",
                     reason=reason,

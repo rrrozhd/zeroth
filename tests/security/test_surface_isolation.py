@@ -209,7 +209,9 @@ async def test_approval_resolve_foreign_matches_unknown_before_mutation(sqlite_d
             rationale="owner only",
         )
     )
-    service = ApprovalService(repository=repository, run_repository=RunRepository(sqlite_db))
+    service = ApprovalService(
+        repository=repository, run_repository=RunRepository.for_default_compatibility(sqlite_db)
+    )
     actor = ActorIdentity(subject="reviewer", auth_method=AuthMethod.API_KEY)
 
     for approval_id in ("owner-approval-resolve", "unknown-approval"):

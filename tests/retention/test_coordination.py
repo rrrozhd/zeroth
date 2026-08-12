@@ -17,17 +17,19 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.platform.storage.database import AsyncDatabase, CoordinationTimeoutError
+from zeroth.platform.storage import NullWorkspaceScopeContext
 
 
 class _BlockingPlaceRepository(LegalHoldRepository):
     def __init__(
         self,
         database: AsyncDatabase,
+        scope_context: NullWorkspaceScopeContext,
         *,
         entered: asyncio.Event,
         release: asyncio.Event,
     ) -> None:
-        super().__init__(database)
+        super().__init__(database, scope_context)
         self._entered = entered
         self._release = release
 
@@ -77,13 +79,16 @@ async def test_hold_placements_share_one_tenant_coordination_row(
     release = asyncio.Event()
     first_repository = _BlockingPlaceRepository(
         async_database,
+        NullWorkspaceScopeContext(tenant_id="tenant-a"),
         entered=entered,
         release=release,
     )
-    second_repository = LegalHoldRepository(second_database)
+    second_repository = LegalHoldRepository(
+        second_database, NullWorkspaceScopeContext(tenant_id="tenant-a")
+    )
 
     first_task: asyncio.Task[LegalHold] | None = asyncio.create_task(
-        first_repository.place("tenant-a", run_id=first_run_id)
+        first_repository.place(run_id=first_run_id)
     )
     second_task: asyncio.Task[LegalHold] | None = None
     try:
@@ -92,7 +97,7 @@ async def test_hold_placements_share_one_tenant_coordination_row(
 
         async def place_contender() -> LegalHold:
             contender_attempted.set()
-            return await second_repository.place("tenant-a", run_id=second_run_id)
+            return await second_repository.place(run_id=second_run_id)
 
         second_task = asyncio.create_task(place_contender())
         await asyncio.wait_for(contender_attempted.wait(), timeout=1.0)
@@ -139,17 +144,20 @@ async def test_postgres_hold_placements_share_one_tenant_coordination_row(
     try:
         first_repository = _BlockingPlaceRepository(
             postgres_database,
+            NullWorkspaceScopeContext(tenant_id=tenant_id),
             entered=entered,
             release=release,
         )
-        second_repository = LegalHoldRepository(contender_database)
-        first_task = asyncio.create_task(first_repository.place(tenant_id, run_id="run-postgres"))
+        second_repository = LegalHoldRepository(
+            contender_database, NullWorkspaceScopeContext(tenant_id=tenant_id)
+        )
+        first_task = asyncio.create_task(first_repository.place(run_id="run-postgres"))
         await asyncio.wait_for(entered.wait(), timeout=1.0)
         contender_attempted = asyncio.Event()
 
         async def place_contender() -> LegalHold:
             contender_attempted.set()
-            return await second_repository.place(tenant_id)
+            return await second_repository.place()
 
         second_task = asyncio.create_task(place_contender())
         await asyncio.wait_for(contender_attempted.wait(), timeout=1.0)
@@ -192,10 +200,11 @@ async def test_postgres_hold_placements_share_one_tenant_coordination_row(
 async def test_connection_aware_hold_operations_share_caller_transaction(
     async_database: AsyncSQLiteDatabase,
 ) -> None:
-    repository = LegalHoldRepository(async_database)
-    coordinator = RetentionCoordinator(async_database)
+    scope = NullWorkspaceScopeContext(tenant_id="tenant-a")
+    repository = LegalHoldRepository(async_database, scope)
+    coordinator = RetentionCoordinator(async_database, scope)
 
-    async with coordinator.transaction("tenant-a") as transaction:
+    async with coordinator.transaction() as transaction:
         run_hold = await repository.place_in_transaction(
             transaction,
             run_id="run-a",
@@ -217,11 +226,14 @@ async def test_connection_aware_hold_operations_share_caller_transaction(
 async def test_retention_transaction_binds_tenant_identity(
     async_database: AsyncSQLiteDatabase,
 ) -> None:
-    repository = LegalHoldRepository(async_database)
-    tenant_b_hold = await repository.place("tenant-b", run_id="run-b")
-    coordinator = RetentionCoordinator(async_database)
+    tenant_a = NullWorkspaceScopeContext(tenant_id="tenant-a")
+    tenant_b = NullWorkspaceScopeContext(tenant_id="tenant-b")
+    repository = LegalHoldRepository(async_database, tenant_a)
+    foreign_repository = LegalHoldRepository(async_database, tenant_b)
+    tenant_b_hold = await foreign_repository.place(run_id="run-b")
+    coordinator = RetentionCoordinator(async_database, tenant_a)
 
-    async with coordinator.transaction("tenant-a") as transaction:
+    async with coordinator.transaction() as transaction:
         with pytest.raises(FrozenInstanceError):
             transaction.tenant_id = "tenant-b"  # type: ignore[misc]
         with pytest.raises(TypeError):
@@ -236,7 +248,8 @@ async def test_retention_transaction_binds_tenant_identity(
     assert tenant_a_hold.tenant_id == "tenant-a"
     assert tenant_a_holds.run_ids == {"run-a"}
     assert released_foreign_hold is False
-    stored_tenant_b_hold = await repository.get(tenant_b_hold.hold_id)
+    assert await repository.get(tenant_b_hold.hold_id) is None
+    stored_tenant_b_hold = await foreign_repository.get(tenant_b_hold.hold_id)
     assert stored_tenant_b_hold is not None and stored_tenant_b_hold.active
 
 
@@ -261,22 +274,22 @@ async def test_erasure_and_hold_placement_serialize_on_tenant_lock(env) -> None:
     release = asyncio.Event()
     service = _PausedErasureService(
         audit_repository=env.audit_repo_for("tenant-race"),
-        run_repository=RunRepository(env.database),
-        policy_repository=RetentionPolicyRepository(env.database),
-        legal_hold_repository=LegalHoldRepository(env.database),
-        log_repository=RetentionAuditLogRepository(env.database),
+        run_repository=env.run_repo_for("tenant-race"),
+        policy_repository=env.policy_repo_for("tenant-race"),
+        legal_hold_repository=env.hold_repo_for("tenant-race"),
+        log_repository=env.log_repo_for("tenant-race"),
         artifact_store=env.artifact_store,
         locked=locked,
         release=release,
     )
-    contender = LegalHoldRepository(second_database)
+    contender = LegalHoldRepository(
+        second_database, NullWorkspaceScopeContext(tenant_id="tenant-race")
+    )
     erase_task = asyncio.create_task(service.erase_run("run-race", "rte", tenant_id="tenant-race"))
     hold_task: asyncio.Task[LegalHold] | None = None
     try:
         await asyncio.wait_for(locked.wait(), timeout=1.0)
-        hold_task = asyncio.create_task(
-            contender.place("tenant-race", run_id="run-race", reason="late hold")
-        )
+        hold_task = asyncio.create_task(contender.place(run_id="run-race", reason="late hold"))
         done, _ = await asyncio.wait({hold_task}, timeout=0.05)
         assert done == set(), "hold placement entered while erasure owned tenant lock"
 

@@ -22,6 +22,7 @@ from zeroth.governance.retention import (
     LegalHoldRepository,
     RetentionAuditLogRepository,
     RetentionErasureService,
+    RetentionPolicy,
     RetentionPolicyRepository,
 )
 from zeroth.platform.artifacts.models import artifact_key_owner
@@ -31,7 +32,14 @@ from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry
 
 
-async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) -> None:
+async def seed_token_snapshot(
+    env,
+    run_id: str,
+    *,
+    artifact_key: str,
+    ssn: str,
+    tenant_id: str = "default",
+) -> None:
     """Persist representative PII and an artifact ref in token-engine state."""
     token = TokenEnvelope(
         token_id=f"{run_id}-token",
@@ -59,7 +67,7 @@ async def seed_token_snapshot(env, run_id: str, *, artifact_key: str, ssn: str) 
         cancellation_fence=CancellationFence(generation=0, state_revision=0),
     )
     env.artifact_store.blobs[artifact_key] = b"pii"
-    await env.run_repo.compare_and_swap_token_snapshot(
+    await env.run_repo_for(tenant_id).compare_and_swap_token_snapshot(
         run_id,
         expected_revision=None,
         snapshot=snapshot,
@@ -169,6 +177,10 @@ class RetentionEnv:
     econ_eraser: object | None = None
     run_ids: list[str] = field(default_factory=list)
     _audit_repos: dict[str, AuditRepository] = field(default_factory=dict)
+    _run_repos: dict[str, RunRepository] = field(default_factory=dict)
+    _policy_repos: dict[str, RetentionPolicyRepository] = field(default_factory=dict)
+    _hold_repos: dict[str, LegalHoldRepository] = field(default_factory=dict)
+    _log_repos: dict[str, RetentionAuditLogRepository] = field(default_factory=dict)
 
     def audit_repo_for(self, tenant_id: str) -> AuditRepository:
         """Return the fixture repository bound to exactly one tenant/null workspace."""
@@ -188,12 +200,51 @@ class RetentionEnv:
         """Build a retention service whose audit collaborator has the same owner."""
         return RetentionErasureService(
             audit_repository=self.audit_repo_for(tenant_id),
-            run_repository=self.run_repo,
-            policy_repository=self.policy_repo,
-            legal_hold_repository=self.hold_repo,
-            log_repository=self.log_repo,
+            run_repository=self.run_repo_for(tenant_id),
+            policy_repository=self.policy_repo_for(tenant_id),
+            legal_hold_repository=self.hold_repo_for(tenant_id),
+            log_repository=self.log_repo_for(tenant_id),
             artifact_store=self.artifact_store,
             econ_eraser=self.econ_eraser,
+        )
+
+    def run_repo_for(self, tenant_id: str) -> RunRepository:
+        if tenant_id == "default":
+            return self.run_repo
+        return self._run_repos.setdefault(
+            tenant_id,
+            RunRepository(self.database, NullWorkspaceScopeContext(tenant_id=tenant_id)),
+        )
+
+    def policy_repo_for(self, tenant_id: str) -> RetentionPolicyRepository:
+        if tenant_id == "default":
+            return self.policy_repo
+        return self._policy_repos.setdefault(
+            tenant_id,
+            RetentionPolicyRepository(
+                self.database, NullWorkspaceScopeContext(tenant_id=tenant_id)
+            ),
+        )
+
+    async def upsert_policy(self, policy: RetentionPolicy) -> RetentionPolicy:
+        return await self.policy_repo_for(policy.tenant_id).upsert(policy)
+
+    def hold_repo_for(self, tenant_id: str) -> LegalHoldRepository:
+        if tenant_id == "default":
+            return self.hold_repo
+        return self._hold_repos.setdefault(
+            tenant_id,
+            LegalHoldRepository(self.database, NullWorkspaceScopeContext(tenant_id=tenant_id)),
+        )
+
+    def log_repo_for(self, tenant_id: str) -> RetentionAuditLogRepository:
+        if tenant_id == "default":
+            return self.log_repo
+        return self._log_repos.setdefault(
+            tenant_id,
+            RetentionAuditLogRepository(
+                self.database, NullWorkspaceScopeContext(tenant_id=tenant_id)
+            ),
         )
 
     async def seed_run(
@@ -247,7 +298,7 @@ class RetentionEnv:
                 )
             ],
         )
-        await self.run_repo.put(run)
+        await self.run_repo_for(tenant_id).put(run)
         if artifact_key is not None:
             self.artifact_store.blobs[artifact_key] = b"pii"
         for i in range(n_audits):
@@ -280,10 +331,10 @@ def _build_env(database) -> RetentionEnv:
     # part of the capture boundary -- never a marker on a seeded record: a
     # record cannot be allowed to authorize its own capture posture.
     audit_repo = content_capture(AuditRepository.for_default_compatibility(database, signer=signer))
-    run_repo = RunRepository(database)
-    policy_repo = RetentionPolicyRepository(database)
-    hold_repo = LegalHoldRepository(database)
-    log_repo = RetentionAuditLogRepository(database)
+    run_repo = RunRepository.for_default_compatibility(database)
+    policy_repo = RetentionPolicyRepository.for_default_compatibility(database)
+    hold_repo = LegalHoldRepository.for_default_compatibility(database)
+    log_repo = RetentionAuditLogRepository.for_default_compatibility(database)
     artifact_store = FakeArtifactStore()
     service = RetentionErasureService(
         audit_repository=audit_repo,

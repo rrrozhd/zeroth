@@ -622,7 +622,7 @@ class TestScenario1SubgraphInFanOutBranch:
         mock_executor.execute = AsyncMock(side_effect=_first_execute)
         mock_executor.resume = AsyncMock(side_effect=_resume)
 
-        repo = RunRepository(sqlite_db)
+        repo = RunRepository.for_default_compatibility(sqlite_db)
         orch = RuntimeOrchestrator(
             run_repository=repo,
             agent_runners={"source": source_runner},

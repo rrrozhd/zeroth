@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 from zeroth.service.bootstrap.migrations import run_migrations
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
@@ -53,11 +54,25 @@ def _make_thread(
     )
 
 
+def _context(tenant_id: str = "tenant-1", workspace_id: str | None = None):
+    if workspace_id is None:
+        return NullWorkspaceScopeContext(tenant_id=tenant_id)
+    return ScopeContext(tenant_id=tenant_id, workspace_id=workspace_id)
+
+
+def _threads(database, tenant_id: str = "tenant-1", workspace_id: str | None = None):
+    return ThreadRepository(database, _context(tenant_id, workspace_id))
+
+
+def _runs(database, tenant_id: str = "tenant-1", workspace_id: str | None = None):
+    return RunRepository(database, _context(tenant_id, workspace_id))
+
+
 async def test_create_persists_a_thread_and_reads_it_back(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A created thread round-trips through the database."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
 
     created = await repository.create(_make_thread())
 
@@ -70,7 +85,7 @@ async def test_get_returns_none_for_an_unknown_thread(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Missing threads are absent, not an error."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
 
     assert await repository.get("missing") is None
 
@@ -79,7 +94,7 @@ async def test_list_returns_threads_in_creation_order(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Listing is ordered so paging over threads is stable."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
     await repository.create(_make_thread("thread-a"))
     await repository.create(_make_thread("thread-b"))
 
@@ -92,7 +107,7 @@ async def test_update_persists_changes_and_advances_the_timestamp(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Updating a thread stamps it so staleness checks stay meaningful."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
     created = await repository.create(_make_thread())
     assert created is not None
     original_updated_at = created.updated_at
@@ -109,13 +124,12 @@ async def test_resolve_creates_a_thread_that_does_not_exist_yet(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Resolution is get-or-create, so first use of a thread id succeeds."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
 
     resolved = await repository.resolve(
         "thread-new",
         graph_version_ref="graph-1",
         deployment_ref="deployment-1",
-        tenant_id="tenant-1",
         run_id="run-1",
     )
 
@@ -128,7 +142,7 @@ async def test_resolve_without_a_thread_id_falls_back_to_the_run_id(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A run with no thread gets a thread named after itself, not a random one."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
 
     resolved = await repository.resolve(
         None,
@@ -144,7 +158,7 @@ async def test_resolve_merges_references_without_duplicating_them(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Repeated resolution accumulates references instead of overwriting them."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
     binding = ThreadMemoryBinding(connector_id="conn-1", instance_id="memory-1")
     await repository.resolve(
         "thread-1",
@@ -177,19 +191,18 @@ async def test_resolve_same_logical_id_creates_an_independent_tenant_thread(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """A logical external ID is independently addressable in each tenant."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-1")
+    foreign_repository = _threads(sqlite_db, "tenant-2")
     await repository.resolve(
         "thread-1",
         graph_version_ref="graph-1",
         deployment_ref="deployment-1",
-        tenant_id="tenant-1",
     )
 
-    other = await repository.resolve(
+    other = await foreign_repository.resolve(
         "thread-1",
         graph_version_ref="graph-1",
         deployment_ref="deployment-1",
-        tenant_id="tenant-2",
     )
     assert other.tenant_id == "tenant-2"
 
@@ -198,9 +211,9 @@ async def test_attach_run_makes_it_the_active_run(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Attaching a run records it and marks it current."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
     await repository.create(_make_thread())
-    await RunRepository(sqlite_db).create(
+    await _runs(sqlite_db).create(
         Run(
             run_id="run-1",
             thread_id="run-1-origin",
@@ -224,22 +237,21 @@ async def test_attach_run_raises_for_an_unknown_thread(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
     """Attaching to a thread that does not exist is a KeyError, not a silent create."""
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db)
 
     with pytest.raises(KeyError):
         await repository.attach_run("missing", "run-1")
 
 
 async def test_scoped_get_hides_foreign_thread_like_unknown(sqlite_db: AsyncSQLiteDatabase) -> None:
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    foreign_repository = _threads(sqlite_db, "tenant-b", "workspace-a")
     await repository.create(
         _make_thread("owned-thread", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
-    foreign = await repository.get("owned-thread", tenant_id="tenant-b", workspace_id="workspace-a")
-    unknown = await repository.get(
-        "unknown-thread", tenant_id="tenant-b", workspace_id="workspace-a"
-    )
+    foreign = await foreign_repository.get("owned-thread")
+    unknown = await foreign_repository.get("unknown-thread")
 
     assert foreign is unknown is None
 
@@ -247,17 +259,18 @@ async def test_scoped_get_hides_foreign_thread_like_unknown(sqlite_db: AsyncSQLi
 async def test_create_allows_scoped_same_thread_id_without_overwriting_owner(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    foreign_repository = _threads(sqlite_db, "tenant-b", "workspace-b")
     await repository.create(
         _make_thread("shared-id", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
-    created = await repository.create(
+    created = await foreign_repository.create(
         _make_thread("shared-id", tenant_id="tenant-b", workspace_id="workspace-b")
     )
     assert created.tenant_id == "tenant-b"
 
-    owner = await repository.get("shared-id", tenant_id="tenant-a", workspace_id="workspace-a")
+    owner = await repository.get("shared-id")
     assert owner is not None
     assert owner.tenant_id == "tenant-a"
     assert owner.workspace_id == "workspace-a"
@@ -266,14 +279,16 @@ async def test_create_allows_scoped_same_thread_id_without_overwriting_owner(
 async def test_scoped_list_excludes_other_tenant_and_workspace(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    _a_other = _threads(sqlite_db, "tenant-a", "workspace-b")
+    _b = _threads(sqlite_db, "tenant-b", "workspace-a")
     await repository.create(_make_thread("a-1", tenant_id="tenant-a", workspace_id="workspace-a"))
-    await repository.create(_make_thread("a-2", tenant_id="tenant-a", workspace_id="workspace-b"))
-    await repository.create(_make_thread("b-1", tenant_id="tenant-b", workspace_id="workspace-a"))
+    await _a_other.create(_make_thread("a-2", tenant_id="tenant-a", workspace_id="workspace-b"))
+    await _b.create(_make_thread("b-1", tenant_id="tenant-b", workspace_id="workspace-a"))
 
-    listed = await repository.list(tenant_id="tenant-a", workspace_id="workspace-a")
-    foreign = await repository.list(tenant_id="tenant-b", workspace_id="workspace-b")
-    unknown = await repository.list(tenant_id="tenant-unknown", workspace_id="workspace-unknown")
+    listed = await repository.list()
+    foreign = await _threads(sqlite_db, "tenant-b", "workspace-b").list()
+    unknown = await _threads(sqlite_db, "tenant-unknown", "workspace-unknown").list()
 
     assert [thread.thread_id for thread in listed] == ["a-1"]
     assert foreign == unknown == []
@@ -282,20 +297,16 @@ async def test_scoped_list_excludes_other_tenant_and_workspace(
 async def test_scoped_attach_hides_foreign_thread_like_unknown(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = ThreadRepository(sqlite_db)
-    runs = RunRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    foreign_repository = _threads(sqlite_db, "tenant-b", "workspace-a")
+    runs = _runs(sqlite_db, "tenant-a", "workspace-a")
     await repository.create(
         _make_thread("owned-thread", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
     for thread_id in ("owned-thread", "unknown-thread"):
         with pytest.raises(KeyError) as raised:
-            await repository.attach_run(
-                thread_id,
-                "run-b",
-                tenant_id="tenant-b",
-                workspace_id="workspace-a",
-            )
+            await foreign_repository.attach_run(thread_id, "run-b")
         assert raised.value.args == (thread_id,)
 
     await runs.create(
@@ -308,20 +319,15 @@ async def test_scoped_attach_hides_foreign_thread_like_unknown(
             workspace_id="workspace-a",
         )
     )
-    owner = await repository.attach_run(
-        "owned-thread",
-        "run-a",
-        tenant_id="tenant-a",
-        workspace_id="workspace-a",
-    )
+    owner = await repository.attach_run("owned-thread", "run-a")
     assert owner.run_ids == ["run-a"]
 
 
 async def test_scoped_attach_rejects_foreign_and_unknown_runs_identically(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    threads = ThreadRepository(sqlite_db)
-    runs = RunRepository(sqlite_db)
+    threads = _threads(sqlite_db, "tenant-a", "workspace-a")
+    runs = _runs(sqlite_db, "tenant-b", "workspace-b")
     await threads.create(
         _make_thread("tenant-a-thread", tenant_id="tenant-a", workspace_id="workspace-a")
     )
@@ -338,37 +344,29 @@ async def test_scoped_attach_rejects_foreign_and_unknown_runs_identically(
 
     for run_id in ("tenant-b-run", "unknown-run"):
         with pytest.raises(KeyError) as raised:
-            await threads.attach_run(
-                "tenant-a-thread",
-                run_id,
-                tenant_id="tenant-a",
-                workspace_id="workspace-a",
-            )
+            await threads.attach_run("tenant-a-thread", run_id)
         assert raised.value.args == (run_id,)
 
 
 async def test_scoped_resolve_foreign_id_matches_unknown_create_semantics(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    foreign_repository = _threads(sqlite_db, "tenant-b", "workspace-b")
     await repository.create(
         _make_thread("external-id", tenant_id="tenant-a", workspace_id="workspace-a")
     )
 
-    foreign_collision = await repository.resolve(
+    foreign_collision = await foreign_repository.resolve(
         "external-id",
         graph_version_ref="graph-1",
         deployment_ref="deployment-1",
-        tenant_id="tenant-b",
-        workspace_id="workspace-b",
         participating_agent_refs=["tenant-b-agent"],
     )
-    unknown = await repository.resolve(
+    unknown = await foreign_repository.resolve(
         "unknown-external-id",
         graph_version_ref="graph-1",
         deployment_ref="deployment-1",
-        tenant_id="tenant-b",
-        workspace_id="workspace-b",
         participating_agent_refs=["tenant-b-agent"],
     )
 
@@ -379,7 +377,7 @@ async def test_scoped_resolve_foreign_id_matches_unknown_create_semantics(
         assert thread.deployment_ref == "deployment-1"
         assert thread.participating_agent_refs == ["tenant-b-agent"]
 
-    owner = await repository.get("external-id", tenant_id="tenant-a", workspace_id="workspace-a")
+    owner = await repository.get("external-id")
     assert owner is not None
     assert owner.participating_agent_refs == []
 
@@ -390,23 +388,19 @@ async def test_same_external_thread_id_race_creates_one_thread_per_tenant(
     database_path = tmp_path / "thread-scope-race.db"
     run_migrations(f"sqlite:///{database_path}")
     database = AsyncSQLiteDatabase(str(database_path))
-    first = ThreadRepository(database)
-    second = ThreadRepository(database)
+    first = _threads(database, "tenant-a", "workspace-a")
+    second = _threads(database, "tenant-b", "workspace-b")
 
     results = await asyncio.gather(
         first.resolve(
             "raced-external-id",
             graph_version_ref="graph-1",
             deployment_ref="deployment-1",
-            tenant_id="tenant-a",
-            workspace_id="workspace-a",
         ),
         second.resolve(
             "raced-external-id",
             graph_version_ref="graph-1",
             deployment_ref="deployment-1",
-            tenant_id="tenant-b",
-            workspace_id="workspace-b",
         ),
     )
 
@@ -415,17 +409,12 @@ async def test_same_external_thread_id_race_creates_one_thread_per_tenant(
 
     restarted = AsyncSQLiteDatabase(str(database_path))
     try:
-        repository = ThreadRepository(restarted)
         assert (
-            await repository.get(
-                "raced-external-id", tenant_id="tenant-a", workspace_id="workspace-a"
-            )
+            await _threads(restarted, "tenant-a", "workspace-a").get("raced-external-id")
             is not None
         )
         assert (
-            await repository.get(
-                "raced-external-id", tenant_id="tenant-b", workspace_id="workspace-b"
-            )
+            await _threads(restarted, "tenant-b", "workspace-b").get("raced-external-id")
             is not None
         )
     finally:
@@ -435,11 +424,12 @@ async def test_same_external_thread_id_race_creates_one_thread_per_tenant(
 async def test_scoped_active_run_helpers_hide_foreign_thread(
     sqlite_db: AsyncSQLiteDatabase,
 ) -> None:
-    repository = ThreadRepository(sqlite_db)
+    repository = _threads(sqlite_db, "tenant-a", "workspace-a")
+    foreign_repository = _threads(sqlite_db, "tenant-b", "workspace-a")
     await repository.create(
         _make_thread("owned-thread", tenant_id="tenant-a", workspace_id="workspace-a")
     )
-    await RunRepository(sqlite_db).create(
+    await _runs(sqlite_db, "tenant-a", "workspace-a").create(
         Run(
             run_id="run-a",
             thread_id="run-a-origin",
@@ -451,32 +441,17 @@ async def test_scoped_active_run_helpers_hide_foreign_thread(
     )
     await repository.attach_run("owned-thread", "run-a")
 
-    assert (
-        await repository.get_active_run_id(
-            "owned-thread", tenant_id="tenant-b", workspace_id="workspace-a"
-        )
-        is None
-    )
-    assert (
-        await repository.get_latest_run_id(
-            "owned-thread", tenant_id="tenant-b", workspace_id="workspace-a"
-        )
-        is None
-    )
-    assert (
-        await repository.list_run_ids(
-            "owned-thread", tenant_id="tenant-b", workspace_id="workspace-a"
-        )
-        == []
-    )
+    assert await foreign_repository.get_active_run_id("owned-thread") is None
+    assert await foreign_repository.get_latest_run_id("owned-thread") is None
+    assert await foreign_repository.list_run_ids("owned-thread") == []
 
 
 @pytest.mark.parametrize("operation", ["attach", "set-active", "run-repository-set-active"])
 async def test_unscoped_thread_run_link_rejects_foreign_run_without_mutation(
     sqlite_db: AsyncSQLiteDatabase, operation: str
 ) -> None:
-    threads = ThreadRepository(sqlite_db)
-    runs = RunRepository(sqlite_db)
+    threads = _threads(sqlite_db, "tenant-a")
+    runs = _runs(sqlite_db, "tenant-b")
     await threads.create(_make_thread("thread-a", tenant_id="tenant-a"))
     await runs.create(
         Run(
@@ -496,15 +471,15 @@ async def test_unscoped_thread_run_link_rejects_foreign_run_without_mutation(
         else:
             await runs.set_active_run_id("thread-a", "run-b")
 
-    owner = await threads.get("thread-a", tenant_id="tenant-a", workspace_id=None)
+    owner = await threads.get("thread-a")
     assert owner is not None
     assert owner.run_ids == []
     assert owner.active_run_id is None
 
 
 async def test_valid_thread_run_link_survives_repository_restart(sqlite_db) -> None:
-    threads = ThreadRepository(sqlite_db)
-    runs = RunRepository(sqlite_db)
+    threads = _threads(sqlite_db, "tenant-a")
+    runs = _runs(sqlite_db, "tenant-a")
     await threads.create(_make_thread("thread-a", tenant_id="tenant-a"))
     await runs.create(
         Run(
@@ -517,17 +492,22 @@ async def test_valid_thread_run_link_survives_repository_restart(sqlite_db) -> N
     )
 
     await threads.set_active_run_id("thread-a", "run-a")
-    reopened = ThreadRepository(sqlite_db)
-    persisted = await reopened.get("thread-a", tenant_id="tenant-a", workspace_id=None)
+    reopened = _threads(sqlite_db, "tenant-a")
+    persisted = await reopened.get("thread-a")
     assert persisted is not None
     assert persisted.run_ids == ["run-a"]
     assert persisted.active_run_id == "run-a"
 
 
 async def test_scoped_set_active_addresses_duplicate_logical_thread_ids(sqlite_db) -> None:
-    threads = ThreadRepository(sqlite_db)
-    runs = RunRepository(sqlite_db)
-    for tenant in ("tenant-a", "tenant-b"):
+    threads_a = _threads(sqlite_db, "tenant-a")
+    threads_b = _threads(sqlite_db, "tenant-b")
+    runs_a = _runs(sqlite_db, "tenant-a")
+    runs_b = _runs(sqlite_db, "tenant-b")
+    for tenant, threads, runs in (
+        ("tenant-a", threads_a, runs_a),
+        ("tenant-b", threads_b, runs_b),
+    ):
         await threads.create(_make_thread("shared-thread", tenant_id=tenant))
         await runs.create(
             Run(
@@ -539,14 +519,10 @@ async def test_scoped_set_active_addresses_duplicate_logical_thread_ids(sqlite_d
             )
         )
 
-    await threads.set_active_run_id(
-        "shared-thread", "run-tenant-a", tenant_id="tenant-a", workspace_id=None
-    )
-    await runs.set_active_run_id(
-        "shared-thread", "run-tenant-b", tenant_id="tenant-b", workspace_id=None
-    )
+    await threads_a.set_active_run_id("shared-thread", "run-tenant-a")
+    await runs_b.set_active_run_id("shared-thread", "run-tenant-b")
 
-    owner_a = await threads.get("shared-thread", tenant_id="tenant-a", workspace_id=None)
-    owner_b = await threads.get("shared-thread", tenant_id="tenant-b", workspace_id=None)
+    owner_a = await threads_a.get("shared-thread")
+    owner_b = await threads_b.get("shared-thread")
     assert owner_a is not None and owner_a.active_run_id == "run-tenant-a"
     assert owner_b is not None and owner_b.active_run_id == "run-tenant-b"

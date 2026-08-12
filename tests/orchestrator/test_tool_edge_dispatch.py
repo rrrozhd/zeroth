@@ -156,7 +156,7 @@ async def test_agent_runs_attached_unit_as_tool_call(sqlite_db, tmp_path: Path) 
 
     orchestrator = RuntimeOrchestrator(
         audit_repository=content_capture(AuditRepository.for_default_compatibility(sqlite_db)),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
     )

@@ -73,7 +73,7 @@ def _orchestrator(sqlite_db, provider_responses: list[ProviderResponse]) -> Runt
             sqlite_db,
             ScopeContext(tenant_id="acme", workspace_id="ws-1"),
         ),
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"start": runner},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
     )

@@ -126,7 +126,7 @@ def _make_orchestrator(
 ) -> RuntimeOrchestrator:
     eu_registry = ExecutableUnitRegistry()
     return RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners=agent_runners,
         executable_unit_runner=ExecutableUnitRunner(eu_registry),
         audit_repository=audit_repository,
@@ -640,7 +640,7 @@ def _memory_fan_out(sqlite_db, *, sink_capabilities: list[str]):
         [Edge(edge_id="e1", source_node_id="source", target_node_id="sink")],
     )
     orchestrator = RuntimeOrchestrator(
-        run_repository=RunRepository(sqlite_db),
+        run_repository=RunRepository.for_default_compatibility(sqlite_db),
         agent_runners={"source": _source_runner(), "sink": _memory_sink_runner()},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         policy_guard=PolicyGuard(capability_registry=default_capability_registry()),
