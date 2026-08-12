@@ -9,7 +9,7 @@ from typing import Any
 
 from zeroth.econ.instrumentation import client
 from zeroth.econ.instrumentation.config import InstrumentationConfig
-from zeroth.econ.instrumentation.integrations import anthropic, openai
+from zeroth.econ.instrumentation.integrations import anthropic, langchain, openai
 from zeroth.econ.instrumentation.runtime import RuntimeState
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
 from zeroth.econ.instrumentation.transport import TelemetryTransport
@@ -57,10 +57,12 @@ def test_same_millisecond_execution_ids_are_distinct(monkeypatch) -> None:
         anthropic._build_event("cap", "impl", 1, "model", {}).execution_id
         for _ in range(2)
     }
+    langchain_ids = {langchain._new_run_id() for _ in range(2)}
 
     assert first["execution_id"] != second["execution_id"]
     assert len(openai_ids) == 2
     assert len(anthropic_ids) == 2
+    assert len(langchain_ids) == 2
 
 
 def test_join_key_cache_is_bounded(monkeypatch) -> None:
