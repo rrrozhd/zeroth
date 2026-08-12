@@ -17,9 +17,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeParallelExecutor
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
 from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
@@ -180,6 +182,50 @@ async def test_resuming_without_a_subgraph_executor_is_an_orchestrator_error() -
             {"paused_branch": {"branch_index": 0, "child_run_id": "c", "graph_ref": "g"}},
             step_tracker=None,
         )
+
+
+async def test_cancelled_approval_sibling_keeps_fan_in_unmeasured() -> None:
+    subgraph_executor = AsyncMock()
+    subgraph_executor.resume = AsyncMock(
+        return_value=_run(
+            status=RunStatus.COMPLETED,
+            final_output={"done": True},
+            metadata={"total_cost_usd": 0.5, "cost_measurement": "measured"},
+        )
+    )
+    result = await _executor(
+        subgraph_executor=subgraph_executor,
+        orchestrator=object(),
+    ).execute_fan_out_resume(
+        object(),
+        _run(),
+        _ParallelNode(),
+        "source",
+        {
+            "paused_branch": {
+                "branch_index": 1,
+                "child_run_id": "child-1",
+                "graph_ref": "sub",
+            },
+            "completed_branches": [
+                {
+                    "branch_index": 0,
+                    "output": {"done": True},
+                    "cost_usd": 0.2,
+                    "cost_measurement": "measured",
+                }
+            ],
+            "cancelled_branches": [{"branch_index": 2}],
+            "split_input": {"items": [1, 2, 3]},
+        },
+        step_tracker=None,
+    )
+
+    cancelled = result.results[2]
+    assert cancelled.cost_usd is None
+    assert cancelled.cost_measurement is MeasurementState.UNMEASURED
+    assert result.total_cost_usd == pytest.approx(0.7)
+    assert result.cost_measurement is MeasurementState.UNMEASURED
 
 
 class _ParallelNode:

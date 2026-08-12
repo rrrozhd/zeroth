@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents import (
     AgentConfig,
     AgentProviderError,
@@ -116,6 +117,50 @@ async def test_agent_runner_keeps_operation_outcome_on_tool_call_audit() -> None
     assert audit["operation_key"] == "op-1"
     assert audit["operation_state"] == "completed"
     assert audit["operation_replay_suppressed"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_runner_sums_every_provider_tool_turn() -> None:
+    config = AgentConfig(
+        name="demo",
+        instruction="Use tools when needed.",
+        model_name="governai:test",
+        input_model=DemoInput,
+        output_model=DemoOutput,
+        tool_attachments=[
+            ToolAttachmentManifest(alias="search", executable_unit_ref="eu://search")
+        ],
+    )
+    provider = DeterministicProviderAdapter(
+        [
+            ProviderResponse(
+                content=None,
+                tool_calls=[{"id": "tool-1", "name": "search", "args": {}}],
+                cost_usd=0.1,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            ProviderResponse(
+                content=None,
+                tool_calls=[{"id": "tool-2", "name": "search", "args": {}}],
+                cost_usd=0.2,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            ProviderResponse(
+                content='{"answer":"done","score":2}',
+                cost_usd=0.3,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+        ]
+    )
+
+    result = await AgentRunner(
+        config,
+        provider,
+        tool_executor=lambda *_args: {"results": []},
+    ).run({"query": "hello"})
+
+    assert result.audit_record["cost_usd"] == pytest.approx(0.6)
+    assert result.audit_record["cost_measurement"] is MeasurementState.MEASURED
 
 
 @pytest.mark.asyncio

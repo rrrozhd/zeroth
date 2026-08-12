@@ -7,6 +7,7 @@ from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall
 
 from zeroth.runtime.agents.cascade import CascadingProviderAdapter, _is_blank_response
+from zeroth.runtime.agents.errors import AgentProviderError
 from zeroth.runtime.agents.provider import ProviderRequest, ProviderResponse
 
 
@@ -121,6 +122,31 @@ async def test_both_models_fail_propagates_the_exception():
     )
     with pytest.raises(RuntimeError, match="incumbent down"):
         await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+
+async def test_paid_blank_primary_is_added_to_incumbent_failure_audit() -> None:
+    incumbent_error = AgentProviderError("incumbent down")
+    incumbent_error.audit_record = {
+        "estimated_cost_usd": 0.02,
+        "cost_measurement": MeasurementState.ESTIMATED,
+    }
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(
+                content=" ",
+                cost_usd=0.001,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            "incumbent": incumbent_error,
+        }
+    )
+
+    with pytest.raises(AgentProviderError) as raised:
+        await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert raised.value.audit_record["cost_usd"] == 0.001
+    assert raised.value.audit_record["estimated_cost_usd"] == 0.02
+    assert raised.value.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
 
 
 def test_is_blank_response_definition():
