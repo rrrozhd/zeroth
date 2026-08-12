@@ -2585,16 +2585,23 @@ def _audit_repository_public_call_provenance(
                         for name, identity in state.items():
                             record_event(name, position, identity)
 
+                    def bind_identity(
+                        target: ast.AST,
+                        identity: type[BaseException] | None,
+                        position: tuple[int, int],
+                        state: dict[str, type[BaseException] | None],
+                    ) -> None:
+                        for name in _bound_names(target):
+                            state[name] = identity
+                            record_event(name, position, identity)
+
                     def bind_alias(
                         target: ast.AST,
                         value: ast.AST | None,
                         position: tuple[int, int],
                         state: dict[str, type[BaseException] | None],
                     ) -> None:
-                        identity = resolve(value, state)
-                        for name in _bound_names(target):
-                            state[name] = identity
-                            record_event(name, position, identity)
+                        bind_identity(target, resolve(value, state), position, state)
 
                     def _definitely_nonempty_iterable(expression: ast.AST) -> bool:
                         if isinstance(expression, (ast.List, ast.Set, ast.Tuple)):
@@ -2765,11 +2772,20 @@ def _audit_repository_public_call_provenance(
                         state = dict(state)
                         for statement in block:
                             position = (statement.lineno, statement.col_offset)
-                            if isinstance(statement, ast.AnnAssign):
+                            if isinstance(statement, ast.Assign):
+                                state = transfer_expression(statement.value, state)
+                                value_identity = resolve(statement.value, state)
+                                for target in statement.targets:
+                                    state = transfer_assignment_target(target, state)
+                                    bind_identity(target, value_identity, position, state)
+                            elif isinstance(statement, ast.AnnAssign):
                                 if statement.value is not None:
                                     state = transfer_expression(statement.value, state)
+                                    value_identity = resolve(statement.value, state)
                                     state = transfer_assignment_target(statement.target, state)
-                                    bind_alias(statement.target, statement.value, position, state)
+                                    bind_identity(
+                                        statement.target, value_identity, position, state
+                                    )
                                 if (
                                     not isinstance(
                                         scope, (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -2779,10 +2795,7 @@ def _audit_repository_public_call_provenance(
                                     state = transfer_expression(statement.annotation, state)
                             else:
                                 state = transfer_expression(statement, state)
-                            if isinstance(statement, ast.Assign):
-                                for target in statement.targets:
-                                    bind_alias(target, statement.value, position, state)
-                            elif isinstance(statement, ast.ImportFrom):
+                            if isinstance(statement, ast.ImportFrom):
                                 for alias in statement.names:
                                     name = alias.asname or alias.name
                                     identity = (
@@ -8914,6 +8927,32 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         ),
         (
             "",
+            "from builtins import TypeError as BuiltinTypeError\nmapping = {}\n",
+            "    mapping[(TypeError := ValueError)] = (TypeError := BuiltinTypeError)\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\nmapping = {}\n",
+            "    mapping[(TypeError := BuiltinTypeError)] = (TypeError := ValueError)\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\nmapping = {}\n",
+            "    mapping[(TypeError := ValueError)] = alias = (TypeError := BuiltinTypeError)\n",
+            frozenset(),
+        ),
+        (
+            "",
+            "from builtins import TypeError as BuiltinTypeError\nmapping = {}\n",
+            "    mapping[(TypeError := ValueError)] = "
+            "mapping[(TypeError := BuiltinTypeError)] = None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
+        ("", "", "    alias = (TypeError := ValueError)\n", frozenset()),
+        (
+            "",
             "",
             "    class Local:\n"
             "        marker: (TypeError := ValueError)\n",
@@ -8928,6 +8967,14 @@ def test_public_call_inventory_models_definition_annotation_aliases(
         "module-postponed",
         "module-rhs-then-annotation",
         "module-rhs-then-annotation-reversed",
+        "subscript-target",
+        "attribute-target",
+        "name-target",
+        "assign-target-then-rhs",
+        "assign-target-then-rhs-reversed",
+        "assign-chain-target-order",
+        "assign-multiple-target-address-order",
+        "assign-simple-alias",
         "class-local-scope",
     ],
 )
