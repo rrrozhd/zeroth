@@ -13,13 +13,11 @@ from zeroth.governance.approvals.models import (
     ApprovalRecord,
     ApprovalStatus,
 )
-from zeroth.governance.approvals.repository import (
-    ApprovalRepository,
-    OverdueApprovalMaintenanceReader,
-)
+from zeroth.governance.approvals.repository import ApprovalRepository
 from zeroth.governance.approvals.service import ApprovalService
 from zeroth.governance.identity import ActorIdentity, AuthMethod, ServiceRole
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.storage import ScopeContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -60,16 +58,21 @@ def _make_record(
 
 
 # ---------------------------------------------------------------------------
-# OverdueApprovalMaintenanceReader.list_overdue
+# ApprovalRepository.list_overdue
 # ---------------------------------------------------------------------------
 
 
-class TestOverdueApprovalMaintenanceReader:
-    """Tests for the explicit cross-tenant overdue-approval reader."""
+class TestApprovalRepositoryListOverdue:
+    """Tests for deployment-owner-local overdue approval reads."""
 
     @pytest.fixture
     async def stores(self, async_database):
-        return ApprovalRepository(async_database), OverdueApprovalMaintenanceReader(async_database)
+        repository = ApprovalRepository.scoped_for_deployment(
+            async_database,
+            ScopeContext(tenant_id="tenant-1", workspace_id="ws-1"),
+            "deploy-1",
+        )
+        return repository, repository
 
     async def test_returns_pending_past_deadline(self, stores):
         """list_overdue returns PENDING approvals whose sla_deadline is in the past."""
@@ -130,7 +133,11 @@ class TestOverdueApprovalMaintenanceReader:
 
     async def test_non_default_overdue_record_escalates_through_exact_scope(self, async_database):
         repository = ApprovalRepository(async_database)
-        reader = OverdueApprovalMaintenanceReader(async_database)
+        reader = ApprovalRepository.scoped_for_deployment(
+            async_database,
+            ScopeContext(tenant_id="tenant-1", workspace_id="ws-1"),
+            "deploy-1",
+        )
         service = ApprovalService(
             repository=repository,
             run_repository=AsyncMock(spec=RunRepository),
@@ -372,14 +379,13 @@ class TestApprovalSLAChecker:
         )
 
         service = AsyncMock(spec=ApprovalService)
-        maintenance_reader = AsyncMock(spec=OverdueApprovalMaintenanceReader)
-        maintenance_reader.list_overdue = AsyncMock(return_value=[overdue])
+        service.repository = AsyncMock(spec=ApprovalRepository)
+        service.repository.list_overdue = AsyncMock(return_value=[overdue])
         escalated_record = _make_record(status=ApprovalStatus.ESCALATED)
         service.escalate = AsyncMock(return_value=escalated_record)
 
         checker = ApprovalSLAChecker(
             approval_service=service,
-            maintenance_reader=maintenance_reader,
             poll_interval=0.01,
         )
 
@@ -390,7 +396,7 @@ class TestApprovalSLAChecker:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        maintenance_reader.list_overdue.assert_called()
+        service.repository.list_overdue.assert_called()
         service.escalate.assert_called_with(
             overdue.approval_id,
             tenant_id=overdue.tenant_id,
@@ -409,8 +415,8 @@ class TestApprovalSLAChecker:
         )
 
         service = AsyncMock(spec=ApprovalService)
-        maintenance_reader = AsyncMock(spec=OverdueApprovalMaintenanceReader)
-        maintenance_reader.list_overdue = AsyncMock(return_value=[overdue])
+        service.repository = AsyncMock(spec=ApprovalRepository)
+        service.repository.list_overdue = AsyncMock(return_value=[overdue])
         escalated_record = _make_record(
             status=ApprovalStatus.ESCALATED,
             escalation_action="alert",
@@ -423,7 +429,6 @@ class TestApprovalSLAChecker:
 
         checker = ApprovalSLAChecker(
             approval_service=service,
-            maintenance_reader=maintenance_reader,
             webhook_service=webhook_service,
             poll_interval=0.01,
         )

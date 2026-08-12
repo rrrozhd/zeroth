@@ -181,7 +181,9 @@ async def bootstrap_service(
         database,
         contract_scope_context(deployment.tenant_id, deployment.workspace_id),
     )
-    approval_repository = ApprovalRepository(database)
+    approval_repository = ApprovalRepository.scoped_for_deployment(
+        database, deployment_scope, deployment.deployment_ref
+    )
     approval_service = ApprovalService(
         repository=approval_repository,
         run_repository=run_repository,
@@ -534,12 +536,10 @@ async def bootstrap_service(
 
     if settings.approval_sla.enabled:
         try:
-            from zeroth.governance.approvals.repository import OverdueApprovalMaintenanceReader
             from zeroth.governance.approvals.sla_checker import ApprovalSLAChecker
 
             sla_checker_obj = ApprovalSLAChecker(
                 approval_service=approval_service,
-                maintenance_reader=OverdueApprovalMaintenanceReader(database),
                 webhook_service=webhook_service_obj,
                 poll_interval=settings.approval_sla.checker_poll_interval,
             )
