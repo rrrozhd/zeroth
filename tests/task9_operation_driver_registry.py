@@ -375,10 +375,12 @@ async def _drive_policies(database: AsyncDatabase, operation: ResourceOperation)
         assert await RetentionPolicyRepository(database, _scope("driver-unknown")).get() is None
         assert (await owner.get()).tenant_id == "driver-owner"
     elif operation is O.ENUMERATE:
-        rows = await RetentionPolicyRepository.for_privileged_tenant_maintenance(
-            database
-        ).list_all_enabled_for_maintenance()
-        assert "driver-owner" in {row.tenant_id for row in rows}
+        assert [row.tenant_id for row in await owner.list_for_tenant()] == ["driver-owner"]
+        assert await foreign.list_for_tenant() == []
+        assert (
+            await RetentionPolicyRepository(database, _scope("driver-unknown")).list_for_tenant()
+            == []
+        )
     else:
         await foreign.upsert(RetentionPolicy(tenant_id="driver-foreign", audit_ttl_seconds=20))
         assert (await owner.get()).audit_ttl_seconds == 10
