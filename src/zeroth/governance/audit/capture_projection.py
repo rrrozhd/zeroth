@@ -14,21 +14,24 @@ carry the payload. That is not hypothetical: a mapping key whose ``__str__``
 returned a credential put the credential into a persisted schema, and the same
 key made ``json.dumps`` raise, which turned the digest into ``None`` and
 silently removed the hash that was supposed to stand in for the dropped
-content. :func:`canonicalize` therefore dispatches on *type*, never on
-behaviour: exact scalar types pass through, mappings and sequences are walked,
-and anything else becomes a bounded type name. Every other function here reads
-the canonical form, so the digest cannot fail and the schema cannot be
-authored.
+content. Canonicalization therefore dispatches on *type*, never on behaviour:
+exact scalar types pass through, mappings and sequences are walked, and
+anything else becomes a bounded type name. The public :func:`canonicalize`
+helper is deterministic for local comparison; persisted summaries never use
+that form. :class:`ContentFreeProjection` repeats the same total traversal with
+its projection-scoped HMAC key, and only that private canonical form reaches
+its digest and schema.
 
 **Names are never printed, only counted and hashed.** Gating a key on
 "identifier-shaped and short" was not enough: ``AKIAIOSFODNN7EXAMPLE`` is a
 perfectly well-formed identifier, so a seeded credential used as a mapping key
-was persisted verbatim inside a dropped-content schema. A canonical mapping key
-is now :func:`key_digest` -- a truncated SHA-256 of the key -- so two payloads
-that shared a key still look alike and no producer text survives. Type names in
-a schema come from a closed set (:data:`_SCHEMA_TYPE_NAMES`), because
-:meth:`ContentFreeProjection.schema` only ever reads canonical values and a
-dynamically constructed class can carry any ``__name__`` it likes.
+was persisted verbatim inside a dropped-content schema. Standalone canonical
+forms use :func:`key_digest`, a truncated SHA-256, for repeatable local
+comparison. Persisted schemas instead use a truncated HMAC with the projection's
+random key, so producer text does not survive and a public digest cannot confirm
+or correlate it across policies. Type names in a schema come from a closed set
+(:data:`_SCHEMA_TYPE_NAMES`), because the projection only ever reads canonical
+values and a dynamically constructed class can carry any ``__name__`` it likes.
 
 **A canonical mapping is a sequence of entries, not a mapping.** Rendering keys
 to fixed markers made distinct keys collide: every unsafe or non-string key
@@ -37,9 +40,9 @@ other and the record claimed a count of one and a schema missing a branch --
 R4's retained hashes and counts, wrong. Canonicalizing to ``{"<entries>":
 [[key, value], ...]}`` removes the collapse entirely: an entry is a list
 element, so it cannot be overwritten by a sibling whatever its key rendered to.
-Keys are hashed when they are exact strings and become a closed
-per-type marker otherwise, and the entries are sorted by their own rendering so
-two equal payloads still digest alike.
+Exact string keys are fingerprinted by the active canonicalization boundary and
+other keys become a closed per-type marker. Entries are sorted by their own
+rendering so two equal payloads still digest alike within one projection.
 
 **Metadata is a typed allowlist, not a scrub.** ``execution_metadata`` and
 approval metadata are free-form ``dict[str, Any]`` that producers fill with
@@ -87,7 +90,7 @@ _MAX_IDENTIFIER_CHARS = 128
 _SAFE_IDENTIFIER = re.compile(r"\A[a-z0-9][a-z0-9._:\-]*\Z")
 # A hash, optionally prefixed by its algorithm ("sha256:...").
 _SAFE_DIGEST = re.compile(r"\A(?:[a-z0-9]{1,16}:)?[0-9a-f]{16,128}\Z")
-# How much of a key's SHA-256 stands in for the key in a canonical rendering.
+# How much of a key fingerprint stands in for the key in a canonical rendering.
 _KEY_DIGEST_CHARS = 16
 # The only type names a schema can carry, because schemas read canonical values.
 _SCHEMA_TYPE_NAMES = frozenset({"NoneType", "bool", "int", "float", "str", "dict", "list"})
@@ -129,24 +132,26 @@ def type_name(value: Any) -> str:
 
 
 def key_digest(name: Any) -> str:
-    """Stand a mapping key's text off with a short, stable digest of it.
+    """Return a short stable key digest for standalone canonicalization only.
 
     Args:
         name: A candidate mapping key.
 
     Returns:
         A truncated SHA-256 of the key, or :data:`REDACTED` for anything that
-        is not an exact ``str``. Producer-supplied key text never survives into
-        a persisted summary, so a credential used as a key cannot be read back
-        out of a schema.
+        is not an exact ``str``. Persisted summaries do not use this public,
+        correlatable representation; :class:`ContentFreeProjection` uses its
+        projection-scoped HMAC key instead.
     """
     if type(name) is not str:
         return REDACTED
-    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:_KEY_DIGEST_CHARS]
+    return hashlib.sha256(name.encode("utf-8", errors="surrogatepass")).hexdigest()[
+        :_KEY_DIGEST_CHARS
+    ]
 
 
 def canonical_key(key: Any) -> str:
-    """Render one mapping key as a hashed exact string or a closed type marker.
+    """Render one mapping key for a standalone, non-persisted canonical form.
 
     Args:
         key: The producer-supplied key, of any type.
@@ -178,18 +183,13 @@ def canonical_entries(canonical: Any) -> list[Any] | None:
     return entries if type(entries) is list else None
 
 
-def canonicalize(value: Any, *, depth: int = 0) -> Any:
-    """Render any payload as JSON-safe data, dispatching on type and never on behaviour.
-
-    Args:
-        value: The payload to render. Arbitrarily shaped and producer-supplied.
-        depth: Current recursion depth, bounded by :data:`MAX_DEPTH`.
-
-    Returns:
-        A structure of ``None``, ``bool``, ``int``, ``float``, ``str``, ``list``
-        and entry-sequence mappings -- so :func:`json.dumps` on it cannot raise,
-        and nothing in it was produced by ``__str__`` or ``__repr__``.
-    """
+def _canonicalize(
+    value: Any,
+    *,
+    depth: int,
+    string_key_digest: Callable[[str], str],
+) -> Any:
+    """Render a payload with the key fingerprint selected by its caller."""
     if depth >= MAX_DEPTH:
         return "..."
     value_type = type(value)
@@ -201,13 +201,30 @@ def canonicalize(value: Any, *, depth: int = 0) -> Any:
         return value
     if isinstance(value, Mapping):
         entries = [
-            [canonical_key(key), canonicalize(item, depth=depth + 1)] for key, item in value.items()
+            [
+                string_key_digest(key) if type(key) is str else canonical_key(key),
+                _canonicalize(
+                    item,
+                    depth=depth + 1,
+                    string_key_digest=string_key_digest,
+                ),
+            ]
+            for key, item in value.items()
         ]
         return {ENTRIES_KEY: sorted(entries, key=_ordering)}
     if isinstance(value, list | tuple):
-        return [canonicalize(item, depth=depth + 1) for item in value]
+        return [
+            _canonicalize(item, depth=depth + 1, string_key_digest=string_key_digest)
+            for item in value
+        ]
     if isinstance(value, set | frozenset):
-        return sorted((canonicalize(item, depth=depth + 1) for item in value), key=_ordering)
+        return sorted(
+            (
+                _canonicalize(item, depth=depth + 1, string_key_digest=string_key_digest)
+                for item in value
+            ),
+            key=_ordering,
+        )
     if isinstance(value, str):
         # A ``str`` subclass: take the underlying characters through ``str``'s own
         # implementation rather than the subclass's ``__str__``.
@@ -215,6 +232,23 @@ def canonicalize(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, bytes | bytearray):
         return f"<bytes:{len(value)}>"
     return f"<{type_name(value)}>"
+
+
+def canonicalize(value: Any, *, depth: int = 0) -> Any:
+    """Render non-persisted JSON-safe data without invoking producer behaviour.
+
+    Args:
+        value: The payload to render. Arbitrarily shaped and producer-supplied.
+        depth: Current recursion depth, bounded by :data:`MAX_DEPTH`.
+
+    Returns:
+        A structure of ``None``, ``bool``, ``int``, ``float``, ``str``, ``list``
+        and entry-sequence mappings -- so :func:`json.dumps` on it cannot raise,
+        and nothing in it was produced by ``__str__`` or ``__repr__``. This
+        deterministic form is for local comparison; persisted summaries use
+        projection-scoped keyed fingerprints through the private traversal.
+    """
+    return _canonicalize(value, depth=depth, string_key_digest=key_digest)
 
 
 def digest(canonical: Any) -> str:
@@ -251,13 +285,18 @@ class ContentFreeProjection:
 
     def summarize(self, value: Any) -> dict[str, Any]:
         """Describe a dropped payload -- digest, shape and size -- without reproducing it."""
-        canonical = canonicalize(value)
+        canonical = _canonicalize(value, depth=0, string_key_digest=self._key_digest)
         rendered = json.dumps(canonical, sort_keys=True).encode("utf-8")
         return {
             "hmac_sha256": hmac.new(self._hmac_key, rendered, hashlib.sha256).hexdigest(),
             "schema": self.schema(canonical),
             "count": entry_count(canonical),
         }
+
+    def _key_digest(self, name: str) -> str:
+        """Fingerprint an exact string key within this projection only."""
+        encoded = name.encode("utf-8", errors="surrogatepass")
+        return hmac.new(self._hmac_key, encoded, hashlib.sha256).hexdigest()[:_KEY_DIGEST_CHARS]
 
     def schema(self, canonical: Any, *, depth: int = 0) -> Any:
         """Describe a canonical payload's shape: rendered keys and closed type names."""
