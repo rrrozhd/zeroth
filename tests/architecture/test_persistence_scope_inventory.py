@@ -275,6 +275,21 @@ def _is_potential_repository_annotation(node: ast.AST | None) -> bool:
     )
 
 
+def _resolved_receiver_annotation_repository_name(
+    node: ast.AST,
+    repository_names: set[str],
+    module_names: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    direct_identity = _resolved_audit_repository_name(node, repository_names, module_names)
+    if direct_identity is not None:
+        return direct_identity
+    identities = {
+        _resolved_audit_repository_name(candidate, repository_names, module_names)
+        for candidate in _receiver_annotation_type_nodes(node)
+    }
+    return _AUDIT_REPOSITORY_CLASS if identities - {None} == {_AUDIT_REPOSITORY_CLASS} else None
+
+
 def _ast_parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     parents: dict[ast.AST, ast.AST] = {}
     for parent in ast.walk(tree):
@@ -607,7 +622,7 @@ def _must_alias_events(
                 if identity is None
                 else _canonical_audit_repository_name((*identity, *dotted[1:]))
             )
-        return _resolved_audit_repository_name(value, repository_names, module_names)
+        return _resolved_receiver_annotation_repository_name(value, repository_names, module_names)
 
     def leaf_identities(
         value: ast.AST, state: dict[str, _AliasIdentity]
@@ -1407,7 +1422,7 @@ def _audit_repository_public_call_provenance(
                     if not isinstance(target, ast.Name) or value is None:
                         continue
                     type_parameter_names = _type_parameter_names(assigned)
-                    binding = _resolved_audit_repository_name(
+                    binding = _resolved_receiver_annotation_repository_name(
                         value,
                         repository_names - type_parameter_names,
                         {
@@ -1431,7 +1446,7 @@ def _audit_repository_public_call_provenance(
                 ):
                     continue
                 type_parameter_names = _type_parameter_names(alias)
-                binding = _resolved_audit_repository_name(
+                binding = _resolved_receiver_annotation_repository_name(
                     alias.value,
                     repository_names - type_parameter_names,
                     {
@@ -1443,9 +1458,11 @@ def _audit_repository_public_call_provenance(
                 if binding == _AUDIT_REPOSITORY_CLASS:
                     continue
                 if any(
-                    _resolved_audit_repository_name(option, repository_names, module_names)
+                    _resolved_receiver_annotation_repository_name(
+                        option, repository_names, module_names
+                    )
                     == _AUDIT_REPOSITORY_CLASS
-                    or _resolved_audit_repository_name(
+                    or _resolved_receiver_annotation_repository_name(
                         option, potential_imported_repository_names, {}
                     )
                     == _AUDIT_REPOSITORY_CLASS
@@ -1502,7 +1519,7 @@ def _audit_repository_public_call_provenance(
                         parents,
                     )
                     if (
-                        _resolved_audit_repository_name(
+                        _resolved_receiver_annotation_repository_name(
                             value,
                             visible_repository_names - _type_parameter_names(assigned),
                             {
@@ -4544,8 +4561,53 @@ def test_public_call_inventory_honors_local_type_alias_closure_shadowing(
             frozenset(),
             frozenset({"apps/candidate.py::use::write"}),
         ),
+        (
+            "from typing import Optional\n"
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = Optional[AuditRepository]\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "from typing import Annotated\n"
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = Annotated[AuditRepository, marker]\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Repo = AuditRepository | None\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "from zeroth.governance.audit import AuditRepository\n"
+            "type Base = AuditRepository\n"
+            "type Repo = Base\n",
+            frozenset({"apps/candidate.py::use::write"}),
+            frozenset(),
+        ),
+        (
+            "from typing import Optional\n"
+            "from my_adapter import AuditRepository as AR\n"
+            "type Repo = Optional[AR]\n",
+            frozenset(),
+            frozenset({"apps/candidate.py::use::write"}),
+        ),
     ],
-    ids=["canonical", "noncanonical", "divergent", "rebound", "type-param-shadow"],
+    ids=[
+        "canonical",
+        "noncanonical",
+        "divergent",
+        "rebound",
+        "type-param-shadow",
+        "optional",
+        "annotated",
+        "union",
+        "chain",
+        "potential-optional",
+    ],
 )
 def test_public_call_inventory_tracks_type_alias_repository_bindings(
     tmp_path: Path,
