@@ -74,6 +74,8 @@ async def test_cross_tenant_run_read_returns_not_found_and_audits_denial(sqlite_
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service
@@ -116,6 +118,8 @@ async def test_cross_tenant_permission_only_manifest_read_is_hidden_and_audited(
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service
@@ -149,17 +153,29 @@ async def test_cross_tenant_permission_routes_hide_every_deployment_surface(sqli
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service
 
     requests = [
         ("get", "/connectors", None, "tenant-b-operator-key"),
-        ("post", "/connectors", {"ref": "foreign", "backend_type": "ephemeral"}, "tenant-b-operator-key"),
+        (
+            "post",
+            "/connectors",
+            {"ref": "foreign", "backend_type": "ephemeral"},
+            "tenant-b-operator-key",
+        ),
         ("delete", "/connectors/foreign", None, "tenant-b-operator-key"),
         ("post", "/runs", {"input_payload": {"value": 1}}, "tenant-b-operator-key"),
         ("get", "/runs/not-a-run", None, "tenant-b-operator-key"),
-        ("post", f"/deployments/{service.deployment.deployment_ref}/approvals/missing/resolve", {"decision": "approve"}, "tenant-b-reviewer-key"),
+        (
+            "post",
+            f"/deployments/{service.deployment.deployment_ref}/approvals/missing/resolve",
+            {"decision": "approve"},
+            "tenant-b-reviewer-key",
+        ),
         ("get", "/api/studio/v1/workflows", None, "tenant-b-operator-key"),
     ]
     with TestClient(app) as client:
@@ -209,6 +225,8 @@ async def test_same_tenant_other_workspace_is_hidden_by_central_permission_scope
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service
@@ -253,6 +271,8 @@ async def test_foreign_tenant_artifact_retrieval_is_hidden_before_store_lookup(
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service
@@ -281,6 +301,8 @@ async def test_cross_tenant_approval_resolution_is_hidden(sqlite_db) -> None:
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service

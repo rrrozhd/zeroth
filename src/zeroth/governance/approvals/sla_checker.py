@@ -39,7 +39,13 @@ class ApprovalSLAChecker:
                 overdue = await self.maintenance_reader.list_overdue()
                 for record in overdue:
                     try:
-                        escalated = await self.approval_service.escalate(record.approval_id)
+                        escalated = await self.approval_service.escalate(
+                            record.approval_id,
+                            tenant_id=record.tenant_id,
+                            workspace_id=record.workspace_id,
+                            deployment_ref=record.deployment_ref,
+                            graph_version_ref=record.graph_version_ref,
+                        )
                         await self._emit_escalation_event(escalated)
                     except Exception:
                         logger.exception("failed to escalate approval %s", record.approval_id)

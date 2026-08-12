@@ -286,6 +286,8 @@ async def test_admin_routes_hide_service_from_foreign_tenant_admin(sqlite_db) ->
     app = await bootstrap_app(
         sqlite_db,
         deployment_ref=service.deployment.deployment_ref,
+        tenant_id=service.deployment.tenant_id,
+        workspace_id=service.deployment.workspace_id,
         auth_config=auth_config,
     )
     app.state.bootstrap = service

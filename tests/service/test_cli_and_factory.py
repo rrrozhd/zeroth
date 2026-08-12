@@ -20,6 +20,7 @@ from zeroth.service.demo import (
     build_hello_graph,
     seed_demo,
 )
+from tests.service.helpers import agent_graph, deploy_service
 
 
 async def test_seed_demo_creates_published_graph_and_deployment(sqlite_db):
@@ -94,6 +95,35 @@ async def test_build_runners_for_deployment_roundtrip(sqlite_db):
 
 async def test_build_runners_for_missing_deployment_returns_none(sqlite_db):
     assert await build_runners_for_deployment(sqlite_db, "nope") is None
+
+
+async def test_build_runners_resolves_non_default_deployment_in_exact_scope(sqlite_db):
+    _, deployment = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="tenant-runner-graph"),
+        deployment_ref="tenant-runner-deployment",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+    )
+
+    assert (
+        await build_runners_for_deployment(
+            sqlite_db,
+            deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
+            workspace_id="other-workspace",
+        )
+        is None
+    )
+    runners = await build_runners_for_deployment(
+        sqlite_db,
+        deployment.deployment_ref,
+        tenant_id=deployment.tenant_id,
+        workspace_id=deployment.workspace_id,
+    )
+
+    assert runners is not None
+    assert set(runners) == {"agent-step"}
 
 
 def test_cli_parser_has_expected_subcommands():
