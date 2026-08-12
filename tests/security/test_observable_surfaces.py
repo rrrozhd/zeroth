@@ -149,7 +149,11 @@ def _record_api_get(
             },
             "errors": [] if response.is_success else [response.json()],
             "status": response.status_code,
-            "headers": dict(response.headers),
+            "headers": {
+                name: value
+                for name, value in response.headers.items()
+                if name in {"content-length", "content-type", "x-correlation-id"}
+            },
         }
     )
     return response

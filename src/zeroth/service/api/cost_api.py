@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
+from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import (
     Permission,
     require_deployment_scope,
@@ -92,7 +93,13 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                     budget_cap_usd=data.get("budget_cap_usd"),
                 )
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
+            # A02-10: an httpx error's message carries the full URL it dialled,
+            # which is the Regulus base URL -- internal infrastructure the caller
+            # does not otherwise learn. Reported as a category instead.
+            raise HTTPException(
+                status_code=503,
+                detail=safe_error_detail(exc, context="regulus backend"),
+            ) from exc
 
     @app.put("/tenants/{tenant_id}/budget", response_model=TenantCostResponse)
     async def set_tenant_budget(
@@ -128,7 +135,13 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                     budget_cap_usd=data.get("budget_cap_usd"),
                 )
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
+            # A02-10: an httpx error's message carries the full URL it dialled,
+            # which is the Regulus base URL -- internal infrastructure the caller
+            # does not otherwise learn. Reported as a category instead.
+            raise HTTPException(
+                status_code=503,
+                detail=safe_error_detail(exc, context="regulus backend"),
+            ) from exc
 
     @app.get(
         "/deployments/{deployment_ref}/cost",
@@ -163,4 +176,10 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
                     total_cost_usd=float(data.get("total_cost_usd", 0)),
                 )
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail=f"Regulus backend error: {exc}") from exc
+            # A02-10: an httpx error's message carries the full URL it dialled,
+            # which is the Regulus base URL -- internal infrastructure the caller
+            # does not otherwise learn. Reported as a category instead.
+            raise HTTPException(
+                status_code=503,
+                detail=safe_error_detail(exc, context="regulus backend"),
+            ) from exc

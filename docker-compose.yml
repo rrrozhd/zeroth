@@ -6,19 +6,27 @@
 
 services:
   zeroth:
-    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.17.0.4}
+    image: zeroth-core:${ZEROTH_IMAGE_TAG:-0.23.0}
     build:
       context: .
-      args:
-        # psycopg for the Postgres backend below.
-        ZEROTH_EXTRAS: memory-pg,langgraph,langgraph-gateway
     init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+    volumes:
+      - zeroth-data:/data
     stop_grace_period: 30s
     ports:
       - "8000:8000"
     environment:
       ZEROTH_DATABASE__BACKEND: postgres
       ZEROTH_DATABASE__POSTGRES_DSN: postgresql://zeroth:zeroth@db:5432/zeroth
+      ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR: /data/artifacts
       ZEROTH_SERVICE_API_KEYS_JSON: ${ZEROTH_SERVICE_API_KEYS_JSON:-}
       SIGNING_DEPLOYMENT: ${SIGNING_DEPLOYMENT:-}
       ZEROTH_LANGGRAPH_GATEWAY__ENABLED: "true"
@@ -47,6 +55,14 @@ services:
       context: .
       dockerfile: release/langgraph/Dockerfile
     working_dir: /workspace
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
     healthcheck:
       test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8123/ok',timeout=2))['ok']"]
       interval: 2s
@@ -55,6 +71,16 @@ services:
 
   db:
     image: postgres:16.9-bookworm
+    user: postgres
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     environment:
       POSTGRES_USER: zeroth
       POSTGRES_PASSWORD: zeroth
@@ -68,4 +94,5 @@ services:
       retries: 15
 
 volumes:
+  zeroth-data:
   zeroth-pg:

@@ -14,9 +14,11 @@ import { detectRegulus, type RegulusStatus } from "@/app/lib/regulus";
 import { RegulusCtx } from "./regulusContext";
 import { usePolling } from "@/app/hooks/usePolling";
 import { listApprovals } from "@/app/lib/api";
+import { AuditVerificationCtx } from "./auditVerificationContext";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [reg, setReg] = useState<RegulusStatus>("unknown");
+  const [auditVerifiedAt, setAuditVerifiedAt] = useState<string | null>(null);
   useEffect(() => {
     detectRegulus().then(setReg);
   }, []);
@@ -39,20 +41,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <RegulusCtx.Provider value={reg}>
-        <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-          <Sidebar pendingApprovals={pendingApprovals} />
-          <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-            <Topbar />
-            <main
-              id="main"
-              tabIndex={-1}
-              style={{ flex: 1, overflowY: "auto" }}
-              className="z-fade"
-            >
-              {children}
-            </main>
+        <AuditVerificationCtx.Provider
+          value={{ verifiedAt: auditVerifiedAt, markVerified: setAuditVerifiedAt }}
+        >
+          <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+            <Sidebar pendingApprovals={pendingApprovals} />
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+              <Topbar />
+              <main
+                id="main"
+                tabIndex={-1}
+                style={{ flex: 1, overflowY: "auto" }}
+                className="z-fade"
+              >
+                {children}
+              </main>
+            </div>
           </div>
-        </div>
+        </AuditVerificationCtx.Provider>
       </RegulusCtx.Provider>
     </ToastProvider>
   );

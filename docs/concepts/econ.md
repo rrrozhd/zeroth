@@ -5,7 +5,7 @@
 The `zeroth.econ.analytics` subsystem — called **economics** in the docs and
 `econ` in the source tree — is how Zeroth tracks the monetary cost of every
 LLM call, enforces per-tenant budgets, and forwards the resulting cost
-events to an external observability companion called **Regulus**.
+events to the bundled **Regulus** control plane.
 
 ## Why it exists
 
@@ -22,10 +22,9 @@ event before the caller ever sees the response.
 `econ` wraps the provider adapter layer used by
 [agents](agents.md) and the [orchestrator](orchestrator.md), so every token
 that flows through a [run](runs.md) is costed in flight. The cost events
-are forwarded to **Regulus**, whose SDK —
-[`econ-instrumentation-sdk`](https://pypi.org/project/econ-instrumentation-sdk/),
-pinned as a direct dependency in `pyproject.toml` — handles transport and
-dashboarding. Regulus is an external service; Zeroth is the client.
+are forwarded through `zeroth.econ.instrumentation` to **Regulus**. Both the
+instrumentation client and the `zeroth.econ.plane` backend ship in
+`zeroth-core`; the backend can be mounted in-process or run separately.
 
 ## Tenant boundary
 

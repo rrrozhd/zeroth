@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.16.2.8`.
+This is the canonical clean install and operations path for Zeroth `0.23.0`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -16,7 +16,7 @@ Use Python 3.12 and install only the deployment surface you operate:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install "zeroth-core[langgraph,langgraph-gateway]==0.16.2.8"
+pip install "zeroth-core[langgraph,langgraph-gateway]==0.23.0"
 ```
 
 For managed Agent Server deployments, put the Zeroth gateway in front of the
@@ -29,16 +29,18 @@ For self-hosted deployment, build the release image and use Compose:
 ```bash
 export ZEROTH_SERVICE_API_KEYS_JSON='[{"credential_id":"release-smoke","secret":"release-smoke-key","subject":"release-operator","roles":["operator"]}]'
 export SIGNING_DEPLOYMENT="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+uv build --wheel
+docker compose build
 docker compose run --rm zeroth zeroth-core seed-demo
-docker compose up --build --wait
+docker compose up --wait
 python release/langgraph/harness.py smoke --require-gateway
 python release/langgraph/harness.py gateway-smoke --api-key release-smoke-key
 ```
 
 The Compose file includes a bounded, test-only Agent Server fixture so this
 release smoke is deterministic and needs no proprietary Agent Server image. For
-a real self-hosted or managed upstream, set `ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL`
-and `ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE`; keep the gateway deployment ref
+a real self-hosted or managed upstream, set `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL`
+and `ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE`; keep the gateway deployment ref
 equal to the seeded or imported deployment.
 
 The image runs as UID `10001`; `/health/ready` checks configured dependencies.

@@ -4,7 +4,7 @@ Regulus is the economics control plane that tracks LLM spend and exposes the
 cost/KPI data behind budget caps. It is **part of the `zeroth-core` package** —
 absorbed in-repo, Zeroth-owned, not a separate project:
 
-- the instrumentation SDK lives at `src/zeroth/core/econ/instrumentation`
+- the instrumentation SDK lives at `src/zeroth/econ/instrumentation`
   (import `zeroth.econ.instrumentation`); and
 - the backend lives at `src/zeroth/econ/plane` (the `zeroth.econ.plane` FastAPI
   app), installable via the `regulus` optional extra.
@@ -159,5 +159,5 @@ curl -s http://localhost:8000/health                 # -> {"status":"ok"}
 
 - [Economics concept page](../../concepts/econ.md)
 - [Configuration Reference](../../reference/configuration.md)
-- Provenance: `src/zeroth/core/econ/instrumentation/PROVENANCE.md`,
-  `src/zeroth/econ_plane/PROVENANCE.md`
+- Provenance: `src/zeroth/econ/instrumentation/PROVENANCE.md`,
+  `src/zeroth/econ/plane/PROVENANCE.md`

@@ -102,7 +102,25 @@ class TestTenantCostEndpoint:
             resp = client.get("/v1/tenants/t1/cost")
 
         assert resp.status_code == 503
-        assert "Regulus backend error" in resp.json()["detail"]
+        assert resp.json()["detail"] == "regulus backend: unreachable"
+
+    def test_503_body_carries_no_backend_url(self) -> None:
+        """A02-10: an httpx error's message carries the full URL it dialled."""
+        leaky = (
+            "All connection attempts failed for "
+            "http://regulus.internal.svc.cluster.local:8443/v1/budget/status"
+        )
+        app = _make_app(tenant_id="t1")
+        mock_client = _mock_httpx_client(error=httpx.ConnectError(leaky))
+
+        with patch("zeroth.service.api.cost_api.httpx.AsyncClient", return_value=mock_client):
+            client = TestClient(app)
+            resp = client.get("/v1/tenants/t1/cost")
+
+        body = resp.text
+        assert leaky not in body
+        for fragment in ("regulus.internal", "cluster.local", "8443"):
+            assert fragment not in body
 
     def test_returns_503_when_regulus_not_configured(self) -> None:
         app = _make_app(regulus_base_url=None, tenant_id="t1")
@@ -147,7 +165,7 @@ class TestDeploymentCostEndpoint:
             resp = client.get("/v1/deployments/d1/cost")
 
         assert resp.status_code == 503
-        assert "Regulus backend error" in resp.json()["detail"]
+        assert resp.json()["detail"] == "regulus backend: unreachable"
 
     def test_foreign_deployment_ref_is_404(self) -> None:
         # F4 follow-up: the service serves deployment "d1"; a different ref must

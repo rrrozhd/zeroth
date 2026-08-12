@@ -94,6 +94,9 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
 DEAD_LETTER_REASON = "dead_letter"
 _UNSCOPED_WORKSPACE = object()
 
+# A02-12: defensive ceiling for list_runs, independent of any route-level bound.
+_LIST_RUNS_MAX_LIMIT = 1000
+
 
 def _validate_transition(current: RunStatus, new: RunStatus) -> None:
     """Check that moving from one run status to another is valid.
@@ -688,7 +691,16 @@ class _RunThreadStore:
         limit: int = 50,
         offset: int = 0,
     ) -> list[Run]:
-        """Return runs for a deployment, optionally filtered by status."""
+        """Return runs for a deployment, optionally filtered by status.
+
+        ``limit``/``offset`` are clamped defensively (A02-12): this method is
+        reachable beyond the FastAPI route layer's own ``Query(ge=..., le=...)``
+        bound, and SQLite treats a non-positive ``LIMIT`` as "no limit at all"
+        rather than an error, which would silently turn a caller bug into an
+        unbounded scan.
+        """
+        limit = max(1, min(limit, _LIST_RUNS_MAX_LIMIT))
+        offset = max(0, offset)
         where = {"deployment_ref": deployment_ref}
         if status is not None:
             where["status"] = status

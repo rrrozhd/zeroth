@@ -1,0 +1,17 @@
+# Immutable reviewed violation inventory from 7249ca04051b408f6bd00f45aacc97f9e840ca1b.
+CONTRIBUTING.md:62:import:zeroth.core
+SECURITY.md:26:source-path:src/econ_plane
+docs/how-to/deployment/langgraph-release.md:19:install-target:zeroth-core[langgraph,langgraph-gateway]==0.16.2.8
+docs/how-to/deployment/langgraph-release.md:40:environment:ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL
+docs/how-to/deployment/langgraph-release.md:41:environment:ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE
+docs/how-to/deployment/local-dev.md:84:environment:ZEROTH_SERVICE__PORT
+docs/how-to/deployment/with-regulus.md:7:source-path:src/zeroth/core/econ/instrumentation
+docs/how-to/deployment/with-regulus.md:130:source-path:src/zeroth/econ_plane/_migrations
+docs/how-to/deployment/with-regulus.md:136:source-path:src/zeroth/core/econ/instrumentation/PROVENANCE.md
+docs/how-to/deployment/with-regulus.md:137:source-path:src/zeroth/econ_plane/PROVENANCE.md
+docs/how-to/migration-from-monolith.md:9:install-target:zeroth-core>=0.1.1
+docs/how-to/migration-from-monolith.md:28:install-target:zeroth-core>=0.1.1
+docs/how-to/migration-from-monolith.md:30:install-target:zeroth-core[memory-pg,dispatch]>=0.1.1
+docs/how-to/migration-from-monolith.md:153:environment:ZEROTH_AUTH__API_KEYS_JSON
+docs/how-to/migration-from-monolith.md:172:install-target:zeroth-core[memory-pg,dispatch]>=0.1.1
+docs/how-to/service.md:14:source-path:src/zeroth/core/service/entrypoint.py

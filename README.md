@@ -72,8 +72,15 @@ uv run zeroth-core seed-demo   # creates schema + a deployed single-agent graph;
 uv run zeroth-core serve
 ```
 
-Or containerized: `docker build -t zeroth-core . && docker run -p 8000:8000 zeroth-core`
-(see `Dockerfile` and `docker-compose.yml`).
+Or build the declared wheel before creating the container image:
+
+```bash
+uv build --wheel
+docker build -t zeroth-core .
+docker run -p 8000:8000 -v zeroth-data:/data zeroth-core
+```
+
+See `Dockerfile` and `docker-compose.yml` for the image and multi-service paths.
 
 ---
 

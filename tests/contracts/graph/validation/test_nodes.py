@@ -9,20 +9,26 @@ therefore injected as a collaborator and invoked at its original position.
 
 from __future__ import annotations
 
-from zeroth.contracts.graph.limits import INLINE_SOURCE_MAX_CHARS
-from zeroth.contracts.graph.validation.capabilities import NullCapabilityChecks
-from zeroth.contracts.graph.validation.nodes import (
-    validate_entrypoint,
-    validate_nodes,
+from zeroth.contracts.graph.limits import (
+    AGENT_INSTRUCTION_MAX_CHARS,
+    DESCRIPTION_MAX_CHARS,
+    INLINE_SOURCE_MAX_CHARS,
 )
 from zeroth.contracts.graph.models import (
     AgentNode,
     AgentNodeData,
+    AgentToolBinding,
     EntrypointNode,
     ExecutableUnitNode,
     ExecutableUnitNodeData,
     Graph,
     Node,
+    ToolArgument,
+)
+from zeroth.contracts.graph.validation.capabilities import NullCapabilityChecks
+from zeroth.contracts.graph.validation.nodes import (
+    validate_entrypoint,
+    validate_nodes,
 )
 from zeroth.contracts.graph.validation_errors import ValidationCode, ValidationIssue
 
@@ -146,6 +152,105 @@ def test_inline_cap_is_the_one_the_execution_unit_enforces() -> None:
     from zeroth.integrations.execution import inline
 
     assert inline.INLINE_SOURCE_MAX_CHARS is INLINE_SOURCE_MAX_CHARS
+
+
+# ---------------------------------------------------------------------------
+# A05-5: the other authored strings that had no declared bound
+# ---------------------------------------------------------------------------
+
+
+def test_agent_instruction_is_capped() -> None:
+    node = _agent("agent", instruction="a" * (AGENT_INSTRUCTION_MAX_CHARS + 1))
+
+    (issue,) = _run_nodes(_graph([node]))
+
+    assert issue.code is ValidationCode.INVALID_NODE_ATTACHMENT
+    assert issue.message == (
+        f"agent instruction exceeds the {AGENT_INSTRUCTION_MAX_CHARS} character limit"
+    )
+    assert issue.path == ("nodes", "agent", "agent", "instruction")
+
+
+def test_an_instruction_at_exactly_the_cap_is_accepted() -> None:
+    """The bound is inclusive -- an off-by-one here rejects legitimate authoring."""
+    node = _agent("agent", instruction="a" * AGENT_INSTRUCTION_MAX_CHARS)
+
+    assert _run_nodes(_graph([node])) == []
+
+
+def test_tool_binding_description_is_capped() -> None:
+    node = _agent(
+        "agent",
+        tool_bindings=[
+            AgentToolBinding(
+                target_node_id="unit",
+                name="do_thing",
+                description="d" * (DESCRIPTION_MAX_CHARS + 1),
+            )
+        ],
+    )
+
+    issues = _run_nodes(_graph([node]))
+
+    assert any(
+        issue.code is ValidationCode.INVALID_TOOL_BINDING
+        and "description exceeds" in issue.message
+        for issue in issues
+    ), issues
+
+
+def test_tool_argument_description_is_capped() -> None:
+    node = _agent(
+        "agent",
+        tool_bindings=[
+            AgentToolBinding(
+                target_node_id="unit",
+                name="do_thing",
+                description="fine",
+                arguments=[
+                    ToolArgument(name="q", description="d" * (DESCRIPTION_MAX_CHARS + 1))
+                ],
+            )
+        ],
+    )
+
+    issues = _run_nodes(_graph([node]))
+
+    assert any(
+        issue.code is ValidationCode.INVALID_TOOL_BINDING
+        and "tool argument 'q' description exceeds" in issue.message
+        for issue in issues
+    ), issues
+
+
+def test_descriptions_within_the_cap_raise_no_issue() -> None:
+    node = _agent(
+        "agent",
+        tool_bindings=[
+            AgentToolBinding(
+                target_node_id="unit",
+                name="do_thing",
+                description="d" * DESCRIPTION_MAX_CHARS,
+                arguments=[ToolArgument(name="q", description="d" * DESCRIPTION_MAX_CHARS)],
+            )
+        ],
+    )
+
+    issues = _run_nodes(_graph([node]))
+
+    assert not [i for i in issues if "exceeds" in i.message], issues
+
+
+def test_an_oversized_graph_still_loads_even_though_it_cannot_publish() -> None:
+    """The cap is a publish gate, not a field bound.
+
+    A ``Field(max_length=...)`` would make a graph persisted before this bound
+    existed unloadable, turning an unpublishable graph into an unreadable one.
+    """
+    node = _agent("agent", instruction="a" * (AGENT_INSTRUCTION_MAX_CHARS + 1))
+
+    assert len(node.agent.instruction) == AGENT_INSTRUCTION_MAX_CHARS + 1
+    assert _run_nodes(_graph([node]))
 
 
 def test_entrypoint_node_must_be_the_entry_step() -> None:

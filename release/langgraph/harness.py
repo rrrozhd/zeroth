@@ -6,19 +6,21 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from importlib import import_module
 from pathlib import Path
 
-from release.langgraph.langgraph_benchmark import benchmark
-from release.langgraph.release_evidence import validate_manifest
-from release.langgraph.runtime_smoke import (
-    gateway_smoke,
-    installed_package_evidence,
-    resolved_image_evidence,
-    serve_shell_agent_server,
-    smoke,
-)
-
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+benchmark = import_module("release.langgraph.langgraph_benchmark").benchmark
+validate_manifest = import_module("release.langgraph.release_evidence").validate_manifest
+_runtime_smoke = import_module("release.langgraph.runtime_smoke")
+gateway_smoke = _runtime_smoke.gateway_smoke
+installed_package_evidence = _runtime_smoke.installed_package_evidence
+resolved_image_evidence = _runtime_smoke.resolved_image_evidence
+serve_shell_agent_server = _runtime_smoke.serve_shell_agent_server
+smoke = _runtime_smoke.smoke
 
 
 def _parser() -> argparse.ArgumentParser:

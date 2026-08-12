@@ -476,20 +476,6 @@ class TokenRuntimeSupport:
         return routes
 
     @staticmethod
-    def _continuation_inbound_edge(
-        snapshot: TokenEngineSnapshot, continuation_token_id: str
-    ) -> str:
-        join = next(
-            item for item in snapshot.joins if item.continuation_token_id == continuation_token_id
-        )
-        inbound = {item.inbound_edge_id for item in join.obligations}
-        if len(inbound) != 1:
-            raise TokenRuntimeUnsupportedError(
-                "nested continuation cannot represent multiple outer inbound routes"
-            )
-        return next(iter(inbound))
-
-    @staticmethod
     def _reachable_inbound_edges(graph: Graph, source: str, target: str) -> list[str]:
         found: set[str] = set()
         pending = [source]
