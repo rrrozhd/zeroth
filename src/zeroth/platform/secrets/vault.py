@@ -101,8 +101,9 @@ class VaultSecretProvider:
         self._async_transport = async_transport
         self._timeout = timeout
         self._cache: dict[tuple[str, str], _CacheEntry] = {}
-        # Redactor is (re)seeded with resolved values so any accidental error
-        # surface that echoes a value gets masked.
+        # Values stay redacted for this provider's lifetime, including after
+        # TTL expiry or rotation, because later transport errors can echo them.
+        self._redaction_history: list[tuple[tuple[str, str], str]] = []
         self._redactor = SecretRedactor()
         # Async path: one pooled client for the provider's lifetime, plus
         # single-flight locks so N concurrent misses collapse into one fetch
@@ -156,10 +157,9 @@ class VaultSecretProvider:
                 self._redactor.redact(str(exc)),
             )
             return None
-        self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         if value is not None:
-            # Keep the redactor aware of live values so error paths stay masked.
-            self._redactor = SecretRedactor(self._redactor_known())
+            self._remember_secret(key, value)
+        self._cache[key] = _CacheEntry(value=value, expires_at=now + self._cache_ttl)
         return value
 
     # ------------------------------------------------------------------
@@ -224,11 +224,11 @@ class VaultSecretProvider:
                     self._redactor.redact(str(exc)),
                 )
                 return None
+            if value is not None:
+                self._remember_secret(key, value)
             self._cache[key] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
-            if value is not None:
-                self._redactor = SecretRedactor(self._redactor_known())
             return value
 
     async def _get_async_client(self) -> httpx.AsyncClient:
@@ -274,11 +274,11 @@ class VaultSecretProvider:
                     self._redactor.redact(str(exc)),
                 )
                 continue
+            if value is not None:
+                self._remember_secret((tenant, logical_name), value)
             self._cache[(tenant, logical_name)] = _CacheEntry(
                 value=value, expires_at=time.monotonic() + self._cache_ttl
             )
-            if value is not None:
-                self._redactor = SecretRedactor(self._redactor_known())
 
     # ------------------------------------------------------------------
     # Internal fetch helpers
@@ -456,10 +456,11 @@ class VaultSecretProvider:
             raise SecretResolutionError("vault AppRole login returned no client_token")
         return token
 
-    def _redactor_known(self) -> dict[tuple[str, str], str]:
-        """Rebuild tenant-qualified redactor seeds from cached entries."""
-        # SecretRedactor keeps its map private; rebuild from cache values.
-        return {key: entry.value for key, entry in self._cache.items() if entry.value}
+    def _remember_secret(self, reference: tuple[str, str], value: str) -> None:
+        """Add a value to lifetime redaction history and rebuild its matcher."""
+        if value not in {secret for _reference, secret in self._redaction_history}:
+            self._redaction_history.append((reference, value))
+        self._redactor = SecretRedactor(self._redaction_history)
 
 
 __all__ = ["VaultSecretProvider"]
