@@ -628,16 +628,10 @@ def _must_alias_events(
         statement: ast.Assign | ast.AnnAssign,
         state: dict[str, _AliasIdentity],
     ) -> None:
-        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
-            target = statement.targets[0]
-            value = statement.value
-        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
-            target = statement.target
-            value = statement.value
-        else:
-            return
-        if isinstance(target, ast.Name):
-            pre_assignment_state = dict(state)
+        pre_assignment_state = dict(state)
+        for target, value in _assignment_bindings(statement):
+            if not isinstance(target, ast.Name):
+                continue
             identity = resolve(value, pre_assignment_state)
             branch_identities = (
                 leaf_identities(value, pre_assignment_state)
@@ -664,6 +658,14 @@ def _must_alias_events(
         for name in names:
             state[name] = None
         merge_event(statement, state)
+
+    def invalidate_at_source(
+        statement: ast.stmt, names: set[str], state: dict[str, _AliasIdentity]
+    ) -> None:
+        position = (statement.lineno, statement.col_offset)
+        for name in names:
+            state[name] = None
+            events.setdefault(name, []).append((position, None))
 
     def statement_named_expression_names(statement: ast.stmt) -> set[str]:
         names: set[str] = set()
@@ -694,6 +696,8 @@ def _must_alias_events(
                 invalidate(statement, expression_names, state)
             if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                 record(statement, state)
+            elif isinstance(statement, ast.AugAssign):
+                invalidate_at_source(statement, _bound_names(statement.target), state)
             elif isinstance(statement, ast.If):
                 state = join(
                     walk_block(statement.body, state),
@@ -2001,6 +2005,65 @@ def test_public_call_inventory_tracks_local_scoped_factory_alias_chains(
         }
     )
     assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_tracks_chained_factory_and_destructured_type_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_factory(record):\n"
+        "    factory = alias = AuditRepository.scoped\n"
+        "    first = factory(db, scope)\n"
+        "    second = alias(db, scope)\n"
+        "    await first.write(record)\n"
+        "    await second.list_by_run(record.run_id)\n"
+        "async def via_type(candidate, record):\n"
+        "    Repo, other = (AuditRepository, object())\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_factory::list_by_run",
+            "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::write",
+        }
+    )
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset()
+
+
+def test_public_call_inventory_invalidates_augmented_factory_and_type_aliases(
+    tmp_path: Path,
+) -> None:
+    module = tmp_path / "apps" / "candidate.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from zeroth.governance.audit import AuditRepository\n"
+        "async def via_factory(record):\n"
+        "    factory = AuditRepository.scoped\n"
+        "    factory += other_factory\n"
+        "    repository = factory(db, scope)\n"
+        "    await repository.write(record)\n"
+        "async def via_type(candidate, record):\n"
+        "    Repo = AuditRepository\n"
+        "    Repo += OtherRepository\n"
+        "    repository: Repo = candidate\n"
+        "    await repository.write(record)\n",
+        encoding="utf-8",
+    )
+
+    assert _audit_repository_public_call_inventory(tmp_path) == frozenset()
+    assert _unreviewed_audit_repository_public_calls(tmp_path) == frozenset(
+        {
+            "apps/candidate.py::via_factory::write",
+            "apps/candidate.py::via_type::write",
+        }
+    )
 
 
 def test_public_call_inventory_rejects_rebound_local_scoped_factory(tmp_path: Path) -> None:
