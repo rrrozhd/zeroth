@@ -600,6 +600,7 @@ class AgentRunner:
             )
         compaction_results = [compaction_result] if compaction_result is not None else []
         provider_measurements: list[Any] = []
+        tool_audits: list[dict[str, Any]] = []
         budget_check_audit: dict[str, Any] | None = None
 
         # Pre-execution budget check (per D-10, ECON-03)
@@ -658,6 +659,7 @@ class AgentRunner:
                         effective_capabilities=effective_capabilities,
                         compaction_results=compaction_results,
                         provider_measurements=provider_measurements,
+                        tool_audits=tool_audits,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -839,6 +841,13 @@ class AgentRunner:
             if last_error is None:
                 last_error = AgentProviderError("provider call failed without a specific error")
             raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
+        except Exception as exc:
+            self._attach_cost_audit(
+                exc,
+                tool_audits=tool_audits,
+                audit_serializer=self.audit_serializer,
+            )
+            raise
         finally:
             try:
                 await self._stop_mcp_servers()
@@ -922,27 +931,42 @@ class AgentRunner:
         return fragment
 
     @classmethod
-    def _attach_cost_audit(cls, error: Exception, *parts: Any) -> None:
-        """Bundle a paid response's cost onto a failing error's ``audit_record``.
+    def _attach_cost_audit(
+        cls,
+        error: Exception,
+        *parts: Any,
+        tool_audits: list[dict[str, Any]] | None = None,
+        audit_serializer: AgentAuditSerializer | None = None,
+    ) -> None:
+        """Bundle paid responses and completed tool calls onto a failing error.
 
         Failures after compaction or a provider call happen before the success
-        audit record is built. Merge their measured or estimated spend into any
-        ``audit_record`` the error already carries.
+        audit record is built. Merge their measured or estimated spend and the
+        serializer-redacted tool records into any ``audit_record`` the error
+        already carries.
         """
         existing = getattr(error, "audit_record", None)
-        fragment = cls._measurement_audit(existing, *parts)
+        record = dict(existing) if isinstance(existing, Mapping) else {}
+        if tool_audits and audit_serializer is not None:
+            extra = record.get("extra")
+            extra = dict(extra) if isinstance(extra, Mapping) else {}
+            extra["tool_calls"] = audit_serializer.serialize_response(
+                {"tool_calls": tool_audits}
+            )["tool_calls"]
+            record["extra"] = extra
+        fragment = cls._measurement_audit(record, *parts)
         response = next(
             (part for part in reversed(parts) if isinstance(part, ProviderResponse)), None
         )
         if (
             response is not None
             and response.cost_event_id is not None
-            and not (isinstance(existing, Mapping) and existing.get("cost_event_id") is not None)
+            and record.get("cost_event_id") is None
         ):
             fragment["cost_event_id"] = response.cost_event_id
-        if not fragment:
+        if not record and not fragment:
             return
-        error.audit_record = {**existing, **fragment} if isinstance(existing, Mapping) else fragment
+        error.audit_record = {**record, **fragment}
 
     def _build_provider_request(
         self,
@@ -1029,6 +1053,7 @@ class AgentRunner:
         effective_capabilities: set[Capability] | None = None,
         compaction_results: list[Any] | None = None,
         provider_measurements: list[Any] | None = None,
+        tool_audits: list[dict[str, Any]] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -1036,7 +1061,8 @@ class AgentRunner:
         tool call limit is reached. Returns the final response, the
         updated message list, and audit records for each tool call.
         """
-        tool_audits: list[dict[str, Any]] = []
+        if tool_audits is None:
+            tool_audits = []
         tool_calls_used = 0
         current_response = response
         current_messages = list(messages)
