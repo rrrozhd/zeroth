@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from zeroth.econ.plane import main
+from zeroth.econ.plane.common import bootstrap as common_bootstrap
 from zeroth.platform.storage.schema_revision import SchemaRevision, read_schema_revision
 
 
@@ -48,31 +49,16 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
     ],
 )
 def test_econ_health_uses_captured_schema_revision(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     revision: SchemaRevision,
     status: str,
 ) -> None:
-    script = """
-import sys
-from fastapi.testclient import TestClient
-from zeroth.econ.plane import main
-from zeroth.econ.plane.common import bootstrap as common_bootstrap
-from zeroth.platform.storage.schema_revision import SchemaRevision
-revision = SchemaRevision.model_validate_json(sys.argv[1])
-common_bootstrap._schema_revision = revision
-response = TestClient(main.app).get("/health")
-assert response.status_code == 200, response.text
-assert response.json() == {
-    "status": sys.argv[2],
-    "schema_revision": revision.model_dump(),
-}
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script, revision.model_dump_json(), status],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    monkeypatch.setattr(common_bootstrap, "_schema_revision", revision)
 
-    assert result.returncode == 0, result.stderr
+    response = TestClient(main.app).get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": status,
+        "schema_revision": revision.model_dump(),
+    }
