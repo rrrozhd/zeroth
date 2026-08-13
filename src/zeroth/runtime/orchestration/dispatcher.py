@@ -52,6 +52,7 @@ from zeroth.runtime.orchestration.errors import (
 from zeroth.runtime.orchestration.policy_gate import RuntimePolicyGate
 from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
 from zeroth.runtime.runs import Run
+from zeroth.runtime.runs.costs import rollup_run_cost
 from zeroth.runtime.subgraphs.resolver import base_node_id
 
 logger = logging.getLogger(__name__)
@@ -117,11 +118,25 @@ async def dispatch_subgraph_node(
     if child.status is not RunStatus.COMPLETED:
         failure = child.failure_state
         detail = failure.message if failure is not None else "unknown failure"
-        raise NodeDispatcherError(f"child run {child.run_id} ended {child.status.value}: {detail}")
+        child_cost = rollup_run_cost(child)
+        error = NodeDispatcherError(
+            f"child run {child.run_id} ended {child.status.value}: {detail}"
+        )
+        error.audit_record = {  # type: ignore[attr-defined]
+            "subgraph_run_id": child.run_id,
+            "subgraph_graph_ref": node.subgraph.graph_ref,
+            "subgraph_status": child.status.value,
+            "subgraph_resumed": resumed,
+            "cost_usd": child_cost.cost_usd,
+            "estimated_cost_usd": child_cost.estimated_cost_usd,
+            "cost_measurement": child_cost.cost_measurement,
+        }
+        raise error
     parent_run.metadata.pop("pending_subgraph", None)
     output = child.final_output or {}
     if not isinstance(output, dict):
         output = {"result": output}
+    child_cost = rollup_run_cost(child)
     return SubgraphDispatchResult(
         output=output,
         audit={
@@ -129,6 +144,9 @@ async def dispatch_subgraph_node(
             "subgraph_graph_ref": node.subgraph.graph_ref,
             "subgraph_status": child.status.value,
             "subgraph_resumed": resumed,
+            "cost_usd": child_cost.cost_usd,
+            "estimated_cost_usd": child_cost.estimated_cost_usd,
+            "cost_measurement": child_cost.cost_measurement,
         },
     )
 

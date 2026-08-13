@@ -36,6 +36,30 @@ SOURCE = ROOT / "src/zeroth"
 #: Measured, not asserted: each entry is exactly what
 #: ``declared_fields - reported_parameters`` returns today.
 HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
+    "zeroth.econ.analytics.waste:EconReport": (
+        "cost_measurement_complete",
+        "estimated_cost_usd",
+    ),
+    "zeroth.econ.analytics.waste:WasteRollup": (
+        "cost_measurement_complete",
+        "estimated_cost_usd",
+    ),
+    "zeroth.econ.instrumentation.schemas:ExecutionEvent": (
+        "cost_measurement",
+        "usage_measurement",
+    ),
+    "zeroth.econ.plane.enforcement.schemas:BudgetStatusOut": (
+        "cost_measurement",
+        "measurement_complete",
+    ),
+    "zeroth.econ.plane.instrumentation.schemas:ExecutionEventCreate": (
+        "cost_measurement",
+        "usage_measurement",
+    ),
+    "zeroth.governance.audit.models:NodeAuditRecord": (
+        "cost_measurement",
+        "estimated_cost_usd",
+    ),
     "zeroth.contracts.langgraph_gateway.models:RunCapabilityEvidence": (
         "adapter_version",
         "inventory_fingerprint",
@@ -66,6 +90,30 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "approval_notifications",
         "langgraph_gateway",
     ),
+    "zeroth.runtime.agents.provider:ProviderResponse": (
+        "cost_measurement",
+        "estimated_cost_usd",
+        "usage_measurement",
+    ),
+    "zeroth.runtime.context.models:CompactionResult": (
+        "cost_measurement",
+        "cost_usd",
+        "estimated_cost_usd",
+        "token_usage",
+        "usage_measurement",
+    ),
+    "zeroth.runtime.parallel.models:BranchResult": (
+        "cost_measurement",
+        "estimated_cost_usd",
+    ),
+    "zeroth.runtime.parallel.models:FanInResult": (
+        "cost_measurement",
+        "total_estimated_cost_usd",
+    ),
+    "zeroth.runtime.runs.models:RunHistoryEntry": (
+        "cost_measurement",
+        "estimated_cost_usd",
+    ),
     "zeroth.runtime.orchestration.orchestrator:RuntimeOrchestrator": (
         "_token_snapshot_store",
         "operation_store",
@@ -94,6 +142,12 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "verifier",
     ),
     "zeroth.service.langgraph_gateway.context:ReservedContextClaims": ("run_id",),
+}
+
+#: Constructor fields whose runtime validation was narrowed while the protected
+#: legacy signature keeps reporting its original annotation.
+SIGNATURE_ANNOTATION_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "zeroth.platform.artifacts.models:ArtifactStoreSettings": ("backend",),
 }
 
 
@@ -133,6 +187,15 @@ def test_the_recorded_exclusions_match_what_the_class_actually_hides(reference: 
     list shrink-only rather than merely append-only.
     """
     assert hidden_fields(_resolve(reference)) == set(HIDDEN_CONSTRUCTOR_FIELDS[reference])
+
+
+@pytest.mark.parametrize("reference", sorted(SIGNATURE_ANNOTATION_OVERRIDES))
+def test_the_recorded_annotation_overrides_match_real_fields(reference: str) -> None:
+    target = _resolve(reference)
+    assert set(SIGNATURE_ANNOTATION_OVERRIDES[reference]) <= declared_fields(target)
+    for field in SIGNATURE_ANNOTATION_OVERRIDES[reference]:
+        assert inspect.signature(target).parameters[field].annotation is str
+        assert target.model_fields[field].annotation is not str
 
 
 def _module_reference(path: Path) -> str:
@@ -245,7 +308,8 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
     unrecorded = sorted(
         site
         for site in class_signature_assignments()
-        if _recorded_reference(site) not in HIDDEN_CONSTRUCTOR_FIELDS
+        if _recorded_reference(site)
+        not in HIDDEN_CONSTRUCTOR_FIELDS | SIGNATURE_ANNOTATION_OVERRIDES
     )
 
     assert unrecorded == [], (
@@ -257,7 +321,9 @@ def test_no_class_hides_a_field_without_appearing_in_the_record() -> None:
 def test_the_record_names_no_class_that_stopped_hiding() -> None:
     """The other direction: a recorded entry whose assignment is gone must go too."""
     assigning = {_recorded_reference(site) for site in class_signature_assignments()}
-    stale = sorted(set(HIDDEN_CONSTRUCTOR_FIELDS) - assigning)
+    stale = sorted(
+        (set(HIDDEN_CONSTRUCTOR_FIELDS) | set(SIGNATURE_ANNOTATION_OVERRIDES)) - assigning
+    )
 
     assert stale == [], f"recorded but no longer assigning __signature__: {stale}"
 

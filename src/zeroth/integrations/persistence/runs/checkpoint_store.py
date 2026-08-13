@@ -67,13 +67,9 @@ class CheckpointRowStore:
     def decrypt_state_json(self, state_json: str) -> str:
         """Reverse of encrypt_state_json; passthrough when no encrypted_field."""
         encrypted_field = getattr(self.database, "encrypted_field", None)
-        if encrypted_field is None:
+        if encrypted_field is None or state_json.lstrip().startswith("{"):
             return state_json
-        try:
-            return encrypted_field.decrypt(state_json)
-        except Exception:
-            # Value was written before encryption was enabled; return as-is.
-            return state_json
+        return encrypted_field.decrypt(state_json)
 
     @persistence_operation(ResourceOperation.CREATE, ResourceOperation.UPDATE)
     async def write_row(

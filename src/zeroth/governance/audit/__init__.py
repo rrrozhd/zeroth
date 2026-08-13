@@ -19,7 +19,6 @@ from zeroth.governance.audit.models import (
     NodeAuditRecord,
     ToolCallRecord,
 )
-from zeroth.governance.audit.redis import RedisAuditEmitter
 from zeroth.governance.audit.repository import AuditRepository
 from zeroth.governance.audit.sanitizer import PayloadSanitizer
 from zeroth.governance.audit.timeline import AuditTimelineAssembler
@@ -38,7 +37,6 @@ __all__ = [
     "MemoryAccessRecord",
     "NodeAuditRecord",
     "PayloadSanitizer",
-    "RedisAuditEmitter",
     "ToolCallRecord",
     "build_summary",
     "collect_policy_events",

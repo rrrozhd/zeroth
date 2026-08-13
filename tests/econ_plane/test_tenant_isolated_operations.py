@@ -26,6 +26,7 @@ from zeroth.econ.plane.connectors.service import (
 from zeroth.econ.plane.connectors.workers import process_connector_outbox
 from zeroth.econ.plane.costing.models import PricingCatalog
 from zeroth.econ.plane.costing.service import PricingCatalogReader, estimate_cost_for_period
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
 from zeroth.econ.plane.auth.deps import get_current_scoped_db, get_current_user
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims
@@ -147,6 +148,7 @@ def test_cost_estimate_reads_global_pricing_through_a_separate_scope(econ_engine
             _execution("inferred-cost", "cap-a", "impl-a").model_copy(
                 update={
                     "token_cost_usd": Decimal("0"),
+                    "cost_measurement": MeasurementState.UNMEASURED,
                     "metadata": {
                         "provider": "provider-a",
                         "model": "model-a",

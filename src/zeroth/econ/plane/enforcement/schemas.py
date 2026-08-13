@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from typing import Literal
 
@@ -64,5 +65,16 @@ class BudgetStatusOut(BaseModel):
     tenant_id: str
     total_cost_usd: float
     budget_cap_usd: float | None = None
+    measurement_complete: bool = True
+    cost_measurement: Literal["measured", "estimated", "unmeasured"] = "measured"
     window: str = "month_to_date"
     window_start: datetime | None = None
+
+
+BudgetStatusOut.__signature__ = inspect.signature(BudgetStatusOut).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(BudgetStatusOut).parameters.items()
+        if name not in {"measurement_complete", "cost_measurement"}
+    ]
+)

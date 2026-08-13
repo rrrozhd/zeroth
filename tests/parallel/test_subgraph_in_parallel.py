@@ -426,6 +426,184 @@ class TestScenario1SubgraphInFanOutBranch:
         }
 
     @pytest.mark.asyncio
+    async def test_failed_child_cost_rolls_once_into_parallel_parent(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run, RunHistoryEntry
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="openai/gpt-4"),
+            parallel_config=ParallelConfig(split_path="items"),
+        )
+        child_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-failed-child",
+            name="parent-failed-child",
+            version=1,
+            nodes=[source, child_node],
+            edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=type(
+                "Result",
+                (),
+                {"output_data": {"items": [{"v": 1}]}, "audit_record": {}},
+            )()
+        )
+        failed_child = Run(
+            run_id="child-run-0",
+            graph_version_ref="child-wf:v1",
+            deployment_ref="child-wf",
+            status=RunStatus.FAILED,
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+        subgraphs = MagicMock(spec=SubgraphExecutor)
+        subgraphs.execute = AsyncMock(return_value=failed_child)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.get = AsyncMock(return_value=None)
+        repository.write_checkpoint = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=subgraphs,
+        )
+
+        result = await orchestrator.run_graph(graph, {"input": "test"})
+
+        assert result.status is RunStatus.FAILED
+        summaries = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
+        assert len(summaries) == 1
+        assert summaries[0].cost_usd == pytest.approx(0.2)
+        assert summaries[0].cost_measurement is MeasurementState.MEASURED
+
+    @pytest.mark.asyncio
+    async def test_multiple_paused_children_settle_every_child_rollup_once(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run, RunHistoryEntry
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="source"),
+            parallel_config=ParallelConfig(split_path="items", fail_mode="best_effort"),
+        )
+        child_node = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-multi-pause",
+            name="parent-multi-pause",
+            version=1,
+            nodes=[source, child_node],
+            edges=[Edge(edge_id="e1", source_node_id="source", target_node_id="sub-step")],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+        source_runner = AsyncMock()
+        source_runner.run = AsyncMock(
+            return_value=type(
+                "Result",
+                (),
+                {
+                    "output_data": {"items": [{"v": 0}, {"v": 1}]},
+                    "audit_record": {
+                        "cost_usd": 0.1,
+                        "cost_measurement": MeasurementState.MEASURED,
+                    },
+                },
+            )()
+        )
+
+        async def _pause(**kwargs: Any) -> Run:
+            index = kwargs["branch_context"].branch_index
+            cost = 0.2 + index / 10
+            return Run(
+                run_id=f"child-run-{index}",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.WAITING_APPROVAL,
+                execution_history=[
+                    RunHistoryEntry(
+                        node_id=f"paid-child-{index}",
+                        status="completed",
+                        cost_usd=cost,
+                        cost_measurement=MeasurementState.MEASURED,
+                    )
+                ],
+                metadata={
+                    "total_cost_usd": cost,
+                    "cost_measurement": MeasurementState.MEASURED,
+                },
+            )
+
+        subgraphs = MagicMock(spec=SubgraphExecutor)
+        subgraphs.execute = AsyncMock(side_effect=_pause)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.write_checkpoint = AsyncMock()
+        audit_repository = AsyncMock()
+        audit_repository.write = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            audit_repository=audit_repository,
+            subgraph_executor=subgraphs,
+        )
+
+        result = await orchestrator.run_graph(graph, {})
+
+        assert result.status is RunStatus.FAILED
+        paused = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
+        assert len(paused) == 2
+        assert sorted(entry.cost_usd for entry in paused) == pytest.approx([0.2, 0.3])
+        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(0.6)
+        child_audits = [
+            call.args[0]
+            for call in audit_repository.write.call_args_list
+            if call.args[0].node_id == "sub-step"
+        ]
+        assert sorted(audit.execution_metadata["subgraph_run_id"] for audit in child_audits) == [
+            "child-run-0",
+            "child-run-1",
+        ]
+
+    @pytest.mark.asyncio
     async def test_fan_out_subgraph_approval_pause_stashes_pending(
         self,
     ) -> None:
@@ -479,9 +657,15 @@ class TestScenario1SubgraphInFanOutBranch:
         class _FakeResult:
             def __init__(self, output_data: dict[str, Any]) -> None:
                 self.output_data = output_data
-                self.audit_record = {"model": "test", "token_usage": None}
+                self.audit_record = {
+                    "model": "test",
+                    "token_usage": None,
+                    "cost_usd": 0.1,
+                    "cost_measurement": "measured",
+                }
 
         source_runner = AsyncMock()
+        source_runner.context_tracker = None
         source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         async def _fake_execute(**kwargs: Any) -> Run:
@@ -501,7 +685,11 @@ class TestScenario1SubgraphInFanOutBranch:
                 deployment_ref="child-wf",
                 status=RunStatus.COMPLETED,
                 final_output={"done": idx},
-                metadata={"subgraph_depth": 1, "total_cost_usd": 0.0},
+                metadata={
+                    "subgraph_depth": 1,
+                    "total_cost_usd": 0.2,
+                    "cost_measurement": "measured",
+                },
             )
 
         mock_executor = MagicMock(spec=SubgraphExecutor)
@@ -540,6 +728,188 @@ class TestScenario1SubgraphInFanOutBranch:
         assert pending["paused_branch"]["child_run_id"] == "child-run-1"
         assert pending["paused_branch"]["graph_ref"] == "child-wf"
         assert pending["paused_branch"]["node_id"] == "sub-step"
+        [completed] = pending["completed_branches"]
+        assert completed["cost_usd"] == pytest.approx(0.2)
+        assert len(completed["execution_history"]) == 1
+        assert completed["execution_history"][0]["cost_usd"] == pytest.approx(0.2)
+        assert len(completed["audit_refs"]) == 1
+
+        mock_executor.resume = AsyncMock(
+            return_value=Run(
+                run_id="child-run-1",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": 1},
+                metadata={
+                    "subgraph_depth": 1,
+                    "total_cost_usd": 0.3,
+                    "cost_measurement": "measured",
+                },
+            )
+        )
+        result.status = RunStatus.RUNNING
+        resumed = await orch._drive(parent_graph_best, result)
+
+        source_history = [entry for entry in resumed.execution_history if entry.node_id == "source"]
+        subgraph_history = [
+            entry for entry in resumed.execution_history if entry.node_id == "sub-step"
+        ]
+        assert len(source_history) == 1
+        assert source_history[0].cost_usd == pytest.approx(0.1)
+        assert sorted(entry.cost_usd for entry in subgraph_history) == pytest.approx([0.2, 0.3])
+        assert sum(entry.cost_usd or 0.0 for entry in resumed.execution_history) == pytest.approx(
+            0.6
+        )
+        assert len({entry.audit_ref for entry in resumed.execution_history}) == 3
+
+    @pytest.mark.asyncio
+    async def test_pause_resume_keeps_partial_branch_accounting_and_cancelled_unknown(
+        self,
+    ) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from zeroth.contracts.governed import RunStatus
+        from zeroth.contracts.graph.models import AgentNode, AgentNodeData, Edge, Graph
+        from zeroth.integrations.execution import ExecutableUnitRunner
+        from zeroth.platform.measurement import MeasurementState
+        from zeroth.runtime.orchestration import RuntimeOrchestrator
+        from zeroth.runtime.runs import Run
+        from zeroth.runtime.runs.costs import rollup_run_cost
+        from zeroth.runtime.subgraphs.executor import SubgraphExecutor
+
+        source = AgentNode(
+            node_id="source",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="source"),
+            parallel_config=ParallelConfig(split_path="items", fail_mode="fail_fast"),
+        )
+        paid = AgentNode(
+            node_id="paid",
+            graph_version_ref="parent@1",
+            agent=AgentNodeData(instruction="x", model_provider="paid"),
+        )
+        paused = SubgraphNode(
+            node_id="sub-step",
+            graph_version_ref="parent@1",
+            subgraph=SubgraphNodeData(graph_ref="child-wf"),
+        )
+        graph = Graph(
+            graph_id="parent-g",
+            name="parent-g",
+            version=1,
+            nodes=[source, paid, paused],
+            edges=[
+                Edge(edge_id="e1", source_node_id="source", target_node_id="paid"),
+                Edge(edge_id="e2", source_node_id="source", target_node_id="sub-step"),
+            ],
+            entry_step="source",
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        )
+
+        class _FakeResult:
+            def __init__(self, output_data: dict[str, Any], cost: float) -> None:
+                self.output_data = output_data
+                self.audit_record = {
+                    "cost_usd": cost,
+                    "cost_measurement": MeasurementState.MEASURED,
+                }
+
+        source_runner = AsyncMock()
+        source_runner.context_tracker = None
+        source_runner.run = AsyncMock(
+            return_value=_FakeResult({"items": [{"x": 1}, {"x": 2}]}, 0.1)
+        )
+        paid_runner = AsyncMock()
+        paid_runner.context_tracker = None
+        paid_runner.run = AsyncMock(
+            side_effect=lambda payload, **_: _FakeResult({"result": payload["x"] * 10}, 0.2)
+        )
+
+        sibling_entered = asyncio.Event()
+        never = asyncio.Event()
+
+        async def _execute(**kwargs: Any) -> Run:
+            index = kwargs["branch_context"].branch_index
+            if index == 0:
+                await sibling_entered.wait()
+                return Run(
+                    run_id="child-run-0",
+                    graph_version_ref="child-wf:v1",
+                    deployment_ref="child-wf",
+                    status=RunStatus.WAITING_APPROVAL,
+                )
+            sibling_entered.set()
+            await never.wait()
+            raise AssertionError("cancelled sibling resumed unexpectedly")
+
+        subgraph_executor = MagicMock(spec=SubgraphExecutor)
+        subgraph_executor.execute = AsyncMock(side_effect=_execute)
+        repository = AsyncMock()
+        repository.create = AsyncMock(side_effect=lambda run: run)
+        repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.get = AsyncMock(return_value=None)
+        repository.write_checkpoint = AsyncMock()
+        orchestrator = RuntimeOrchestrator(
+            run_repository=repository,
+            agent_runners={"source": source_runner, "paid": paid_runner},
+            executable_unit_runner=ExecutableUnitRunner(),
+            subgraph_executor=subgraph_executor,
+        )
+
+        waiting = await orchestrator.run_graph(graph, {})
+
+        assert waiting.status is RunStatus.WAITING_APPROVAL
+        pending = waiting.metadata["pending_parallel_subgraph"]
+        paused_context = pending["paused_branch"]["branch_context"]
+        [cancelled_context] = pending["cancelled_branches"]
+        assert paused_context["metadata"]["subgraph_input"] == {"result": 10}
+        assert cancelled_context["metadata"]["subgraph_input"] == {"result": 20}
+        assert len(paused_context["execution_history"]) == 1
+        assert len(cancelled_context["execution_history"]) == 1
+        assert len(paused_context["audit_refs"]) == 1
+        assert len(cancelled_context["audit_refs"]) == 1
+
+        subgraph_executor.resume = AsyncMock(
+            return_value=Run(
+                run_id="child-run-0",
+                graph_version_ref="child-wf:v1",
+                deployment_ref="child-wf",
+                status=RunStatus.COMPLETED,
+                final_output={"done": 0},
+                metadata={
+                    "total_cost_usd": 0.3,
+                    "cost_measurement": MeasurementState.MEASURED,
+                },
+            )
+        )
+        waiting.status = RunStatus.RUNNING
+        resumed = await orchestrator._drive(graph, waiting)
+
+        assert resumed.status is RunStatus.COMPLETED
+        assert len([e for e in resumed.execution_history if e.node_id == "paid"]) == 2
+        resumed_subgraph = [
+            e
+            for e in resumed.execution_history
+            if e.node_id == "sub-step" and e.status == "completed"
+        ]
+        cancelled_subgraph = [
+            e
+            for e in resumed.execution_history
+            if e.node_id == "sub-step" and e.status == "cancelled"
+        ]
+        assert len(resumed_subgraph) == 1
+        assert resumed_subgraph[0].input_snapshot == {"result": 10}
+        assert len(cancelled_subgraph) == 1
+        assert cancelled_subgraph[0].input_snapshot == {"result": 20}
+        assert cancelled_subgraph[0].cost_measurement is MeasurementState.UNMEASURED
+        refs = [entry.audit_ref for entry in resumed.execution_history if entry.audit_ref]
+        assert len(refs) == len(set(refs)) == 4
+        assert set(refs) == set(resumed.audit_refs)
+        cost = rollup_run_cost(resumed)
+        assert cost.cost_usd == pytest.approx(0.8)
+        assert cost.cost_measurement is MeasurementState.UNMEASURED
+        assert cost.total_usd is None
 
     async def test_nested_pause_on_resume_persists_waiting_approval(self, sqlite_db) -> None:
         """B8: a SECOND approval gate hit while RESUMING a paused fan-out branch.
@@ -591,6 +961,7 @@ class TestScenario1SubgraphInFanOutBranch:
                 self.audit_record = {"model": "test", "token_usage": None}
 
         source_runner = AsyncMock()
+        source_runner.context_tracker = None
         source_runner.run = AsyncMock(return_value=_FakeResult({"items": [{"v": 0}, {"v": 1}]}))
 
         def _waiting_child() -> Run:

@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
 
 from zeroth.econ.instrumentation.integrations._capture import (
     finalize_capture_metadata,
@@ -15,15 +16,16 @@ from zeroth.econ.instrumentation.integrations._capture import (
 from zeroth.econ.instrumentation.otel import maybe_span
 from zeroth.econ.instrumentation.runtime import get_runtime
 from zeroth.econ.instrumentation.schemas import ExecutionEvent
+from zeroth.econ.measurement import MeasurementState
 from zeroth.econ.instrumentation.client import resolve_join_key
 
 
-def _usage_tokens(response: Any) -> tuple[int, int, int]:
+def _usage_tokens(response: Any) -> tuple[int | None, int | None, int | None]:
     usage = getattr(response, "usage", None)
     if usage is None and isinstance(response, dict):
         usage = response.get("usage")
     if usage is None:
-        return 0, 0, 0
+        return None, None, None
 
     inp = getattr(usage, "input_tokens", None)
     out = getattr(usage, "output_tokens", None)
@@ -31,9 +33,9 @@ def _usage_tokens(response: Any) -> tuple[int, int, int]:
         inp = usage.get("input_tokens", inp)
         out = usage.get("output_tokens", out)
 
-    i = int(inp or 0)
-    o = int(out or 0)
-    return i, o, i + o
+    i = int(inp) if inp is not None else None
+    o = int(out) if out is not None else None
+    return i, o, i + o if i is not None and o is not None else None
 
 
 def _enabled() -> bool:
@@ -54,7 +56,7 @@ def _build_event(
     model_name: str,
     metadata: dict[str, Any],
 ) -> ExecutionEvent:
-    execution_id = f"an_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    execution_id = f"an_{uuid4().hex}"
     run_id = str(metadata.get("run_id") or execution_id)
     join_key = resolve_join_key(execution_id, metadata)
     enriched = finalize_capture_metadata(
@@ -75,6 +77,11 @@ def _build_event(
         model_version=model_name,
         latency_ms=elapsed_ms,
         compute_time_ms=elapsed_ms,
+        usage_measurement=(
+            MeasurementState.MEASURED
+            if metadata.get("total_tokens") is not None
+            else MeasurementState.UNMEASURED
+        ),
         metadata=enriched,
     )
 
@@ -130,7 +137,7 @@ def _wrap_sync_call(
                         "input_tokens": inp,
                         "output_tokens": out,
                         "total_tokens": total,
-                        "usage_missing": total == 0,
+                        "usage_missing": total is None,
                         "cost_inputs": {
                             "prompt_tokens": inp,
                             "completion_tokens": out,
@@ -207,7 +214,7 @@ def _wrap_async_call(
                         "input_tokens": inp,
                         "output_tokens": out,
                         "total_tokens": total,
-                        "usage_missing": total == 0,
+                        "usage_missing": total is None,
                         "cost_inputs": {
                             "prompt_tokens": inp,
                             "completion_tokens": out,

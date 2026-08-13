@@ -49,11 +49,19 @@ class DatabaseSettings(BaseModel):
     postgres_pool_max: int = 10
     encryption_key: SecretStr | None = None
 
+    @model_validator(mode="after")
+    def validate_backend_requirements(self) -> DatabaseSettings:
+        if self.backend == "postgres" and (
+            self.postgres_dsn is None or not self.postgres_dsn.get_secret_value().strip()
+        ):
+            raise ValueError("postgres backend requires postgres_dsn")
+        return self
+
 
 class RedisSettings(BaseModel):
     """Redis connection settings, absorbing the existing RedisConfig fields."""
 
-    mode: str = "local"
+    mode: Literal["local", "disabled"] = "local"
     host: str = "127.0.0.1"
     port: int = 6379
     password: SecretStr | None = None
@@ -129,7 +137,7 @@ class ElasticsearchSettings(BaseModel):
 class SandboxSettings(BaseModel):
     """Sandbox execution backend configuration."""
 
-    backend: str = "local"  # local, docker, auto, sidecar
+    backend: Literal["local", "docker", "auto", "sidecar"] = "local"
     sidecar_url: str = "http://sandbox-sidecar:8001"
     docker_container_name: str = "zeroth-sandbox"
     docker_binary: str = "docker"
@@ -214,7 +222,7 @@ class SecretsSettings(BaseModel):
     library silently read a process-global environment variable.
     """
 
-    backend: str = "env"  # env | vault
+    backend: Literal["env", "vault"] = "env"
     allow_env_fallback: bool = True
 
     # Vault connection / auth (only consulted when backend == 'vault').
@@ -250,7 +258,7 @@ class ProvenanceSigningSettings(BaseModel):
     * ``mode='off'`` — signing disabled; records stay unsigned-legacy.
     """
 
-    mode: str = "env"  # env | kms | off
+    mode: Literal["env", "kms", "off"] = "env"
     # Advisory only: the EFFECTIVE algorithm is derived from ``mode`` — env ->
     # HS256, kms -> Ed25519. It is surfaced for documentation/telemetry; setting
     # it inconsistently with ``mode`` (e.g. mode='env', algorithm='Ed25519') does

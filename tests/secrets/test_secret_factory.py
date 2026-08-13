@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from zeroth.platform.config.settings import SecretsSettings
 from zeroth.platform.secrets import (
     EnvSecretProvider,
-    SecretProviderConfigError,
     VaultSecretProvider,
     build_secret_provider,
 )
@@ -36,5 +36,5 @@ def test_vault_backend_selects_vault_provider() -> None:
 
 
 def test_unknown_backend_raises() -> None:
-    with pytest.raises(SecretProviderConfigError, match="unknown secrets.backend"):
-        build_secret_provider(SecretsSettings(backend="consul"))
+    with pytest.raises(ValidationError, match="Input should be 'env' or 'vault'"):
+        SecretsSettings(backend="consul")

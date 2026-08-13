@@ -46,3 +46,12 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+class EconConfigError(RuntimeError):
+    pass
+
+
+def validate_startup_settings() -> None:
+    if not settings.jwt_secret.strip() or settings.jwt_secret == "change-me":
+        raise EconConfigError("ECP_JWT_SECRET must be configured before standalone startup")

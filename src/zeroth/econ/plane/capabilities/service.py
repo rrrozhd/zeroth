@@ -218,8 +218,8 @@ def list_experiments(db: ScopedSession, capability_id: str) -> list[Experiment]:
 
 def pick_ab_arm(join_key: str, target_pct: float) -> str:
     digest = sha256(join_key.encode("utf-8")).hexdigest()
-    bucket = int(digest[:8], 16) % 100
-    return "A" if bucket < int(target_pct) else "B"
+    bucket = int(digest[:8], 16) % 10_000
+    return "A" if bucket < target_pct * 100 else "B"
 
 
 def active_experiment(

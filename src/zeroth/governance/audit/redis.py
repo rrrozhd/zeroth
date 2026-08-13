@@ -42,13 +42,9 @@ class RedisAuditEmitter(AuditEmitter):
         return f"{self.prefix}:run:{run_id}"
 
     async def emit(self, event: AuditEvent) -> None:
-        """Emit."""
-        client = await self._client()
-        payload = event.model_dump_json()
-        key = self._run_key(event.run_id)
-        await client.rpush(key, payload)
-        if self.ttl_seconds is not None:
-            await client.expire(key, int(self.ttl_seconds))
+        """Refuse writes through this legacy compatibility adapter."""
+        del event
+        raise RuntimeError("RedisAuditEmitter writes are disabled")
 
     async def events_for_run(self, run_id: str) -> list[AuditEvent]:
         """Events for run."""

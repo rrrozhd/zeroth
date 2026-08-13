@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import pytest
+from cryptography.fernet import InvalidToken
 
 from zeroth.contracts.graph import (
     CancellationFence,
@@ -21,6 +22,8 @@ from zeroth.contracts.graph import (
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage import EncryptedField
+from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotCorruptionError,
@@ -29,6 +32,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotWriteDisabledError,
 )
 from zeroth.runtime.runs import Run
+from zeroth.service.bootstrap.migrations import run_migrations
 from tests.conftest import requires_docker
 
 
@@ -159,6 +163,27 @@ async def test_read_wraps_malformed_snapshot_payload_as_typed_corruption(sqlite_
 
     with pytest.raises(TokenSnapshotCorruptionError, match="cannot be decoded"):
         await repository.get_token_snapshot("run-1")
+
+
+async def test_wrong_encryption_key_is_typed_corruption(tmp_path) -> None:
+    path = tmp_path / "rotated-token-snapshot-key.db"
+    run_migrations(f"sqlite:///{path}")
+    writer_db = AsyncSQLiteDatabase(str(path), encryption_key=EncryptedField.generate_key())
+    scope = NullWorkspaceScopeContext(tenant_id="tenant-1")
+    writer = RunRepository(writer_db, scope)
+    await writer.create(_run())
+    await writer.compare_and_swap_token_snapshot(
+        "run-1", expected_revision=None, snapshot=_snapshot(0)
+    )
+    await writer_db.close()
+
+    reader_db = AsyncSQLiteDatabase(str(path), encryption_key=EncryptedField.generate_key())
+    try:
+        with pytest.raises(TokenSnapshotCorruptionError, match="cannot be decoded") as raised:
+            await RunRepository(reader_db, scope).get_token_snapshot("run-1")
+        assert isinstance(raised.value.__cause__, InvalidToken)
+    finally:
+        await reader_db.close()
 
 
 async def test_cas_fails_loudly_when_row_metadata_contradicts_snapshot(sqlite_db) -> None:

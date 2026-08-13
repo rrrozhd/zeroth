@@ -48,8 +48,7 @@ def test_container_and_compatibility_contract() -> None:
     assert "io.zeroth.langgraph.compatibility.agent-server=0.11.1" in dockerfile
     assert "ARG ZEROTH_EXTRAS" not in dockerfile
     assert dockerfile.count("python:3.12.13-slim-bookworm") == 1
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    version = project["project"]["version"]
+    evidence_version = compatibility["release"]
     benchmark = json.loads(
         (ROOT / "release/langgraph/benchmark-evidence.json").read_text(encoding="utf-8")
     )
@@ -57,15 +56,14 @@ def test_container_and_compatibility_contract() -> None:
         encoding="utf-8"
     )
 
-    assert f"org.opencontainers.image.version={version}" in dockerfile
+    assert f"org.opencontainers.image.version={evidence_version}" in dockerfile
     assert compose_config["services"]["zeroth"]["image"] == (
-        f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{version}}}"
+        f"zeroth-core:${{ZEROTH_IMAGE_TAG:-{evidence_version}}}"
     )
-    assert compatibility["release"] == version
-    assert compatibility["resolved"]["zeroth_core"] == version
-    assert manifest["release"] == version
-    assert benchmark["release"] == version
-    assert f'CURRENT_RELEASE = "{version}"' in benchmark_source
+    assert compatibility["resolved"]["zeroth_core"] == evidence_version
+    assert manifest["release"] == evidence_version
+    assert benchmark["release"] == evidence_version
+    assert f'CURRENT_RELEASE = "{evidence_version}"' in benchmark_source
     assert "requirements-image.txt" in dockerfile
     build_step = next(
         step

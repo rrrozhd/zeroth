@@ -137,6 +137,10 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
             ("RuntimeParallelExecutor", "execute_fan_out", "branch_coro_factory"),
             ("self", "audit_recorder", "audit_repository"),
         ): frozenset({"write"}),
+        (
+            ("RuntimeParallelExecutor", "execute_fan_out_resume"),
+            ("self", "audit_recorder", "audit_repository"),
+        ): frozenset({"write"}),
     },
     "src/zeroth/runtime/orchestration/run_worker.py": {
         (("RunWorker", "_record_worker_audit"), ("audit_repository",)): frozenset({"write"}),
@@ -4394,6 +4398,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
     "src/zeroth/runtime/orchestration/audit_recorder.py::record_policy_rejection::write",
     "src/zeroth/runtime/orchestration/parallel_executor.py::branch_coro_factory::write",
+    "src/zeroth/runtime/orchestration/parallel_executor.py::execute_fan_out_resume::write",
     "src/zeroth/runtime/orchestration/run_worker.py::_record_worker_audit::write",
     "src/zeroth/service/api/audit_api.py::_verify_run_chain::list_by_run",
     "src/zeroth/service/api/audit_api.py::get_deployment_evidence::list_by_deployment",

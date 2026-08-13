@@ -60,7 +60,11 @@ def _audit(
         status=status,
         input_snapshot=inp,
         output_snapshot=out,
-        token_usage=TokenUsage(input_tokens=tokens[0], output_tokens=tokens[1]) if tokens else None,
+        token_usage=(
+            TokenUsage(input_tokens=tokens[0], output_tokens=tokens[1], model_name="gpt-4o")
+            if tokens
+            else None
+        ),
         tool_calls=[ToolCallRecord(tool_ref=t, alias=t) for t in (tool_calls or [])],
     )
 
@@ -159,6 +163,26 @@ def test_harvest_keeps_records_without_a_recorded_model():
     assert stats.skipped_other_model == 0
 
 
+def test_both_harvesters_exclude_neutral_mixed_model_usage():
+    record = _audit("agent", {"q": "1"}, {"content": "x"})
+    assert record.token_usage is not None
+    record.token_usage.model_name = ""
+
+    experiment, experiment_stats = build_experiment_dataset(
+        [record], incumbent_model="openai/gpt-4o"
+    )
+    labeled, labeled_stats = build_labeled_dataset(
+        [record], {record.run_id: "x"}, incumbent_model="openai/gpt-4o"
+    )
+
+    assert experiment.cases == []
+    assert labeled.cases == []
+    assert experiment_stats.skipped_other_model == 1
+    assert labeled_stats.skipped_other_model == 1
+    assert experiment_stats.token_profile_measured is False
+    assert labeled_stats.token_profile_measured is False
+
+
 # --- Equivalence scorer --------------------------------------------------------
 
 
@@ -233,6 +257,29 @@ async def test_confirmed_when_cheap_candidate_matches_over_enough_cases():
     assert good_outcome.est_cost_per_1k_calls_usd == pytest.approx(
         (1.0 * 1000 + 3.0 * 200) / 1e6 * 1000, abs=1e-6
     )
+
+
+@pytest.mark.asyncio
+async def test_recommendation_prefers_eligible_free_candidate_over_paid_candidate():
+    dataset, stats = _dataset_of(1)
+    paid = _option("paid", "acme", 1.0, 1.0)
+    free = _option("free", "acme", 0.0, 0.0)
+
+    report = await run_experiment(
+        incumbent=_INCUMBENT,
+        candidates=[paid, free],
+        dataset=dataset,
+        instruction="answer",
+        replay_provider=_replay_provider(lambda _model, inp: f"ANSWER-{inp['q']}"),
+        judge_provider=_equality_judge(),
+        judge_model="judge/model",
+        mean_input_tokens=stats.mean_input_tokens,
+        mean_output_tokens=stats.mean_output_tokens,
+        harvest=stats,
+        min_cases=1,
+    )
+
+    assert report.recommended_model == "acme/free"
 
 
 @pytest.mark.asyncio

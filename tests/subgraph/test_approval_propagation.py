@@ -9,7 +9,7 @@ Covers the full two-phase resume pattern:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -24,8 +24,9 @@ from zeroth.contracts.graph.models import (
     SubgraphNode,
 )
 from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeOrchestrator
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
 from zeroth.runtime.subgraphs.errors import SubgraphResolutionError
 from zeroth.runtime.subgraphs.executor import SubgraphExecutor
 from zeroth.runtime.subgraphs.models import SubgraphNodeData
@@ -313,6 +314,117 @@ class TestApprovalPropagationResume:
         # Should have completed, using child's output
         assert result.status == RunStatus.COMPLETED
         assert result.final_output == {"resumed_result": "done"}
+
+    @pytest.mark.asyncio
+    async def test_resume_recomputes_paid_child_history_after_approval(self) -> None:
+        parent_graph = _make_parent_graph_with_subgraph()
+        parent_run = _make_run(parent_graph, pending_node_ids=["s1"])
+        parent_run.metadata["pending_subgraph"] = {
+            "child_run_id": "child-run-1",
+            "node_id": "s1",
+            "graph_ref": "child-g",
+            "version": None,
+        }
+        child_run = Run(
+            run_id="child-run-1",
+            graph_version_ref="child-g:v1",
+            deployment_ref="child-g",
+            status=RunStatus.WAITING_APPROVAL,
+            pending_node_ids=[],
+            metadata={
+                "subgraph_depth": 1,
+                "last_output": {"result": "ok"},
+                "total_cost_usd": 0.1,
+                "cost_measurement": MeasurementState.MEASURED,
+            },
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="before-approval",
+                    status="completed",
+                    cost_usd=0.1,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+                RunHistoryEntry(
+                    node_id="after-approval",
+                    status="completed",
+                    cost_usd=0.2,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+            ],
+        )
+        child_graph = Graph(
+            graph_id="child-g",
+            name="child",
+            version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+            nodes=[],
+            edges=[],
+        )
+        resolver = AsyncMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, MagicMock()))
+        run_repo = _make_run_repository()
+        run_repo.get = AsyncMock(return_value=child_run)
+        orchestrator = _make_orchestrator(
+            run_repository=run_repo,
+            subgraph_executor=SubgraphExecutor(resolver=resolver),
+        )
+
+        result = await orchestrator._drive(parent_graph, parent_run)
+
+        [history] = [entry for entry in result.execution_history if entry.node_id == "s1"]
+        assert history.cost_usd == pytest.approx(0.3)
+        assert history.cost_measurement is MeasurementState.MEASURED
+
+    @pytest.mark.asyncio
+    async def test_failed_resumed_child_cost_rolls_once_into_parent(self) -> None:
+        parent_graph = _make_parent_graph_with_subgraph()
+        parent_run = _make_run(parent_graph, pending_node_ids=["s1"])
+        parent_run.metadata["pending_subgraph"] = {
+            "child_run_id": "child-run-1",
+            "node_id": "s1",
+            "graph_ref": "child-g",
+            "version": None,
+        }
+        child_run = Run(
+            run_id="child-run-1",
+            graph_version_ref="child-g:v1",
+            deployment_ref="child-g",
+            status=RunStatus.FAILED,
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.3,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+        child_graph = Graph(
+            graph_id="child-g",
+            name="child",
+            version=1,
+            execution_settings=ExecutionSettings(sequential_join_enabled=False),
+            nodes=[],
+            edges=[],
+        )
+        resolver = AsyncMock(spec=SubgraphResolver)
+        resolver.resolve = AsyncMock(return_value=(child_graph, MagicMock()))
+        orchestrator = _make_orchestrator(
+            subgraph_executor=SubgraphExecutor(resolver=resolver)
+        )
+
+        with patch.object(
+            RuntimeOrchestrator,
+            "resume_graph",
+            new=AsyncMock(return_value=child_run),
+        ):
+            result = await orchestrator._drive(parent_graph, parent_run)
+
+        assert result.status is RunStatus.FAILED
+        summaries = [entry for entry in result.execution_history if entry.node_id == "s1"]
+        assert len(summaries) == 1
+        assert summaries[0].cost_usd == pytest.approx(0.3)
+        assert summaries[0].cost_measurement is MeasurementState.MEASURED
 
     @pytest.mark.asyncio
     async def test_resume_clears_pending_subgraph_metadata(self) -> None:

@@ -10,7 +10,6 @@ Depth tracking and cycle detection prevent infinite recursion.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -19,6 +18,7 @@ from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph.models import Graph, SubgraphNode
 from zeroth.runtime.parallel.models import BranchContext, GlobalStepTracker
 from zeroth.runtime.runs import Run
+from zeroth.runtime.runs.costs import rollup_cost_history
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -34,29 +34,6 @@ if TYPE_CHECKING:
     from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 
 logger = logging.getLogger(__name__)
-
-
-def _sum_audit_cost(history: list) -> float:
-    """Aggregate per-step cost from a Run's execution history (W-4).
-
-    Walks the execution history records and sums any ``cost_usd`` field
-    present on each entry. Used by ``SubgraphExecutor.execute`` to write
-    a single ``total_cost_usd`` key on the child Run's metadata before
-    returning — the ONLY place this key is written (D-09). ``_drive``
-    stays cost-agnostic to avoid polluting every non-parallel run with
-    parallel-specific behavior.
-    """
-    total = 0.0
-    for entry in history or []:
-        cost: Any = None
-        if isinstance(entry, dict):
-            cost = entry.get("cost_usd")
-        else:
-            cost = getattr(entry, "cost_usd", None)
-        if cost:
-            with contextlib.suppress(TypeError, ValueError):
-                total += float(cost)
-    return total
 
 
 @dataclass(slots=True)
@@ -213,13 +190,29 @@ class SubgraphExecutor:
         try:
             result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
-            raise SubgraphExecutionError(f"subgraph '{graph_ref}' execution failed: {exc}") from exc
+            error = SubgraphExecutionError(f"subgraph '{graph_ref}' execution failed: {exc}")
+            if child_run.execution_history:
+                rollup = rollup_cost_history(child_run.execution_history)
+                error.audit_record = {  # type: ignore[attr-defined]
+                    "subgraph_run_id": child_run.run_id,
+                    "subgraph_graph_ref": graph_ref,
+                    "subgraph_status": child_run.status.value,
+                    "cost_usd": rollup.cost_usd,
+                    "estimated_cost_usd": rollup.estimated_cost_usd,
+                    "cost_measurement": rollup.cost_measurement,
+                }
+            raise error from exc
 
         # --- D-09 / W-4: cost rollup at child-return path ONLY ---
         # This is the sole writer of `total_cost_usd` on a Run's metadata.
         # `_drive()` stays cost-agnostic; `BranchResult.cost_usd` reads
         # this field downstream via `_sum_run_cost`.
-        result.metadata["total_cost_usd"] = _sum_audit_cost(result.execution_history)
+        rollup = rollup_cost_history(result.execution_history)
+        result.metadata.update(
+            total_cost_usd=rollup.cost_usd,
+            total_estimated_cost_usd=rollup.estimated_cost_usd,
+            cost_measurement=rollup.cost_measurement,
+        )
 
         return result
 
@@ -262,9 +255,26 @@ class SubgraphExecutor:
         try:
             result = await orchestrator._drive(merged, child_run, step_tracker=step_tracker)
         except Exception as exc:
-            raise SubgraphExecutionError(
+            error = SubgraphExecutionError(
                 f"subgraph resume for '{graph_ref}' failed: {exc}"
-            ) from exc
+            )
+            if child_run.execution_history:
+                rollup = rollup_cost_history(child_run.execution_history)
+                error.audit_record = {  # type: ignore[attr-defined]
+                    "subgraph_run_id": child_run.run_id,
+                    "subgraph_graph_ref": graph_ref,
+                    "subgraph_status": child_run.status.value,
+                    "subgraph_resumed": True,
+                    "cost_usd": rollup.cost_usd,
+                    "estimated_cost_usd": rollup.estimated_cost_usd,
+                    "cost_measurement": rollup.cost_measurement,
+                }
+            raise error from exc
 
-        result.metadata["total_cost_usd"] = _sum_audit_cost(result.execution_history)
+        rollup = rollup_cost_history(result.execution_history)
+        result.metadata.update(
+            total_cost_usd=rollup.cost_usd,
+            total_estimated_cost_usd=rollup.estimated_cost_usd,
+            cost_measurement=rollup.cost_measurement,
+        )
         return result

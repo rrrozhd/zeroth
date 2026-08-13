@@ -13,7 +13,8 @@ from zeroth.econ.plane.capabilities.service import active_experiment
 from zeroth.econ.plane.counterfactual.models import ValueEstimate
 from zeroth.econ.plane.counterfactual.service import _pick_interval
 from zeroth.econ.plane.database import Base
-from zeroth.econ.plane.instrumentation.models import OutcomeEvent
+from zeroth.econ.plane.costing.service import estimate_cost_for_period
+from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.performance.service import calculate_snapshots
 from zeroth.econ.plane.scoped_session import ScopedSession
 from zeroth.platform.storage.scoping import TenantWideScopeContext
@@ -129,3 +130,38 @@ def test_pick_interval_high_fraud_rate_is_net_negative() -> None:
     assert estimated == pytest.approx(-3200.0)
     assert estimated < 0
     assert low <= estimated <= high
+
+
+def test_cost_estimate_sums_measured_zero_and_estimated_executions(econ_session) -> None:
+    common = {
+        "timestamp": _NOW,
+        "capability_id": "cap",
+        "implementation_id": "impl",
+        "model_version": "m",
+        "event_metadata": {},
+    }
+    for event in (
+        ExecutionEvent(
+            execution_id="measured-zero",
+            token_cost_usd=0,
+            tool_cost_usd=0,
+            compute_cost_usd=0,
+            cost_measurement="measured",
+            **common,
+        ),
+        ExecutionEvent(
+            execution_id="estimated",
+            token_cost_usd=2,
+            tool_cost_usd=0,
+            compute_cost_usd=0,
+            cost_measurement="estimated",
+            **common,
+        ),
+    ):
+        econ_session.add(event)
+    econ_session.commit()
+
+    estimate = estimate_cost_for_period(econ_session, "cap", "impl", _NOW, _NOW)
+
+    assert estimate.llm_cost_estimate_usd == pytest.approx(2.0)
+    assert estimate.data_quality == "mixed"

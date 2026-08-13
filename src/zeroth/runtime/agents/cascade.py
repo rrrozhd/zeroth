@@ -18,6 +18,8 @@ which model answered.
 
 from __future__ import annotations
 
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 
@@ -46,12 +48,17 @@ class CascadingProviderAdapter:
         incumbent_model = request.model_name  # the node's model_provider = escalation target
         cheap_request = request.model_copy(update={"model_name": self._cheap_model})
 
-        primary_cost = 0.0
+        primary_cost: float | None = None
+        primary_estimated_cost: float | None = None
+        primary_measurement = MeasurementState.UNMEASURED
         primary_event_id: str | None = None
+        primary: ProviderResponse | None = None
         failure: str | None = None
         try:
             primary = await self._inner.ainvoke(cheap_request)
-            primary_cost = primary.cost_usd or 0.0
+            primary_cost = primary.cost_usd
+            primary_estimated_cost = primary.estimated_cost_usd
+            primary_measurement = primary.cost_measurement
             primary_event_id = primary.cost_event_id
             if not _is_blank_response(primary):
                 return primary.model_copy(
@@ -63,6 +70,7 @@ class CascadingProviderAdapter:
                                 "escalated": False,
                                 "primary_failure": None,
                                 "primary_cost_usd": primary_cost,
+                                "primary_estimated_cost_usd": primary_estimated_cost,
                             },
                         }
                     }
@@ -73,14 +81,41 @@ class CascadingProviderAdapter:
 
         # Escalate to the incumbent (request.model_name unchanged). If this ALSO raises, the
         # exception propagates -- both models failed; never fabricate a response.
-        incumbent = await self._inner.ainvoke(request)
-        incumbent_cost = incumbent.cost_usd or 0.0
+        try:
+            incumbent = await self._inner.ainvoke(request)
+        except Exception as exc:
+            if primary is not None:
+                from zeroth.runtime.agents.runner import AgentRunner
+
+                AgentRunner._attach_cost_audit(exc, primary)
+            raise
+        incumbent_cost = incumbent.cost_usd
+        incumbent_estimated_cost = incumbent.estimated_cost_usd
+        from zeroth.runtime.agents.runner import AgentRunner
+
+        combined = AgentRunner._measurement_audit(
+            primary
+            or {
+                "cost_measurement": primary_measurement,
+                "usage_measurement": MeasurementState.UNMEASURED,
+            },
+            incumbent,
+        )
+        combined_usage = combined.get("token_usage")
         return incumbent.model_copy(
             update={
                 # Attribute EVERY dollar: the cheap attempt AND the incumbent. This sums two
                 # ExecutionEvents into one cost_usd; cost_event_id references the served
                 # incumbent event, and the cheap event id is preserved in metadata.
-                "cost_usd": primary_cost + incumbent_cost,
+                "cost_usd": combined.get("cost_usd"),
+                "estimated_cost_usd": combined.get("estimated_cost_usd"),
+                "cost_measurement": combined.get("cost_measurement"),
+                "token_usage": (
+                    TokenUsage.model_validate(combined_usage)
+                    if combined_usage is not None
+                    else None
+                ),
+                "usage_measurement": combined.get("usage_measurement"),
                 "metadata": {
                     **incumbent.metadata,
                     "cascade": {
@@ -88,8 +123,10 @@ class CascadingProviderAdapter:
                         "escalated": True,
                         "primary_failure": failure,
                         "primary_cost_usd": primary_cost,
+                        "primary_estimated_cost_usd": primary_estimated_cost,
                         "primary_cost_event_id": primary_event_id,
                         "incumbent_cost_usd": incumbent_cost,
+                        "incumbent_estimated_cost_usd": incumbent_estimated_cost,
                     },
                 },
             }

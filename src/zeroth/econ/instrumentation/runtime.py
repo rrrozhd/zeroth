@@ -30,6 +30,8 @@ class RuntimeState:
 
     def configure(self, config: InstrumentationConfig) -> None:
         with self._lock:
+            if config == self.config:
+                return
             stop = getattr(self.transport, "stop", None)
             if callable(stop):
                 stop()
@@ -152,8 +154,14 @@ class RuntimeState:
         return True
 
 
-_runtime = RuntimeState()
+_runtime: RuntimeState | None = None
+_runtime_lock = threading.Lock()
 
 
 def get_runtime() -> RuntimeState:
+    global _runtime
+    if _runtime is None:
+        with _runtime_lock:
+            if _runtime is None:
+                _runtime = RuntimeState()
     return _runtime

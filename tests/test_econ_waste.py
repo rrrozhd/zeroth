@@ -39,6 +39,7 @@ from zeroth.runtime.agents.models import RetryPolicy
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.agents.resilience import CachingProviderAdapter
 from zeroth.runtime.orchestration import RuntimeOrchestrator
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.runs import RunStatus
 
 
@@ -278,7 +279,7 @@ async def test_runner_attaches_cost_to_validation_failure() -> None:
 async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -> None:
     """End-to-end: a paid-then-failed node records its cost, and analyze_run flags it.
 
-    Without the runner+runtime cost-on-failure fix the rejected audit would carry
+    Without the runner+runtime cost-on-failure fix the failed audit would carry
     no cost and ``paid_for_failed_run`` would silently under-report — this is the
     proof the signal reaches the detector through the real execution path.
     """
@@ -307,9 +308,9 @@ async def test_failed_run_cost_survives_into_audit_and_waste_report(sqlite_db) -
     assert run.status is RunStatus.FAILED
 
     audits = await AuditRepository.for_default_compatibility(sqlite_db).list_by_run(run.run_id)
-    rejected = [a for a in audits if a.node_id == "n1" and a.status == "rejected"]
-    assert len(rejected) == 1
-    assert rejected[0].cost_usd == pytest.approx(0.02)  # paid-then-failed spend survived
+    failed = [a for a in audits if a.node_id == "n1" and a.status == "failed"]
+    assert len(failed) == 1
+    assert failed[0].cost_usd == pytest.approx(0.02)  # paid-then-failed spend survived
 
     report = analyze_run(run.run_id, run.status, audits)
     assert report.confirmed_waste_usd == pytest.approx(0.02)
@@ -390,15 +391,47 @@ async def test_real_loop_yields_multiple_audits_and_flags_waste(sqlite_db) -> No
 # --- P2: retry overhead + cache efficiency ---------------------------------------
 
 
-def test_retry_overhead_flagged_on_completed_run() -> None:
-    """A node that took >1 attempt flags estimated retry overhead on a completed run."""
-    audits = [_audit("a", 0.01, execution_metadata={"extra": {"attempts": 3}})]
+def test_aggregate_retry_cost_is_not_multiplied_and_blocks_a_complete_decision() -> None:
+    """An aggregate two-attempt cost cannot reveal the failed attempt's share."""
+    audits = [_audit("a", 0.02, execution_metadata={"extra": {"attempts": 2}})]
     report = analyze_run("r1", RunStatus.COMPLETED, audits)
     retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
     assert retry.confirmed is False
-    assert retry.severity == "warning"
-    assert retry.metadata["attempts"] == 3
-    assert report.flagged_waste_usd == pytest.approx(0.02)  # 0.01 * (3 - 1)
+    assert retry.severity == "info"
+    assert retry.metadata["attempts"] == 2
+    assert retry.wasted_usd == 0.0
+    assert report.total_cost_usd == pytest.approx(0.02)
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)
+
+
+def test_estimated_aggregate_retry_is_indeterminate_without_fabricated_dollars() -> None:
+    audit = NodeAuditRecord(
+        audit_id="a",
+        run_id="r1",
+        tenant_id="tenant_default",
+        node_id="a",
+        graph_version_ref="g:v1",
+        deployment_ref="g",
+        status="completed",
+        estimated_cost_usd=0.02,
+        cost_measurement=MeasurementState.ESTIMATED,
+        execution_metadata={"extra": {"attempts": 2}},
+    )
+
+    report = analyze_run("r1", RunStatus.COMPLETED, [audit])
+
+    retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
+    assert retry.wasted_usd == 0.0
+    assert retry.metadata["aggregate_estimated_cost_usd"] == pytest.approx(0.02)
+    assert report.total_cost_usd == 0.0
+    assert report.estimated_cost_usd == pytest.approx(0.02)
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)
 
 
 def test_retry_overhead_is_info_on_failed_run() -> None:
@@ -575,12 +608,12 @@ async def test_instrumented_cache_hit_costs_zero_through_orchestrator(sqlite_db)
     report = analyze_run(run.run_id, run.status, audits)
 
     # Two visits: a cold miss with real cost, and a hit that costs nothing.
-    costs = sorted(a.cost_usd or 0.0 for a in audits)
-    assert len(costs) == 2
-    assert costs[0] == 0.0  # the cache hit -- no fabricated cost
-    assert costs[1] > 0  # the cold miss -- real spend
-    # Total reflects only the miss; the hit no longer inflates it.
-    assert report.total_cost_usd == pytest.approx(costs[1])
+    assert len(audits) == 2
+    assert sorted(a.cost_usd or 0.0 for a in audits) == [0.0, 0.0]
+    estimates = sorted(a.estimated_cost_usd or 0.0 for a in audits)
+    assert estimates[1] > 0  # the cold miss is priced, but remains labeled estimated
+    assert report.total_cost_usd == 0.0
+    assert report.estimated_cost_usd == pytest.approx(estimates[1])
 
     # Exactly one Regulus event -- the miss. The hit emits none (no double-bill).
     regulus.track_execution.assert_called_once()
@@ -650,4 +683,8 @@ async def test_retry_overhead_fires_end_to_end(sqlite_db) -> None:
     report = analyze_run(run.run_id, run.status, audits)
     retry = next(f for f in report.findings if f.kind == WasteKind.RETRY_OVERHEAD)
     assert retry.metadata["attempts"] == 2
-    assert report.flagged_waste_usd > 0
+    assert retry.wasted_usd == 0.0
+    assert report.flagged_waste_usd == 0.0
+    assert report.cost_measurement_complete is False
+    with pytest.raises(EconThresholdError, match="incomplete"):
+        waste_gate(report, max_flagged_usd=0.01)

@@ -42,10 +42,14 @@ class SecretRedactor:
             if ordered_values
             else None
         )
+        self._short_values = tuple(secret for secret in ordered_values if len(secret) < 8)
 
     def redact(self, value: Any) -> Any:
         """Recursively redact strings, dicts, and lists that contain known secrets."""
         if isinstance(value, str):
+            for secret in self._short_values:
+                if secret in value:
+                    return f"[REDACTED:{self._marker_by_value[secret]}]"
             if self._matcher is None:
                 return value
             return self._matcher.sub(

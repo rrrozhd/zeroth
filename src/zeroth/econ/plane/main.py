@@ -11,7 +11,7 @@ from zeroth.econ.plane.auth.deps import get_current_scoped_db, require_roles
 from zeroth.econ.plane.auth.scoped import ScopedUserClaims as UserClaims
 from zeroth.econ.plane.capabilities.api import router as capabilities_router
 from zeroth.econ.plane.common.bootstrap import bootstrap
-from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.config import settings, validate_startup_settings
 from zeroth.econ.plane.connectors.api import router as connectors_router
 from zeroth.econ.plane.connectors.service import init_otel_metrics, render_prometheus_metrics
 from zeroth.econ.plane.counterfactual.api import router as counterfactual_router
@@ -59,6 +59,7 @@ async def request_log_middleware(request: Request, call_next):  # type: ignore[n
 
 @app.on_event("startup")
 def startup() -> None:
+    validate_startup_settings()
     bootstrap()
     init_otel_metrics()
 

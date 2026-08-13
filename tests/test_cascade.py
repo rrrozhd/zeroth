@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.tooling.tool_calls import NormalizedToolCall
 
 from zeroth.runtime.agents.cascade import CascadingProviderAdapter, _is_blank_response
+from zeroth.runtime.agents.errors import AgentProviderError
 from zeroth.runtime.agents.provider import ProviderRequest, ProviderResponse
 
 
@@ -61,6 +64,80 @@ async def test_blank_cheap_escalates_and_sums_both_costs():
     assert cascade["primary_cost_usd"] == 0.001
 
 
+async def test_blank_cheap_keeps_estimate_separate_from_measured_fallback() -> None:
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(
+                content=" ",
+                estimated_cost_usd=0.001,
+                cost_measurement=MeasurementState.ESTIMATED,
+                cost_event_id="c1",
+            ),
+            "incumbent": ProviderResponse(
+                content="real answer",
+                cost_usd=0.01,
+                cost_measurement=MeasurementState.MEASURED,
+                cost_event_id="i1",
+            ),
+        }
+    )
+
+    out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert out.cost_usd == 0.01
+    assert out.estimated_cost_usd == 0.001
+    assert out.cost_measurement is MeasurementState.ESTIMATED
+    assert out.metadata["cascade"]["primary_estimated_cost_usd"] == 0.001
+
+
+async def test_blank_cheap_aggregates_both_attempts_token_usage() -> None:
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(
+                content=" ",
+                token_usage=TokenUsage(
+                    input_tokens=3, output_tokens=2, total_tokens=5, model_name="cheap"
+                ),
+            ),
+            "incumbent": ProviderResponse(
+                content="real answer",
+                token_usage=TokenUsage(
+                    input_tokens=7, output_tokens=4, total_tokens=11, model_name="incumbent"
+                ),
+            ),
+        }
+    )
+
+    out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert out.token_usage is not None
+    assert out.token_usage.input_tokens == 10
+    assert out.token_usage.output_tokens == 6
+    assert out.token_usage.total_tokens == 16
+    assert out.token_usage.model_name == ""
+    assert out.usage_measurement is MeasurementState.MEASURED
+
+
+async def test_blank_unmeasured_primary_keeps_known_usage_but_marks_it_incomplete() -> None:
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(content=" "),
+            "incumbent": ProviderResponse(
+                content="real answer",
+                token_usage=TokenUsage(
+                    input_tokens=7, output_tokens=4, total_tokens=11, model_name="incumbent"
+                ),
+            ),
+        }
+    )
+
+    out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert out.token_usage is not None
+    assert out.token_usage.total_tokens == 11
+    assert out.usage_measurement is MeasurementState.UNMEASURED
+
+
 async def test_cheap_error_escalates_with_zero_primary_cost():
     inner = _ByModel(
         {
@@ -71,8 +148,9 @@ async def test_cheap_error_escalates_with_zero_primary_cost():
     out = await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
     assert out.content == "real answer"
     assert out.cost_usd == 0.01  # a raised call has no measurable cost
+    assert out.cost_measurement is MeasurementState.UNMEASURED
     assert out.metadata["cascade"]["primary_failure"] == "error"
-    assert out.metadata["cascade"]["primary_cost_usd"] == 0.0
+    assert out.metadata["cascade"]["primary_cost_usd"] is None
 
 
 async def test_tool_call_turn_is_not_treated_as_blank():
@@ -95,9 +173,37 @@ async def test_both_models_fail_propagates_the_exception():
         await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
 
 
+async def test_paid_blank_primary_is_added_to_incumbent_failure_audit() -> None:
+    incumbent_error = AgentProviderError("incumbent down")
+    incumbent_error.audit_record = {
+        "estimated_cost_usd": 0.02,
+        "cost_measurement": MeasurementState.ESTIMATED,
+    }
+    inner = _ByModel(
+        {
+            "cheap": ProviderResponse(
+                content=" ",
+                cost_usd=0.001,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            "incumbent": incumbent_error,
+        }
+    )
+
+    with pytest.raises(AgentProviderError) as raised:
+        await CascadingProviderAdapter(inner, cheap_model="cheap").ainvoke(_req("incumbent"))
+
+    assert raised.value.audit_record["cost_usd"] == 0.001
+    assert raised.value.audit_record["estimated_cost_usd"] == 0.02
+    assert raised.value.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
+
+
 def test_is_blank_response_definition():
     assert _is_blank_response(_resp(None)) is True
     assert _is_blank_response(_resp("   ")) is True
     assert _is_blank_response(_resp("x")) is False
     assert _is_blank_response(_resp({"field": 1})) is False  # structured content is not blank
-    assert _is_blank_response(_resp(None, tool_calls=[NormalizedToolCall(id="1", name="t", args={})])) is False
+    assert (
+        _is_blank_response(_resp(None, tool_calls=[NormalizedToolCall(id="1", name="t", args={})]))
+        is False
+    )

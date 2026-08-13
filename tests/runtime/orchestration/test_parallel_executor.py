@@ -17,12 +17,15 @@ from __future__ import annotations
 import subprocess
 import sys
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import RuntimeParallelExecutor
 from zeroth.runtime.parallel.models import BranchResult, FanInResult
-from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunHistoryEntry, RunStatus
+from zeroth.runtime.subgraphs.errors import SubgraphExecutionError
 
 
 class _EchoRunRepository:
@@ -180,6 +183,160 @@ async def test_resuming_without_a_subgraph_executor_is_an_orchestrator_error() -
             {"paused_branch": {"branch_index": 0, "child_run_id": "c", "graph_ref": "g"}},
             step_tracker=None,
         )
+
+
+async def test_cancelled_approval_sibling_keeps_fan_in_unmeasured() -> None:
+    subgraph_executor = AsyncMock()
+    subgraph_executor.resume = AsyncMock(
+        return_value=_run(
+            status=RunStatus.COMPLETED,
+            final_output={"done": True},
+            metadata={"total_cost_usd": 0.5, "cost_measurement": "measured"},
+        )
+    )
+    result = await _executor(
+        subgraph_executor=subgraph_executor,
+        orchestrator=object(),
+    ).execute_fan_out_resume(
+        object(),
+        _run(),
+        _ParallelNode(),
+        "source",
+        {
+            "paused_branch": {
+                "branch_index": 1,
+                "child_run_id": "child-1",
+                "graph_ref": "sub",
+            },
+            "completed_branches": [
+                {
+                    "branch_index": 0,
+                    "output": {"done": True},
+                    "cost_usd": 0.2,
+                    "cost_measurement": "measured",
+                }
+            ],
+            "cancelled_branches": [{"branch_index": 2}],
+            "split_input": {"items": [1, 2, 3]},
+        },
+        step_tracker=None,
+    )
+
+    cancelled = result.results[2]
+    assert cancelled.cost_usd is None
+    assert cancelled.cost_measurement is MeasurementState.UNMEASURED
+    assert result.total_cost_usd == pytest.approx(0.7)
+    assert result.cost_measurement is MeasurementState.UNMEASURED
+
+
+async def test_failed_resumed_parallel_child_rolls_once_and_propagates() -> None:
+    subgraph_executor = AsyncMock()
+    subgraph_executor.resume = AsyncMock(
+        return_value=_run(
+            run_id="child-1",
+            status=RunStatus.FAILED,
+            failure_state=RunFailureState(reason="child_failed", message="boom"),
+            execution_history=[
+                RunHistoryEntry(
+                    node_id="paid-child",
+                    status="failed",
+                    cost_usd=0.3,
+                    cost_measurement=MeasurementState.MEASURED,
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="ended FAILED") as raised:
+        await _executor(
+            subgraph_executor=subgraph_executor,
+            orchestrator=object(),
+        ).execute_fan_out_resume(
+            object(),
+            _run(),
+            _ParallelNode(),
+            "source",
+            {
+                "paused_branch": {
+                    "branch_index": 0,
+                    "child_run_id": "child-1",
+                    "graph_ref": "sub",
+                    "node_id": "child-node",
+                    "branch_context": {"branch_index": 0, "execution_history": []},
+                },
+                "split_input": {"items": [1]},
+            },
+            step_tracker=None,
+        )
+
+    assert raised.value.audit_record["cost_usd"] == pytest.approx(0.3)
+    assert raised.value.audit_record["cost_measurement"] is MeasurementState.MEASURED
+
+
+async def test_raised_parallel_resume_failure_settles_all_branch_histories_once() -> None:
+    error = SubgraphExecutionError("resume failed after paid child work")
+    error.audit_record = {  # type: ignore[attr-defined]
+        "cost_usd": 0.3,
+        "cost_measurement": MeasurementState.MEASURED,
+    }
+    subgraph_executor = AsyncMock()
+    subgraph_executor.resume = AsyncMock(side_effect=error)
+    run = _run()
+
+    def history(node_id: str, audit_ref: str) -> dict[str, Any]:
+        return RunHistoryEntry(
+            node_id=node_id,
+            status="completed",
+            audit_ref=audit_ref,
+        ).model_dump(mode="json")
+
+    with pytest.raises(SubgraphExecutionError) as raised:
+        await _executor(
+            subgraph_executor=subgraph_executor,
+            orchestrator=object(),
+        ).execute_fan_out_resume(
+            object(),
+            run,
+            _ParallelNode(),
+            "source",
+            {
+                "paused_branch": {
+                    "branch_index": 1,
+                    "child_run_id": "child-1",
+                    "graph_ref": "sub",
+                    "node_id": "child-node",
+                    "branch_context": {
+                        "branch_index": 1,
+                        "audit_refs": ["paused-audit"],
+                        "execution_history": [history("paused-prior", "paused-audit")],
+                    },
+                },
+                "completed_branches": [
+                    {
+                        "branch_index": 0,
+                        "output": {"done": True},
+                        "audit_refs": ["completed-audit"],
+                        "execution_history": [history("completed", "completed-audit")],
+                    }
+                ],
+                "cancelled_branches": [
+                    {
+                        "branch_index": 2,
+                        "audit_refs": ["cancelled-audit"],
+                        "execution_history": [history("cancelled-prior", "cancelled-audit")],
+                    }
+                ],
+            },
+            step_tracker=None,
+        )
+
+    assert raised.value is error
+    settled = [(entry.node_id, entry.status) for entry in run.execution_history]
+    assert settled.count(("completed", "completed")) == 1
+    assert settled.count(("paused-prior", "completed")) == 1
+    assert settled.count(("child-node", "failed")) == 1
+    assert settled.count(("cancelled-prior", "completed")) == 1
+    assert settled.count(("child-node", "cancelled")) == 1
 
 
 class _ParallelNode:

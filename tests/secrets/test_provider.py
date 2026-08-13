@@ -93,7 +93,7 @@ def test_secret_redactor_does_not_rescan_opaque_tuple_marker_text(
 ) -> None:
     redactor = SecretRedactor(known)
 
-    assert redactor.redact("tenant-a-secret SECRET") == ("[REDACTED:SECRET] [REDACTED:SECRET]")
+    assert redactor.redact("tenant-a-secret SECRET") == "[REDACTED:SECRET]"
 
 
 @pytest.mark.parametrize(
@@ -121,6 +121,13 @@ def test_secret_redactor_normalizes_string_aliases_before_deduplicating_values()
     redactor = SecretRedactor({"alias.one": "shared", "alias-two": "shared"})
 
     assert redactor.redact("shared") == "[REDACTED:ALIAS_ONE]"
+
+
+def test_secret_redactor_redacts_whole_string_for_short_secret() -> None:
+    redactor = SecretRedactor({"PIN": "7"})
+
+    assert redactor.redact("account 7 is active") == "[REDACTED:PIN]"
+    assert redactor.redact("account 8 is active") == "account 8 is active"
 
 
 # --- async compatibility helpers --------------------------------------------

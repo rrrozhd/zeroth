@@ -38,6 +38,14 @@ def _mock_transport(*, json_data: dict, status_code: int = 200) -> httpx.MockTra
     return handler
 
 
+def _complete_budget(total: float, cap: float | None) -> dict:
+    return {
+        "total_cost_usd": total,
+        "budget_cap_usd": cap,
+        "measurement_complete": True,
+    }
+
+
 @pytest.mark.asyncio
 async def test_check_budget_status_success_and_legacy_tuple_share_cached_request():
     calls = 0
@@ -45,7 +53,7 @@ async def test_check_budget_status_success_and_legacy_tuple_share_cached_request
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json={"total_cost_usd": 25, "budget_cap_usd": 100})
+        return httpx.Response(200, json=_complete_budget(25, 100))
 
     enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
 
@@ -68,7 +76,7 @@ async def test_check_budget_status_success_and_legacy_tuple_share_cached_request
 async def test_check_budget_status_unlimited_success_is_not_degraded():
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
-        _transport=_mock_transport(json_data={"total_cost_usd": 0, "budget_cap_usd": None}),
+        _transport=_mock_transport(json_data=_complete_budget(0, None)),
     )
 
     status = await enforcer.check_budget_status("tenant-unlimited")
@@ -91,7 +99,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json={"total_cost_usd": 10, "budget_cap_usd": 5})
+        return httpx.Response(200, json=_complete_budget(10, 5))
 
     enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
 
@@ -116,6 +124,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
                 cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
+                measurement_complete=False,
             ),
         ),
         (
@@ -126,6 +135,7 @@ async def test_check_budget_status_cached_success_remains_not_degraded():
                 cap_usd=0.0,
                 degraded=True,
                 failure_mode="fail_closed",
+                measurement_complete=False,
             ),
         ),
     ],
@@ -150,7 +160,7 @@ async def test_check_budget_status_failure_is_not_cached():
         calls += 1
         if calls == 1:
             raise httpx.ConnectError("temporary")
-        return httpx.Response(200, json={"total_cost_usd": 1, "budget_cap_usd": 10})
+        return httpx.Response(200, json=_complete_budget(1, 10))
 
     enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
 
@@ -170,7 +180,7 @@ async def test_check_budget_status_cached_result_cannot_be_mutated():
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json={"total_cost_usd": 1, "budget_cap_usd": 10})
+        return httpx.Response(200, json=_complete_budget(1, 10))
 
     enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
     status = await enforcer.check_budget_status("tenant-immutable")
@@ -189,7 +199,7 @@ async def test_check_budget_status_cached_result_cannot_be_mutated():
 @pytest.mark.asyncio
 async def test_check_budget_under_budget():
     """BudgetEnforcer returns (True, 50.0, 100.0) when tenant is under budget."""
-    transport = _mock_transport(json_data={"total_cost_usd": 50, "budget_cap_usd": 100})
+    transport = _mock_transport(json_data=_complete_budget(50, 100))
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
         cache_ttl=30,
@@ -208,7 +218,7 @@ async def test_check_budget_under_budget():
 @pytest.mark.asyncio
 async def test_check_budget_over_budget():
     """BudgetEnforcer returns (False, 105.0, 100.0) when tenant exceeds budget."""
-    transport = _mock_transport(json_data={"total_cost_usd": 105, "budget_cap_usd": 100})
+    transport = _mock_transport(json_data=_complete_budget(105, 100))
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
         cache_ttl=30,
@@ -232,7 +242,7 @@ async def test_check_budget_cache_hit():
     def counting_handler(request: httpx.Request) -> httpx.Response:
         nonlocal call_count
         call_count += 1
-        return httpx.Response(200, json={"total_cost_usd": 20, "budget_cap_usd": 100})
+        return httpx.Response(200, json=_complete_budget(20, 100))
 
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
@@ -368,7 +378,7 @@ async def test_fail_closed_does_not_cache_denial():
         calls["n"] += 1
         if calls["n"] == 1:
             raise httpx.ConnectError("Connection refused")
-        return httpx.Response(200, json={"total_cost_usd": 5, "budget_cap_usd": 100})
+        return httpx.Response(200, json=_complete_budget(5, 100))
 
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
@@ -394,7 +404,7 @@ async def test_null_cap_stays_unlimited_even_fail_closed():
     the fail-closed switch applies ONLY to the exception path."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"total_cost_usd": 999.0, "budget_cap_usd": None})
+        return httpx.Response(200, json=_complete_budget(999.0, None))
 
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
@@ -417,7 +427,7 @@ async def test_external_regulus_path_unchanged():
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["tenant"] = request.url.params.get("tenant_id", "")
-        return httpx.Response(200, json={"total_cost_usd": 1.0, "budget_cap_usd": 10.0})
+        return httpx.Response(200, json=_complete_budget(1.0, 10.0))
 
     enforcer = BudgetEnforcer(
         "http://regulus.test/v1",
@@ -468,7 +478,9 @@ async def test_runner_no_budget_enforcer_runs_normally():
 async def test_runner_allowed_budget_runs_normally():
     """AgentRunner with budget_enforcer that returns allowed=True runs normally."""
     enforcer = AsyncMock()
-    enforcer.check_budget = AsyncMock(return_value=(True, 50.0, 100.0))
+    enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=True, spend_usd=50.0, cap_usd=100.0)
+    )
     provider = _make_provider()
     runner = AgentRunner(_make_config(), provider, budget_enforcer=enforcer)
     result = await runner.run(
@@ -476,7 +488,7 @@ async def test_runner_allowed_budget_runs_normally():
         enforcement_context={"tenant_id": "t-1"},
     )
     assert result.output_data["answer"] == "ok"
-    enforcer.check_budget.assert_awaited_once_with("t-1")
+    enforcer.check_budget_status.assert_awaited_once_with("t-1")
 
 
 # -- Test 9: over-budget raises before provider call --
@@ -486,7 +498,9 @@ async def test_runner_allowed_budget_runs_normally():
 async def test_runner_over_budget_raises_before_provider_call():
     """AgentRunner with over-budget enforcer raises BudgetExceededError BEFORE provider call."""
     enforcer = AsyncMock()
-    enforcer.check_budget = AsyncMock(return_value=(False, 105.0, 100.0))
+    enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=False, spend_usd=105.0, cap_usd=100.0)
+    )
     provider = AsyncMock()
     provider.ainvoke = AsyncMock()
     runner = AgentRunner(_make_config(), provider, budget_enforcer=enforcer)

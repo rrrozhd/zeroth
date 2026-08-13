@@ -368,7 +368,8 @@ async def test_timing_outcome_and_decision_metadata_survive_the_default_policy(
     # ``reviewer`` names whoever submitted the approval, so it is retained as a
     # stable digest rather than as their text -- correlatable, not readable.
     [reviewer] = [action.metadata["reviewer"] for action in stored.approval_actions]
-    assert reviewer["sha256"] == hashlib.sha256(b'"ops"').hexdigest()
+    assert len(reviewer["hmac_sha256"]) == 64
+    assert reviewer["hmac_sha256"] != hashlib.sha256(b'"ops"').hexdigest()
 
 
 async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained(
@@ -400,19 +401,22 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
         "execution_metadata",
         "error",
     }
-    assert len(dropped["input_snapshot"]["sha256"]) == 64
-    assert dropped["input_snapshot"]["sha256"] != dropped["output_snapshot"]["sha256"]
+    assert len(dropped["input_snapshot"]["hmac_sha256"]) == 64
+    assert dropped["input_snapshot"]["hmac_sha256"] != dropped["output_snapshot"]["hmac_sha256"]
     assert dropped["input_snapshot"]["count"] == len(submitted.input_snapshot)
-    # Key names are hashed, never printed: a credential used as a mapping key
-    # would otherwise be persisted verbatim inside the schema of what was
-    # dropped. A canonical mapping is an entry *sequence*, so a hashed key is a
-    # list element rather than a dict key.
+    # Key names use projection-scoped fingerprints, never public hashes or raw
+    # text: a credential used as a mapping key would otherwise be confirmable
+    # inside the schema of what was dropped. A canonical mapping is an entry
+    # *sequence*, so a fingerprint is a list element rather than a dict key.
     entries = canonical_entries(dropped["input_snapshot"]["schema"])
     assert entries is not None
-    assert sorted(key for key, _value in entries) == sorted(
-        (key_digest("prompt"), key_digest("context"))
-    )
-    assert dict(entries)[key_digest("prompt")] == "str"
+    assert len(entries) == 2
+    fingerprints = [key for key, _value in entries]
+    assert len(set(fingerprints)) == 2
+    assert all(len(key) == 16 for key in fingerprints)
+    assert set(fingerprints).isdisjoint({key_digest("prompt"), key_digest("context")})
+    assert [value for _key, value in entries].count("str") == 1
+    assert sum(canonical_entries(value) is not None for _key, value in entries) == 1
     assert dropped["stdout"]["count"] == len(submitted.stdout or "")
     assert dropped["tool_calls"]["count"] == 1
     # The collision the entry sequence exists to remove: both keys render to the
@@ -422,8 +426,10 @@ async def test_the_digest_schema_and_count_of_every_dropped_channel_are_retained
     # print, not only for the ones it can hash.
     outer = canonical_entries(dropped["validation_results"]["schema"])
     assert outer is not None
-    assert [key for key, _value in outer] == [key_digest("schema")]
-    assert sorted(canonical_entries(outer[0][1]) or []) == [
+    [[schema_fingerprint, nested_schema]] = outer
+    assert len(schema_fingerprint) == 16
+    assert schema_fingerprint != key_digest("schema")
+    assert sorted(canonical_entries(nested_schema) or []) == [
         ["<key:other>", "int"],
         ["<key:other>", "str"],
     ]

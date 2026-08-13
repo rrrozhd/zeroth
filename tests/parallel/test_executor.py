@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
@@ -87,21 +88,15 @@ class TestSplitFanOut:
         with pytest.raises(FanOutValidationError, match="empty list"):
             executor.split_fan_out("run1", {"items": []}, basic_config, node)
 
-    def test_exceeds_max_branches_raises(
-        self, executor: ParallelExecutor
-    ) -> None:
+    def test_exceeds_max_branches_raises(self, executor: ParallelExecutor) -> None:
         config = ParallelConfig(split_path="items", max_branches=2)
         node = MagicMock()
         node.node_type = "agent"
 
         with pytest.raises(FanOutValidationError, match="exceeds max_branches"):
-            executor.split_fan_out(
-                "run1", {"items": [1, 2, 3]}, config, node
-            )
+            executor.split_fan_out("run1", {"items": [1, 2, 3]}, config, node)
 
-    def test_nested_split_path(
-        self, executor: ParallelExecutor
-    ) -> None:
+    def test_nested_split_path(self, executor: ParallelExecutor) -> None:
         config = ParallelConfig(split_path="data.results")
         node = MagicMock()
         node.node_type = "agent"
@@ -130,9 +125,7 @@ class TestSplitFanOut:
         node.node_type = "human_approval"
 
         with pytest.raises(FanOutValidationError, match="HumanApprovalNode"):
-            executor.split_fan_out(
-                "run1", {"items": [1, 2]}, basic_config, node
-            )
+            executor.split_fan_out("run1", {"items": [1, 2]}, basic_config, node)
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +137,7 @@ class TestExecuteBranches:
     """Tests for ParallelExecutor.execute_branches()."""
 
     @pytest.mark.asyncio
-    async def test_best_effort_mixed_results(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_best_effort_mixed_results(self, executor: ParallelExecutor) -> None:
         """2 succeed, 1 fails in best-effort mode."""
         config = ParallelConfig(split_path="items", fail_mode="best_effort")
 
@@ -173,9 +164,7 @@ class TestExecuteBranches:
         assert results[2].error is None
 
     @pytest.mark.asyncio
-    async def test_fail_fast_cancels_remaining(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_fail_fast_cancels_remaining(self, executor: ParallelExecutor) -> None:
         """Fail-fast should cancel remaining tasks on first failure."""
         config = ParallelConfig(split_path="items", fail_mode="fail_fast")
 
@@ -202,9 +191,7 @@ class TestExecuteBranches:
         assert len(call_tracker) == 0
 
     @pytest.mark.asyncio
-    async def test_best_effort_all_succeed(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_best_effort_all_succeed(self, executor: ParallelExecutor) -> None:
         """All branches succeed in best-effort mode."""
         config = ParallelConfig(split_path="items", fail_mode="best_effort")
 
@@ -221,9 +208,7 @@ class TestExecuteBranches:
         assert [r.output for r in results] == [{"val": 0}, {"val": 1}, {"val": 2}]
 
     @pytest.mark.asyncio
-    async def test_best_effort_multiple_pauses_fail_loud(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_best_effort_multiple_pauses_fail_loud(self, executor: ParallelExecutor) -> None:
         # B10: best_effort runs every branch to completion, so >1 branch can hit
         # an approval gate. The old code kept only the LAST pause signal, orphaning
         # the earlier paused branch's child run. It must now fail loudly.
@@ -246,6 +231,76 @@ class TestExecuteBranches:
 
         with pytest.raises(MultipleBranchPauseError, match="2 branches paused"):
             await executor.execute_branches(contexts, branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_multiple_simultaneous_pauses_fail_loud(
+        self, executor: ParallelExecutor
+    ) -> None:
+        config = ParallelConfig(split_path="items", fail_mode="fail_fast")
+        contexts = [
+            BranchContext(branch_index=i, branch_id=f"r:branch:{i}", input_payload={})
+            for i in range(2)
+        ]
+        release = asyncio.Event()
+        arrived = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal arrived
+            arrived += 1
+            if arrived == len(contexts):
+                release.set()
+            await release.wait()
+            raise BranchApprovalPauseSignal(
+                branch_index=ctx.branch_index,
+                child_run_id=f"child-{ctx.branch_index}",
+                graph_ref="child-wf",
+                version=1,
+                node_id="sub",
+            )
+
+        with pytest.raises(MultipleBranchPauseError, match="2 branches paused"):
+            await executor.execute_branches(contexts, branch_coro, config)
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_multiple_pauses_preserve_every_context_once(
+        self, executor: ParallelExecutor
+    ) -> None:
+        config = ParallelConfig(split_path="items", fail_mode="fail_fast")
+        contexts = [
+            BranchContext(
+                branch_index=i,
+                branch_id=f"r:branch:{i}",
+                input_payload={},
+                execution_history=[
+                    {"node_id": f"paid-{i}", "cost_usd": i + 0.5, "cost_measurement": "measured"}
+                ],
+                audit_refs=[f"audit-{i}"],
+            )
+            for i in range(2)
+        ]
+        release = asyncio.Event()
+        arrived = 0
+
+        async def branch_coro(ctx: BranchContext) -> dict[str, Any]:
+            nonlocal arrived
+            arrived += 1
+            if arrived == len(contexts):
+                release.set()
+            await release.wait()
+            raise BranchApprovalPauseSignal(
+                branch_index=ctx.branch_index,
+                child_run_id=f"child-{ctx.branch_index}",
+                graph_ref="child-wf",
+                version=1,
+                node_id="sub",
+            )
+
+        with pytest.raises(MultipleBranchPauseError) as raised:
+            await executor.execute_branches(contexts, branch_coro, config)
+
+        assert raised.value.branch_histories == [
+            (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in contexts
+        ]
 
     @pytest.mark.asyncio
     async def test_best_effort_single_pause_still_propagates(
@@ -316,9 +371,7 @@ class TestConcurrencyControls:
         assert [r.output["i"] for r in results] == list(range(6))
 
     @pytest.mark.asyncio
-    async def test_unbounded_concurrency_runs_all_at_once(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_unbounded_concurrency_runs_all_at_once(self, executor: ParallelExecutor) -> None:
         """Without a cap, every branch is in flight simultaneously (historical default)."""
         config = ParallelConfig(split_path="items")  # no max_concurrency
         live = 0
@@ -336,9 +389,7 @@ class TestConcurrencyControls:
         assert peak == 5
 
     @pytest.mark.asyncio
-    async def test_batch_size_runs_sequential_waves(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_batch_size_runs_sequential_waves(self, executor: ParallelExecutor) -> None:
         """Wave N+1 starts only after wave N fully completes (a barrier)."""
         config = ParallelConfig(split_path="items", batch_size=2)
         events: list[tuple[str, int]] = []
@@ -364,9 +415,7 @@ class TestConcurrencyControls:
             assert latest_end < earliest_start, (earlier, later, events)
 
     @pytest.mark.asyncio
-    async def test_batch_size_within_wave_is_concurrent(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_batch_size_within_wave_is_concurrent(self, executor: ParallelExecutor) -> None:
         """Branches *within* a wave still run concurrently (not serialized)."""
         config = ParallelConfig(split_path="items", batch_size=3)
         live = 0
@@ -422,9 +471,7 @@ class TestConcurrencyControls:
             await executor.execute_branches(_contexts(3), branch_coro, config)
 
     @pytest.mark.asyncio
-    async def test_batched_approval_pause_fails_loud(
-        self, executor: ParallelExecutor
-    ) -> None:
+    async def test_batched_approval_pause_fails_loud(self, executor: ParallelExecutor) -> None:
         """An approval pause inside a MULTI-wave fan-out is rejected loudly.
 
         Earlier waves already ran their side effects; batched resume can't
@@ -476,9 +523,7 @@ class TestConcurrencyControls:
 class TestCollectFanIn:
     """Tests for ParallelExecutor.collect_fan_in()."""
 
-    def test_all_successful(
-        self, executor: ParallelExecutor, basic_config: ParallelConfig
-    ) -> None:
+    def test_all_successful(self, executor: ParallelExecutor, basic_config: ParallelConfig) -> None:
         branch_results = [
             BranchResult(branch_index=0, output={"a": 1}),
             BranchResult(branch_index=1, output={"b": 2}),
@@ -507,9 +552,7 @@ class TestCollectFanIn:
 
         assert fan_in.merged_output["items"] == [{"a": 1}, None, {"c": 3}]
 
-    def test_merge_path_defaults_to_split_path(
-        self, executor: ParallelExecutor
-    ) -> None:
+    def test_merge_path_defaults_to_split_path(self, executor: ParallelExecutor) -> None:
         """When no merge_path override, it defaults to split_path."""
         config = ParallelConfig(split_path="data.results")
         branch_results = [
@@ -541,6 +584,52 @@ class TestCollectFanIn:
         fan_in = executor.collect_fan_in(branch_results, basic_config, {})
         assert fan_in.total_cost_usd == pytest.approx(0.8)
         assert fan_in.total_steps == 3
+
+    def test_cost_aggregation_keeps_estimates_out_of_recorded_total(
+        self, executor: ParallelExecutor, basic_config: ParallelConfig
+    ) -> None:
+        fan_in = executor.collect_fan_in(
+            [
+                BranchResult(
+                    branch_index=0,
+                    output={"a": 1},
+                    cost_usd=0.5,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+                BranchResult(
+                    branch_index=1,
+                    output={"b": 2},
+                    estimated_cost_usd=0.3,
+                    cost_measurement=MeasurementState.ESTIMATED,
+                ),
+            ],
+            basic_config,
+            {},
+        )
+
+        assert fan_in.total_cost_usd == 0.5
+        assert fan_in.total_estimated_cost_usd == 0.3
+        assert fan_in.cost_measurement is MeasurementState.ESTIMATED
+
+    def test_cost_aggregation_preserves_unknown_branch(
+        self, executor: ParallelExecutor, basic_config: ParallelConfig
+    ) -> None:
+        fan_in = executor.collect_fan_in(
+            [
+                BranchResult(
+                    branch_index=0,
+                    output={"a": 1},
+                    cost_usd=0.5,
+                    cost_measurement=MeasurementState.MEASURED,
+                ),
+                BranchResult(branch_index=1, output={"b": 2}),
+            ],
+            basic_config,
+            {},
+        )
+
+        assert fan_in.total_cost_usd == 0.5
+        assert fan_in.cost_measurement is MeasurementState.UNMEASURED
 
     def test_ordering_preserved_regardless_of_input_order(
         self, executor: ParallelExecutor, basic_config: ParallelConfig

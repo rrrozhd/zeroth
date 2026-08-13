@@ -133,9 +133,9 @@ async def test_failure_audit_carries_run_tenant(sqlite_db) -> None:
     audits = await AuditRepository.scoped(
         sqlite_db, ScopeContext(tenant_id="acme", workspace_id="ws-1")
     ).list_by_run(run.run_id)
-    rejected = [r for r in audits if r.status == "rejected"]
-    assert rejected, "expected the failed-execution audit record"
-    for record in rejected:
+    failed = [r for r in audits if r.status == "failed"]
+    assert failed, "expected the failed-execution audit record"
+    for record in failed:
         assert record.tenant_id == "acme"
         assert record.workspace_id == "ws-1"
 
