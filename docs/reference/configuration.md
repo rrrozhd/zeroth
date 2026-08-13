@@ -27,7 +27,7 @@ Redis connection settings, absorbing the existing RedisConfig fields.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_REDIS__MODE` | `str` | `"local"` |  |  |
+| `ZEROTH_REDIS__MODE` | `Literal[local, disabled]` | `"local"` |  |  |
 | `ZEROTH_REDIS__HOST` | `str` | `"127.0.0.1"` |  |  |
 | `ZEROTH_REDIS__PORT` | `int` | `6379` |  |  |
 | `ZEROTH_REDIS__PASSWORD` | `SecretStr \| None` | `None` | ✓ |  |
@@ -107,7 +107,7 @@ Sandbox execution backend configuration.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_SANDBOX__BACKEND` | `str` | `"local"` |  |  |
+| `ZEROTH_SANDBOX__BACKEND` | `Literal[local, docker, auto, sidecar]` | `"local"` |  |  |
 | `ZEROTH_SANDBOX__SIDECAR_URL` | `str` | `"http://sandbox-sidecar:8001"` |  |  |
 | `ZEROTH_SANDBOX__DOCKER_CONTAINER_NAME` | `str` | `"zeroth-sandbox"` |  |  |
 | `ZEROTH_SANDBOX__DOCKER_BINARY` | `str` | `"docker"` |  |  |
@@ -168,7 +168,7 @@ Configuration for the artifact storage subsystem.
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_ARTIFACT_STORE__BACKEND` | `str` | `"filesystem"` |  |  |
+| `ZEROTH_ARTIFACT_STORE__BACKEND` | `Literal[filesystem, redis]` | `"filesystem"` |  |  |
 | `ZEROTH_ARTIFACT_STORE__DEFAULT_TTL_SECONDS` | `int` | `3600` |  |  |
 | `ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR` | `str` | `".zeroth/artifacts"` |  |  |
 | `ZEROTH_ARTIFACT_STORE__REDIS_KEY_PREFIX` | `str` | `"zeroth:artifact"` |  |  |
@@ -209,7 +209,7 @@ Secret-resolution backend configuration (WS-F).
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_SECRETS__BACKEND` | `str` | `"env"` |  |  |
+| `ZEROTH_SECRETS__BACKEND` | `Literal[env, vault]` | `"env"` |  |  |
 | `ZEROTH_SECRETS__ALLOW_ENV_FALLBACK` | `bool` | `True` |  |  |
 | `ZEROTH_SECRETS__VAULT_ADDR` | `str \| None` | `None` |  |  |
 | `ZEROTH_SECRETS__VAULT_MOUNT` | `str` | `"secret"` |  |  |
@@ -225,7 +225,7 @@ Keyed provenance-signing configuration (WS-D).
 
 | Env Var | Type | Default | Secret | Description |
 | --- | --- | --- | --- | --- |
-| `ZEROTH_PROVENANCE__MODE` | `str` | `"env"` |  |  |
+| `ZEROTH_PROVENANCE__MODE` | `Literal[env, kms, off]` | `"env"` |  |  |
 | `ZEROTH_PROVENANCE__ALGORITHM` | `str` | `"HS256"` |  |  |
 | `ZEROTH_PROVENANCE__SIGNING_KEY_REF` | `str \| None` | `None` |  |  |
 | `ZEROTH_PROVENANCE__SIGNING_KEY_ID` | `str` | `"dev-local"` |  |  |
