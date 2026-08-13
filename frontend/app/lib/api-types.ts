@@ -4038,13 +4038,14 @@ export interface components {
         };
         /**
          * ReadinessResponse
-         * @description Response payload for the readiness probe.
+         * @description Serialized readiness payload with schema-revision evidence.
          */
         ReadinessResponse: {
             /** Checks */
             checks?: {
                 [key: string]: components["schemas"]["DependencyStatus"];
             };
+            schema_revision: components["schemas"]["SchemaRevision"];
             /** Status */
             status: string;
         };
@@ -4419,6 +4420,21 @@ export interface components {
             timeline_ref?: string | null;
             /** Workspace Id */
             workspace_id?: string | null;
+        };
+        /**
+         * SchemaRevision
+         * @description One schema's applied revision, shipped head, and conservative state.
+         */
+        SchemaRevision: {
+            /** Applied */
+            applied: string | null;
+            /** Head */
+            head: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "current" | "behind" | "unknown";
         };
         /**
          * ServiceRole
