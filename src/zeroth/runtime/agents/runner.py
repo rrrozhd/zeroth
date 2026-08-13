@@ -11,6 +11,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 from collections.abc import Mapping
 from copy import copy, deepcopy
 from typing import Any
@@ -50,6 +51,7 @@ from zeroth.runtime.agents.models import (
 from zeroth.runtime.agents.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.runtime.agents.protocols import MemoryConnectorResolver
 from zeroth.runtime.agents.provider import (
+    DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS,
     ProviderAdapter,
     ProviderRequest,
     ProviderResponse,
@@ -626,6 +628,11 @@ class AgentRunner:
                 }
                 raise error
 
+        # main closed the same A06-9 leak with a tighter shape than this branch
+        # did: the start gets its own guard that stops whatever it already
+        # entered, and it also attaches the cost audit and logs a failed cleanup.
+        # That is a superset of moving the call inside the outer try, so main's
+        # version is kept and the duplicate start below is dropped.
         try:
             await self._start_mcp_servers(effective_capabilities)
         except Exception as exc:
@@ -1337,13 +1344,32 @@ class AgentRunner:
         self,
         configured_timeout: float | None,
         policy_timeout: float | None,
-    ) -> float | None:
-        """Choose the tighter timeout when policy and config both specify one."""
-        if configured_timeout is None:
-            return policy_timeout
-        if policy_timeout is None:
-            return configured_timeout
-        return min(configured_timeout, policy_timeout)
+    ) -> float:
+        """Choose the tighter timeout, falling back to a bound rather than none.
+
+        This is the single place the agent runner decides how long a provider
+        call may take, and all three ``run_provider_with_timeout`` call sites
+        receive its result. It used to return ``None`` when neither the agent
+        config nor the policy override named a timeout -- and both default to
+        ``None`` -- so an ordinary agent with nothing configured called its LLM
+        provider with no deadline at all.
+
+        Mirrors ``ExecutableUnitRunner._effective_timeout``, which resolves the
+        same shape for sandboxed units.
+        """
+        # Non-finite and non-positive values are discarded rather than honoured:
+        # asyncio.wait_for reads inf as "no deadline", and AgentConfig declares
+        # timeout_seconds with ``ge=0.0`` while the policy override is authored
+        # data with no constraint at all -- so 0 and inf are both reachable ways
+        # to declare a bound that is not one.
+        candidates = [
+            timeout
+            for timeout in (configured_timeout, policy_timeout)
+            if timeout is not None and math.isfinite(timeout) and timeout > 0
+        ]
+        if not candidates:
+            return DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS
+        return min(candidates)
 
     def _assistant_message_for(self, response: Any) -> Any:
         """Build an assistant message from a provider response for the message history."""

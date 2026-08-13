@@ -530,6 +530,10 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         parent_run=run,
                         node=node,
                         input_payload=input_payload,
+                        # Explicit, not defaulted: token scheduling owns the
+                        # aggregate work queue (see ``_drive``), so there is no
+                        # step tracker on this path to hand down.
+                        step_tracker=None,
                     )
                     if subgraph_result.terminal_run is not None:
                         return subgraph_result.terminal_run

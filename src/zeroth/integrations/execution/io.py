@@ -22,6 +22,14 @@ from zeroth.integrations.execution.models import InputMode, OutputMode
 _INPUT_ENV_PREFIX = "ZEROTH_INPUT"
 _OUTPUT_JSON_TAG = "ZEROTH_OUTPUT_JSON="
 
+#: Largest ``zeroth-output.json`` this process will read into memory.
+#:
+#: The unit writes that file into a workspace the DOCKER backend bind-mounts
+#: read-write, and ``build_docker_resource_flags`` emits cpu/memory/pids/network
+#: flags but no disk quota -- so an untrusted unit picks the size. 16 MiB is far
+#: above any legitimate structured result and far below a memory hazard.
+MAX_OUTPUT_FILE_BYTES = 16 * 1024 * 1024
+
 
 class ExecutionIOError(ValueError):
     """Base error for all input/output problems in executable units."""
@@ -222,10 +230,22 @@ def _parse_json(raw: str) -> Any:
 
 
 def _parse_json_file(path: Path) -> Any:
-    """Read and parse a JSON file from disk."""
+    """Read and parse a JSON file from disk, under a size cap.
+
+    The stdout path caps what it retains; this one materialised the whole file
+    before parsing it. The file is written by the unit, inside a workspace the
+    DOCKER backend bind-mounts read-write with no disk quota among its resource
+    flags, so its size is chosen by the code being sandboxed. Check the size
+    before reading rather than after.
+    """
     if not path.exists():
         raise OutputExtractionError(f"output file does not exist: {path}")
     try:
+        size = path.stat().st_size
+        if size > MAX_OUTPUT_FILE_BYTES:
+            raise OutputExtractionError(
+                f"output file exceeds the {MAX_OUTPUT_FILE_BYTES} byte cap: {size} bytes"
+            )
         return _parse_json(path.read_text(encoding="utf-8"))
     except OSError as exc:  # pragma: no cover - filesystem failure
         raise OutputExtractionError(f"failed to read output file: {path}") from exc

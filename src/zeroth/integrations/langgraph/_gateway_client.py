@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import threading
 from collections.abc import Callable
-from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -38,6 +38,8 @@ from zeroth.integrations.langgraph.enforcement_protocol import (
     RunAttestationV1,
     inventory_fingerprint,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class LangGraphGatewayError(RuntimeError):
@@ -169,12 +171,32 @@ class LangGraphGatewayClient:
         interval = self._heartbeat_interval_seconds
         if interval is None:
             return
+        consecutive_failures = 0
         while not self._heartbeat_stop.wait(interval):
             token = self._heartbeat_token
             if token is None:
                 continue
-            with suppress(LangGraphGatewayError):
+            try:
                 self.heartbeat(token)
+            except LangGraphGatewayError:
+                # ``_post`` already logged the cause. Count the run of failures
+                # so a gateway that has been unreachable for hours is
+                # distinguishable from one that blipped once.
+                consecutive_failures += 1
+                logger.warning(
+                    "LangGraph gateway heartbeat for deployment %s has failed %d time(s) in a row",
+                    self.deployment_ref,
+                    consecutive_failures,
+                )
+            else:
+                if consecutive_failures:
+                    logger.info(
+                        "LangGraph gateway heartbeat for deployment %s recovered after "
+                        "%d consecutive failure(s)",
+                        self.deployment_ref,
+                        consecutive_failures,
+                    )
+                consecutive_failures = 0
 
     def heartbeat(self, context_token: str) -> None:
         """Refresh last-known adapter inventory freshness without minting run evidence."""
@@ -243,10 +265,38 @@ class LangGraphGatewayClient:
             response = self._client.post(
                 f"v1/langgraph/deployments/{self.deployment_ref}/{endpoint}", json=payload
             )
-            if response.status_code != expected_status:
-                raise ValueError
+        except Exception:
+            # The raised error stays opaque -- a caller must not learn the
+            # gateway's transport detail -- but an operator has to be able to
+            # tell an unreachable gateway from a healthy one, and the heartbeat
+            # path suppresses this error entirely.
+            logger.warning(
+                "LangGraph gateway %s call failed in transport for deployment %s",
+                endpoint,
+                self.deployment_ref,
+                exc_info=True,
+            )
+            raise LangGraphGatewayError() from None
+
+        if response.status_code != expected_status:
+            logger.warning(
+                "LangGraph gateway %s call for deployment %s answered %s, expected %s",
+                endpoint,
+                self.deployment_ref,
+                response.status_code,
+                expected_status,
+            )
+            raise LangGraphGatewayError() from None
+
+        try:
             return {} if expected_status == 204 else response.json()
         except Exception:
+            logger.warning(
+                "LangGraph gateway %s call for deployment %s returned an undecodable body",
+                endpoint,
+                self.deployment_ref,
+                exc_info=True,
+            )
             raise LangGraphGatewayError() from None
 
     def _idempotency_key(
