@@ -7,8 +7,6 @@ import pytest
 from pydantic import BaseModel, Field
 
 from zeroth.contracts.governed.app.spec import GovernedFlowSpec, GovernedStepSpec
-from zeroth.runtime.agents.tooling.python_tool import tool
-
 from zeroth.contracts.registry import (
     ContractReference,
     ContractRegistry,
@@ -16,6 +14,7 @@ from zeroth.contracts.registry import (
 )
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
+from zeroth.runtime.agents.tooling.python_tool import tool
 
 
 class Address(BaseModel):
@@ -142,6 +141,32 @@ async def test_concurrent_automatic_registration_allocates_sequential_versions(s
     assert [record.version for record in await registries[0].list_versions("customer")] == list(
         range(1, 9)
     )
+
+
+async def test_concurrent_schema_registration_allocates_versions_without_duplicates(
+    sqlite_db,
+) -> None:
+    """A05-6 rebuttal: automatic version allocation is already a CAS, not a TOCTOU.
+
+    ``register``/``register_schema`` read ``latest_version(name) + 1`` and then
+    write, which *looks* like check-then-act. It is not: the write is
+    ``insert_if_absent`` on the ``(tenant_id, contract_name, version)`` identity,
+    so a loser of the race inserts nothing and simply re-reads inside the bounded
+    retry loop. The designed failure under sustained contention is a refusal
+    (``ContractRegistryError`` after the attempt budget), never a duplicate or an
+    overwrite. ``register`` has this pinned above; this is the schema-only twin,
+    which had no SQLite-backed coverage.
+    """
+    registries = [ContractRegistry.scoped(sqlite_db, _scope("tenant-a")) for _ in range(8)]
+
+    records = await asyncio.gather(
+        *(registry.register_schema("order", {"type": "object"}) for registry in registries)
+    )
+
+    assert sorted(record.version for record in records) == list(range(1, 9))
+    versions = [record.version for record in await registries[0].list_versions("order")]
+    assert versions == list(range(1, 9))
+    assert len(versions) == len(set(versions))
 
 
 async def test_other_tenant_contracts_are_not_enumerated_or_addressable(sqlite_db) -> None:

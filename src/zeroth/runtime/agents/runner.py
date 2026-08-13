@@ -11,6 +11,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 from collections.abc import Mapping
 from copy import copy, deepcopy
 from typing import Any
@@ -50,6 +51,7 @@ from zeroth.runtime.agents.models import (
 from zeroth.runtime.agents.prompt import AgentAuditSerializer, PromptAssembler
 from zeroth.runtime.agents.protocols import MemoryConnectorResolver
 from zeroth.runtime.agents.provider import (
+    DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS,
     ProviderAdapter,
     ProviderRequest,
     ProviderResponse,
@@ -627,6 +629,11 @@ class AgentRunner:
                 }
                 raise error
 
+        # main closed the same A06-9 leak with a tighter shape than this branch
+        # did: the start gets its own guard that stops whatever it already
+        # entered, and it also attaches the cost audit and logs a failed cleanup.
+        # That is a superset of moving the call inside the outer try, so main's
+        # version is kept and the duplicate start below is dropped.
         try:
             await self._start_mcp_servers(effective_capabilities)
         except Exception as exc:
@@ -639,6 +646,11 @@ class AgentRunner:
         try:
             last_error: Exception | None = None
             attempts = 0
+            # Owned by the run, not the attempt: a retry re-seeds its messages
+            # from the previous attempt's history (tool results included), so the
+            # tools it already executed have to keep counting against the budget
+            # and stay in the record. Resetting per attempt made both per-attempt.
+            tool_audits: list[dict[str, Any]] = []
             for attempt in range(1, max_attempts + 1):
                 attempts = attempt
                 response: ProviderResponse | None = None
@@ -1060,10 +1072,16 @@ class AgentRunner:
         Loops until the model stops requesting tool calls or the max
         tool call limit is reached. Returns the final response, the
         updated message list, and audit records for each tool call.
+
+        ``tool_audits`` may be supplied by the retry loop so the record -- and
+        with it the budget, which is seeded from its length -- spans the whole
+        run rather than one attempt. A retry inherits the previous attempt's
+        tool-call messages, so a per-attempt budget let ``max_tool_calls``
+        attempts multiply it: the cap was never a cap on how many tools one
+        agent run could actually execute.
         """
-        if tool_audits is None:
-            tool_audits = []
-        tool_calls_used = 0
+        tool_audits = [] if tool_audits is None else tool_audits
+        tool_calls_used = len(tool_audits)
         current_response = response
         current_messages = list(messages)
         if provider_measurements is None:
@@ -1363,13 +1381,32 @@ class AgentRunner:
         self,
         configured_timeout: float | None,
         policy_timeout: float | None,
-    ) -> float | None:
-        """Choose the tighter timeout when policy and config both specify one."""
-        if configured_timeout is None:
-            return policy_timeout
-        if policy_timeout is None:
-            return configured_timeout
-        return min(configured_timeout, policy_timeout)
+    ) -> float:
+        """Choose the tighter timeout, falling back to a bound rather than none.
+
+        This is the single place the agent runner decides how long a provider
+        call may take, and all three ``run_provider_with_timeout`` call sites
+        receive its result. It used to return ``None`` when neither the agent
+        config nor the policy override named a timeout -- and both default to
+        ``None`` -- so an ordinary agent with nothing configured called its LLM
+        provider with no deadline at all.
+
+        Mirrors ``ExecutableUnitRunner._effective_timeout``, which resolves the
+        same shape for sandboxed units.
+        """
+        # Non-finite and non-positive values are discarded rather than honoured:
+        # asyncio.wait_for reads inf as "no deadline", and AgentConfig declares
+        # timeout_seconds with ``ge=0.0`` while the policy override is authored
+        # data with no constraint at all -- so 0 and inf are both reachable ways
+        # to declare a bound that is not one.
+        candidates = [
+            timeout
+            for timeout in (configured_timeout, policy_timeout)
+            if timeout is not None and math.isfinite(timeout) and timeout > 0
+        ]
+        if not candidates:
+            return DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS
+        return min(candidates)
 
     def _assistant_message_for(self, response: Any) -> Any:
         """Build an assistant message from a provider response for the message history."""

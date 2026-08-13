@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -24,12 +25,49 @@ from zeroth.integrations.execution.sandbox import (
     validate_docker_image_reference,
 )
 from zeroth.integrations.sandbox.models import (
+    DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     SidecarExecuteRequest,
     SidecarExecuteResponse,
     SidecarStatusResponse,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolved_timeout(requested: float | None) -> float:
+    """Return a finite, positive deadline for *requested*.
+
+    ``timeout_seconds`` stays ``float | None`` on the request model because that
+    model's constructor signature is pinned by the frozen protected-surface
+    fixture. So the bound lives here instead: ``None`` means "nobody configured
+    one", which resolves to the default rather than to ``asyncio.wait_for``'s
+    ``None`` -- which means wait forever. A non-positive value is refused rather
+    than quietly treated as immediate or infinite.
+    """
+    if requested is None:
+        return DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    if not math.isfinite(requested) or requested <= 0:
+        # inf reaches asyncio.wait_for and means "no deadline", which is exactly
+        # the state this resolver exists to make unreachable. JSON carries the
+        # Infinity literal and pydantic accepts it by default, so this is a
+        # reachable input, not a theoretical one.
+        raise ValueError("timeout_seconds must be positive and finite")
+    return requested
+
+#: Deadline for a ``docker`` helper invocation (network create/rm, ``info``).
+#: These run outside the container's own bounded wait -- and the first of them
+#: runs before it -- so they need a bound of their own.
+DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS = 30.0
+
+#: How many terminal executions keep their captured stdout/stderr.
+#:
+#: ``_executions`` is never evicted, because it doubles as the permanent
+#: duplicate-execution guard: ``execute`` refuses any id already present, and
+#: that refusal is pinned by the hostile-workload suite. Dropping entries to
+#: bound memory would therefore reopen replay. What is unbounded is the captured
+#: *payload* -- up to ``max_output_bytes`` per execution -- so that is what ages
+#: out, leaving the identity and its terminal status behind.
+DEFAULT_RETAINED_PAYLOAD_EXECUTIONS = 256
 
 
 @dataclass(slots=True)
@@ -60,6 +98,11 @@ class SidecarExecutor:
             raise ValueError("max_output_bytes must be non-negative")
         self._docker_binary = docker_binary
         self._max_output_bytes = max_output_bytes
+        # Not constructor parameters: this class's signature is pinned by the
+        # frozen protected-surface fixture. They are plain attributes so a test
+        # can still narrow them without a public-surface change.
+        self._docker_command_timeout_seconds = DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS
+        self._retained_payload_executions = DEFAULT_RETAINED_PAYLOAD_EXECUTIONS
         self._executions: dict[str, SidecarExecuteResponse] = {}
         self._states: dict[str, _ExecutionState] = {}
         self._registry_lock = asyncio.Lock()
@@ -67,6 +110,10 @@ class SidecarExecutor:
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
         validate_docker_image_reference(request.image)
+        # Resolved up front so a rejected timeout fails before a container, a
+        # network or a coroutine exists. Evaluating it inline at the wait_for
+        # left self._communicate_bounded(...) constructed and never awaited.
+        execution_timeout = _resolved_timeout(request.timeout_seconds)
         network_name = f"zeroth-sandbox-{request.execution_id}"
         started_at = time.perf_counter()
         execution_task = asyncio.current_task()
@@ -152,7 +199,10 @@ class SidecarExecutor:
                     stderr_truncated,
                 ) = await asyncio.wait_for(
                     self._communicate_bounded(proc, stdin_bytes),
-                    timeout=request.timeout_seconds,
+                    # ``None`` here means wait forever, and the field defaults to
+                    # ``None`` -- a body that simply omits it used to buy an
+                    # unbounded container. Resolve it to a real deadline.
+                    timeout=execution_timeout,
                 )
                 returncode = proc.returncode
             except TimeoutError:
@@ -188,6 +238,7 @@ class SidecarExecutor:
                 stderr_truncated=stderr_truncated,
             )
             self._executions[request.execution_id] = response
+            self._retire_old_payloads()
             return response
 
         except asyncio.CancelledError:
@@ -310,6 +361,7 @@ class SidecarExecutor:
             stderr_truncated=previous.stderr_truncated if previous else False,
         )
         self._executions[execution_id] = response
+        self._retire_old_payloads()
         state = self._states.get(execution_id)
         if state is not None:
             state.terminal = True
@@ -324,6 +376,7 @@ class SidecarExecutor:
             duration_seconds=time.perf_counter() - started_at,
         )
         self._executions[execution_id] = response
+        self._retire_old_payloads()
         state = self._states.get(execution_id)
         if state is not None:
             state.terminal = True
@@ -388,10 +441,66 @@ class SidecarExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await proc.communicate()
+            await self._communicate_deadlined(proc)
             return proc.returncode == 0
         except Exception:  # noqa: BLE001
             return False
+
+    def _retire_old_payloads(self) -> None:
+        """Drop captured output from all but the newest retained executions.
+
+        Identity and terminal status stay -- ``execute`` reads ``_executions`` to
+        refuse a replayed id, and ``tests/security/test_hostile_workloads.py``
+        pins that refusal, so evicting the entry itself would reopen replay. Only
+        the payload ages out, which is the part that grows without bound
+        (``max_output_bytes`` per execution, retained for the process lifetime).
+        """
+        retirable = len(self._executions) - self._retained_payload_executions
+        if retirable <= 0:
+            return
+        for execution_id in list(self._executions)[:retirable]:
+            response = self._executions[execution_id]
+            if not response.stdout and not response.stderr:
+                continue
+            # The truncation flags carry this, because every sidecar model is
+            # pinned by the frozen protected-surface fixture and no new field is
+            # available. They already mean "what you are seeing is not the whole
+            # output"; retirement is a second reason for that, alongside size.
+            # Without them a retired execution is indistinguishable from one that
+            # genuinely produced nothing.
+            self._executions[execution_id] = response.model_copy(
+                update={
+                    "stdout": "",
+                    "stderr": "",
+                    "stdout_truncated": True,
+                    "stderr_truncated": True,
+                }
+            )
+
+    async def _communicate_deadlined(self, proc: Any) -> tuple[bytes, bytes]:
+        """Await ``proc.communicate()`` under the docker-command deadline.
+
+        The only bounded wait in this module used to be the one around the
+        *container's own* execution. Every ``docker`` helper invocation -- network
+        create, network rm, ``docker info`` -- awaited ``communicate()`` bare, and
+        the first of those runs *before* the bounded wait is ever reached, so a
+        wedged daemon hung the request with nothing able to time it out.
+        """
+        try:
+            return await asyncio.wait_for(
+                proc.communicate(), timeout=self._docker_command_timeout_seconds
+            )
+        except TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
+                with suppress(ProcessLookupError):
+                    await proc.wait()
+            raise
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            raise
 
     async def _run_cmd(self, *args: str) -> tuple[bytes, bytes]:
         """Run a shell command and return (stdout, stderr)."""
@@ -400,13 +509,7 @@ class SidecarExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
-            raise
+        stdout, stderr = await self._communicate_deadlined(proc)
         if proc.returncode != 0:
             stderr_text = stderr.decode(errors="replace")
             msg = f"Command {args} failed with rc={proc.returncode}: {stderr_text}"

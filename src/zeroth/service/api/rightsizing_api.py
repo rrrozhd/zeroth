@@ -47,6 +47,12 @@ class RightsizingRequest(BaseModel):
     limit: int = Field(default=6, ge=1, le=20)
 
 
+#: Upper bound on the audit history either right-sizing route reads. Both are
+#: rankings over recent spend, so the newest slice is what they need; without a
+#: bound they read the deployment's entire audit trail on every request.
+_AUDIT_READ_BOUND = 10_000
+
+
 class ExperimentRequest(BaseModel):
     """Request body for POST /v1/econ/rightsizing/experiment (measured right-sizing).
 
@@ -107,7 +113,8 @@ def register_rightsizing_routes(app: FastAPI | APIRouter) -> None:
         deployment = getattr(bootstrap, "deployment", None)
         await require_deployment_scope(request, deployment)
         records = await bootstrap.audit_repository.list(
-            AuditQuery(deployment_ref=getattr(deployment, "deployment_ref", None))
+            AuditQuery(deployment_ref=getattr(deployment, "deployment_ref", None)),
+            limit=_AUDIT_READ_BOUND,
         )
         return spend_opportunities(records)
 
@@ -152,7 +159,8 @@ def register_rightsizing_routes(app: FastAPI | APIRouter) -> None:
             )
 
         records = await bootstrap.audit_repository.list(
-            AuditQuery(node_id=body.node_id, deployment_ref=deployment_ref)
+            AuditQuery(node_id=body.node_id, deployment_ref=deployment_ref),
+            limit=_AUDIT_READ_BOUND,
         )
         if body.mode == "correctness":
             # Grade against human-labeled answers: harvest the deployment's runs, keep those

@@ -11,6 +11,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from zeroth.integrations.http.factory import governed_async_client
 from zeroth.service.api.authorization import Permission, require_permission
 
 _PREFIX = "/econ/regulus"
@@ -124,17 +125,19 @@ async def _forward(request: Request, route: RegulusRoute) -> JSONResponse:
     timeout = getattr(request.app.state, "regulus_timeout", 5.0)
     transport = getattr(request.app.state, "regulus_transport", None)
     try:
-        async with httpx.AsyncClient(
+        client = await governed_async_client(
+            purpose="regulus-console-proxy",
             timeout=timeout,
             transport=transport,
+            app=request.app,
             follow_redirects=False,
-        ) as client:
-            response = await client.request(
-                route.method,
-                f"{str(base_url).rstrip('/')}{suffix}",
-                headers=headers,
-                json=body,
-            )
+        )
+        response = await client.request(
+            route.method,
+            f"{str(base_url).rstrip('/')}{suffix}",
+            headers=headers,
+            json=body,
+        )
         if not 200 <= response.status_code < 300:
             raise HTTPException(status_code=502, detail="Regulus backend request failed")
         return JSONResponse(content=response.json(), status_code=response.status_code)

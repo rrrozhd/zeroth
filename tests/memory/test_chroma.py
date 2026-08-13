@@ -7,13 +7,15 @@ without requiring a real ChromaDB server.
 from __future__ import annotations
 
 import json
+import threading
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from zeroth.integrations.memory.governed.connector import MemoryConnector
-from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 from zeroth.integrations.memory.chroma_connector import ChromaDBMemoryConnector
+from zeroth.integrations.memory.governed.connector import MemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -102,12 +104,8 @@ class TestCollectionNaming:
 
 
 class TestWrite:
-    async def test_write_stores_document(
-        self, connector, _mock_collection, _mock_litellm
-    ):
-        await connector.write(
-            "doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__"
-        )
+    async def test_write_stores_document(self, connector, _mock_collection, _mock_litellm):
+        await connector.write("doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__")
         _mock_litellm.aembedding.assert_awaited_once()
         _mock_collection.upsert.assert_called_once()
         call_kwargs = _mock_collection.upsert.call_args
@@ -135,9 +133,7 @@ class TestRead:
         assert entry.key == "doc1"
 
     async def test_read_returns_none_for_missing(self, connector, _mock_collection):
-        _mock_collection.get = MagicMock(
-            return_value={"ids": [], "documents": [], "metadatas": []}
-        )
+        _mock_collection.get = MagicMock(return_value={"ids": [], "documents": [], "metadatas": []})
         entry = await connector.read("missing", MemoryScope.SHARED, target="__shared__")
         assert entry is None
 
@@ -148,9 +144,7 @@ class TestRead:
 
 
 class TestSearch:
-    async def test_search_returns_results(
-        self, connector, _mock_collection, _mock_litellm
-    ):
+    async def test_search_returns_results(self, connector, _mock_collection, _mock_litellm):
         results = await connector.search(
             {"text": "hello", "limit": 5}, MemoryScope.SHARED, target="__shared__"
         )
@@ -174,9 +168,7 @@ class TestDelete:
         _mock_collection.delete.assert_called_once_with(ids=["doc1"])
 
     async def test_delete_raises_key_error_if_not_found(self, connector, _mock_collection):
-        _mock_collection.get = MagicMock(
-            return_value={"ids": [], "documents": [], "metadatas": []}
-        )
+        _mock_collection.get = MagicMock(return_value={"ids": [], "documents": [], "metadatas": []})
         with pytest.raises(KeyError):
             await connector.delete("missing", MemoryScope.SHARED, target="__shared__")
 
@@ -247,3 +239,81 @@ class TestChromaLive:
 
             with contextlib.suppress(Exception):
                 client.delete_collection(collection)
+
+
+# ---------------------------------------------------------------------------
+# Event-loop offload (A07-15)
+# ---------------------------------------------------------------------------
+
+
+def _thread_recorder(sink: list[int], return_value: Any = None):
+    """Build a sync callable that records the thread it ran on."""
+
+    def _call(*_args: Any, **_kwargs: Any) -> Any:
+        sink.append(threading.get_ident())
+        return return_value
+
+    return _call
+
+
+class TestEventLoopOffload:
+    """A07-15: every synchronous chromadb call runs off the event loop thread.
+
+    The chromadb client is blocking HTTP. Called straight from an ``async def``
+    it holds the loop for the whole round-trip, so one slow Chroma peer stalls
+    every other coroutine in the process -- not just the caller's. The thread
+    identity is the oracle: an offloaded call cannot report the loop's thread.
+    """
+
+    async def test_get_collection_offloads_its_blocking_round_trip(
+        self, connector, _mock_client, _mock_collection
+    ):
+        """``get_or_create_collection`` runs ahead of every operation, so it counts."""
+        sink: list[int] = []
+        _mock_client.get_or_create_collection = MagicMock(
+            side_effect=_thread_recorder(sink, _mock_collection)
+        )
+
+        await connector._get_collection(MemoryScope.SHARED, target="__shared__")
+
+        assert sink == [sink[0]]
+        assert sink[0] != threading.get_ident()
+
+    async def test_read_write_delete_and_search_offload_every_chroma_call(
+        self, connector, _mock_client, _mock_collection, _mock_litellm
+    ):
+        sink: list[int] = []
+        _mock_client.get_or_create_collection = MagicMock(
+            side_effect=_thread_recorder(sink, _mock_collection)
+        )
+        _mock_collection.get = MagicMock(
+            side_effect=_thread_recorder(
+                sink,
+                {
+                    "ids": ["doc1"],
+                    "documents": [json.dumps({"text": "hello"})],
+                    "metadatas": [{"key": "doc1"}],
+                },
+            )
+        )
+        _mock_collection.upsert = MagicMock(side_effect=_thread_recorder(sink))
+        _mock_collection.delete = MagicMock(side_effect=_thread_recorder(sink))
+        _mock_collection.query = MagicMock(
+            side_effect=_thread_recorder(
+                sink,
+                {
+                    "ids": [["doc1"]],
+                    "documents": [[json.dumps({"text": "hello"})]],
+                    "metadatas": [[{"key": "doc1"}]],
+                },
+            )
+        )
+
+        await connector.read("doc1", MemoryScope.SHARED, target="__shared__")
+        await connector.write("doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__")
+        await connector.delete("doc1", MemoryScope.SHARED, target="__shared__")
+        await connector.search({"text": "hello"}, MemoryScope.SHARED, target="__shared__")
+
+        # 4 get_or_create_collection + get + upsert + (get, delete) + query.
+        assert len(sink) == 9
+        assert threading.get_ident() not in sink

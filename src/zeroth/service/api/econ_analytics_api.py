@@ -44,6 +44,12 @@ class QualityVerdictRequest(BaseModel):
     expected_output: str | None = None
 
 
+#: How many audit records one run may contribute before the windowed read stops
+#: being able to see all of them. A run writes one audit record per executed node,
+#: so this is a generous per-run node ceiling, not a measured average.
+_AUDIT_RECORDS_PER_RUN_BOUND = 50
+
+
 async def _windowed_runs_and_audits(
     request: Request, window: int
 ) -> tuple[list[Run], list[NodeAuditRecord]]:
@@ -68,7 +74,14 @@ async def _windowed_runs_and_audits(
 
     runs = await bootstrap.run_repository.list_runs(deployment_ref, limit=window)
     run_ids = {run.run_id for run in runs}
-    records = await bootstrap.audit_repository.list(AuditQuery(deployment_ref=deployment_ref))
+    # The runs half of this read has always been capped by ``window``; the audit
+    # half used to fetch the deployment's whole history and discard most of it in
+    # Python. Bound it to the same window, scaled by the audit records one run can
+    # emit, so the two halves grow together instead of one growing without limit.
+    records = await bootstrap.audit_repository.list(
+        AuditQuery(deployment_ref=deployment_ref),
+        limit=window * _AUDIT_RECORDS_PER_RUN_BOUND,
+    )
     scoped = [r for r in records if r.run_id in run_ids]
     return runs, scoped
 

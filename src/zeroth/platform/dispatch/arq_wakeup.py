@@ -47,8 +47,15 @@ async def create_arq_pool(redis_settings: Any) -> Any:
 
         arq_redis = arq_settings_from_zeroth(redis_settings)
         return await create_pool(arq_redis)
-    except Exception:
-        logger.warning("Failed to create ARQ pool, wakeup notifications disabled")
+    except Exception as exc:
+        # Without the bound exception an operator cannot tell bad credentials
+        # from an unreachable host -- both used to log the same line.
+        logger.warning(
+            "Failed to create ARQ pool (%s: %s), wakeup notifications disabled",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return None
 
 
@@ -67,8 +74,17 @@ async def enqueue_wakeup(arq_pool: Any, run_id: str) -> None:
             run_id,
             _job_id=f"wakeup:{run_id}",
         )
-    except Exception:
-        logger.debug("ARQ wakeup enqueue failed for %s, poll fallback active", run_id)
+    except Exception as exc:
+        # The poll fallback keeps the run moving, so this is not an error -- but
+        # it is a degradation, and DEBUG hid the fact that wakeups had stopped
+        # working at all. Name the cause and log it where an operator will see it.
+        logger.warning(
+            "ARQ wakeup enqueue failed for %s (%s: %s), poll fallback active",
+            run_id,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
 
 
 async def run_arq_consumer(

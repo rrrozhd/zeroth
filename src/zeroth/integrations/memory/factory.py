@@ -79,11 +79,103 @@ SUPPORTED_BACKEND_TYPES: tuple[str, ...] = (
 )
 
 
+#: Wall-clock ceiling, in seconds, on a single ChromaDB HTTP request. chromadb
+#: 1.5.6 builds its transport as ``httpx.Client(timeout=None)`` -- timeouts
+#: explicitly disabled -- so without this, every call a Chroma-backed agent
+#: makes can hang for as long as the peer holds the socket open.
+CHROMA_TIMEOUT_SECONDS: float = 10.0
+
+#: Wall-clock ceiling, in seconds, on a Redis connect and on a single Redis
+#: command. redis-py 5.3.1 leaves ``socket_timeout`` and
+#: ``socket_connect_timeout`` at ``None``; an unresponsive server then blocks
+#: the caller indefinitely.
+REDIS_TIMEOUT_SECONDS: float = 10.0
+
+#: Backends whose clients this module constructs and must therefore bound.
+#: Elasticsearch is absent deliberately: elasticsearch-py 8.19.3 stamps
+#: ``request_timeout=10.0`` onto every node config by default, so
+#: ``AsyncElasticsearch(hosts=...)`` is already bounded without this module
+#: passing anything -- unlike chromadb and redis-py, which default to ``None``.
+TIMEOUT_GOVERNED_BACKENDS: tuple[str, ...] = ("chroma", "redis_kv", "redis_thread")
+
+
 def _require_param(params: dict[str, Any], key: str, backend_type: str) -> Any:
     value = params.get(key)
     if value in (None, "", []):
         raise ValueError(f"{backend_type!r} connector requires a {key!r} parameter")
     return value
+
+
+def _mandatory_timeout(seconds: Any, backend_type: str) -> float:
+    """Refuse a timeout that would leave a backend call unbounded.
+
+    ``None`` is not read as "use the driver default" here -- the driver default
+    *is* ``None`` for both clients this module builds, and that is precisely
+    the value this guard exists to reject. The default is the module constant
+    the caller already read.
+
+    Args:
+        seconds: Candidate timeout.
+        backend_type: Backend name, used in the error message.
+
+    Returns:
+        The timeout as a float.
+
+    Raises:
+        ValueError: ``seconds`` is not a positive real number.
+
+    """
+    if isinstance(seconds, bool) or not isinstance(seconds, int | float) or seconds <= 0:
+        raise ValueError(
+            f"{backend_type!r} connector timeout must be a positive number of seconds, "
+            f"got {seconds!r}"
+        )
+    return float(seconds)
+
+
+def _bind_chroma_timeout(client: Any, timeout_seconds: float) -> Any:
+    """Bound every request a chromadb HTTP client makes, in place.
+
+    chromadb 1.5.6 offers no constructor seam for this. ``chromadb.HttpClient``
+    takes only host/port/ssl/headers/settings/tenant/database, and its FastAPI
+    transport constructs ``httpx.Client(timeout=None)``. The
+    ``chroma_*_request_timeout_seconds`` Settings fields do not reach that
+    client either -- they are read by the gRPC sysdb client, the distributed
+    query executor and the logservice. So the ceiling is assigned to the
+    transport's own httpx client after construction, and a client that exposes
+    no such session is refused rather than returned unbounded: a silent
+    ``getattr`` miss here would quietly reinstate the whole defect.
+
+    The ``_server._session`` path is measured, not assumed --
+    ``test_chroma_timeout_binds_the_session_a_real_client_would_use`` builds the
+    real ``ServerAPI`` instance and fails if chromadb ever moves its transport,
+    which would otherwise turn every chroma bootstrap into a ``ValueError``.
+
+    Not covered, stated rather than papered over: the tenant/database handshake
+    ``HttpClient`` performs *before* it returns an object runs inside chromadb
+    on the library's own unbounded client, so connector construction against a
+    black-holed peer can still hang. Every call the connector itself makes
+    afterwards is bounded.
+
+    Args:
+        client: A ``chromadb`` client object.
+        timeout_seconds: Positive per-request ceiling.
+
+    Returns:
+        The same client.
+
+    Raises:
+        ValueError: The client exposes no HTTP session to bound.
+
+    """
+    session = getattr(getattr(client, "_server", None), "_session", None)
+    if session is None:
+        raise ValueError(
+            "chroma client exposes no HTTP session to bound; refusing to build a "
+            "connector whose requests would have no timeout"
+        )
+    session.timeout = timeout_seconds
+    return client
 
 
 def build_connector(
@@ -119,6 +211,7 @@ def build_connector(
     Raises:
         ValueError: Unknown backend type, missing/invalid params, or the
             optional dependency for the backend is not installed.
+
     """
     if not isinstance(params, dict):
         raise ValueError("params must be a JSON object")
@@ -163,7 +256,10 @@ def _build_chroma(params: dict[str, Any]) -> tuple[ConnectorManifest, Any]:
         )
     host = _require_param(params, "host", "chroma")
     port = int(params.get("port") or 8000)
-    client = chromadb.HttpClient(host=host, port=port)
+    client = _bind_chroma_timeout(
+        chromadb.HttpClient(host=host, port=port),
+        _mandatory_timeout(CHROMA_TIMEOUT_SECONDS, "chroma"),
+    )
     kwargs: dict[str, Any] = {}
     if params.get("collection_prefix"):
         kwargs["collection_prefix"] = params["collection_prefix"]
@@ -216,7 +312,15 @@ def _build_redis(
             raise ValueError(
                 "redis client library not installed; install zeroth-core[dispatch]"
             ) from exc
-        client = aioredis.from_url(url)
+        # redis-py leaves both of these at None, which lets a command against
+        # an unresponsive server wait forever. Connect and per-command read
+        # share one ceiling: from the caller's side they are the same hang.
+        timeout = _mandatory_timeout(REDIS_TIMEOUT_SECONDS, backend_type)
+        client = aioredis.from_url(
+            url,
+            socket_timeout=timeout,
+            socket_connect_timeout=timeout,
+        )
     kwargs: dict[str, Any] = {}
     if params.get("key_prefix"):
         kwargs["key_prefix"] = params["key_prefix"]
@@ -244,6 +348,7 @@ def register_memory_connectors(
         settings: Application settings with memory/pgvector/chroma/elasticsearch config.
         redis_client: An async Redis client instance (if Redis is available).
         pg_conninfo: Postgres connection string (if Postgres is available).
+
     """
     # Always register in-memory connectors for dev/test
     registry.register(

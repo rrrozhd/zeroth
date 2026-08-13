@@ -16,7 +16,7 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
 
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": None,
-        "head": "20260812_04",
+        "head": "20260812_07",
         "state": "unknown",
     }
 
@@ -27,15 +27,15 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
         )
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
         "applied": "20260811_05",
-        "head": "20260812_04",
+        "head": "20260812_07",
         "state": "behind",
     }
 
     with engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260812_04'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260812_07'"))
     assert read_schema_revision(engine, "zeroth.econ.plane._migrations").model_dump() == {
-        "applied": "20260812_04",
-        "head": "20260812_04",
+        "applied": "20260812_07",
+        "head": "20260812_07",
         "state": "current",
     }
 
@@ -43,9 +43,9 @@ def test_econ_revision_reader_classifies_current_behind_and_unknown(tmp_path: Pa
 @pytest.mark.parametrize(
     ("revision", "status"),
     [
-        (SchemaRevision(applied="20260812_04", head="20260812_04", state="current"), "ok"),
-        (SchemaRevision(applied="20260811_05", head="20260812_04", state="behind"), "degraded"),
-        (SchemaRevision(applied=None, head="20260812_04", state="unknown"), "degraded"),
+        (SchemaRevision(applied="20260812_07", head="20260812_07", state="current"), "ok"),
+        (SchemaRevision(applied="20260812_04", head="20260812_07", state="behind"), "degraded"),
+        (SchemaRevision(applied=None, head="20260812_07", state="unknown"), "degraded"),
     ],
 )
 def test_econ_health_uses_captured_schema_revision(
