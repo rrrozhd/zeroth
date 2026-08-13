@@ -62,12 +62,30 @@
       "steps": [
         {
           "protocol": "http",
-          "role": "admin",
+          "role": "anonymous",
           "method": "GET",
-          "path": "/__acceptance/migrations",
+          "path": "/health/ready",
           "expected_status": 200,
           "expected_json": {
-            "current": true
+            "schema_revision": {
+              "applied": "026",
+              "head": "026",
+              "state": "current"
+            }
+          }
+        },
+        {
+          "protocol": "http",
+          "role": "admin",
+          "method": "GET",
+          "path": "/regulus/health",
+          "expected_status": 200,
+          "expected_json": {
+            "schema_revision": {
+              "applied": "20260812_04",
+              "head": "20260812_04",
+              "state": "current"
+            }
           }
         }
       ]
