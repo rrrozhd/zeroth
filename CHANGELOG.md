@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8] - 2026-08-13
+
+### Added
+
+- Add a strict generated-app certification declaration and fail-closed runner
+  with argv-only checks, deterministic smoke assertions, measured candidate
+  identity, and retained SBOM and provenance evidence.
+
 ## [0.23.7] - 2026-08-13
 
 ### Added
