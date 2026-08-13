@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1.1.1] - 2026-08-13
+
+### Fixed
+
+- The live-Postgres tenant-scope migration test builds an `execution_events` table that has the
+  cost columns, so `20260812_04` can run against it. Nothing in the migration chain creates that
+  table -- `create_all` does, from a model that has carried `token_cost_usd`, `tool_cost_usd` and
+  `compute_cost_usd` since the table was introduced -- so a database without them cannot exist and
+  the minimal fixture was simply unfaithful. The revision could not execute in this test at all,
+  which is why `main` was red on it, and why its cost classification had no live-Postgres coverage
+  anywhere. That classification is now asserted: an all-zero row must come out `unmeasured`.
+
 ## [0.23.1.1] - 2026-08-13
 
 - Reject blank startup secrets and database DSNs, and make LangChain execution
