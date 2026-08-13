@@ -37,7 +37,9 @@ from zeroth.integrations.persistence.runs.serialization import (
     row_to_run,
     row_to_thread,
 )
-from zeroth.integrations.persistence.runs.token_snapshot_store import TokenSnapshotRowStore
+from zeroth.integrations.persistence.runs.token_snapshot_store import (
+    TokenSnapshotRowStore,
+)
 from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
@@ -523,32 +525,35 @@ class _RunThreadStore:
         await self.save_thread(thread)
 
     async def put_run(self, run: Run) -> None:
-        """Save a run, creating its thread if needed, and write a checkpoint."""
-        if run.run_id in self._fences:
-            await self._put_run_fenced(run)
-            return
-        await self._record_thread_run(
-            run.thread_id,
-            run.run_id,
-            run.graph_version_ref,
-            run.deployment_ref,
-            run.tenant_id,
-            run.workspace_id,
-        )
-        await self.write_checkpoint(run)
-        run.touch()
-        await self.save_run(run)
+        """Save a run's thread, checkpoint and row, creating the thread if needed.
 
-    async def _put_run_fenced(self, run: Run) -> None:
-        """The fenced save: thread, checkpoint and runs row in ONE transaction.
-
-        The unfenced path writes the thread and the checkpoint in their own
-        transactions before the runs-row save, so a displaced worker used to
-        overwrite durable checkpoint state before the fence raised. Here the
-        fenced runs-row save shares the transaction with the other two writes:
-        a rejection rolls all three back and nothing lands.
+        ZER-49/A07-16: all three writes share ONE transaction, fenced or not.
+        The unfenced path used to open a transaction per write, so a failure of
+        the last one — a fence rejection, a constraint violation, a dropped
+        connection — left the thread and the checkpoint durable and the runs row
+        behind them, and a restore replayed state the run never committed.
         """
-        fence = self._fences[run.run_id]
+        fence = self._fences.get(run.run_id)
+        # An unfenced put touches twice, so the checkpoint's created_at stays
+        # strictly older than the runs row it precedes; the fenced put has
+        # always touched once. Sharing a transaction must not change either.
+        await self._put_run_atomic(run, fence, touch_before_run_save=fence is None)
+
+    async def _put_run_atomic(
+        self,
+        run: Run,
+        fence: tuple[str, int] | None,
+        *,
+        touch_before_run_save: bool,
+    ) -> None:
+        """Write the thread, the checkpoint and the runs row in ONE transaction.
+
+        Nothing lands unless all three do. Under a fence that makes the
+        rejection total — a displaced worker used to overwrite durable
+        checkpoint state before the fence raised (ZER-26/AUD-004) — and
+        unfenced it makes any mid-path failure total too (ZER-49/A07-16).
+        """
+        self.validate_owner(run.tenant_id, run.workspace_id)
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
         run.touch()
@@ -589,6 +594,8 @@ class _RunThreadStore:
                 state_json=to_json_value(snapshot),
                 created_at=run.updated_at.isoformat(),
             )
+            if touch_before_run_save:
+                run.touch()
             await self._save_run_bound(runs, run, fence)
 
     async def _ensure_thread(self, thread_id: str) -> Thread:

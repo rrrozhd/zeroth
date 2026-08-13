@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import (
@@ -321,3 +323,94 @@ async def test_probe_unreachable_backend_returns_ok_false(sqlite_db) -> None:
     assert body["detail"]
     for fragment in ("127.0.0.1", ":1/0", "redis://"):
         assert fragment not in r.text, f"{fragment!r} leaked into the probe body"
+
+
+@contextlib.contextmanager
+def _refuse(repository, method: str):
+    async def refuse(*args, **kwargs):
+        raise RuntimeError(f"injected {method} failure")
+
+    original = getattr(repository, method)
+    setattr(repository, method, refuse)
+    try:
+        yield
+    finally:
+        setattr(repository, method, original)
+
+
+async def test_create_does_not_go_live_when_the_config_cannot_be_persisted(sqlite_db) -> None:
+    """A02-19: nothing serves traffic that no durable record backs.
+
+    Create used to register the connector into the live in-process registry
+    first and persist it second, so a failed write left a connector answering
+    ``connector_ref`` lookups in this process and nowhere else -- it vanished at
+    the next restart, and the operator got a 500 saying it was never created.
+    """
+    app, service = await _app(sqlite_db, "create-persist-fails")
+
+    with _refuse(service.memory_connector_config_repository, "upsert"):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/v1/connectors",
+                json={"ref": "ghost", "backend_type": "pgvector", "params": PG_PARAMS},
+                headers=operator_headers(),
+            )
+
+    assert response.status_code >= 500
+    assert "ghost" not in service.memory_registry.list(), (
+        "an unpersisted connector is live in this process and vanishes on restart"
+    )
+
+
+async def test_delete_keeps_the_connector_live_when_the_row_cannot_be_deleted(sqlite_db) -> None:
+    """A02-19: a delete that does not reach the database changes nothing.
+
+    Delete used to unregister from the live registry first, so a failed row
+    delete left the connector unresolvable in this process while the config
+    survived -- and the next restart resurrected it.
+    """
+    app, service = await _app(sqlite_db, "delete-persist-fails")
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/connectors",
+            json={"ref": "doomed", "backend_type": "pgvector", "params": PG_PARAMS},
+            headers=operator_headers(),
+        )
+        assert created.status_code == 201, created.text
+
+    with _refuse(service.memory_connector_config_repository, "delete"):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.delete("/v1/connectors/doomed", headers=operator_headers())
+
+    assert response.status_code >= 500
+    assert "doomed" in service.memory_registry.list(), (
+        "the connector is gone from this process but its config survives a restart"
+    )
+
+
+async def test_update_keeps_the_previous_backend_live_when_the_write_fails(sqlite_db) -> None:
+    """A02-19: a reconfiguration that is not persisted must not take effect."""
+    app, service = await _app(sqlite_db, "update-persist-fails")
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/connectors",
+            json={"ref": "swappable", "backend_type": "pgvector", "params": PG_PARAMS},
+            headers=operator_headers(),
+        )
+        assert created.status_code == 201, created.text
+
+    with _refuse(service.memory_connector_config_repository, "upsert"):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.put(
+                "/v1/connectors/swappable",
+                json={"backend_type": "redis_kv", "params": REDIS_PARAMS},
+                headers=operator_headers(),
+            )
+
+    assert response.status_code >= 500
+    manifest, _ = service.memory_registry.resolve("swappable")
+    assert manifest.connector_type == "pgvector", (
+        "an unpersisted reconfiguration is live and reverts on restart"
+    )

@@ -37,6 +37,7 @@ from zeroth.runtime.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
     MultipleBranchPauseError,
+    ParallelExecutionError,
 )
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
@@ -86,7 +87,17 @@ def _dump_branch_context(ctx: BranchContext) -> dict[str, Any]:
 
 def _restore_branch_context(data: Mapping[str, Any], run_id: str) -> BranchContext:
     """Rehydrate the accounting-bearing subset persisted by `_dump_branch_context`."""
-    branch_index = int(data.get("branch_index", -1))
+    # A06-6: this used to default a missing index to -1, which sorts ahead of every
+    # real branch and lands in the fan-in as a phantom. The index is the only thing
+    # tying a restored sibling back to its slot, so its absence is unrecoverable
+    # rather than defaultable.
+    raw_index = data.get("branch_index")
+    if raw_index is None:
+        raise ParallelExecutionError(
+            f"a persisted branch context carries no branch_index ({data!r}); "
+            "its slot in the fan-in cannot be reconstructed."
+        )
+    branch_index = int(raw_index)
     history = [
         RunHistoryEntry.model_validate(entry) if isinstance(entry, Mapping) else entry
         for entry in data.get("execution_history", [])
@@ -99,6 +110,49 @@ def _restore_branch_context(data: Mapping[str, Any], run_id: str) -> BranchConte
         audit_refs=list(data.get("audit_refs", [])),
         metadata=dict(data.get("metadata", {})),
     )
+
+
+def _rehydrate_completed_branches(dumps: list[Any]) -> list[BranchResult]:
+    """Rebuild the already-completed siblings of a D-11 resume from their stash.
+
+    Sits outside :meth:`RuntimeParallelExecutor.execute_fan_out_resume` only to
+    keep that method under the mccabe ceiling the commit gate ratchets — the
+    rehydration itself is unchanged. Completed branches are reconstructed
+    byte-identically and never re-executed, which is why a history entry that
+    no longer validates as a ``RunHistoryEntry`` is kept as the raw dict for
+    downstream consumption rather than dropped.
+    """
+    completed_results: list[BranchResult] = []
+    for d in dumps:
+        history = d.get("execution_history", [])
+        # History entries may be dicts — rebuild RunHistoryEntry where
+        # possible, else keep as dict for downstream consumption.
+        rebuilt_history: list[Any] = []
+        for e in history:
+            if isinstance(e, dict):
+                try:
+                    rebuilt_history.append(RunHistoryEntry.model_validate(e))
+                except Exception:
+                    rebuilt_history.append(e)
+            else:
+                rebuilt_history.append(e)
+        completed_results.append(
+            BranchResult(
+                branch_index=d["branch_index"],
+                output=d.get("output"),
+                error=d.get("error"),
+                audit_refs=list(d.get("audit_refs", [])),
+                execution_history=rebuilt_history,
+                cost_usd=(float(d["cost_usd"]) if d.get("cost_usd") is not None else None),
+                estimated_cost_usd=(
+                    float(d["estimated_cost_usd"])
+                    if d.get("estimated_cost_usd") is not None
+                    else None
+                ),
+                cost_measurement=d.get("cost_measurement", "unmeasured"),
+            )
+        )
+    return completed_results
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,11 +396,14 @@ class RuntimeParallelExecutor:
                         "cost_measurement": child_cost.cost_measurement,
                     }
                 else:
-                    # Dispatch the downstream node with branch-isolated payload
+                    # Dispatch the downstream node with branch-isolated payload.
+                    # The branch id travels with it: siblings share the run
+                    # object and the target node, so it is the only thing that
+                    # keeps their side-effect operation identities apart.
                     try:
                         assert self.node_dispatcher is not None
                         ds_output, ds_audit = await self.node_dispatcher.dispatch(
-                            ds_node, run, branch_output, graph
+                            ds_node, run, branch_output, graph, branch_id=ctx.branch_id
                         )
                     except Exception as exc:
                         await self.audit_recorder.record_failed_branch_execution(
@@ -604,36 +661,7 @@ class RuntimeParallelExecutor:
         )
 
         # 1. Rehydrate completed BranchResults from the stash.
-        completed_results: list[BranchResult] = []
-        for d in pending.get("completed_branches", []):
-            history = d.get("execution_history", [])
-            # History entries may be dicts — rebuild RunHistoryEntry where
-            # possible, else keep as dict for downstream consumption.
-            rebuilt_history: list[Any] = []
-            for e in history:
-                if isinstance(e, dict):
-                    try:
-                        rebuilt_history.append(RunHistoryEntry.model_validate(e))
-                    except Exception:
-                        rebuilt_history.append(e)
-                else:
-                    rebuilt_history.append(e)
-            completed_results.append(
-                BranchResult(
-                    branch_index=d["branch_index"],
-                    output=d.get("output"),
-                    error=d.get("error"),
-                    audit_refs=list(d.get("audit_refs", [])),
-                    execution_history=rebuilt_history,
-                    cost_usd=(float(d["cost_usd"]) if d.get("cost_usd") is not None else None),
-                    estimated_cost_usd=(
-                        float(d["estimated_cost_usd"])
-                        if d.get("estimated_cost_usd") is not None
-                        else None
-                    ),
-                    cost_measurement=d.get("cost_measurement", "unmeasured"),
-                )
-            )
+        completed_results = _rehydrate_completed_branches(pending.get("completed_branches", []))
 
         # 2. Resume paused branch via SubgraphExecutor.resume (or fallback).
         paused_info = pending["paused_branch"]
