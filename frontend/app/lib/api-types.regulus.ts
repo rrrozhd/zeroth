@@ -1506,6 +1506,11 @@ export interface components {
             created_at: string;
             /** Id */
             id: number;
+            /**
+             * Policy Action Effect
+             * @description Outcome of the decision on this action's policy action. 'applied': the linked policy action recorded the decision -- APPLIED on approve (traffic weights written for AdjustTrafficWeights), REJECTED on reject. 'not_applied': no policy action is linked to this enforcement action, so the decision was recorded and audited but nothing downstream was enacted -- an approved AdjustTrafficWeights left the weights untouched. null: this response reports no decision (creation and listing), which is never the same as 'not_applied'.
+             */
+            policy_action_effect?: ("applied" | "not_applied") | null;
             /** Reason */
             reason: string;
             /**
