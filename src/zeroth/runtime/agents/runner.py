@@ -645,6 +645,11 @@ class AgentRunner:
         try:
             last_error: Exception | None = None
             attempts = 0
+            # Owned by the run, not the attempt: a retry re-seeds its messages
+            # from the previous attempt's history (tool results included), so the
+            # tools it already executed have to keep counting against the budget
+            # and stay in the record. Resetting per attempt made both per-attempt.
+            tool_audits: list[dict[str, Any]] = []
             for attempt in range(1, max_attempts + 1):
                 attempts = attempt
                 response: ProviderResponse | None = None
@@ -665,6 +670,7 @@ class AgentRunner:
                         effective_capabilities=effective_capabilities,
                         compaction_results=compaction_results,
                         provider_measurements=provider_measurements,
+                        tool_audits=tool_audits,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -1036,15 +1042,23 @@ class AgentRunner:
         effective_capabilities: set[Capability] | None = None,
         compaction_results: list[Any] | None = None,
         provider_measurements: list[Any] | None = None,
+        tool_audits: list[dict[str, Any]] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
         Loops until the model stops requesting tool calls or the max
         tool call limit is reached. Returns the final response, the
         updated message list, and audit records for each tool call.
+
+        ``tool_audits`` may be supplied by the retry loop so the record -- and
+        with it the budget, which is seeded from its length -- spans the whole
+        run rather than one attempt. A retry inherits the previous attempt's
+        tool-call messages, so a per-attempt budget let ``max_tool_calls``
+        attempts multiply it: the cap was never a cap on how many tools one
+        agent run could actually execute.
         """
-        tool_audits: list[dict[str, Any]] = []
-        tool_calls_used = 0
+        tool_audits = [] if tool_audits is None else tool_audits
+        tool_calls_used = len(tool_audits)
         current_response = response
         current_messages = list(messages)
         if provider_measurements is None:

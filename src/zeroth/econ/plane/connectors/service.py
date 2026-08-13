@@ -2,21 +2,33 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 
 from zeroth.econ.plane.config import settings
-from zeroth.econ.plane.connectors.models import ConnectorConfig, ConnectorDeliveryLog, ConnectorOutbox
+from zeroth.econ.plane.connectors.models import (
+    ConnectorConfig,
+    ConnectorDeliveryLog,
+    ConnectorOutbox,
+)
 from zeroth.econ.plane.connectors.registry import build_adapter_registry
-from zeroth.econ.plane.connectors.schemas import ConnectorEventEnvelope, ConnectorHealthResult, ConnectorSendResult
+from zeroth.econ.plane.connectors.schemas import (
+    ConnectorEventEnvelope,
+    ConnectorHealthResult,
+    ConnectorSendResult,
+)
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 logger = logging.getLogger(__name__)
 _OTEL_COUNTERS: dict[str, Any] = {}
 _OTEL_ENABLED = False
+# Statuses an outbox row can be claimed from.  Named once so the candidate
+# SELECT and the conditional claim UPDATE cannot drift apart -- if they did,
+# the claim would stop being a guard.
+_CLAIMABLE_STATUSES = ("PENDING", "FAILED")
 
 
 def _require_exact_scoped_session(db: object) -> ScopedSession:
@@ -40,7 +52,7 @@ def _require_requested_tenant(db: ScopedSession, tenant_id: str) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def init_otel_metrics() -> None:
@@ -49,7 +61,9 @@ def init_otel_metrics() -> None:
         return
     try:
         from opentelemetry import metrics
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
         from opentelemetry.sdk.metrics import MeterProvider
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
@@ -108,15 +122,15 @@ def _normalize_outbox_status(status: str | None) -> str | None:
 def list_connector_configs(db: ScopedSession, tenant_id: str) -> list[ConnectorConfig]:
     db = _require_exact_scoped_session(db)
     tenant_id = _require_requested_tenant(db, tenant_id)
-    return list(db.execute(select(ConnectorConfig).where(ConnectorConfig.tenant_id == tenant_id).order_by(ConnectorConfig.connector_type)).scalars())
+    return list(db.execute(select(ConnectorConfig).where(ConnectorConfig.tenant_id == tenant_id).order_by(ConnectorConfig.connector_type)).scalars())  # noqa: E501
 
 
-def get_or_create_connector_config(db: ScopedSession, tenant_id: str, connector_type: str) -> ConnectorConfig:
+def get_or_create_connector_config(db: ScopedSession, tenant_id: str, connector_type: str) -> ConnectorConfig:  # noqa: E501
     db = _require_exact_scoped_session(db)
     tenant_id = _require_requested_tenant(db, tenant_id)
     row = db.execute(
         select(ConnectorConfig).where(
-            and_(ConnectorConfig.tenant_id == tenant_id, ConnectorConfig.connector_type == connector_type)
+            and_(ConnectorConfig.tenant_id == tenant_id, ConnectorConfig.connector_type == connector_type)  # noqa: E501
         )
     ).scalar_one_or_none()
     if row is not None:
@@ -135,7 +149,7 @@ def get_or_create_connector_config(db: ScopedSession, tenant_id: str, connector_
     return row
 
 
-def configure_connector(db: ScopedSession, tenant_id: str, connector_type: str, config_json: dict[str, Any]) -> ConnectorConfig:
+def configure_connector(db: ScopedSession, tenant_id: str, connector_type: str, config_json: dict[str, Any]) -> ConnectorConfig:  # noqa: E501
     db = _require_exact_scoped_session(db)
     tenant_id = _require_requested_tenant(db, tenant_id)
     adapter = _adapter_registry().get(connector_type)
@@ -150,7 +164,7 @@ def configure_connector(db: ScopedSession, tenant_id: str, connector_type: str, 
     return row
 
 
-def set_connector_enabled(db: ScopedSession, tenant_id: str, connector_type: str, enabled: bool) -> ConnectorConfig:
+def set_connector_enabled(db: ScopedSession, tenant_id: str, connector_type: str, enabled: bool) -> ConnectorConfig:  # noqa: E501
     db = _require_exact_scoped_session(db)
     tenant_id = _require_requested_tenant(db, tenant_id)
     adapter = _adapter_registry().get(connector_type)
@@ -381,25 +395,73 @@ def process_outbox_batch(db: ScopedSession, batch_size: int | None = None) -> in
 
     effective_batch_size = batch_size or int(settings.connector_worker_batch_size)
     now = _utcnow()
-    rows = list(
+    # ZER-49 A01-12.  The batch runs inside one transaction that commits only
+    # after every row has been sent, so assigning ``status = "PROCESSING"`` in
+    # the session was never a claim: a worker starting mid-batch still saw the
+    # whole batch as PENDING and delivered every event a second time.  Two
+    # mechanisms make the claim exclusive, and both are issued unconditionally
+    # because ``ScopedSession`` deliberately exposes no bind or connection to
+    # branch a dialect check on:
+    #
+    #   * ``FOR UPDATE SKIP LOCKED`` locks the candidate rows for the life of
+    #     the transaction and lets a concurrent worker step over them instead
+    #     of stalling on the batch.  SQLAlchemy compiles the locking clause
+    #     silently away on SQLite, so it cannot be the only mechanism.
+    #   * the conditional ``UPDATE ... RETURNING`` re-checks the claimable
+    #     predicate at write time and reports back only the rows this worker
+    #     actually won.  That is the guard on SQLite, and a cheap redundant
+    #     check on Postgres.
+    #
+    # Failure semantics are unchanged: the claim shares the batch transaction,
+    # so an exception still rolls the rows back to their previous status rather
+    # than stranding them in PROCESSING.
+    candidate_ids = list(
         db.execute(
-            select(ConnectorOutbox)
+            select(ConnectorOutbox.id)
             .where(
                 and_(
-                    ConnectorOutbox.status.in_(["PENDING", "FAILED"]),
+                    ConnectorOutbox.status.in_(_CLAIMABLE_STATUSES),
                     ConnectorOutbox.next_attempt_at <= now,
                 )
             )
             .order_by(ConnectorOutbox.id.asc())
             .limit(effective_batch_size)
+            .with_for_update(skip_locked=True)
         ).scalars()
     )
 
+    claimed_ids: list[int] = []
+    if candidate_ids:
+        claimed_ids = list(
+            db.execute(
+                update(ConnectorOutbox)
+                .where(
+                    and_(
+                        ConnectorOutbox.id.in_(candidate_ids),
+                        ConnectorOutbox.status.in_(_CLAIMABLE_STATUSES),
+                        ConnectorOutbox.next_attempt_at <= now,
+                    )
+                )
+                .values(status="PROCESSING")
+                .returning(ConnectorOutbox.id)
+                .execution_options(synchronize_session=False)
+            ).scalars()
+        )
+
+    rows: list[ConnectorOutbox] = []
+    if claimed_ids:
+        rows = list(
+            db.execute(
+                select(ConnectorOutbox)
+                .where(ConnectorOutbox.id.in_(claimed_ids))
+                .order_by(ConnectorOutbox.id.asc())
+            ).scalars()
+        )
+
     processed = 0
     for row in rows:
-        row.status = "PROCESSING"
-        db.flush()
         _attempt_send(db, row)
+        db.flush()
         processed += 1
     db.commit()
     return processed
@@ -432,9 +494,9 @@ def render_prometheus_metrics(db: ScopedSession) -> str:
     outcomes_total = int(
         db.execute(select(func.count(OutcomeEvent.id))).scalar_one() or 0
     )
-    value_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_value_usd), 0))).scalar_one() or 0.0)
-    cost_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_cost_usd), 0))).scalar_one() or 0.0)
-    margin_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.net_margin_usd), 0))).scalar_one() or 0.0)
+    value_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_value_usd), 0))).scalar_one() or 0.0)  # noqa: E501
+    cost_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.estimated_cost_usd), 0))).scalar_one() or 0.0)  # noqa: E501
+    margin_sum = float(db.execute(select(func.coalesce(func.sum(ValueEstimate.net_margin_usd), 0))).scalar_one() or 0.0)  # noqa: E501
     gate_pass = int(
         db.execute(
             select(func.count(ValueEstimate.id)).where(

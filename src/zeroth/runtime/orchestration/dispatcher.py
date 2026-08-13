@@ -256,6 +256,7 @@ class NodeDispatcher:
         target_ref: str,
         *,
         call_ordinal: int = 0,
+        branch_id: str | None = None,
     ) -> OperationIdentity:
         """Derive the logical-operation identity for one side-effecting call.
 
@@ -268,6 +269,24 @@ class NodeDispatcher:
         Runs driven outside the token engine carry no dispatch record; they fall
         back to the run id, which still yields one stable key per (run, target,
         call) triple.
+
+        ``branch_id`` is the legacy fan-out's discriminator. Siblings share the
+        run object, share that fallback idempotency key (``drive`` never stages a
+        token dispatch for a node carrying ``parallel_config``) and share the
+        downstream node, so without it N branches derived ONE identity: the first
+        to claim owned the operation and every sibling was suppressed as a replay
+        of it, receiving the first branch's receipt as its own output. That is
+        cross-branch data corruption, not merely a missed effect.
+
+        It widens ``target_ref`` rather than adding a field to the identity
+        contract, for the same reason ``tool_executor`` folds the provider call id
+        in there: the widened ref is what ``_operation_audit_fields`` already
+        publishes as ``operation_target_ref``, so the discriminator is visible in
+        the durable audit instead of hidden in unaudited key material.
+
+        The token engine needs none of this -- its per-token dispatch already
+        carries a distinct ``idempotency_key`` -- so its dispatches pass no branch
+        and keep their existing keys byte-identically.
         """
         dispatch = run.metadata.get("token_dispatch")
         if not isinstance(dispatch, Mapping):
@@ -277,7 +296,7 @@ class NodeDispatcher:
             dispatch_id=str(dispatch.get("dispatch_id") or run.run_id),
             idempotency_key=str(dispatch.get("idempotency_key") or run.run_id),
             attempt=int(dispatch.get("attempt") or 0),
-            target_ref=target_ref,
+            target_ref=target_ref if branch_id is None else f"{target_ref}#branch:{branch_id}",
             call_ordinal=call_ordinal,
         )
 
@@ -467,6 +486,8 @@ class NodeDispatcher:
         run: Run,
         input_payload: Mapping[str, Any],
         graph: Graph | None = None,
+        *,
+        branch_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Dispatch a node inside an OBS tracing span.
 
@@ -475,6 +496,11 @@ class NodeDispatcher:
         node/run identifiers that also key the metrics and audit records.
         ``graph`` enables tool-attachment dispatch for agents with tool
         bindings; callers without it simply run the agent tool-less.
+
+        ``branch_id`` names the parallel branch this dispatch belongs to. It is
+        the only thing distinguishing sibling fan-out dispatches of the same
+        node, which otherwise share every field of the operation identity; the
+        sequential and token-engine callers pass none and are unaffected.
         """
         with start_span(
             "zeroth.node",
@@ -484,7 +510,7 @@ class NodeDispatcher:
                 "zeroth.run_id": run.run_id,
             },
         ):
-            return await self.dispatch_inner(node, run, input_payload, graph)
+            return await self.dispatch_inner(node, run, input_payload, graph, branch_id=branch_id)
 
     async def dispatch_inner(
         self,
@@ -492,6 +518,8 @@ class NodeDispatcher:
         run: Run,
         input_payload: Mapping[str, Any],
         graph: Graph | None = None,
+        *,
+        branch_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Run a single node and return its output and audit data.
 
@@ -500,7 +528,7 @@ class NodeDispatcher:
         if the node type isn't supported or no runner is registered.
         """
         if isinstance(node, AgentNode):
-            return await self._dispatch_agent(node, run, input_payload, graph)
+            return await self._dispatch_agent(node, run, input_payload, graph, branch_id)
         if isinstance(node, EntrypointNode):
             # Ingress pass-through: POST /v1/runs already validated the payload
             # against the deployment's pinned entry contract. The entrypoint
@@ -510,7 +538,7 @@ class NodeDispatcher:
                 "passthrough": True,
             }
         if isinstance(node, ExecutableUnitNode):
-            return await self._dispatch_executable_unit(node, run, input_payload)
+            return await self._dispatch_executable_unit(node, run, input_payload, branch_id)
         if isinstance(node, RetrievalNode):
             return await self.dispatch_retrieval(node, run, input_payload)
         raise NodeDispatcherError(f"unsupported node type: {type(node)!r}")
@@ -521,6 +549,7 @@ class NodeDispatcher:
         run: Run,
         input_payload: Mapping[str, Any],
         graph: Graph | None,
+        branch_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         # Child-workflow node ids arrive namespaced (branch:N:subgraph:...);
         # runners are registered under the authored id, so fall back to it.
@@ -699,7 +728,15 @@ class NodeDispatcher:
                     graph,
                     enforcement_context,
                     operation_identity_factory=lambda target_ref, ordinal: (
-                        self._operation_identity_for(run, target_ref, call_ordinal=ordinal)
+                        # The branch belongs in here too: two branches running the
+                        # same agent node and calling the same tool replay the same
+                        # provider call id, so the keyed_ref alone collides.
+                        self._operation_identity_for(
+                            run,
+                            target_ref,
+                            call_ordinal=ordinal,
+                            branch_id=branch_id,
+                        )
                     ),
                     operation_guard=self._guarded_side_effect,
                     side_effect_free=self._is_side_effect_free,
@@ -779,6 +816,7 @@ class NodeDispatcher:
         node: ExecutableUnitNode,
         run: Run,
         input_payload: Mapping[str, Any],
+        branch_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         enforcement_context = self._enforcement_context_for(run, node.node_id)
         if (
@@ -793,7 +831,7 @@ class NodeDispatcher:
             self.executable_unit_runner.secret_resolver = self.secret_resolver
         inline = node.executable_unit.inline_source is not None
         target_ref = f"node://{node.node_id}" if inline else node.executable_unit.manifest_ref
-        identity = self._operation_identity_for(run, target_ref)
+        identity = self._operation_identity_for(run, target_ref, branch_id=branch_id)
 
         async def _invoke() -> Any:
             if inline:

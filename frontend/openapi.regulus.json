@@ -1123,6 +1123,22 @@
             "title": "Id",
             "type": "integer"
           },
+          "policy_action_effect": {
+            "anyOf": [
+              {
+                "enum": [
+                  "applied",
+                  "not_applied"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outcome of the decision on this action's policy action. 'applied': the linked policy action recorded the decision -- APPLIED on approve (traffic weights written for AdjustTrafficWeights), REJECTED on reject. 'not_applied': no policy action is linked to this enforcement action, so the decision was recorded and audited but nothing downstream was enacted -- an approved AdjustTrafficWeights left the weights untouched. null: this response reports no decision (creation and listing), which is never the same as 'not_applied'.",
+            "title": "Policy Action Effect"
+          },
           "reason": {
             "title": "Reason",
             "type": "string"

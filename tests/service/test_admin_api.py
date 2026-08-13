@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from fastapi.testclient import TestClient
 
 from tests.service.helpers import (
@@ -391,3 +393,104 @@ async def test_operator_can_list_runs(sqlite_db) -> None:
         r = client.get("/admin/runs", headers=operator_headers())
 
     assert r.status_code == 200
+
+
+class _FailOnMarkerConnection:
+    """Wraps a real connection and refuses one statement, by substring."""
+
+    def __init__(self, connection, marker: str) -> None:
+        self._connection = connection
+        self._marker = marker
+
+    def _guard(self, sql: str) -> None:
+        if self._marker in sql:
+            raise RuntimeError(f"injected write failure on {self._marker!r}")
+
+    async def execute(self, sql, params=()):  # noqa: ANN001
+        self._guard(sql)
+        return await self._connection.execute(sql, params)
+
+    async def fetch_one(self, sql, params=()):  # noqa: ANN001
+        self._guard(sql)
+        return await self._connection.fetch_one(sql, params)
+
+    async def fetch_all(self, sql, params=()):  # noqa: ANN001
+        self._guard(sql)
+        return await self._connection.fetch_all(sql, params)
+
+    async def execute_script(self, sql):  # noqa: ANN001
+        return await self._connection.execute_script(sql)
+
+
+@contextlib.contextmanager
+def _refusing_write(database, marker: str):
+    """Make every statement containing ``marker`` raise, for the duration."""
+    original = database.transaction
+
+    @contextlib.asynccontextmanager
+    async def patched(*, write_lock: bool = False):
+        async with original(write_lock=write_lock) as connection:
+            yield _FailOnMarkerConnection(connection, marker)
+
+    database.transaction = patched
+    try:
+        yield
+    finally:
+        del database.transaction
+
+
+async def _runs_row(database, run_id: str) -> dict:
+    async with database.transaction() as conn:
+        row = await conn.fetch_one(
+            "SELECT status, error, failure_state, failure_count,"
+            " lease_worker_id, lease_expires_at FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+    assert row is not None
+    return dict(row)
+
+
+async def test_replay_that_fails_midway_leaves_the_run_wholly_unreset(sqlite_db) -> None:
+    """A02-17: a replay is all-or-nothing, so a failed one is simply retryable.
+
+    The reset used to be three separate writes -- clear the failure metadata,
+    zero ``failure_count`` and the lease, then transition to PENDING. A failure
+    (or a 409) at the last one left a run that was still FAILED but had lost the
+    identity of its failure: no ``failure_state`` for the dead-letter view to
+    match, no lease, and a zeroed retry count. Refusing the reset write must
+    leave every one of those columns exactly as it found them.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-replay-atomic", DEPLOYMENT + "-replay-atomic"
+    )
+    with TestClient(app) as client:
+        run_id = client.post(
+            "/runs", json={"input_payload": {"value": 1}}, headers=operator_headers()
+        ).json()["run_id"]
+        assert (
+            client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers()).status_code == 200
+        )
+
+    database = service.run_repository.database
+    async with database.transaction() as conn:
+        await conn.execute(
+            "UPDATE runs SET failure_count = 3, lease_worker_id = 'w1',"
+            " lease_expires_at = '2099-01-01T00:00:00+00:00' WHERE run_id = ?",
+            (run_id,),
+        )
+    before = await _runs_row(database, run_id)
+    assert before["status"] == RunStatus.FAILED.value
+    assert before["failure_state"] is not None
+
+    with _refusing_write(database, "failure_count = 0"):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(f"/admin/runs/{run_id}/replay", headers=admin_headers())
+    assert response.status_code >= 500
+
+    after = await _runs_row(database, run_id)
+    assert after["status"] == RunStatus.FAILED.value
+    assert after["failure_state"] is not None, "failure identity destroyed by a failed replay"
+    assert after["error"] == before["error"]
+    assert after["failure_count"] == 3
+    assert after["lease_worker_id"] == "w1"
+    assert after["lease_expires_at"] == "2099-01-01T00:00:00+00:00"

@@ -16,7 +16,7 @@ _ALL_OPERATIONS = frozenset(ResourceOperation)
 class EnforcementAction(Base):
     __tablename__ = "enforcement_actions"
     scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
-        resource_name="econ.enforcement_action", table_name=__tablename__, operations=_ALL_OPERATIONS
+        resource_name="econ.enforcement_action", table_name=__tablename__, operations=_ALL_OPERATIONS  # noqa: E501
     )
     __table_args__ = (Index("ix_enforcement_actions_status_created", "status", "created_at"),)
 
@@ -38,16 +38,23 @@ class PolicyAction(Base):
     scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
         resource_name="econ.policy_action", table_name=__tablename__, operations=_ALL_OPERATIONS
     )
-    __table_args__ = (Index("ix_policy_actions_tenant_status_proposed", "tenant_id", "status", "proposed_at"),)
+    __table_args__ = (Index("ix_policy_actions_tenant_status_proposed", "tenant_id", "status", "proposed_at"),)  # noqa: E501
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     capability_id: Mapped[str] = mapped_column(String(128), index=True)
+    #: The enforcement action this row was proposed for, when there was one.
+    #: NULL means "unlinked": either the row predates the column, or it was
+    #: proposed outside an enforcement decision.  An unlinked row is never
+    #: resolved back to an enforcement action by recency -- see A01-11.
+    enforcement_action_id: Mapped[int | None] = mapped_column(
+        ForeignKey("enforcement_actions.id"), nullable=True
+    )
     proposed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     proposed_by: Mapped[str] = mapped_column(String(128), default="system")
     action_type: Mapped[str] = mapped_column(String(64))
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    metrics_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("performance_snapshots.id"), nullable=True)
+    metrics_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("performance_snapshots.id"), nullable=True)  # noqa: E501
     confidence_state_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="PROPOSED")
     approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

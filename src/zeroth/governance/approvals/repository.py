@@ -28,6 +28,29 @@ from zeroth.platform.storage.scoping import (
 _UNSCOPED = object()
 
 
+def _row_values(record: ApprovalRecord) -> dict[str, object]:
+    """Render one approval record as the column values its row stores.
+
+    Shared by every writer so a row written by ``write`` and a row written
+    inside a composite transaction are byte-for-byte the same shape.
+    """
+    return {
+        "approval_id": record.approval_id,
+        "run_id": record.run_id,
+        "thread_id": record.thread_id,
+        "node_id": record.node_id,
+        "graph_version_ref": record.graph_version_ref,
+        "deployment_ref": record.deployment_ref,
+        "status": record.status.value,
+        "created_at": record.created_at.isoformat(),
+        "updated_at": record.updated_at.isoformat(),
+        "sla_deadline": record.sla_deadline.isoformat() if record.sla_deadline else None,
+        "escalation_action": record.escalation_action,
+        "escalated_from_id": record.escalated_from_id,
+        "record_json": to_json_value(record.model_dump(mode="json")),
+    }
+
+
 @persistence_surface("service.approvals", probe=named_isolation_probe("_drive_approvals"))
 class ApprovalRepository:
     """Saves and loads approval records from an async database.
@@ -97,22 +120,7 @@ class ApprovalRepository:
         If a record with the same approval_id already exists, it will be
         updated. Returns the freshly-read record from the database.
         """
-        sla_deadline_str = record.sla_deadline.isoformat() if record.sla_deadline else None
-        values = {
-            "approval_id": record.approval_id,
-            "run_id": record.run_id,
-            "thread_id": record.thread_id,
-            "node_id": record.node_id,
-            "graph_version_ref": record.graph_version_ref,
-            "deployment_ref": record.deployment_ref,
-            "status": record.status.value,
-            "created_at": record.created_at.isoformat(),
-            "updated_at": record.updated_at.isoformat(),
-            "sla_deadline": sla_deadline_str,
-            "escalation_action": record.escalation_action,
-            "escalated_from_id": record.escalated_from_id,
-            "record_json": to_json_value(record.model_dump(mode="json")),
-        }
+        values = _row_values(record)
         async with self._approvals(record.tenant_id, record.workspace_id).transaction(
             write_lock=True
         ) as approvals:
@@ -181,6 +189,73 @@ class ApprovalRepository:
                 )
                 if updated
                 else None
+            )
+        if row is None:
+            return None
+        return ApprovalRecord.model_validate(load_typed_value(row["record_json"], dict))
+
+    async def _escalate_to_delegate(
+        self, original: ApprovalRecord, delegate: ApprovalRecord
+    ) -> ApprovalRecord | None:
+        """Claim ``original`` and mint ``delegate`` in one transaction, or neither.
+
+        Escalating to a delegate is a single governance fact: the approval whose
+        SLA expired is now held by someone else. Split across two transactions --
+        ``resolve_pending`` then ``write`` -- a crash in between commits only the
+        first half, leaving the original ESCALATED with no delegate. Nobody holds
+        that approval, and ``escalate`` short-circuits on ESCALATED, so the SLA
+        checker never retries it: the approval is orphaned for good.
+
+        Both statements therefore run on the one connection this transaction
+        yields, so the delegate insert failing rolls the claim back with it. The
+        claim keeps the exact compare-and-set predicate ``resolve_pending`` uses,
+        including its deployment and graph-version fences: making the write
+        atomic must not cost it the status precondition, or a concurrent human
+        resolution would be silently overwritten -- a lost update in place of a
+        durability gap, which is the worse of the two.
+
+        Returns the published ESCALATED record, or None when the compare-and-set
+        matched no row because the approval is no longer pending.
+        """
+        if (
+            original.tenant_id != delegate.tenant_id
+            or original.workspace_id != delegate.workspace_id
+        ):
+            raise ValueError("a delegate must share the escalated approval's scope")
+        async with self._approvals(original.tenant_id, original.workspace_id).transaction(
+            write_lock=True
+        ) as approvals:
+            claimed = await approvals.update_if_matches(
+                {
+                    "status": original.status.value,
+                    "updated_at": original.updated_at.isoformat(),
+                    "record_json": to_json_value(original.model_dump(mode="json")),
+                },
+                where={
+                    "approval_id": original.approval_id,
+                    "status": ApprovalStatus.PENDING.value,
+                    "deployment_ref": original.deployment_ref,
+                    "graph_version_ref": original.graph_version_ref,
+                },
+                returning="approval_id",
+            )
+            if not claimed:
+                return None
+            values = _row_values(delegate)
+            written = await approvals.upsert(
+                values,
+                conflict_columns=("approval_id",),
+                update_columns=tuple(key for key in values if key != "approval_id"),
+                returning="approval_id",
+                update_where={"tenant_id": delegate.tenant_id},
+            )
+            if not written:
+                # ``approval_id`` is a legacy global primary key.  A collision in
+                # another tenant must not transfer ownership through the upsert,
+                # and the claim above rolls back with this raise.
+                raise KeyError(delegate.approval_id)
+            row = await approvals.select_one(
+                where={"approval_id": original.approval_id}, columns=("record_json",)
             )
         if row is None:
             return None
