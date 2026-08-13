@@ -246,13 +246,21 @@ class RedisInterruptStore(InterruptStore):
         CALLER computed from an earlier LRANGE, so an interrupt id appended in
         between is still overwritten here.
 
-        ZER-49 F-10 removed the caller that made that race dangerous.
-        ``list_requests`` used to self-heal the index on a *read*, so an ordinary
-        listing could drop a live pending interrupt that a concurrent
-        ``save_request`` had just appended. Expiry now maintains the index
-        (``sweep_expired``), reads no longer write, and the only caller left is
-        ``delete_request`` -- a write path whose LRANGE-to-rewrite window is the
-        last place this race can still bite.
+        **This method has no callers, and that is the point.** Both it once had
+        were removed rather than repaired, because the defect is the
+        read-modify-write, not the write. ZER-49 F-10 took ``list_requests`` off
+        it -- healing the index on a *read* could drop a live pending interrupt a
+        concurrent ``save_request`` had just appended -- and F-11 took
+        ``delete_request`` off it, onto a single ``LREM`` that removes one id
+        without reading the list. Expiry (``sweep_expired``) owns index
+        maintenance now.
+
+        It is kept as the audited primitive for a future whole-index write, with
+        its two non-obvious properties pinned in
+        ``tests/runtime/orchestration/test_interrupt_store_rewrite_atomicity.py``.
+        Before routing a path through it, check that path cannot race an append:
+        if it can, it needs a WATCH established before its own read -- as
+        ``RedisRunStore.put`` does -- or a targeted command, not this.
 
         Unlike the run-store version this applies no redis TTL: this store has
         no ``ttl_seconds`` and expires requests at the application layer
@@ -326,14 +334,42 @@ class RedisInterruptStore(InterruptStore):
         return out
 
     async def delete_request(self, run_id: str, interrupt_id: str) -> None:
-        """Delete one stored interrupt request."""
+        """Delete one stored interrupt request, payload and index entry together.
+
+        ZER-49 F-11: this was the last lost-append site in the store. It used to
+        ``LRANGE`` the index, compute the remainder and write it back through
+        ``_rewrite_list``; a ``save_request`` that appended between the read and
+        the write was overwritten, leaving a *live pending* interrupt whose
+        payload key survived but whose id no longer appeared in ``list_pending``
+        or ``get_latest_pending``. Nobody is ever asked for that approval.
+
+        ``LREM`` removes exactly the id being deleted, in one command against the
+        live list, so an append it never read cannot be clobbered. The count is
+        ``0`` -- every occurrence -- because that is what the filter it replaces
+        already did; ``count=1`` would be a behaviour change smuggled in by a bug
+        fix, leaving a duplicate id pointing at a payload just deleted. It also
+        makes the removal idempotent by identity, which matters because
+        ``save_request`` decides whether to append by reading the index first and
+        so can double-index one id under concurrency.
+
+        Nothing is lost by dropping the rewrite: it normalized nothing. Its input
+        was the whole index minus this id, written back verbatim -- it deduped
+        nothing, dropped no stale entry, and never checked whether the remaining
+        ids still had payloads. Reconciling ids whose payload is gone belongs to
+        ``sweep_expired``, which now does it explicitly.
+
+        Payload and index update share one ``MULTI``/``EXEC`` so there is no
+        window between them at all. That is not merely a saved round-trip: the
+        de-index-first order strands a payload key, and a payload with
+        ``expires_at <= 0`` is one ``sweep_expired`` never reaps -- an unbounded
+        leak, since payload keys carry no redis TTL. Pipelining makes the
+        ordering question moot rather than answering it.
+        """
         client = await self._client()
-        await client.delete(self._request_key(run_id, interrupt_id))
-        index_key = self._request_index_key(run_id)
-        filtered = [
-            current for current in await self._index_ids(index_key) if current != interrupt_id
-        ]
-        await self._rewrite_list(index_key, filtered)
+        async with client.pipeline(transaction=True) as pipe:
+            pipe.delete(self._request_key(run_id, interrupt_id))
+            pipe.lrem(self._request_index_key(run_id), 0, interrupt_id)
+            await pipe.execute()
 
     @staticmethod
     def _expired_request(payload: str, now_ts: int) -> dict[str, Any] | None:

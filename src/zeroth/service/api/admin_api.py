@@ -98,7 +98,8 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             return _serialize_run(run)
         try:
             await _apply_token_lifecycle(bootstrap, run_id, InterruptManager.cancel_run)
-            run = await bootstrap.run_repository.transition(
+            run = await _transition_run(
+                bootstrap,
                 run_id,
                 RunStatus.FAILED,
                 failure_state=RunFailureState(
@@ -134,7 +135,7 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             )
         try:
             await _apply_token_lifecycle(bootstrap, run_id, InterruptManager.pause_run)
-            run = await bootstrap.run_repository.transition(run_id, RunStatus.WAITING_INTERRUPT)
+            run = await _transition_run(bootstrap, run_id, RunStatus.WAITING_INTERRUPT)
         except (ValueError, TokenSnapshotConcurrencyError) as exc:
             raise _run_conflict(exc) from exc
         return _serialize_run(run)
@@ -256,6 +257,95 @@ async def _apply_token_lifecycle(
         if await bootstrap.run_repository.get_token_snapshot(run_id) is not None:
             raise
         raise _token_state_gone(run_id) from exc
+
+
+def _run_row_gone(run_id: str) -> HTTPException:
+    """Render a run row deleted mid-command as the 404 it actually is.
+
+    F-10d: ``RunRepository.transition`` re-reads the run before it writes and
+    raises ``KeyError(run_id)`` when the row is gone -- not a ``ValueError``
+    either, so the last unhandled failure on these routes reached the operator
+    as a 500.
+
+    404 rather than the 409 its two neighbours use, because this condition is
+    *permanent* where theirs are transient. A contended CAS converges on a
+    retry and an erased token snapshot converges on a retry; a deleted run row
+    never comes back, and the very next request is answered by the route's own
+    unknown-run guard. Dressing it as a conflict would advertise a retry that
+    provably cannot succeed -- the same mistake, in the opposite direction, as
+    dressing the permanent snapshot errors as retryable conflicts.
+
+    Removal is ``RunRepository.delete``'s doing, or an out-of-band delete of the
+    same row. Deliberately *not* retention: ``ErasureService`` redacts the run
+    row in place and keeps it, which is exactly why the vanished *snapshot* two
+    functions above answers 409 and this answers 404.
+
+    The detail shares no phrase with the three conflicts or with the guard's own
+    ``"run not found"``: an operator reading a log has to separate "the run you
+    asked about isn't there" from "the run you were operating on was removed
+    underneath the command", because only the second reports a concurrent
+    deletion.
+
+    Args:
+        run_id: The run whose row vanished mid-request.
+
+    Returns:
+        The 404 to raise in place of the repository's ``KeyError``.
+    """
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=(
+            f"run {run_id} was deleted while the command was in flight, so nothing was "
+            "written and re-issuing cannot succeed"
+        ),
+    )
+
+
+async def _transition_run(
+    bootstrap: Any,
+    run_id: str,
+    new_status: RunStatus,
+    *,
+    failure_state: RunFailureState | None = None,
+) -> Any:
+    """Drive one operator status transition, answering a deleted run row honestly.
+
+    Module level for the two reasons ``_apply_token_lifecycle`` is. It keeps
+    branches out of ``register_admin_routes``, whose mccabe count the commit
+    gate ratchets and which absorbs every branch of every route closure. And it
+    scopes the ``KeyError`` catch to the one call that raises this condition:
+    widening it to the routes' own ``except`` would swallow the lifecycle's
+    *token-snapshot* ``KeyError`` -- a transient condition whose honest answer
+    is the 409 above -- along with any incidental ``KeyError`` from a bug below.
+
+    ``KeyError`` is far too common a class to trust on its own, and unlike the
+    contention fix there is no concrete class to key on, so the row's absence is
+    confirmed by re-reading it before the 404 is issued. That re-read is not
+    guarding against a stale read of a row that is really gone; it is the only
+    way to separate ``transition``'s missing-row ``KeyError`` from a
+    ``KeyError`` raised anywhere else inside the same call, which propagates
+    untouched and keeps its 500.
+
+    Args:
+        bootstrap: The service bootstrap holding the run repository.
+        run_id: The run to transition.
+        new_status: The status to move the run to.
+        failure_state: Failure identity to record alongside the transition.
+
+    Returns:
+        The persisted run as the repository stored it.
+
+    Raises:
+        HTTPException: 404 when the run's row was deleted mid-command.
+    """
+    try:
+        return await bootstrap.run_repository.transition(
+            run_id, new_status, failure_state=failure_state
+        )
+    except KeyError as exc:
+        if await bootstrap.run_repository.get(run_id) is not None:
+            raise
+        raise _run_row_gone(run_id) from exc
 
 
 async def _replay_failed_run(request: Request, run_id: str) -> RunStatusResponse:

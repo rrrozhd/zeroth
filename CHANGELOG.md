@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1] - 2026-08-13
+
+### Fixed
+
+- An operator command against a run whose row was deleted mid-flight answers 404 instead of 500,
+  distinct from the 409 a vanished token snapshot gets: erasure keeps the run row so that retry
+  converges, while a deleted row never will (ZER-49 follow-up).
+- Deleting an interrupt no longer overwrites a request saved concurrently — the last window in that
+  store where a live pending approval could be dropped, leaving a human never asked (ZER-49
+  follow-up).
+- Both instrumentation ingest endpoints report a duplicate or a named conflict instead of a 500 when
+  the identity index is absent and duplicate rows already exist — the state the identity migration
+  deliberately leaves rather than deleting rows from an erasure-audited table (ZER-49 follow-up).
+
 ## [0.23.8] - 2026-08-13
 
 ### Fixed

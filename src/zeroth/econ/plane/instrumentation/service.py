@@ -92,6 +92,55 @@ def _datetime_identity(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(tzinfo=None)
 
 
+def _execution_identity_fields(row: ExecutionEvent) -> dict:
+    """The immutable fields of a *stored* execution, keyed for comparison.
+
+    Split out so that a stored row can be compared against another stored row --
+    :func:`_disagreeing_execution_fields` -- with exactly the field set and
+    normalisation :func:`_execution_conflicts` uses against a payload.  Two
+    comparison bases would eventually drift, and a field present in one but not
+    the other would be a divergence nobody is told about.
+    """
+    return {
+        "execution_id": row.execution_id,
+        "capability_id": row.capability_id,
+        "implementation_id": row.implementation_id,
+        "join_key": row.join_key,
+        "timestamp": _datetime_identity(row.timestamp),
+        "model_version": row.model_version,
+        "token_cost_usd": row.token_cost_usd,
+        "tool_cost_usd": row.tool_cost_usd,
+        "compute_cost_usd": row.compute_cost_usd,
+        "latency_ms": row.latency_ms,
+        "compute_time_ms": row.compute_time_ms,
+        "metadata": _event_metadata_identity(row.event_metadata),
+    }
+
+
+def _execution_payload_fields(
+    payload: ExecutionEventCreate, *, join_key: str, metadata: dict
+) -> dict:
+    """The same fields off an inbound payload, after the service has derived them.
+
+    ``join_key`` and ``metadata`` are arguments rather than attributes because
+    ``ingest_execution`` derives both before the row is built.
+    """
+    return {
+        "execution_id": payload.execution_id,
+        "capability_id": payload.capability_id,
+        "implementation_id": payload.implementation_id,
+        "join_key": join_key,
+        "timestamp": _datetime_identity(payload.timestamp),
+        "model_version": payload.model_version,
+        "token_cost_usd": payload.token_cost_usd,
+        "tool_cost_usd": payload.tool_cost_usd,
+        "compute_cost_usd": payload.compute_cost_usd,
+        "latency_ms": payload.latency_ms,
+        "compute_time_ms": payload.compute_time_ms,
+        "metadata": _event_metadata_identity(metadata),
+    }
+
+
 def _execution_conflicts(
     existing: ExecutionEvent,
     payload: ExecutionEventCreate,
@@ -99,27 +148,25 @@ def _execution_conflicts(
     join_key: str,
     metadata: dict,
 ) -> list[str]:
-    comparisons = {
-        "execution_id": (existing.execution_id, payload.execution_id),
-        "capability_id": (existing.capability_id, payload.capability_id),
-        "implementation_id": (existing.implementation_id, payload.implementation_id),
-        "join_key": (existing.join_key, join_key),
-        "timestamp": (
-            _datetime_identity(existing.timestamp),
-            _datetime_identity(payload.timestamp),
-        ),
-        "model_version": (existing.model_version, payload.model_version),
-        "token_cost_usd": (existing.token_cost_usd, payload.token_cost_usd),
-        "tool_cost_usd": (existing.tool_cost_usd, payload.tool_cost_usd),
-        "compute_cost_usd": (existing.compute_cost_usd, payload.compute_cost_usd),
-        "latency_ms": (existing.latency_ms, payload.latency_ms),
-        "compute_time_ms": (existing.compute_time_ms, payload.compute_time_ms),
-        "metadata": (
-            _event_metadata_identity(existing.event_metadata),
-            _event_metadata_identity(metadata),
-        ),
+    stored = _execution_identity_fields(existing)
+    requested = _execution_payload_fields(payload, join_key=join_key, metadata=metadata)
+    return [field for field, value in stored.items() if value != requested[field]]
+
+
+def _disagreeing_execution_fields(rows: Sequence[ExecutionEvent]) -> list[str]:
+    """Immutable fields on which the stored rows disagree *with each other*.
+
+    Empty means every row records the same execution, so any of them answers a
+    payload identically and picking one is not a choice at all.
+    """
+    first = _execution_identity_fields(rows[0])
+    disagreements = {
+        field
+        for other in rows[1:]
+        for field, value in _execution_identity_fields(other).items()
+        if value != first[field]
     }
-    return [field for field, (stored, requested) in comparisons.items() if stored != requested]
+    return [field for field in first if field in disagreements]
 
 
 def _existing_execution(
@@ -138,13 +185,40 @@ def _existing_execution(
     :func:`_stage_execution`, not here; what this buys is that the common case --
     a sequential retry of an ingest whose response the client never saw -- never
     reaches the constraint at all.
+
+    The constraint is also the *only* thing that makes this identity single-valued,
+    and a database can be serving without it -- an operator-modified or
+    half-migrated ``execution_events`` that already held duplicates.  There
+    ``scalar_one_or_none()`` raised ``MultipleResultsFound``, which is neither a
+    ``ValueError`` nor an ``IntegrityError``, so it escaped ``post_execution`` as
+    a 500.  Answering that with an arbitrary row would be worse than the 500: an
+    execution has immutable fields, so one stored row can call a payload a
+    duplicate while another calls it a conflict, and the endpoint's answer would
+    turn on which row it happened to read -- the very thing
+    :func:`_resolve_existing_execution` exists to prevent.  So rows that agree
+    resolve as the single execution they describe, and rows that disagree are
+    refused by name: the identity that should name one execution names two
+    contradictory ones, and that is a fact about the data the caller can act on.
     """
-    return db.execute(
-        select(ExecutionEvent).where(
-            ExecutionEvent.tenant_id == tenant_id,
-            ExecutionEvent.execution_id == execution_id,
+    rows = list(
+        db.execute(
+            select(ExecutionEvent)
+            .where(
+                ExecutionEvent.tenant_id == tenant_id,
+                ExecutionEvent.execution_id == execution_id,
+            )
+            .order_by(ExecutionEvent.id)
+        ).scalars()
+    )
+    if not rows:
+        return None
+    disagreements = _disagreeing_execution_fields(rows)
+    if disagreements:
+        raise ValueError(
+            "execution_id resolves to multiple stored executions that disagree on "
+            "immutable fields: " + ", ".join(disagreements)
         )
-    ).scalar_one_or_none()
+    return rows[0]
 
 
 def _resolve_existing_execution(
@@ -209,6 +283,15 @@ def _stage_execution(
     Re-raising when the re-query comes back empty is deliberate: the constraint
     fired, so *something* conflicted, and reporting a duplicate we cannot produce
     would be a worse answer than the conflict itself.
+
+    So there are three exits, not two.  Beyond ``None`` and the winning row, the
+    re-query may raise: :func:`_resolve_existing_execution` when the winner is a
+    materially different execution, and :func:`_existing_execution` itself when
+    the identity resolves to several stored rows that disagree with each other --
+    reachable when the database has *both* a live constraint and duplicates that
+    predate it.  Both are ``ValueError`` and both become the 422 that names the
+    fields, which is what the sequential caller is told; only the empty re-query
+    re-raises the ``IntegrityError`` for the endpoint to turn into a 409.
     """
     db.add(row)
     try:
@@ -349,16 +432,97 @@ def _existing_outcome(
     ``coalesce(implementation_id, '')``: NULL and ``''`` are one key at the
     database, so a lookup that branched to ``IS NULL`` *or* ``= value`` would ask
     two disjoint questions and let a resolved ``''`` miss a stored NULL row.
+
+    The index is also the only thing that makes this identity single-valued, and a
+    database can be serving without it: ``20260812_07`` refuses rather than
+    deleting rows out of an erasure-audited table when it finds colliding
+    identities, so one that already held duplicates converges *without* the index
+    and keeps taking ingests.  There ``scalar_one_or_none()`` raised
+    ``MultipleResultsFound`` -- neither a ``ValueError`` nor an ``IntegrityError``,
+    so it escaped ``post_outcome`` as a 500.  Capping at one row answers instead,
+    and unlike the execution identity that is not a choice between rival records:
+    colliding rows agree on every column of the identity by construction and an
+    outcome carries no immutable fields, so they are one logical event and no
+    payload can be a duplicate of one and a conflict with another.
+
+    The order is ascending ``id`` rather than the plane's ``.desc()`` idiom
+    (``latest_cost_estimate`` and its siblings), which is for genuinely versioned
+    records where the newest row is the answer.  Here there is no newest: the
+    first-stored row is the one a sequential retry was told about before the
+    duplicates accrued, and reporting it keeps the answer fixed as further
+    duplicates land instead of moving with them.
     """
-    return db.execute(
-        select(OutcomeEvent).where(
-            OutcomeEvent.tenant_id == tenant_id,
-            OutcomeEvent.join_key == join_key,
-            OutcomeEvent.outcome_type == outcome_type,
-            OutcomeEvent.occurred_at == occurred_at,
-            func.coalesce(OutcomeEvent.implementation_id, "") == (implementation_id or ""),
+    return (
+        db.execute(
+            select(OutcomeEvent)
+            .where(
+                OutcomeEvent.tenant_id == tenant_id,
+                OutcomeEvent.join_key == join_key,
+                OutcomeEvent.outcome_type == outcome_type,
+                OutcomeEvent.occurred_at == occurred_at,
+                func.coalesce(OutcomeEvent.implementation_id, "") == (implementation_id or ""),
+            )
+            .order_by(OutcomeEvent.id)
+            .limit(1)
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .first()
+    )
+
+
+#: What an outcome actually reads off the execution it claims to close.
+#: ``join_key`` and ``implementation_id`` are *derived* from the linked row when
+#: the payload omits them and both are part of the outcome's own identity key;
+#: ``capability_id`` is cross-checked by :func:`_assert_outcome_consistent`.
+#: Nothing else on the execution reaches the outcome.
+_OUTCOME_LINK_FIELDS = ("join_key", "capability_id", "implementation_id")
+
+
+def _linked_execution(
+    db: ScopedSession, *, tenant_id: str, execution_id: str
+) -> ExecutionEvent | None:
+    """Resolve the execution an outcome links to, by the same identity.
+
+    Deliberately *not* :func:`_existing_execution`, though both read
+    ``execution_events`` by ``(tenant_id, execution_id)``.  That one is answering
+    "is this payload already stored?", so every immutable field is in scope.  This
+    one is answering "which execution is this outcome about?", and an outcome only
+    ever reads :data:`_OUTCOME_LINK_FIELDS` off the row.  Rows that differ on, say,
+    ``latency_ms`` describe one execution as far as any outcome is concerned, and
+    refusing the ingest over that would punish the caller for a divergence that
+    cannot reach it.
+
+    Disagreement on the three that do reach it is refused, because there a pick
+    would be an answer: the derived ``implementation_id`` decides which
+    implementation the outcome is attributed to, ``join_key`` decides which key it
+    is filed under, and both are columns of the outcome's identity -- so an
+    arbitrary choice would silently decide which event this outcome is a duplicate
+    of.  Before this the lookup was a bare ``scalar_one_or_none()`` and simply
+    raised ``MultipleResultsFound`` here, which ``post_outcome`` surfaced as a 500.
+    """
+    rows = list(
+        db.execute(
+            select(ExecutionEvent)
+            .where(
+                ExecutionEvent.tenant_id == tenant_id,
+                ExecutionEvent.execution_id == execution_id,
+            )
+            .order_by(ExecutionEvent.id)
+        ).scalars()
+    )
+    if not rows:
+        return None
+    disagreements = [
+        field
+        for field in _OUTCOME_LINK_FIELDS
+        if len({getattr(row, field) for row in rows}) > 1
+    ]
+    if disagreements:
+        raise ValueError(
+            "execution_id resolves to multiple stored executions that disagree on "
+            "the fields an outcome links by: " + ", ".join(disagreements)
+        )
+    return rows[0]
 
 
 def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEvent:
@@ -515,12 +679,9 @@ def ingest_outcome_with_status(
     )
     linked_execution = None
     if payload.execution_id:
-        linked_execution = db.execute(
-            select(ExecutionEvent).where(
-                ExecutionEvent.tenant_id == tenant_id,
-                ExecutionEvent.execution_id == payload.execution_id,
-            )
-        ).scalar_one_or_none()
+        linked_execution = _linked_execution(
+            db, tenant_id=tenant_id, execution_id=payload.execution_id
+        )
         if linked_execution is None:
             raise ValueError("execution_id was not found in the bound tenant")
 

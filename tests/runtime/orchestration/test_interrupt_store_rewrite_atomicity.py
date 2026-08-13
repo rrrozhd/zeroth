@@ -1,15 +1,27 @@
-"""ZER-49 F-09: ``RedisInterruptStore._rewrite_list`` must not tear the index.
+"""ZER-49: nothing may lose a concurrent append to the interrupt index.
 
-This is the sibling of ``test_run_store_rewrite_atomicity``. ``RedisRunStore``
-was fixed; ``RedisInterruptStore`` is a separate class that never inherited the
-fix and carried the same ``DELETE`` + loop-of-``RPUSH`` shape.
+Three passes closed this, each removing one caller of the read-modify-write
+shape rather than making the write itself cleverer:
 
-It matters more here than the shape alone suggests, because the rewrite fires
-from a *read* path: ``list_requests`` self-heals the index whenever one of the
-indexed requests has expired out from under it. So an ordinary listing could
-blank another reader's view of a run's pending interrupts.
+* **F-09** made ``_rewrite_list`` atomic -- one ``MULTI``/``EXEC`` instead of a
+  ``DELETE`` plus a loop of ``RPUSH``, which any concurrent reader could observe
+  half-applied. That closed the torn *read*, and explicitly not the lost append.
+* **F-10** took the rewrite off the read path: ``list_requests`` filters instead
+  of self-healing, and ``sweep_expired`` maintains the index it invalidates.
+* **F-11** (this pass) took it off the last write path. ``delete_request`` read
+  the index, computed the remainder and wrote it back, so a ``save_request``
+  landing in that window was overwritten -- a live pending interrupt gone from
+  ``list_pending`` while its payload key survived. It now issues one
+  ``LREM key 0 id`` against the live list, which removes exactly the id being
+  deleted and cannot clobber an append it never read.
 
-The fake below models the two properties that make the tear observable: a plain
+``_rewrite_list`` survives with no callers, deliberately: it is the audited
+primitive for any future whole-index write, and the tests below keep its two
+non-obvious properties (one transaction, no redis TTL) pinned so a future caller
+inherits them. Its docstring records why routing a write path through it is the
+wrong move.
+
+The fake below models the two properties that make the races observable: a plain
 command is a round-trip (it yields to the loop), and a ``MULTI``/``EXEC``
 pipeline applies its whole buffer without yielding.
 """
@@ -21,6 +33,8 @@ import json
 import time
 from dataclasses import asdict
 from typing import Any
+
+import pytest
 
 from zeroth.runtime.orchestration.interrupts import InterruptRequest, RedisInterruptStore
 
@@ -54,6 +68,10 @@ class _FakePipeline:
         self._stack.append(("expire", key, (ttl,)))
         return self
 
+    def lrem(self, key: str, count: int, value: str) -> _FakePipeline:
+        self._stack.append(("lrem", key, (count, value)))
+        return self
+
     async def execute(self) -> list[Any]:
         # The round-trip happens BEFORE anything is applied; the buffer then
         # applies atomically, with no await in between.
@@ -66,6 +84,8 @@ class _FakePipeline:
                 self._redis.lists.setdefault(key, []).extend(str(v) for v in args)
             elif op == "expire":
                 self._redis.expires[key] = int(args[0])
+            elif op == "lrem":
+                self._redis.apply_lrem(key, int(args[0]), str(args[1]))
         self._stack.clear()
         return []
 
@@ -103,6 +123,35 @@ class _FakeRedis:
         await asyncio.sleep(0)
         self.expires[key] = int(ttl)
 
+    def apply_lrem(self, key: str, count: int, value: str) -> int:
+        """Redis ``LREM`` semantics, ``count`` honoured rather than ignored.
+
+        ``count > 0`` removes that many occurrences head-to-tail, ``count < 0``
+        tail-to-head, ``count == 0`` removes every one. Modelling ``count`` for
+        real is the point: a fake that always removed all occurrences could not
+        tell a correct ``LREM key 0 id`` from a ``count=1`` that leaves a
+        duplicate behind, so the store's choice of count would be untested.
+        """
+        items = self.lists.get(key)
+        if items is None:
+            return 0
+        indexes = [i for i, item in enumerate(items) if item == value]
+        if count > 0:
+            indexes = indexes[:count]
+        elif count < 0:
+            indexes = indexes[count:]
+        doomed = set(indexes)
+        kept = [item for i, item in enumerate(items) if i not in doomed]
+        if kept:
+            self.lists[key] = kept
+        else:  # redis drops a list key when its last element goes
+            self.lists.pop(key, None)
+        return len(doomed)
+
+    async def lrem(self, key: str, count: int, value: str) -> int:
+        await asyncio.sleep(0)
+        return self.apply_lrem(key, count, value)
+
     def pipeline(self, transaction: bool = True) -> _FakePipeline:
         assert transaction, "the rewrite must ask for a transactional pipeline"
         self.pipelines_opened += 1
@@ -125,6 +174,14 @@ def _seed(fake: _FakeRedis, store: RedisInterruptStore, interrupt_ids: list[str]
     """Put ids in the index; give every id but the last a live payload key."""
     fake.lists[KEY] = list(interrupt_ids)
     for interrupt_id in interrupt_ids[:-1]:
+        key = store._request_key(RUN_ID, interrupt_id)
+        fake.strings[key] = json.dumps(asdict(_request(interrupt_id)))
+
+
+def _seed_live(fake: _FakeRedis, store: RedisInterruptStore, interrupt_ids: list[str]) -> None:
+    """Index every id and give each one a live payload -- a consistent start state."""
+    fake.lists[KEY] = list(interrupt_ids)
+    for interrupt_id in interrupt_ids:
         key = store._request_key(RUN_ID, interrupt_id)
         fake.strings[key] = json.dumps(asdict(_request(interrupt_id)))
 
@@ -233,7 +290,27 @@ async def test_an_empty_rewrite_deletes_the_index_key() -> None:
     assert fake.expires == {}
 
 
-async def test_delete_request_still_rewrites_the_index_atomically() -> None:
+async def test_delete_request_updates_the_index_without_a_torn_read() -> None:
+    """Renamed by ZER-49 F-11; every assertion below is unchanged from F-09.
+
+    The old name, ``..._still_rewrites_the_index_atomically``, named a
+    *mechanism*. The assertions never did: they say the index ends up as the
+    remainder and that no concurrent reader observes an intermediate state.
+    Both are properties of the outcome, and ``LREM key 0 id`` satisfies them the
+    same way the ``MULTI``/``EXEC`` rewrite did -- one command, applied without
+    yielding, leaving ``["i-a", "i-c"]``.
+
+    So this is not a pin being weakened to let a change through. The mechanism
+    moved out of the name and into the docstring; the guarantees kept running
+    verbatim. What changed is the guarantee this test *cannot* express -- that a
+    concurrent append survives -- which is why
+    ``test_a_save_landing_during_a_delete_is_not_lost`` was added rather than
+    this one relaxed.
+
+    The TTL assertion is new, and it is the reason F-09's no-TTL decision does
+    not lapse when the delete path stops going through ``_rewrite_list``: the
+    property is now pinned on the path that actually runs.
+    """
     fake = _FakeRedis()
     old = ["i-a", "i-b", "i-c"]
     remaining = ["i-a", "i-c"]
@@ -252,3 +329,65 @@ async def test_delete_request_still_rewrites_the_index_atomically() -> None:
     assert fake.lists[KEY] == remaining
     torn = [s for s in samples if s not in (old, remaining)]
     assert not torn, f"a concurrent reader saw a torn index during a delete: {torn}"
+    assert fake.expires == {}, "the delete path must not put a TTL on the index"
+
+
+async def test_delete_request_removes_every_occurrence_of_the_id() -> None:
+    """Why the count is ``0`` and not ``1``.
+
+    The rewrite this replaced computed ``[c for c in ids if c != interrupt_id]``
+    -- a filter, which already dropped *every* occurrence. ``LREM key 0 id`` is
+    therefore the count that preserves the existing contract; ``count=1`` would
+    be a behaviour regression smuggled in by a bug fix, leaving a duplicate id
+    pointing at a payload key that was just deleted.
+
+    Duplicates are reachable, not hypothetical: ``save_request`` decides whether
+    to append by reading the index first, so two concurrent first-saves of one id
+    can both see it missing and both ``RPUSH``. That check-then-push is a
+    *duplicate-append* hazard and out of scope here -- it is cited as the reason
+    removal must be idempotent by identity, not fixed.
+    """
+    fake = _FakeRedis()
+    fake.lists[KEY] = ["i-a", "i-dup", "i-b", "i-dup"]
+    store = RedisInterruptStore(redis_url="redis://unused", redis_client=fake)
+
+    await store.delete_request(RUN_ID, "i-dup")
+
+    assert fake.lists[KEY] == ["i-a", "i-b"], "a deleted id must not survive as a duplicate"
+
+
+@pytest.mark.parametrize("save_first", [True, False])
+async def test_a_save_landing_during_a_delete_is_not_lost(save_first: bool) -> None:
+    """ZER-49 F-11 negative control: the last lost-append site in this store.
+
+    ``delete_request`` used to ``LRANGE`` the index, compute the remainder, and
+    write it back. A ``save_request`` that appended between the read and the
+    write was overwritten: the payload key survives, so the interrupt is live and
+    pending, but its id is gone from the index and therefore from
+    ``list_pending`` and ``get_latest_pending``. Nobody is ever asked for that
+    approval.
+
+    Both arrival orders are exercised because only one of them lands the append
+    inside the old read-to-write window -- with ``save_first`` the writer's
+    ``RPUSH`` resolves one scheduler step before the rewrite's ``EXEC``, and the
+    rewrite wins. Against ``LREM`` neither order can lose it, because ``LREM``
+    never reads the list into the process at all.
+    """
+    fake = _FakeRedis()
+    store = RedisInterruptStore(redis_url="redis://unused", redis_client=fake)
+    _seed_live(fake, store, ["i-a", "i-doomed"])
+    arriving = _request("i-new")
+
+    saving = store.save_request(arriving)
+    deleting = store.delete_request(RUN_ID, "i-doomed")
+    await asyncio.gather(*((saving, deleting) if save_first else (deleting, saving)))
+
+    # Oracle: both operations really ran, so the interleaving is adversarial
+    # rather than one of them silently no-opping.
+    assert store._request_key(RUN_ID, "i-new") in fake.strings, "the save did not run"
+    assert store._request_key(RUN_ID, "i-doomed") not in fake.strings, "the delete did not run"
+
+    assert "i-doomed" not in fake.lists[KEY]
+    assert "i-new" in fake.lists[KEY], "a concurrent save was overwritten by the delete"
+    listed = [req.interrupt_id for req in await store.list_requests(RUN_ID)]
+    assert listed == ["i-a", "i-new"], f"a live pending interrupt is unreachable: {listed}"

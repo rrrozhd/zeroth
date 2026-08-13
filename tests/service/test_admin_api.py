@@ -829,3 +829,243 @@ async def test_permanent_token_snapshot_errors_are_never_dressed_as_conflicts(sq
     assert response.status_code != 409, (
         "a permanent erasure fence was rendered as a retryable conflict"
     )
+
+
+# ---------------------------------------------------------------------------
+# F-10d -- the run row itself deleted mid-command is 404, not a server error
+# ---------------------------------------------------------------------------
+
+
+async def _uncontended_running_run(service) -> str:
+    """Seed a RUNNING run that owns no token state, so the routes read it twice.
+
+    No snapshot on purpose: ``_token_interrupt_manager`` then answers ``None``
+    and the lifecycle is skipped entirely, so the only two ``get`` calls in the
+    request are the route's own 404 guard and the one ``transition`` makes.
+    That is the window under test, uncontaminated by the adapter's reloads.
+
+    RUNNING with a NULL lease for the reason ``_contended_running_run`` gives:
+    it matches neither ``claim_pending`` nor ``claim_orphaned``, so the app's
+    durable worker cannot drive the run out from under the assertions.
+    """
+    run = await service.run_repository.create(
+        Run(
+            graph_version_ref="g:v1",
+            deployment_ref=service.deployment.deployment_ref,
+            status=RunStatus.RUNNING,
+        )
+    )
+    return run.run_id
+
+
+@contextlib.contextmanager
+def _run_row_deleted_between_the_two_reads(repository, run_id: str):
+    """Delete the run's row in the gap the routes leave between their two reads.
+
+    Both routes read the run once to answer 404 for an unknown or foreign run,
+    and ``RunRepository.transition`` reads it again before writing. Anything
+    that removes the row in between -- ``RunRepository.delete``, which is what
+    this hook calls, or an out-of-band removal of the same row -- makes that
+    second read return ``None`` and ``transition`` raise ``KeyError(run_id)``.
+
+    The delete is the real repository call, and ``transition`` is never patched,
+    so the ``KeyError`` under test is raised by the production code path rather
+    than staged by the test. Ordering is the whole point and it is why the read
+    log is yielded: a delete that landed *before* the first read would be
+    answered by the route's own guard with its own 404, and a green status code
+    would prove nothing about the handler being pinned here. Reads for other
+    runs pass through untouched so a background worker cannot shift the count.
+    """
+    real_get = repository.get
+    real_delete = repository.delete
+    reads: list[str] = []
+
+    async def _vanishing(target: str):  # noqa: ANN202
+        if target != run_id:
+            return await real_get(target)
+        reads.append(target)
+        if len(reads) == 2:
+            await real_delete(target)
+        return await real_get(target)
+
+    repository.get = _vanishing
+    try:
+        yield reads
+    finally:
+        del repository.get
+
+
+async def test_cancel_when_the_run_row_vanishes_is_404_instead_of_500(sqlite_db) -> None:
+    """F-10d: a cancel whose run row is deleted mid-command is a 404, not a 500.
+
+    ``transition`` raises ``KeyError(run_id)`` when the row is gone, which is
+    neither a ``ValueError`` nor a ``TokenSnapshotConcurrencyError``, so it fell
+    past the route's handler and reached the operator as an unhandled server
+    error. It is a different condition from a vanished *token snapshot*: the run
+    is definitively gone, no retry can converge, and only 404 says so.
+
+    The detail must not be the guard's ``"run not found"`` -- the two 404s
+    answer different questions ("you asked about a run that isn't there" versus
+    "the run you were operating on was removed underneath the command") -- and
+    the read log proves the answer came from the transition, not the guard.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-row-gone", DEPLOYMENT + "-cancel-row-gone"
+    )
+    run_id = await _uncontended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _run_row_deleted_between_the_two_reads(service.run_repository, run_id) as reads:
+            response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    assert len(reads) >= 2, "the transition's own read was never reached; this test proves nothing"
+    assert await service.run_repository.get(run_id) is None, (
+        "the run row survived; this test reproduces the wrong state"
+    )
+    assert response.status_code == 404, (
+        f"a run deleted mid-command surfaced as {response.status_code}"
+    )
+    detail = response.json()["detail"]
+    assert "deleted while the command was in flight" in detail, detail
+    assert detail != "run not found", (
+        "the mid-command deletion is indistinguishable from an unknown run in a log"
+    )
+
+
+async def test_interrupt_when_the_run_row_vanishes_is_404_instead_of_500(sqlite_db) -> None:
+    """F-10d, the pause half: same window, same surfaced contract."""
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-interrupt-row-gone", DEPLOYMENT + "-interrupt-row-gone"
+    )
+    run_id = await _uncontended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _run_row_deleted_between_the_two_reads(service.run_repository, run_id) as reads:
+            response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+
+    assert len(reads) >= 2, "the transition's own read was never reached; this test proves nothing"
+    assert await service.run_repository.get(run_id) is None, (
+        "the run row survived; this test reproduces the wrong state"
+    )
+    assert response.status_code == 404, (
+        f"a run deleted mid-command surfaced as {response.status_code}"
+    )
+    detail = response.json()["detail"]
+    assert "deleted while the command was in flight" in detail, detail
+    assert detail != "run not found"
+
+
+async def test_a_re_issued_command_after_the_row_was_deleted_stays_404(sqlite_db) -> None:
+    """The 404's premise must be true: the deletion is permanent, so the retry 404s too.
+
+    This is what makes 404 the right status here rather than the 409 its two
+    neighbours use. A contended CAS converges on a retry and an erased token
+    snapshot converges on a retry; a deleted run row converges on nothing,
+    because the row never comes back. The re-issued command is answered by the
+    route's own guard, so it carries the guard's detail, not the handler's.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-row-retry", DEPLOYMENT + "-cancel-row-retry"
+    )
+    run_id = await _uncontended_running_run(service)
+    await service.run_repository.delete(run_id)
+    assert await service.run_repository.get(run_id) is None, (
+        "the delete left the row behind; this test reproduces the wrong state"
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "run not found"
+
+
+async def test_a_foreign_key_error_from_the_transition_is_never_dressed_as_404(sqlite_db) -> None:
+    """A ``KeyError`` raised with the run row still there must not read as a deletion.
+
+    ``KeyError`` carries no information about what was missing, and unlike the
+    contention fix there is no concrete class to key on -- ``transition`` raises
+    the same builtin for a missing run row as any incidental lookup failure in a
+    bug below it would. Re-reading the run before answering 404 is the only
+    thing separating the two, so this pins the branch that keeps the second one
+    a server error: telling an operator a run was deleted when it is sitting
+    right there sends them looking for a concurrent deleter that never ran.
+
+    Deliberately asserts *not 404* rather than ``== 500``, for the reason the
+    permanent-snapshot-error test gives: the point is the distinction, not a
+    blessing of today's unhandled-error status.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-foreign-keyerror", DEPLOYMENT + "-foreign-keyerror"
+    )
+    run_id = await _uncontended_running_run(service)
+    attempts: list[str] = []
+
+    async def _foreign_key_error(target, new_status, **kwargs):  # noqa: ANN001, ANN202
+        del new_status, kwargs
+        attempts.append(target)
+        raise KeyError("an incidental lookup below the transition")
+
+    service.run_repository.transition = _foreign_key_error
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+    finally:
+        del service.run_repository.transition
+
+    assert attempts, "the transition was never reached; this test proves nothing"
+    assert await service.run_repository.get(run_id) is not None, (
+        "the run row is gone; this test reproduces the wrong state"
+    )
+    assert response.status_code != 404, (
+        "an incidental KeyError was mislabelled as a concurrent deletion"
+    )
+
+
+async def test_the_four_operator_command_failures_read_differently(sqlite_db) -> None:
+    """One route, four failures an operator must tell apart from a log line alone.
+
+    "Not interruptible", "lost the CAS", "token state is gone" and "the run was
+    deleted" want four different responses -- accept it, retry the same call,
+    re-issue and expect the run cancelled outright, stop retrying entirely.
+    Three of them share status 409 and the fourth is the same 404 the unknown-run
+    guard already returns, so the detail string is the only thing carrying the
+    difference in every case.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-conflict-vocab4", DEPLOYMENT + "-conflict-vocab4"
+    )
+    settled = await service.run_repository.create(
+        Run(
+            graph_version_ref="g:v1",
+            deployment_ref=service.deployment.deployment_ref,
+            status=RunStatus.COMPLETED,
+        )
+    )
+    contended_id, _ = await _contended_running_run(service)
+    vanished_id, _ = await _contended_running_run(service)
+    deleted_id = await _uncontended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        not_interruptible = client.post(
+            f"/admin/runs/{settled.run_id}/interrupt", headers=admin_headers()
+        )
+        with _always_losing_snapshot_cas(service.run_repository) as attempts:
+            contention = client.post(
+                f"/admin/runs/{contended_id}/interrupt", headers=admin_headers()
+            )
+        with _snapshot_vanishing_after_first_read(service.run_repository) as reads:
+            vanished = client.post(f"/admin/runs/{vanished_id}/interrupt", headers=admin_headers())
+        with _run_row_deleted_between_the_two_reads(service.run_repository, deleted_id) as rows:
+            deleted = client.post(f"/admin/runs/{deleted_id}/interrupt", headers=admin_headers())
+
+    assert attempts, "the contended CAS was never reached; this test proves nothing"
+    assert len(reads) >= 2, "the adapter's reload was never reached; this test proves nothing"
+    assert len(rows) >= 2, "the transition's own read was never reached; this test proves nothing"
+    responses = (not_interruptible, contention, vanished, deleted)
+    details = [response.json()["detail"] for response in responses]
+    assert [response.status_code for response in responses] == [409, 409, 409, 404]
+    assert len(set(details)) == 4, f"two operator failures read identically in a log: {details}"
+    assert "run not found" not in details, (
+        "the mid-command deletion collapsed into the unknown-run guard's answer"
+    )
