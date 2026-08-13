@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 import uvicorn
+import httpx
 from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.responses import JSONResponse
 
@@ -87,7 +88,14 @@ def _fixture_app() -> FastAPI:
             "candidate_digest": _CANDIDATE_DIGEST,
             "deployment_ref": "candidate",
         },
-        "/__acceptance/migrations": {"current": True},
+        "/regulus/health": {
+            "status": "ok",
+            "schema_revision": {
+                "applied": "20260812_04",
+                "head": "20260812_04",
+                "state": "current",
+            },
+        },
         "/v1/deployments": {"deployment_ref": "candidate"},
         "/__acceptance/timeline/after": {"entries": done_audit},
         "/v1/retention/policy": {"enabled": True},
@@ -144,7 +152,17 @@ def _fixture_app() -> FastAPI:
         if route == "/health/ready":
             if getattr(app.state, "draining", False):
                 return JSONResponse({"status": "draining"}, status_code=503)
-            return JSONResponse({"status": "ok", "checks": {"database": {"status": "ok"}}})
+            return JSONResponse(
+                {
+                    "status": "ok",
+                    "checks": {"database": {"status": "ok"}},
+                    "schema_revision": {
+                        "applied": "026",
+                        "head": "026",
+                        "state": "current",
+                    },
+                }
+            )
         if route == "/v1/deployments" and role is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
         if route == "/api/studio/v1/workflows" and request.method == "POST":
@@ -265,6 +283,16 @@ async def test_the_runner_drives_a_whole_contract_over_real_sockets(
     assert not failed, failed
     assert report.status is ScenarioStatus.PASSED
     assert len(report.scenarios) == 17
+
+
+@pytest.mark.asyncio
+async def test_transport_fixture_does_not_invent_a_migrations_route(
+    deployed_fixture: str,
+) -> None:
+    async with httpx.AsyncClient(base_url=deployed_fixture) as client:
+        response = await client.get("/__acceptance/migrations")
+
+    assert response.status_code == 404
 
 
 async def test_the_transport_sends_every_frame_of_an_opening_sequence_in_order(

@@ -260,6 +260,7 @@ class AcceptanceContract(BaseModel):
         """
         self._require_scenario_coverage()
         self._require_access_evidence()
+        self._require_migration_evidence()
         self._require_lifecycle_evidence()
         self._require_gateway_evidence()
         self._require_durability_evidence()
@@ -304,6 +305,29 @@ class AcceptanceContract(BaseModel):
             lambda step: step.role == "reviewer" and step.expected_status == 403,
             "prove a role-specific denial",
         )
+
+    def _require_migration_evidence(self) -> None:
+        """Require exact current revisions from both public product surfaces."""
+
+        def pins_current(step: AcceptanceStep, path: str) -> bool:
+            revision = _read_path(step.expected_json, ("schema_revision",))
+            return bool(
+                step.path == path
+                and step.method == "GET"
+                and step.expected_status == 200
+                and isinstance(revision, dict)
+                and revision.get("state") == "current"
+                and isinstance(revision.get("applied"), str)
+                and revision.get("applied")
+                and revision.get("applied") == revision.get("head")
+            )
+
+        steps = self.scenarios["migrations"].steps
+        required_paths = ("/health/ready", "/regulus/health")
+        if not all(any(pins_current(step, path) for step in steps) for path in required_paths):
+            raise ValueError(
+                "migrations must pin current schema revisions on service and Regulus health"
+            )
 
     def _require_lifecycle_evidence(self) -> None:
         require = self._require

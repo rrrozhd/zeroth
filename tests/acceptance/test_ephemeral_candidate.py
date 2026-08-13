@@ -86,11 +86,27 @@ async def candidate(tmp_path: Path):
         await instance.aclose()
 
 
+@pytest.fixture
+async def stale_schema_candidate(tmp_path: Path):
+    instance = EphemeralCandidate(tmp_path, service_revision="025")
+    await instance.provision()
+    await instance.serve()
+    try:
+        yield instance
+    finally:
+        await instance.aclose()
+
+
 async def test_the_candidate_serves_the_real_application(candidate: EphemeralCandidate) -> None:
     async with httpx.AsyncClient(base_url=candidate.base_url, timeout=10.0) as client:
         ready = await client.get("/health/ready")
         assert ready.status_code == 200
         assert ready.json()["checks"]["database"]["status"] == "ok"
+        assert ready.json()["schema_revision"] == {
+            "applied": "026",
+            "head": "026",
+            "state": "current",
+        }
 
         health = await client.get("/health", headers=_headers("operator"))
         assert health.status_code == 200
@@ -123,7 +139,63 @@ async def test_the_declared_regulus_origin_is_served_by_a_real_control_plane(
         # tell a mounted plane from a 401.
         mounted = await client.get("/regulus/health", headers=_headers("admin"))
         assert mounted.status_code == 200, mounted.text
-        assert mounted.json() == {"status": "ok"}
+        assert mounted.json() == {
+            "status": "ok",
+            "schema_revision": {
+                "applied": "20260812_04",
+                "head": "20260812_04",
+                "state": "current",
+            },
+        }
+
+
+async def test_product_migrations_scenario_rejects_service_parent_revision(
+    stale_schema_candidate: EphemeralCandidate,
+    tmp_path: Path,
+) -> None:
+    identity = tmp_path / "stale-identity.json"
+    identity.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "commit": "a" * 40,
+                "package": {"version": "1", "artifacts": {}},
+                "image": {"candidate": "sha256:" + "b" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = AcceptanceConfig.model_validate(
+        {
+            "schema_version": 1,
+            "base_url": stale_schema_candidate.base_url,
+            "tenant_id": stale_schema_candidate.tenant_id,
+            "deployment_ref": stale_schema_candidate.deployment_ref,
+            "candidate_identity": str(identity),
+            "credentials": {"operator": "OP", "reviewer": "REV", "admin": "ADM"},
+        }
+    ).resolve(
+        {
+            "OP": TEST_API_KEYS["operator"],
+            "REV": TEST_API_KEYS["reviewer"],
+            "ADM": TEST_API_KEYS["admin"],
+        },
+        run_id="stalemigrations",
+    )
+    contract = AcceptanceContract.model_validate(
+        json.loads(Path("release/acceptance/contracts/zeroth-v1.json").read_text(encoding="utf-8"))
+    )
+
+    async with AcceptanceTransport(config) as transport:
+        result = await AcceptanceRunner(
+            config, contract, transport, lifecycle=stale_schema_candidate
+        )._scenario(
+            "migrations", contract.scenarios["migrations"].steps
+        )
+
+    assert result.status is ScenarioStatus.FAILED
+    assert "025" in result.detail
+    assert "026" in result.detail
 
 
 async def test_an_approval_gated_node_runs_zero_times_then_exactly_once(

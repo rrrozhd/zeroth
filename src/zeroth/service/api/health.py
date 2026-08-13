@@ -13,17 +13,25 @@ from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from redis.asyncio import from_url as redis_from_url
 
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
+from zeroth.platform.storage.schema_revision import (
+    SchemaRevision,
+    read_async_schema_revision,
+    unknown_schema_revision,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from zeroth.platform.storage.database import AsyncDatabase
+
+SERVICE_MIGRATIONS_PACKAGE = "zeroth.service._migrations"
+SCHEMA_REVISION_TIMEOUT_SECONDS = 2.0
 
 
 class DependencyStatus(BaseModel):
@@ -43,6 +51,13 @@ class ReadinessResponse(BaseModel):
 
     status: str  # "ok" | "degraded" | "unhealthy"
     checks: dict[str, DependencyStatus] = Field(default_factory=dict)
+    schema_revision: SchemaRevision
+
+    @model_validator(mode="after")
+    def _current_schema_when_ready(self) -> ReadinessResponse:
+        if self.status == "ok" and self.schema_revision.state != "current":
+            raise ValueError("ok readiness requires current schema revision evidence")
+        return self
 
 
 class LivenessResponse(BaseModel):
@@ -53,7 +68,10 @@ class LivenessResponse(BaseModel):
     status: str = "ok"
 
 
-def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
+def determine_readiness_status(
+    checks: dict[str, DependencyStatus],
+    schema_revision: SchemaRevision | None = None,
+) -> str:
     """Determine overall readiness status from per-dependency checks.
 
     Rules:
@@ -73,6 +91,9 @@ def determine_readiness_status(checks: dict[str, DependencyStatus]) -> str:
         redis_status and redis_status.status not in {"ok", "unavailable"}
     ):
         return "unhealthy"
+
+    if schema_revision is not None and schema_revision.state != "current":
+        return "degraded"
 
     if regulus_status and regulus_status.status != "ok":
         return "degraded"
@@ -110,6 +131,19 @@ async def check_database(db: AsyncDatabase) -> DependencyStatus:
             latency_ms=elapsed_ms,
             detail=safe_error_detail(exc, context="database"),
         )
+
+
+async def check_schema_revision(
+    db: AsyncDatabase,
+    *,
+    timeout_seconds: float = SCHEMA_REVISION_TIMEOUT_SECONDS,
+) -> SchemaRevision:
+    """Read service migration evidence within a hard request-time bound."""
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            return await read_async_schema_revision(db, SERVICE_MIGRATIONS_PACKAGE)
+    except TimeoutError:
+        return unknown_schema_revision(SERVICE_MIGRATIONS_PACKAGE)
 
 
 async def check_redis(redis_url: str | None) -> DependencyStatus:
@@ -182,10 +216,13 @@ def register_health_routes(app: FastAPI) -> None:
             regulus_base_url = getattr(regulus_client, "base_url", None)
 
         # Run all checks concurrently.
-        db_check, redis_check, regulus_check = await asyncio.gather(
+        db_check, redis_check, regulus_check, schema_revision = await asyncio.gather(
             check_database(database) if database else _unavailable("database not configured"),
             check_redis(redis_url),
             check_regulus(regulus_base_url),
+            check_schema_revision(database)
+            if database
+            else _unknown_schema_revision(),
         )
 
         checks = {
@@ -203,8 +240,12 @@ def register_health_routes(app: FastAPI) -> None:
         if delivery is not None:
             checks["audit_delivery"] = _audit_delivery_check(delivery)
 
-        status = determine_readiness_status(checks)
-        return ReadinessResponse(status=status, checks=checks)
+        status = determine_readiness_status(checks, schema_revision)
+        return ReadinessResponse(
+            status=status,
+            checks=checks,
+            schema_revision=schema_revision,
+        )
 
     @app.get("/health/live", response_model=LivenessResponse)
     async def health_live() -> LivenessResponse:
@@ -214,6 +255,11 @@ def register_health_routes(app: FastAPI) -> None:
 async def _unavailable(detail: str) -> DependencyStatus:
     """Return an unavailable dependency status."""
     return DependencyStatus(status="unavailable", detail=detail)
+
+
+async def _unknown_schema_revision() -> SchemaRevision:
+    """Return missing service evidence through the gather-compatible seam."""
+    return unknown_schema_revision(SERVICE_MIGRATIONS_PACKAGE)
 
 
 class LangGraphCompatibilityHealth(BaseModel):

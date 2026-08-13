@@ -16,6 +16,7 @@ before/after anchors for reasons that have nothing to do with durability.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 import secrets
@@ -32,6 +33,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import uvicorn
+from alembic import command
+from alembic.config import Config
 from pydantic import BaseModel
 
 from tests.service.helpers import (
@@ -57,6 +60,16 @@ ALLOWED_ASSISTANT = "shell"
 _START_DEADLINE_SECONDS = 20.0
 _AGENT_SERVER_DEADLINE_SECONDS = 60.0
 _STOP_DEADLINE_SECONDS = 20.0
+
+
+def _migration_config(package: str, database_url: str) -> Config:
+    locations = tuple(importlib.import_module(package).__path__)
+    if len(locations) != 1:
+        raise CandidateError("migration package must have one filesystem location")
+    config = Config()
+    config.set_main_option("script_location", locations[0])
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
 
 
 class ArtifactCarryingPayload(BaseModel):
@@ -159,10 +172,12 @@ class EphemeralCandidate:
         deployment_ref: str = DEPLOYMENT_REF,
         tenant_id: str = TENANT_ID,
         with_agent_server: bool = False,
+        service_revision: str = "head",
     ) -> None:
         # Off by default: booting an Agent Server costs real seconds, and only the
         # scenarios that need something upstream to govern should pay for it.
         self.with_agent_server = with_agent_server
+        self.service_revision = service_revision
         self._agent_server: subprocess.Popen | None = None
         self._agent_server_port: int | None = None
         self.agent_server_url: str | None = None
@@ -361,7 +376,20 @@ class EphemeralCandidate:
         if self.with_agent_server:
             self._start_agent_server()
             self._declare_gateway()
-        run_migrations(f"sqlite:///{self._db_path}")
+        service_url = f"sqlite:///{self._db_path}"
+        run_migrations(service_url)
+        if self.service_revision != "head":
+            command.downgrade(
+                _migration_config("zeroth.service._migrations", service_url),
+                self.service_revision,
+            )
+        command.upgrade(
+            _migration_config(
+                "zeroth.econ.plane._migrations",
+                f"sqlite+pysqlite:///{self._artifacts_dir}/econ_plane.db",
+            ),
+            "head",
+        )
         database = AsyncSQLiteDatabase(path=str(self._db_path))
         try:
             await deploy_service(

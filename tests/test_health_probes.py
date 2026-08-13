@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from zeroth.platform.config.settings import TLSSettings
+from zeroth.platform.storage.schema_revision import SchemaRevision
 from zeroth.service.api.health import (
     DependencyStatus,
     LivenessResponse,
@@ -16,6 +18,7 @@ from zeroth.service.api.health import (
     check_database,
     check_redis,
     check_regulus,
+    check_schema_revision,
     register_health_routes,
 )
 
@@ -61,6 +64,56 @@ class FakeDatabase:
 
     async def close(self) -> None:
         pass
+
+
+class RevisionDatabase(FakeDatabase):
+    """Record the bounded read-only queries made by readiness."""
+
+    def __init__(
+        self,
+        revisions: list[str],
+        *,
+        revision_delay: float = 0,
+    ) -> None:
+        super().__init__()
+        self.revisions = revisions
+        self.revision_delay = revision_delay
+        self.queries: list[str] = []
+
+    @asynccontextmanager
+    async def transaction(self, *, write_lock: bool = False):
+        database = self
+
+        class Connection(FakeConnection):
+            async def fetch_one(
+                self, sql: str, params: tuple[Any, ...] = ()
+            ) -> dict[str, Any] | None:
+                database.queries.append(sql)
+                return await super().fetch_one(sql, params)
+
+            async def fetch_all(
+                self, sql: str, params: tuple[Any, ...] = ()
+            ) -> list[dict[str, Any]]:
+                database.queries.append(sql)
+                if database.revision_delay:
+                    await asyncio.sleep(database.revision_delay)
+                return [{"version_num": revision} for revision in database.revisions]
+
+        yield Connection()
+
+
+def _readiness_app(database: FakeDatabase):
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    bootstrap = MagicMock()
+    bootstrap.database = database
+    bootstrap.regulus_client = None
+    bootstrap.langgraph_gateway_compatibility = None
+    bootstrap.audit_delivery_queue = None
+    app.state.bootstrap = bootstrap
+    register_health_routes(app)
+    return app
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +248,11 @@ async def test_readiness_ok_when_all_healthy():
         "redis": DependencyStatus(status="ok", latency_ms=2.0),
         "regulus": DependencyStatus(status="ok", latency_ms=3.0),
     }
-    response = ReadinessResponse(status="ok", checks=checks)
+    response = ReadinessResponse(
+        status="ok",
+        checks=checks,
+        schema_revision=SchemaRevision(applied="026", head="026", state="current"),
+    )
     assert response.status == "ok"
 
 
@@ -289,6 +346,88 @@ async def test_register_health_routes_adds_endpoints():
     routes = [r.path for r in app.routes if hasattr(r, "path")]
     assert "/health/ready" in routes
     assert "/health/live" in routes
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_current_service_schema_revision():
+    """A migrated service exposes the applied and shipped Alembic revisions."""
+    from fastapi.testclient import TestClient
+
+    database = RevisionDatabase(["026"])
+
+    with (
+        patch(
+            "zeroth.service.api.health.check_redis",
+            new=AsyncMock(return_value=DependencyStatus(status="ok")),
+        ),
+        patch(
+            "zeroth.service.api.health.check_regulus",
+            new=AsyncMock(return_value=DependencyStatus(status="ok")),
+        ),
+    ):
+        response = TestClient(_readiness_app(database)).get("/health/ready")
+
+    assert response.json()["status"] == "ok"
+    assert response.json().get("schema_revision") == {
+        "applied": "026",
+        "head": "026",
+        "state": "current",
+    }
+    assert database.queries.count("SELECT version_num FROM alembic_version LIMIT 2") == 1
+    assert all(query.lstrip().upper().startswith("SELECT ") for query in database.queries)
+
+
+@pytest.mark.parametrize(
+    ("revisions", "applied", "state"),
+    [
+        (["025"], "025", "behind"),
+        ([], None, "unknown"),
+        (["025", "026"], None, "unknown"),
+        (["foreign"], "foreign", "unknown"),
+    ],
+)
+def test_readiness_degrades_for_stale_or_unknown_service_schema(
+    revisions: list[str], applied: str | None, state: str
+) -> None:
+    from fastapi.testclient import TestClient
+
+    with (
+        patch(
+            "zeroth.service.api.health.check_redis",
+            new=AsyncMock(return_value=DependencyStatus(status="ok")),
+        ),
+        patch(
+            "zeroth.service.api.health.check_regulus",
+            new=AsyncMock(return_value=DependencyStatus(status="ok")),
+        ),
+    ):
+        response = TestClient(_readiness_app(RevisionDatabase(revisions))).get(
+            "/health/ready"
+        )
+
+    assert response.json()["status"] == "degraded"
+    assert response.json()["schema_revision"] == {
+        "applied": applied,
+        "head": "026",
+        "state": state,
+    }
+
+
+@pytest.mark.asyncio
+async def test_service_schema_revision_read_has_an_explicit_timeout() -> None:
+    database = RevisionDatabase(["026"], revision_delay=1)
+
+    revision = await asyncio.wait_for(
+        check_schema_revision(database, timeout_seconds=0.001),
+        timeout=0.1,
+    )
+
+    assert revision.model_dump() == {
+        "applied": None,
+        "head": "026",
+        "state": "unknown",
+    }
+    assert database.queries == ["SELECT version_num FROM alembic_version LIMIT 2"]
 
 
 @pytest.mark.asyncio

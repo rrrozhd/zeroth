@@ -75,6 +75,32 @@ def _contract() -> dict[str, object]:
         "steps": [_step("/authentication", role="anonymous", expected_status=401)]
     }
     scenarios["rbac"] = {"steps": [_step("/rbac", role="reviewer", expected_status=403)]}
+    scenarios["migrations"] = {
+        "steps": [
+            _step(
+                "/health/ready",
+                role="anonymous",
+                expected_json={
+                    "schema_revision": {
+                        "applied": "026",
+                        "head": "026",
+                        "state": "current",
+                    }
+                },
+            ),
+            _step(
+                "/regulus/health",
+                role="admin",
+                expected_json={
+                    "schema_revision": {
+                        "applied": "20260812_04",
+                        "head": "20260812_04",
+                        "state": "current",
+                    }
+                },
+            ),
+        ]
+    }
     scenarios["workflow_lifecycle"] = {
         "steps": [
             _step("/workflow/create", method="POST", expected_json={"status": "draft"}),
@@ -232,6 +258,20 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
     with pytest.raises(ValidationError, match="bind the serving deployment"):
         AcceptanceContract.model_validate(no_identity)
 
+    weak_migrations = _contract()
+    weak_migrations["scenarios"]["migrations"] = {
+        "steps": [_step("/__acceptance/migrations", expected_json={"current": True})]
+    }
+    with pytest.raises(ValidationError, match="migrations must pin current schema revisions"):
+        AcceptanceContract.model_validate(weak_migrations)
+
+    stale_migrations = _contract()
+    stale_migrations["scenarios"]["migrations"]["steps"][0]["expected_json"][
+        "schema_revision"
+    ]["applied"] = "025"
+    with pytest.raises(ValidationError, match="migrations must pin current schema revisions"):
+        AcceptanceContract.model_validate(stale_migrations)
+
     extra = _contract()
     extra["scenarios"]["optional-looking-skip"] = {"steps": [_step("/ignored")]}
     with pytest.raises(ValidationError, match="unknown scenarios"):
@@ -261,9 +301,14 @@ class FakeTransport:
     def __init__(self, responses: dict[str, HttpObservation]) -> None:
         self.responses = responses
         self.requested: list[tuple[str | None, str, str]] = []
+        self.draining = False
 
     async def request(self, role, method, path, *, json_body=None):
         self.requested.append((role, method, path))
+        if path == "/shutdown":
+            self.draining = True
+        if path == "/health/ready" and self.draining:
+            return HttpObservation(503, {}, "corr-shutdown")
         return self.responses.get(path, HttpObservation(200, {}, "corr"))
 
     async def websocket_events(self, role, path, payload, *, max_events, frames=None):
@@ -321,7 +366,28 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
         "/gateway/upstream-failure": HttpObservation(
             502, {"code": "zeroth.upstream_unavailable"}, "corr-gateway"
         ),
-        "/health/ready": HttpObservation(503, {}, "corr-shutdown"),
+        "/health/ready": HttpObservation(
+            200,
+            {
+                "schema_revision": {
+                    "applied": "026",
+                    "head": "026",
+                    "state": "current",
+                }
+            },
+            "corr-migrations",
+        ),
+        "/regulus/health": HttpObservation(
+            200,
+            {
+                "schema_revision": {
+                    "applied": "20260812_04",
+                    "head": "20260812_04",
+                    "state": "current",
+                }
+            },
+            "corr-econ-migrations",
+        ),
         "/compatibility": HttpObservation(
             200, {"checks": {"agent_server": {"status": "supported"}}}, "corr-compat"
         ),
