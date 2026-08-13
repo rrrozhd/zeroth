@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from zeroth.integrations.memory.governed.models import MemoryScope
 
 from zeroth.integrations.memory.connectors import (
     KeyValueMemoryConnector,
     RunEphemeralMemoryConnector,
     ThreadMemoryConnector,
 )
+from zeroth.integrations.memory.governed.models import MemoryScope
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry
 
 # ---------------------------------------------------------------------------
@@ -156,8 +157,10 @@ class TestRedisRegistration:
         settings = _make_settings()
         fake_redis = MagicMock()
 
-        with patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls,
+            patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls,
+        ):
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -183,8 +186,10 @@ class TestRedisRegistration:
         )
         fake_redis = MagicMock()
 
-        with patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls,
+            patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls,
+        ):
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -199,8 +204,10 @@ class TestRedisRegistration:
         registry = InMemoryConnectorRegistry()
         fake_redis = MagicMock()
 
-        with patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls, \
-             patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.RedisKVMemoryConnector") as kv_cls,
+            patch("zeroth.integrations.memory.factory.RedisThreadMemoryConnector") as th_cls,
+        ):
             kv_cls.return_value = MagicMock(connector_type="redis_kv")
             th_cls.return_value = MagicMock(connector_type="redis_thread")
 
@@ -253,9 +260,7 @@ class TestPgvectorRegistration:
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(pgvector=_PgvectorSettings(enabled=False))
 
-        register_memory_connectors(
-            registry, settings, pg_conninfo="postgresql://localhost/test"
-        )
+        register_memory_connectors(registry, settings, pg_conninfo="postgresql://localhost/test")
 
         with pytest.raises(KeyError):
             registry.resolve("pgvector")
@@ -301,8 +306,10 @@ class TestChromaRegistration:
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(chroma=_ChromaSettings(enabled=True))
 
-        with patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb, \
-             patch("zeroth.integrations.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb,
+            patch("zeroth.integrations.memory.factory.ChromaDBMemoryConnector") as chroma_cls,
+        ):
             mock_chromadb.HttpClient.return_value = MagicMock()
             chroma_cls.return_value = MagicMock(connector_type="chroma")
 
@@ -328,11 +335,15 @@ class TestChromaRegistration:
 
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(
-            chroma=_ChromaSettings(enabled=True, host="chroma-host", port=9000, collection_prefix="my_prefix")
+            chroma=_ChromaSettings(
+                enabled=True, host="chroma-host", port=9000, collection_prefix="my_prefix"
+            )
         )
 
-        with patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb, \
-             patch("zeroth.integrations.memory.factory.ChromaDBMemoryConnector") as chroma_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb,
+            patch("zeroth.integrations.memory.factory.ChromaDBMemoryConnector") as chroma_cls,
+        ):
             mock_chromadb.HttpClient.return_value = MagicMock()
             chroma_cls.return_value = MagicMock(connector_type="chroma")
 
@@ -358,8 +369,10 @@ class TestElasticsearchRegistration:
         registry = InMemoryConnectorRegistry()
         settings = _make_settings(elasticsearch=_ElasticsearchSettings(enabled=True))
 
-        with patch("zeroth.integrations.memory.factory.AsyncElasticsearch") as mock_es_cls, \
-             patch("zeroth.integrations.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.AsyncElasticsearch") as mock_es_cls,
+            patch("zeroth.integrations.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls,
+        ):
             mock_es_cls.return_value = MagicMock()
             es_conn_cls.return_value = MagicMock(connector_type="elasticsearch")
 
@@ -392,8 +405,10 @@ class TestElasticsearchRegistration:
             )
         )
 
-        with patch("zeroth.integrations.memory.factory.AsyncElasticsearch") as mock_es_cls, \
-             patch("zeroth.integrations.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls:
+        with (
+            patch("zeroth.integrations.memory.factory.AsyncElasticsearch") as mock_es_cls,
+            patch("zeroth.integrations.memory.factory.ElasticsearchMemoryConnector") as es_conn_cls,
+        ):
             mock_es_cls.return_value = MagicMock()
             es_conn_cls.return_value = MagicMock(connector_type="elasticsearch")
 
@@ -410,8 +425,10 @@ class TestElasticsearchRegistration:
 
 
 class TestSingletonBehavior:
-    """Connector instances are singletons -- resolving the same ref twice
-    returns the same object."""
+    """Connector instances are singletons.
+
+    Resolving the same ref twice returns the same object.
+    """
 
     def test_same_connector_object_on_multiple_resolves(self) -> None:
         from zeroth.integrations.memory.factory import register_memory_connectors
@@ -434,3 +451,133 @@ class TestSingletonBehavior:
             _, first = registry.resolve(name)
             _, second = registry.resolve(name)
             assert first is second, f"{name} connector is not a singleton"
+
+
+# ---------------------------------------------------------------------------
+# Tests: mandatory client timeouts (A07-14)
+# ---------------------------------------------------------------------------
+
+
+class _SessionlessClient:
+    """A chromadb-shaped client that exposes no HTTP session to bound."""
+
+
+class TestConnectorTimeouts:
+    """A07-14: clients this factory builds get a positive, non-``None`` timeout.
+
+    Measured on the pinned versions: redis-py 5.3.1 leaves ``socket_timeout``
+    and ``socket_connect_timeout`` at ``None``, and chromadb 1.5.6 builds its
+    transport as ``httpx.Client(timeout=None)``. Neither driver bounds itself,
+    so an unresponsive peer blocks the caller for as long as it holds the
+    socket. Elasticsearch is deliberately absent: elasticsearch-py stamps
+    ``request_timeout=10.0`` onto its node config already.
+    """
+
+    def test_redis_client_is_built_with_both_socket_timeouts(self) -> None:
+        from zeroth.integrations.memory import factory
+
+        _, connector = factory.build_connector("redis_thread", {"url": "redis://127.0.0.1:6399"})
+
+        kwargs = connector._redis.connection_pool.connection_kwargs
+        assert kwargs["socket_timeout"] == factory.REDIS_TIMEOUT_SECONDS
+        assert kwargs["socket_connect_timeout"] == factory.REDIS_TIMEOUT_SECONDS
+        assert factory.REDIS_TIMEOUT_SECONDS > 0
+
+    def test_redis_kv_client_is_built_with_both_socket_timeouts(self) -> None:
+        from zeroth.integrations.memory import factory
+
+        _, connector = factory.build_connector("redis_kv", {"url": "redis://127.0.0.1:6399"})
+
+        kwargs = connector._redis.connection_pool.connection_kwargs
+        assert kwargs["socket_timeout"] == factory.REDIS_TIMEOUT_SECONDS
+        assert kwargs["socket_connect_timeout"] == factory.REDIS_TIMEOUT_SECONDS
+
+    def test_a_supplied_redis_client_is_left_alone(self) -> None:
+        """A shared client the caller already built is not this factory's to rebuild."""
+        from zeroth.integrations.memory import factory
+
+        supplied = MagicMock()
+        _, connector = factory.build_connector("redis_kv", {}, redis_client=supplied)
+
+        assert connector._redis is supplied
+
+    def test_chroma_timeout_binds_the_session_a_real_client_would_use(self) -> None:
+        """Pin the attribute path against the real library, not against a stub.
+
+        ``_bind_chroma_timeout`` reaches into ``client._server._session``. Every
+        other test here supplies that shape itself, so all of them would keep
+        passing if chromadb moved its transport -- and the binder would then
+        raise at bootstrap for every chroma-enabled deployment. A real
+        ``chromadb.HttpClient`` cannot be built without a live server (it does a
+        tenant handshake in ``__init__``), but the object it assigns to
+        ``_server`` can: ``Client.__init__`` sets
+        ``self._server = self._system.instance(ServerAPI)``, and that
+        construction is local.
+        """
+        import httpx
+        from chromadb.api import ServerAPI
+        from chromadb.config import Settings, System
+
+        from zeroth.integrations.memory import factory
+
+        server = System(
+            Settings(
+                chroma_api_impl="chromadb.api.fastapi.FastAPI",
+                chroma_server_host="localhost",
+                chroma_server_http_port=8000,
+            )
+        ).instance(ServerAPI)
+
+        assert isinstance(server._session, httpx.Client)
+        assert server._session.timeout == httpx.Timeout(None), (
+            "premise: chromadb builds its transport with timeouts disabled"
+        )
+
+        factory._bind_chroma_timeout(SimpleNamespace(_server=server), 1.5)
+
+        assert server._session.timeout == httpx.Timeout(1.5)
+
+    def test_chroma_request_timeout_reaches_the_http_session(self) -> None:
+        """Chromadb has no timeout kwarg, so the ceiling lands on its httpx client."""
+        import httpx
+
+        from zeroth.integrations.memory import factory
+
+        session = httpx.Client(timeout=None)
+        assert session.timeout == httpx.Timeout(None), "premise: chromadb disables timeouts"
+        stub = SimpleNamespace(_server=SimpleNamespace(_session=session))
+
+        with patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb:
+            mock_chromadb.HttpClient.return_value = stub
+            factory.build_connector("chroma", {"host": "chroma-host"})
+
+        assert session.timeout == httpx.Timeout(factory.CHROMA_TIMEOUT_SECONDS)
+        assert factory.CHROMA_TIMEOUT_SECONDS > 0
+
+    def test_chroma_client_without_a_session_is_refused_not_left_unbounded(self) -> None:
+        """A silent ``getattr`` miss would hand back an unbounded client."""
+        from zeroth.integrations.memory import factory
+
+        with patch("zeroth.integrations.memory.factory.chromadb") as mock_chromadb:
+            mock_chromadb.HttpClient.return_value = _SessionlessClient()
+            with pytest.raises(ValueError, match="no HTTP session"):
+                factory.build_connector("chroma", {"host": "chroma-host"})
+
+    @pytest.mark.parametrize("bad", [None, 0, 0.0, -1, -0.5, "10", True, [10]])
+    def test_a_non_positive_timeout_is_refused(self, bad: Any) -> None:
+        """``None`` is the driver default this guard exists to reject, not a sentinel."""
+        from zeroth.integrations.memory.factory import _mandatory_timeout
+
+        with pytest.raises(ValueError, match="positive number of seconds"):
+            _mandatory_timeout(bad, "chroma")
+
+    def test_the_module_timeout_constants_are_positive_numbers(self) -> None:
+        from zeroth.integrations.memory import factory
+
+        for backend, seconds in (
+            ("chroma", factory.CHROMA_TIMEOUT_SECONDS),
+            ("redis_kv", factory.REDIS_TIMEOUT_SECONDS),
+        ):
+            assert backend in factory.TIMEOUT_GOVERNED_BACKENDS
+            assert isinstance(seconds, float)
+            assert seconds > 0

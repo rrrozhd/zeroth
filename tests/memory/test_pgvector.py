@@ -6,14 +6,15 @@ without requiring a real Postgres instance.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from zeroth.integrations.memory.governed.connector import MemoryConnector
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
-
 from zeroth.integrations.memory.pgvector_connector import PgvectorMemoryConnector
 
 # ---------------------------------------------------------------------------
@@ -25,8 +26,10 @@ FAKE_CONNINFO = "postgresql://test:test@localhost:5432/testdb"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _make_row(key="doc1", value={"text": "hello"}, scope="shared", target="__shared__"):
+def _make_row(key="doc1", value=None, scope="shared", target="__shared__"):
     """Build a fake DB row tuple matching the SELECT column order."""
+    if value is None:
+        value = {"text": "hello"}
     return (
         key,
         json.dumps(value),
@@ -61,7 +64,9 @@ def _mock_conn():
 @pytest.fixture
 def connector(_mock_conn, _mock_litellm):
     """Create a PgvectorMemoryConnector with mocked connection factory."""
-    with patch("zeroth.integrations.memory.pgvector_connector.register_vector_async", new=AsyncMock()):
+    with patch(
+        "zeroth.integrations.memory.pgvector_connector.register_vector_async", new=AsyncMock()
+    ):
         c = PgvectorMemoryConnector(
             conn_factory=AsyncMock(return_value=_mock_conn),
             table_name="test_vectors",
@@ -274,10 +279,10 @@ class TestPgvectorLive:
         finally:
             await seed.close()
 
-        async def conn_factory():
-            return await psycopg.AsyncConnection.connect(dsn)
-
-        connector = PgvectorMemoryConnector(conn_factory, table_name="zeroth_test_vectors")
+        # The DSN form, not an injected factory: after A07-12 the connector
+        # disposes only of connections it created itself, so a factory that
+        # mints a fresh connection per call would leak one per operation here.
+        connector = PgvectorMemoryConnector(dsn, table_name="zeroth_test_vectors")
         try:
             await connector.write(
                 "sky", {"text": "the sky is blue"}, MemoryScope.SHARED, target="__shared__"
@@ -312,7 +317,7 @@ class TestPgvectorLive:
 
 
 def test_row_to_entry_keeps_string_primitive_values():
-    """jsonb string primitives arrive pre-decoded; they must not be re-parsed."""
+    """Jsonb string primitives arrive pre-decoded; they must not be re-parsed."""
     from datetime import UTC, datetime
 
     from zeroth.integrations.memory.pgvector_connector import PgvectorMemoryConnector
@@ -323,3 +328,208 @@ def test_row_to_entry_keeps_string_primitive_values():
     assert entry.value == "ok"
     entry = connector._row_to_entry(("k", '{"a": 1}', "shared", "__shared__", {}, now, now))
     assert entry.value == {"a": 1}
+
+
+# ---------------------------------------------------------------------------
+# Connection ownership (A07-12) and schema-setup concurrency (A07-24)
+# ---------------------------------------------------------------------------
+
+
+class _FakeAsyncConnection:
+    """A psycopg-shaped connection whose ``__aexit__`` mirrors psycopg 3.3.3.
+
+    The real one commits (or rolls back) and then closes -- but only
+    ``if not self._pool``. Reproducing that exactly is the point: an
+    ``AsyncMock`` with stubbed ``__aenter__``/``__aexit__`` never calls
+    ``close()`` at all, so a "the connection stayed open" assertion would pass
+    against the unfixed connector too.
+    """
+
+    def __init__(self, *, pool: object | None = None, rows: list[tuple] | None = None) -> None:
+        self._pool = pool
+        self.closed = False
+        self.commits = 0
+        self.rollbacks = 0
+        self.aexit_calls = 0
+        self._rows = rows if rows is not None else []
+
+    async def execute(self, sql: str, params: list | None = None):
+        cursor = AsyncMock()
+        cursor.fetchone = AsyncMock(return_value=self._rows[0] if self._rows else None)
+        cursor.fetchall = AsyncMock(return_value=list(self._rows))
+        cursor.rowcount = len(self._rows)
+        return cursor
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def __aenter__(self) -> _FakeAsyncConnection:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.aexit_calls += 1
+        if self.closed:
+            return
+        if exc_type:
+            await self.rollback()
+        else:
+            await self.commit()
+        if not self._pool:
+            await self.close()
+
+
+@pytest.fixture
+def _no_vector_registration():
+    """Keep ``register_vector_async`` away from the fake connection.
+
+    It is patched for the whole test, not just construction: ``_get_conn``
+    calls it on every operation, and the real one would drive type-catalog
+    queries against a fake that cannot answer them.
+    """
+    with patch(
+        "zeroth.integrations.memory.pgvector_connector.register_vector_async", new=AsyncMock()
+    ) as patched:
+        yield patched
+
+
+def _connector_over(conn: _FakeAsyncConnection) -> PgvectorMemoryConnector:
+    """Build a connector over an *injected* connection the caller owns."""
+    connector = PgvectorMemoryConnector(
+        conn_factory=AsyncMock(return_value=conn),
+        table_name="test_vectors",
+        embedding_model="text-embedding-3-small",
+        embedding_dimensions=1536,
+    )
+    connector._setup_done = True
+    return connector
+
+
+class TestInjectedConnectionOwnership:
+    """A07-12 (narrowed): the connector owns only the connections it creates.
+
+    The audit's original claim -- that ``async with conn`` closes pooled
+    connections -- is refuted: psycopg 3.3.3 closes only ``if not self._pool``.
+    What survives is narrower and real. A caller who injects a *plain*
+    connection had it closed after a single operation, and every injected
+    connection took a ``COMMIT`` this connector was never asked for, including
+    after a pure read.
+    """
+
+    async def test_injected_connection_survives_a_read(self, _no_vector_registration) -> None:
+        conn = _FakeAsyncConnection(rows=[_make_row()])
+        connector = _connector_over(conn)
+
+        entry = await connector.read("doc1", MemoryScope.SHARED, target="__shared__")
+
+        assert entry is not None
+        assert conn.closed is False
+        assert conn.aexit_calls == 0
+
+    async def test_injected_connection_gets_no_commit_on_a_read(
+        self, _no_vector_registration
+    ) -> None:
+        conn = _FakeAsyncConnection(rows=[_make_row()])
+        connector = _connector_over(conn)
+
+        await connector.read("doc1", MemoryScope.SHARED, target="__shared__")
+
+        assert conn.commits == 0
+        assert conn.rollbacks == 0
+
+    async def test_injected_connection_gets_no_commit_on_a_search(
+        self, _mock_litellm, _no_vector_registration
+    ) -> None:
+        conn = _FakeAsyncConnection(rows=[_make_row()])
+        connector = _connector_over(conn)
+
+        await connector.search({"text": "hi"}, MemoryScope.SHARED, target="__shared__")
+
+        assert conn.commits == 0
+        assert conn.closed is False
+
+    async def test_injected_connection_still_commits_the_write_it_was_asked_for(
+        self, _mock_litellm, _no_vector_registration
+    ) -> None:
+        """Durably storing what the caller asked to store is requested, not incidental."""
+        conn = _FakeAsyncConnection()
+        connector = _connector_over(conn)
+
+        await connector.write("doc1", {"v": 1}, MemoryScope.SHARED, target="__shared__")
+
+        assert conn.commits == 1
+        assert conn.closed is False
+
+    async def test_a_connection_the_connector_created_is_committed_and_closed(
+        self, _no_vector_registration
+    ) -> None:
+        """The DSN path builds the connection, so it owns and disposes of it."""
+        conn = _FakeAsyncConnection(rows=[_make_row()])
+        with patch("zeroth.integrations.memory.pgvector_connector.psycopg") as mock_psycopg:
+            mock_psycopg.AsyncConnection.connect = AsyncMock(return_value=conn)
+            connector = PgvectorMemoryConnector(FAKE_CONNINFO, table_name="test_vectors")
+            connector._setup_done = True
+
+            await connector.read("doc1", MemoryScope.SHARED, target="__shared__")
+
+        assert conn.aexit_calls == 1
+        assert conn.closed is True
+
+
+class TestSchemaSetupConcurrency:
+    """A07-24: first use from two coroutines runs the schema DDL exactly once."""
+
+    async def test_concurrent_first_use_runs_the_schema_setup_once(
+        self, _no_vector_registration
+    ) -> None:
+        conn = _FakeAsyncConnection()
+        connector = PgvectorMemoryConnector(
+            conn_factory=AsyncMock(return_value=conn),
+            table_name="test_vectors",
+            embedding_dimensions=1536,
+        )
+        assert connector._setup_done is False
+
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        runs: list[object] = []
+
+        async def fake_ensure_schema(connection: object) -> None:
+            runs.append(connection)
+            entered.set()
+            # A real suspension point: without one, a stubbed coroutine returns
+            # before the second caller ever runs, and the race cannot occur --
+            # so the test would pass with or without the lock.
+            await release.wait()
+
+        connector._ensure_schema = fake_ensure_schema
+
+        first = asyncio.create_task(connector._get_conn())
+        await entered.wait()
+        second = asyncio.create_task(connector._get_conn())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(first, second)
+
+        assert len(runs) == 1
+        assert connector._setup_done is True
+
+    async def test_schema_setup_is_skipped_once_it_has_run(self, _no_vector_registration) -> None:
+        conn = _FakeAsyncConnection()
+        connector = _connector_over(conn)
+        runs: list[object] = []
+
+        async def fake_ensure_schema(connection: object) -> None:
+            runs.append(connection)
+
+        connector._ensure_schema = fake_ensure_schema
+
+        await connector._get_conn()
+
+        assert runs == []

@@ -253,6 +253,7 @@ async def test_subgraph_dispatch_seam_rolls_up_child_cost(resumed: bool) -> None
         parent_run=parent,
         node=node,
         input_payload={"input": True},
+        step_tracker=None,
     )
 
     assert result.output == {"answer": 42}

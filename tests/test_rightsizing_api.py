@@ -38,8 +38,9 @@ def _make_app(
 def _bootstrap_with_audits(records: list | None = None, runs: list | None = None):
     """A fake bootstrap whose audit_repository.list returns ``records`` (+ optional runs)."""
 
-    async def _list(query):
-        return list(records or [])
+    async def _list(query, *, limit=None):
+        rows = list(records or [])
+        return rows if limit is None else rows[-limit:]
 
     async def _list_runs(deployment_ref, *, status=None, limit=50, offset=0):
         return list(runs or [])
