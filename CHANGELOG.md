@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2.1.1] - 2026-08-13
+
+- Isolate release acceptance from pre-imported Regulus database state.
+
 ## [0.23.2.1] - 2026-08-13
 
 - Preserve readiness-response compatibility and keep schema-revision health

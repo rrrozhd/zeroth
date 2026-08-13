@@ -203,6 +203,8 @@ class EphemeralCandidate:
         self._environment_before: dict[str, str | None] = {}
         self._previous_settings: Any = None
         self._settings_saved = False
+        self._econ_state_before: SimpleNamespace | None = None
+        self._candidate_econ_engine: Any = None
 
     @property
     def base_url(self) -> str:
@@ -369,8 +371,64 @@ class EphemeralCandidate:
             settings_module._settings_singleton = self._previous_settings
             self._settings_saved = False
 
+    def _snapshot_econ_storage(self) -> None:
+        config = importlib.import_module("zeroth.econ.plane.config")
+        database = importlib.import_module("zeroth.econ.plane.database")
+        bootstrap = importlib.import_module("zeroth.econ.plane.common.bootstrap")
+        self._econ_state_before = SimpleNamespace(
+            config=config,
+            database=database,
+            bootstrap=bootstrap,
+            database_engine=database.engine,
+            database_session=database.SessionLocal,
+            database_bind=database.SessionLocal.kw.get("bind"),
+            bootstrap_engine=bootstrap.engine,
+            bootstrap_session=bootstrap.SessionLocal,
+            bootstrap_bind=bootstrap.SessionLocal.kw.get("bind"),
+            database_url=config.settings.database_url,
+            schema_revision=bootstrap._schema_revision,
+        )
+
+    def _bind_econ_storage(self) -> None:
+        from sqlalchemy import create_engine
+
+        config = importlib.import_module("zeroth.econ.plane.config")
+        database_url = f"sqlite+pysqlite:///{self._artifacts_dir}/econ_plane.db"
+        config.settings.database_url = database_url
+        database = importlib.import_module("zeroth.econ.plane.database")
+        bootstrap = importlib.import_module("zeroth.econ.plane.common.bootstrap")
+        state = self._econ_state_before
+        if state is None:
+            raise CandidateError("econ storage state was not captured")
+        candidate_engine = create_engine(database_url, future=True)
+        self._candidate_econ_engine = candidate_engine
+        database.engine = candidate_engine
+        database.SessionLocal.configure(bind=candidate_engine)
+        bootstrap.engine = candidate_engine
+        if bootstrap.SessionLocal is not database.SessionLocal:
+            bootstrap.SessionLocal.configure(bind=candidate_engine)
+
+    def _restore_econ_storage(self) -> None:
+        state = self._econ_state_before
+        if state is None:
+            return
+        state.config.settings.database_url = state.database_url
+        state.database.engine = state.database_engine
+        state.database.SessionLocal = state.database_session
+        state.database_session.configure(bind=state.database_bind)
+        state.bootstrap.engine = state.bootstrap_engine
+        state.bootstrap.SessionLocal = state.bootstrap_session
+        state.bootstrap_session.configure(bind=state.bootstrap_bind)
+        state.bootstrap._schema_revision = state.schema_revision
+        candidate_engine = self._candidate_econ_engine
+        self._candidate_econ_engine = None
+        if candidate_engine is not None:
+            candidate_engine.dispose()
+        self._econ_state_before = None
+
     async def provision(self) -> None:
         """Migrate the database and deploy the approval-gated graph exactly once."""
+        self._snapshot_econ_storage()
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
         self._declare_no_redis()
         if self.with_agent_server:
@@ -407,6 +465,7 @@ class EphemeralCandidate:
         # not exist until a port is claimed. Before `serve`: `_set_environment` drops
         # the settings singleton, so the app built there reads the declared value.
         self._declare_bundled_regulus()
+        self._bind_econ_storage()
 
     def _graph(self):
         """The shared approval graph, with the gated node able to emit an artifact.
@@ -589,6 +648,7 @@ class EphemeralCandidate:
             except subprocess.TimeoutExpired:
                 self._agent_server.kill()
             self._agent_server = None
+        self._restore_econ_storage()
         self._restore_environment()
         if self._listener is not None:
             self._listener.close()
