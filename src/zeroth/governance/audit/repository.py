@@ -278,11 +278,18 @@ class AuditRepository:
         return self._hydrate(row)
 
     @persistence_operation(ResourceOperation.ENUMERATE)
-    async def list(self, query: AuditQuery | None = None) -> list[NodeAuditRecord]:
+    async def list(
+        self, query: AuditQuery | None = None, *, limit: int | None = None
+    ) -> list[NodeAuditRecord]:
         """Return audit records matching the given filters, ordered by time.
 
         Pass an AuditQuery to filter by run, thread, node, etc. If no query
         is given, all records are returned.
+
+        ``limit`` bounds the read to the *most recent* ``limit`` records, still
+        returned oldest-first. Without it a caller reads the deployment's entire
+        audit history, which is what the econ-analytics and rightsizing routes
+        used to do before filtering in Python.
         """
         query = query or AuditQuery()
         if query.tenant_id is not None and query.tenant_id != self._scope_context.tenant_id:
@@ -316,12 +323,26 @@ class AuditRepository:
             if value is None:
                 continue
             where[field] = value
+        if limit is not None and (type(limit) is not int or limit < 0):
+            raise ValueError("limit must be a non-negative int")
         async with self._audits.transaction() as audits:
-            rows = await audits.select(
-                where=where,
-                columns=("record_json", "chain_sequence"),
-                order_by=("created_at", "audit_id"),
-            )
+            if limit is None:
+                rows = await audits.select(
+                    where=where,
+                    columns=("record_json", "chain_sequence"),
+                    order_by=("created_at", "audit_id"),
+                )
+            else:
+                # A bound on a time-ordered read has to mean the newest N.
+                # Selecting descending and reversing keeps the ascending
+                # contract while letting SQLite discard the rest of the history.
+                rows = await audits.select(
+                    where=where,
+                    columns=("record_json", "chain_sequence"),
+                    order_by_desc=("created_at", "audit_id"),
+                    limit=limit,
+                )
+                rows = list(reversed(rows))
         records = [self._hydrate(row) for row in rows]
         return order_audit_records(records) if query.run_id is not None else records
 

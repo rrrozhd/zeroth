@@ -17,6 +17,23 @@ from elasticsearch import AsyncElasticsearch, NotFoundError
 from zeroth.contracts.governed.models.common import JSONValue
 from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
+#: How a write opts into becoming visible to search before it returns.
+#:
+#: Elasticsearch buffers indexed documents until the next scheduled refresh --
+#: ``index.refresh_interval``, 1s by default -- so a document written and then
+#: searched for straight away is simply not there yet, and this connector's
+#: own write-then-search sequence silently misses it.
+#:
+#: ``"wait_for"`` rather than ``True``: ``True`` forces an immediate refresh
+#: per write, which cuts a new tiny segment every time and pushes merge cost
+#: onto the whole index -- a cluster-wide penalty paid by every client, to
+#: rush one caller's document. ``"wait_for"`` parks the write until the
+#: already-scheduled refresh publishes it, so the caller still gets
+#: read-your-writes and the index keeps its normal segment rhythm. The cost is
+#: bounded latency on the write (up to one refresh interval) instead of
+#: unbounded staleness on the read.
+_REFRESH_POLICY = "wait_for"
+
 
 class ElasticsearchMemoryConnector:
     """Memory connector backed by Elasticsearch.
@@ -79,13 +96,17 @@ class ElasticsearchMemoryConnector:
             "text": text,
             "metadata": {},
         }
-        await self._client.index(index=index, id=self._doc_id(key), document=doc)
+        await self._client.index(
+            index=index, id=self._doc_id(key), document=doc, refresh=_REFRESH_POLICY
+        )
 
     async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a document. Raises KeyError if not found."""
         index = self._index_name(scope, target)
         try:
-            await self._client.delete(index=index, id=self._doc_id(key))
+            # A delete is a write: without this the removed document keeps
+            # answering searches until the next scheduled refresh.
+            await self._client.delete(index=index, id=self._doc_id(key), refresh=_REFRESH_POLICY)
         except NotFoundError:
             raise KeyError(key)  # noqa: B904
 

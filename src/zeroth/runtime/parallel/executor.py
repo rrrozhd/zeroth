@@ -21,6 +21,8 @@ from zeroth.runtime.parallel.errors import (
     ParallelExecutionError,
 )
 from zeroth.runtime.parallel.models import (
+    DEFAULT_MAX_BRANCHES,
+    DEFAULT_MAX_CONCURRENCY,
     BranchContext,
     BranchResult,
     FanInResult,
@@ -82,9 +84,14 @@ class ParallelExecutor:
             msg = "split_path resolved to an empty list"
             raise FanOutValidationError(msg)
 
-        # Enforce max_branches cap
-        if config.max_branches is not None and len(value) > config.max_branches:
-            msg = f"branch count {len(value)} exceeds max_branches {config.max_branches}"
+        # Enforce the branch ceiling. ``None`` resolves to the default rather
+        # than to "no ceiling": the branch list is data-controlled, so an absent
+        # cap used to mean the fan-out width was chosen by upstream output.
+        max_branches = (
+            config.max_branches if config.max_branches is not None else DEFAULT_MAX_BRANCHES
+        )
+        if len(value) > max_branches:
+            msg = f"branch count {len(value)} exceeds max_branches {max_branches}"
             raise FanOutValidationError(msg)
 
         # Create one BranchContext per item
@@ -184,16 +191,16 @@ class ParallelExecutor:
         raises exactly what the inner one raises (``BranchApprovalPauseSignal``
         passes straight through ``wait_for``); only a genuine timeout surfaces as
         ``TimeoutError``, which the fail-mode handlers already treat as a branch
-        failure. Returns the factory unchanged when neither control is set.
+        failure. The concurrency semaphore is always present now that
+        ``max_concurrency`` carries a bounded default.
         """
-        semaphore = (
-            asyncio.Semaphore(config.max_concurrency)
+        # Same resolution: absent throttle means the default, never unbounded.
+        semaphore = asyncio.Semaphore(
+            config.max_concurrency
             if config.max_concurrency is not None
-            else None
+            else DEFAULT_MAX_CONCURRENCY
         )
         timeout = config.branch_timeout_seconds
-        if semaphore is None and timeout is None:
-            return factory
 
         async def wrapped(ctx: BranchContext) -> dict[str, Any]:
             async def _run() -> dict[str, Any]:

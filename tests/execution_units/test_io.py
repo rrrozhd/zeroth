@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from zeroth.integrations.execution import io as execution_io
 from zeroth.integrations.execution.io import (
     ExtractedOutput,
     InputInjectionError,
@@ -217,3 +218,42 @@ def test_output_extraction_requires_exit_code_for_exit_code_mode() -> None:
 def test_output_conversion_rejects_invalid_payload() -> None:
     with pytest.raises(OutputConversionError):
         convert_output(DemoOutput, ExtractedOutput(payload={"answer": "done"}))
+
+
+# A07-10: the output file is written by the unit, into a workspace the DOCKER
+# backend bind-mounts read-write with no disk quota among its resource flags, so
+# its size is chosen by the code being sandboxed. It must be measured before it
+# is read into memory, not after.
+
+
+def test_output_file_size_cap_is_bounded_and_positive() -> None:
+    assert execution_io.MAX_OUTPUT_FILE_BYTES == 16 * 1024 * 1024
+
+
+def test_output_file_json_still_parses_a_small_file(tmp_path: Path) -> None:
+    output_file = tmp_path / "zeroth-output.json"
+    output_file.write_text(json.dumps({"answer": "done", "score": 7}), encoding="utf-8")
+
+    extracted = extract_output(
+        OutputMode.OUTPUT_FILE_JSON,
+        stdout="ignored",
+        output_file_path=output_file,
+    )
+
+    assert extracted.payload == {"answer": "done", "score": 7}
+
+
+def test_output_file_json_rejects_a_file_over_the_size_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(execution_io, "MAX_OUTPUT_FILE_BYTES", 32)
+    output_file = tmp_path / "zeroth-output.json"
+    output_file.write_text(json.dumps({"blob": "x" * 4096}), encoding="utf-8")
+
+    with pytest.raises(OutputExtractionError, match="byte cap"):
+        extract_output(
+            OutputMode.OUTPUT_FILE_JSON,
+            stdout="ignored",
+            output_file_path=output_file,
+        )

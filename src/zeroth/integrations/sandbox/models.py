@@ -4,6 +4,24 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+#: Wall-clock ceiling applied to a sandboxed execution that names no timeout.
+#:
+#: Declared here beside the field it bounds, but applied by the *executor*: this
+#: model's constructor signature is pinned by the frozen protected-surface
+#: fixture, so narrowing ``timeout_seconds`` to a non-optional float would be a
+#: public-surface change requiring a fixture regeneration nobody has specified.
+#: Resolving at the point of use closes the same measured harm -- ``None`` never
+#: reaches ``asyncio.wait_for`` -- without touching the contract.
+#:
+#: ``timeout_seconds`` used to default to ``None`` and flow straight into
+#: ``asyncio.wait_for``, where ``None`` means *wait forever* -- so a request body
+#: that simply omitted the field bought an unbounded container. The in-repo path
+#: reached the same value: the execution manifest and policy both default their
+#: timeout to ``None`` and ``_effective_timeout`` returns ``None`` when neither
+#: names one. A concrete default is what makes "no timeout given" mean a bound
+#: rather than no bound.
+DEFAULT_EXECUTION_TIMEOUT_SECONDS = 300.0
+
 
 class SidecarExecuteRequest(BaseModel):
     """Request payload to execute a command in a sandboxed container."""

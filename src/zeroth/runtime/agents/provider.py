@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import math
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -28,6 +29,23 @@ if TYPE_CHECKING:
     from zeroth.platform.secrets import SecretProvider
 
 ProviderMessage = PromptMessage | dict[str, Any] | Any
+
+#: Deadline applied to a provider call when nothing configured one.
+#:
+#: A *ceiling*, not a recommendation. It matches the value this codebase already
+#: treats as one provider call's worth of patience -- ``LiteLLMProviderAdapter``
+#: has taken ``default_timeout: float = 600.0`` since long before this change --
+#: and the read timeout the installed ``openai`` SDK applies to a single request
+#: by default (``openai.DEFAULT_TIMEOUT`` -> ``Timeout(connect=5.0, read=600,
+#: write=600, pool=600)``, measured against openai 2.30.0).
+#:
+#: Picking that value means introducing a bound where there was none cannot cut
+#: short a call either the adapter or the provider client would already have
+#: allowed: a long-context reasoning call with tool round-trips runs minutes and
+#: must survive this change, while a wedged socket must stop holding an agent run
+#: forever. Operators wanting tighter set ``AgentConfig.timeout_seconds`` or the
+#: policy override, both of which win over this value.
+DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS = 600.0
 
 # LiteLLM provider prefix -> the ChatLiteLLM constructor field that pins that
 # provider's key. ChatLiteLLM copies each of these onto the litellm client at
@@ -452,6 +470,25 @@ class CallableProviderAdapter:
         return ProviderResponse(content=result, raw=result, tool_calls=extract_tool_calls(result))
 
 
+def resolve_provider_timeout(timeout_seconds: float | None) -> float:
+    """Turn a declared provider timeout into a deadline that is actually one.
+
+    ``None`` used to mean *no time limit*, and it was reachable by default: both
+    ``AgentConfig.timeout_seconds`` and the policy override default to ``None``,
+    and the runner's resolver returned ``None`` when neither named a value -- so
+    an agent declared without an explicit timeout called its LLM provider with no
+    deadline at all.
+
+    ``inf`` and non-positive values are discarded for the same reason rather than
+    honoured. ``asyncio.wait_for`` treats ``inf`` as no deadline, and
+    ``AgentConfig.timeout_seconds`` carries ``ge=0.0`` -- so ``0`` is an authored
+    value that would otherwise cancel every call the instant it started.
+    """
+    if timeout_seconds is None or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        return DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS
+    return timeout_seconds
+
+
 async def run_provider_with_timeout(
     adapter: ProviderAdapter,
     request: ProviderRequest,
@@ -460,8 +497,11 @@ async def run_provider_with_timeout(
 ) -> ProviderResponse:
     """Call a provider adapter, cancelling the call if it takes too long.
 
-    If timeout_seconds is None, no time limit is applied.
+    A deadline is always applied. ``timeout_seconds=None`` resolves to
+    :data:`DEFAULT_AGENT_PROVIDER_TIMEOUT_SECONDS` rather than to no limit; the
+    parameter stays optional so callers that genuinely have nothing configured
+    keep working, but "nothing configured" no longer means "wait forever".
     """
-    if timeout_seconds is None:
-        return await adapter.ainvoke(request)
-    return await asyncio.wait_for(adapter.ainvoke(request), timeout=timeout_seconds)
+    return await asyncio.wait_for(
+        adapter.ainvoke(request), timeout=resolve_provider_timeout(timeout_seconds)
+    )

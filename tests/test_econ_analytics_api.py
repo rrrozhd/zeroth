@@ -9,9 +9,12 @@ from fastapi.testclient import TestClient
 
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.governance.identity import AuthenticatedPrincipal, AuthMethod, ServiceRole
-from zeroth.runtime.runs import Run
-from zeroth.runtime.runs import RunStatus
-from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
+from zeroth.runtime.runs import Run, RunStatus
+from zeroth.service.api.econ_analytics_api import (
+    _AUDIT_RECORDS_PER_RUN_BOUND,
+    register_econ_analytics_routes,
+)
+from zeroth.service.api.rightsizing_api import _AUDIT_READ_BOUND, register_rightsizing_routes
 
 
 def _make_app(*, bootstrap: object | None = None) -> FastAPI:
@@ -34,16 +37,48 @@ def _make_app(*, bootstrap: object | None = None) -> FastAPI:
     return app
 
 
-def _bootstrap(runs: list | None = None, audits: list | None = None):
-    """A fake bootstrap: run_repository (list/get/put) + audit_repository.list."""
+def _make_rightsizing_app(*, bootstrap: object | None = None) -> FastAPI:
+    """Build the same minimal app over the right-sizing routes.
 
+    The other two bounded audit reads this requirement covers live in
+    ``rightsizing_api``; they are driven from here so one check exercises all
+    three call sites.
+    """
+    app = FastAPI()
+    if bootstrap is not None:
+        app.state.bootstrap = bootstrap
+    principal = AuthenticatedPrincipal(
+        subject="test", auth_method=AuthMethod.API_KEY, roles=[ServiceRole.ADMIN]
+    )
+
+    @app.middleware("http")
+    async def _inject_principal(request, call_next):
+        request.state.principal = principal
+        return await call_next(request)
+
+    router = APIRouter(prefix="/v1")
+    register_rightsizing_routes(router)
+    app.include_router(router)
+    return app
+
+
+def _bootstrap(runs: list | None = None, audits: list | None = None):
+    """Build a fake bootstrap: run_repository (list/get/put) + audit_repository.list.
+
+    ``audit_limits`` records the ``limit`` each caller passed. A fake that merely
+    *accepts* ``limit`` proves nothing -- widening the signature is exactly how
+    this check stayed green with the bound deleted from all three call sites.
+    """
     store = {r.run_id: r for r in (runs or [])}
+    audit_limits: list[int | None] = []
 
     async def _list_runs(deployment_ref, *, status=None, limit=50, offset=0):
         return list(store.values())
 
-    async def _list_audits(query):
-        return list(audits or [])
+    async def _list_audits(query, *, limit=None):
+        audit_limits.append(limit)
+        records = list(audits or [])
+        return records if limit is None else records[-limit:]
 
     async def _get(run_id):
         return store.get(run_id)
@@ -58,6 +93,7 @@ def _bootstrap(runs: list | None = None, audits: list | None = None):
         ),
         run_repository=SimpleNamespace(list_runs=_list_runs, get=_get, put=_put),
         audit_repository=SimpleNamespace(list=_list_audits),
+        audit_limits=audit_limits,
     )
 
 
@@ -205,3 +241,88 @@ def test_quality_verdict_409_for_non_terminal_run() -> None:
         "/v1/econ/quality-verdict", json={"run_id": "live", "verdict": "good", "source": "x"}
     )
     assert resp.status_code == 409
+
+
+# --- ZER-48 / A02-14: every audit read passes an explicit bound ----------------
+#
+# The runs half of these endpoints was always capped; the audit half fetched the
+# deployment's whole history and discarded most of it in Python. The bound is a
+# keyword at the call site, and the only thing that can observe it is the
+# repository -- so these assert on what the repository was *handed*, not on what
+# the endpoint returned. A response-shape assertion is identical with and
+# without ``limit=``, which is how the original check passed on reverted code.
+
+
+def test_unit_economics_audit_read_carries_an_explicit_bound() -> None:
+    """The unit-economics audit read is bounded, and bounded by the window."""
+    bootstrap = _bootstrap()
+    client = TestClient(_make_app(bootstrap=bootstrap))
+
+    assert client.get("/v1/econ/unit-economics?window=7").status_code == 200
+
+    assert len(bootstrap.audit_limits) == 1, "the audit repository was never read"
+    limit = bootstrap.audit_limits[0]
+    assert limit is not None, "the audit read fetched the whole deployment history"
+    assert limit == 7 * _AUDIT_RECORDS_PER_RUN_BOUND
+
+
+def test_the_unit_economics_audit_bound_scales_with_the_window() -> None:
+    """The two halves of the read grow together instead of one growing freely."""
+    bootstrap = _bootstrap()
+    client = TestClient(_make_app(bootstrap=bootstrap))
+
+    client.get("/v1/econ/unit-economics?window=10")
+    client.get("/v1/econ/unit-economics?window=20")
+
+    assert None not in bootstrap.audit_limits
+    assert bootstrap.audit_limits[1] == 2 * bootstrap.audit_limits[0]
+
+
+def test_waste_audit_read_carries_an_explicit_bound() -> None:
+    """The waste rollup reads through the same bounded helper."""
+    bootstrap = _bootstrap()
+    client = TestClient(_make_app(bootstrap=bootstrap))
+
+    assert client.get("/v1/econ/waste?window=5").status_code == 200
+
+    assert len(bootstrap.audit_limits) == 1, "the audit repository was never read"
+    assert bootstrap.audit_limits[0] == 5 * _AUDIT_RECORDS_PER_RUN_BOUND
+
+
+def test_rightsizing_opportunities_audit_read_carries_an_explicit_bound() -> None:
+    """``rightsizing_api.py:117`` -- the spend rollup passes a bound."""
+    bootstrap = _bootstrap()
+    client = TestClient(_make_rightsizing_app(bootstrap=bootstrap))
+
+    assert client.get("/v1/econ/rightsizing/opportunities").status_code == 200
+
+    assert len(bootstrap.audit_limits) == 1, "the audit repository was never read"
+    assert bootstrap.audit_limits[0] is not None
+    assert bootstrap.audit_limits[0] == _AUDIT_READ_BOUND
+
+
+def test_rightsizing_experiment_audit_read_carries_an_explicit_bound() -> None:
+    """``rightsizing_api.py:163`` -- the replay harvest passes a bound.
+
+    A known incumbent with no audit history short-circuits before any LLM call,
+    which is after the audit read this asserts on.
+    """
+    bootstrap = _bootstrap()
+    client = TestClient(_make_rightsizing_app(bootstrap=bootstrap))
+
+    resp = client.post(
+        "/v1/econ/rightsizing/experiment",
+        json={
+            "node_id": "agent",
+            "incumbent": "openai/gpt-4o",
+            "instruction": "answer the question",
+        },
+    )
+    assert resp.status_code == 200
+
+    assert len(bootstrap.audit_limits) == 1, (
+        "the audit repository was never read -- the endpoint short-circuited before "
+        "reaching the bounded call site, so this test proves nothing about it"
+    )
+    assert bootstrap.audit_limits[0] is not None
+    assert bootstrap.audit_limits[0] == _AUDIT_READ_BOUND
