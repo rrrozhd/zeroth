@@ -28,11 +28,15 @@ MANDATORY_CHECKS = (
 )
 
 _EXACT_VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,4}$")
+_HTTP_HEADER = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_IMAGE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9./:_-]*$")
 
 
 def _relative_path(value: str, field: str) -> str:
     path = PurePosixPath(value)
-    if not value or path.is_absolute() or ".." in path.parts or value.endswith("/"):
+    unsafe = "\\" in value or any(ord(character) < 32 for character in value)
+    if not value or unsafe or path.is_absolute() or ".." in path.parts or value.endswith("/"):
         raise ValueError(f"{field} must be a safe relative file path")
     return value
 
@@ -55,6 +59,7 @@ class SmokeSpec(BaseModel):
     request_json: dict[str, Any]
     expected_status: int = Field(ge=100, le=599)
     expected_json: dict[str, Any] = Field(min_length=1)
+    headers_from_env: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("path")
     @classmethod
@@ -71,6 +76,20 @@ class SmokeSpec(BaseModel):
     def _deterministic_json(cls, value: dict[str, Any], info) -> dict[str, Any]:
         return _require_json(value, info.field_name)
 
+    @field_validator("headers_from_env")
+    @classmethod
+    def _safe_header_environment(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: set[str] = set()
+        for header, env_name in value.items():
+            if _HTTP_HEADER.fullmatch(header) is None or header.lower() == "content-type":
+                raise ValueError(f"unsafe smoke HTTP header name {header!r}")
+            if header.lower() in normalized:
+                raise ValueError(f"duplicate smoke HTTP header name {header!r}")
+            if _ENV_NAME.fullmatch(env_name) is None:
+                raise ValueError(f"unsafe smoke environment variable name {env_name!r}")
+            normalized.add(header.lower())
+        return value
+
 
 class AppDeclaration(BaseModel):
     """Versioned, fail-closed certification declaration owned by an app."""
@@ -81,17 +100,25 @@ class AppDeclaration(BaseModel):
     app_name: str = Field(min_length=1, max_length=120)
     zeroth_version: str
     lock_path: str
+    dockerfile: str
     image_reference: str = Field(min_length=1, max_length=255)
     sbom_path: str
     provenance_path: str
     checks: dict[str, list[str]]
     smoke: SmokeSpec
 
-    @field_validator("app_name", "image_reference")
+    @field_validator("app_name")
     @classmethod
     def _nonblank(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("value must not be blank")
+        return value
+
+    @field_validator("image_reference")
+    @classmethod
+    def _safe_image_reference(cls, value: str) -> str:
+        if _IMAGE_REFERENCE.fullmatch(value) is None:
+            raise ValueError("image_reference must contain only Docker reference characters")
         return value
 
     @field_validator("zeroth_version")
@@ -101,7 +128,7 @@ class AppDeclaration(BaseModel):
             raise ValueError("zeroth_version must be an exact numeric version without a range")
         return value
 
-    @field_validator("lock_path", "sbom_path", "provenance_path")
+    @field_validator("lock_path", "dockerfile", "sbom_path", "provenance_path")
     @classmethod
     def _safe_path(cls, value: str, info) -> str:
         return _relative_path(value, info.field_name)

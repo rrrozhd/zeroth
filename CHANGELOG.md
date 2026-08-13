@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9] - 2026-08-13
+
+### Added
+
+- Publish a reusable generated-app certification workflow with immutable
+  certifier checkout, measured app and image identity, isolated packaged and
+  ephemeral smoke boundaries, SPDX SBOM, provenance attestation, and retained
+  failure diagnostics.
+- Add the ready-to-run `vendor-dd` certification declaration and non-root image
+  reference, including environment-resolved authentication with no literal
+  secret in the declaration.
+
 ## [0.23.8] - 2026-08-13
 
 ### Added

@@ -1,0 +1,287 @@
+name: Certify Zeroth application
+
+on:
+  workflow_call:
+    inputs:
+      zeroth_ref:
+        description: Immutable Zeroth commit to certify against
+        required: true
+        type: string
+      declaration_path:
+        description: App-relative certification declaration
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      zeroth_ref:
+        description: Immutable Zeroth commit to certify against
+        required: true
+        type: string
+      declaration_path:
+        description: App-relative certification declaration
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout application candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+
+      - name: Checkout pinned Zeroth certifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
+      - name: Validate pins and build Zeroth wheel
+        id: prepare
+        shell: bash
+        env:
+          DECLARATION_PATH: ${{ inputs.declaration_path }}
+          ZEROTH_REF: ${{ inputs.zeroth_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$ZEROTH_REF" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "zeroth_ref must be a full commit SHA" >&2
+            exit 1
+          }
+          [[ "$DECLARATION_PATH" != /* && "/$DECLARATION_PATH/" != *"/../"* ]] || {
+            echo "declaration_path must remain below the app checkout" >&2
+            exit 1
+          }
+          DECLARATION_FILE=$(realpath -e "app/$DECLARATION_PATH")
+          [[ "$DECLARATION_FILE" == "$GITHUB_WORKSPACE/app/"* ]] || {
+            echo "declaration_path resolves outside the app checkout" >&2
+            exit 1
+          }
+          ZEROTH_COMMIT=$(git -C zeroth rev-parse HEAD)
+          [[ "$ZEROTH_COMMIT" == "$ZEROTH_REF" ]] || {
+            echo "checked-out certifier does not match zeroth_ref" >&2
+            exit 1
+          }
+          [[ ! -e app/.zeroth-certifier && ! -L app/.zeroth-certifier && \
+             ! -e app/.app-certification && ! -L app/.app-certification ]] || {
+            echo "reserved certification paths already exist in the app checkout" >&2
+            exit 1
+          }
+
+          cd zeroth
+          uv sync --frozen --all-extras
+          mkdir -p ../app/.zeroth-certifier ../app/.app-certification
+          uv build --wheel --out-dir ../app/.zeroth-certifier
+          cp requirements-image.txt ../app/.zeroth-certifier/requirements-image.txt
+          cd ..
+          npm ci --prefix app/frontend
+
+          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth"
+          cp "$DECLARATION_FILE" app/.app-certification/declaration.json
+          "$PYTHON" -m release.app_certification validate-declaration \
+            --declaration "$DECLARATION_FILE"
+          DECLARED_VERSION=$("$PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["zeroth_version"])' \
+            "$DECLARATION_FILE")
+          CERTIFIER_VERSION=$("$PYTHON" -c \
+            'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' \
+            zeroth/pyproject.toml)
+          [[ "$DECLARED_VERSION" == "$CERTIFIER_VERSION" ]] || {
+            echo "declaration Zeroth pin does not match checked-out certifier" >&2
+            exit 1
+          }
+
+          APP_COMMIT=$(git -C app rev-parse HEAD)
+          DOCKERFILE=$("$PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
+            "$DECLARATION_FILE")
+          IMAGE_REFERENCE=$("$PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
+            "$DECLARATION_FILE")
+          SBOM_PATH=$("$PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["sbom_path"])' \
+            "$DECLARATION_FILE")
+          PROVENANCE_PATH=$("$PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["provenance_path"])' \
+            "$DECLARATION_FILE")
+          echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
+          echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "sbom_path=$SBOM_PATH" >> "$GITHUB_OUTPUT"
+          echo "provenance_path=$PROVENANCE_PATH" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_WORKSPACE/zeroth/.venv/bin" >> "$GITHUB_PATH"
+
+          APP_CERTIFICATION_API_KEY=$("$PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
+          echo "::add-mask::$APP_CERTIFICATION_API_KEY"
+          echo "APP_CERTIFICATION_API_KEY=$APP_CERTIFICATION_API_KEY" >> "$GITHUB_ENV"
+
+      - name: Build and measure application image
+        id: image
+        shell: bash
+        env:
+          DOCKERFILE: ${{ steps.prepare.outputs.dockerfile }}
+          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          docker build --file "app/$DOCKERFILE" --tag "$IMAGE_REFERENCE" app
+          IMAGE_DIGEST=$(docker image inspect "$IMAGE_REFERENCE" --format '{{.Id}}')
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "docker returned a non-immutable image digest" >&2
+            exit 1
+          }
+          docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
+          echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SPDX image SBOM
+        id: sbom
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.prepare.outputs.image_reference }}
+          format: spdx-json
+          output-file: app/.app-certification/image.spdx.json
+          upload-artifact: "false"
+
+      - name: Attest measured image provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.prepare.outputs.image_reference }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+
+      - name: Copy evidence to declaration paths
+        id: retain-evidence
+        shell: bash
+        env:
+          SBOM_REL: ${{ steps.prepare.outputs.sbom_path }}
+          PROVENANCE_REL: ${{ steps.prepare.outputs.provenance_path }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          safe_destination() {
+            python -c \
+              'from pathlib import Path; import sys; root=Path("app").resolve(); target=(root/sys.argv[1]).resolve(); target.relative_to(root); print(target)' \
+              "$1"
+          }
+          SBOM_DEST=$(safe_destination "$SBOM_REL")
+          PROVENANCE_DEST=$(safe_destination "$PROVENANCE_REL")
+          mkdir -p "$(dirname "$SBOM_DEST")" "$(dirname "$PROVENANCE_DEST")"
+          cp app/.app-certification/image.spdx.json "$SBOM_DEST"
+          cp "$PROVENANCE_BUNDLE" \
+            app/.app-certification/provenance.bundle.json
+          cp app/.app-certification/provenance.bundle.json "$PROVENANCE_DEST"
+          mkdir -p \
+            "app/.app-certification/root/$(dirname "$SBOM_REL")" \
+            "app/.app-certification/root/$(dirname "$PROVENANCE_REL")"
+          cp "$SBOM_DEST" "app/.app-certification/root/$SBOM_REL"
+          cp "$PROVENANCE_DEST" "app/.app-certification/root/$PROVENANCE_REL"
+
+      - name: Start isolated packaged and ephemeral containers
+        id: containers
+        shell: bash
+        env:
+          IMAGE_ID: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker network create app-cert-packaged-net
+          docker network create app-cert-ephemeral-net
+          docker volume create app-cert-packaged-data
+          docker run --detach --name app-cert-packaged \
+            --network app-cert-packaged-net \
+            --mount type=volume,source=app-cert-packaged-data,target=/data \
+            --publish 127.0.0.1:18080:8000 \
+            --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            "$IMAGE_ID"
+          docker run --detach --name app-cert-ephemeral \
+            --network app-cert-ephemeral-net \
+            --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
+            --publish 127.0.0.1:18081:8000 \
+            --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            "$IMAGE_ID"
+
+      - name: Require both containers healthy
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          wait_healthy() {
+            local name="$1" status running
+            for _ in {1..90}; do
+              running=$(docker inspect --format '{{.State.Running}}' "$name")
+              status=$(docker inspect --format '{{.State.Health.Status}}' "$name")
+              [[ "$running" == "true" ]] || return 1
+              [[ "$status" == "healthy" ]] && return 0
+              [[ "$status" != "unhealthy" ]] || return 1
+              sleep 2
+            done
+            return 1
+          }
+          wait_healthy app-cert-packaged
+          wait_healthy app-cert-ephemeral
+
+      - name: Run fail-closed certification
+        id: certify
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+          DECLARATION_PATH: ${{ inputs.declaration_path }}
+          APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          python -m release.app_certification run \
+            --declaration "app/$DECLARATION_PATH" \
+            --root app \
+            --app-commit "$APP_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --packaged-url http://127.0.0.1:18080 \
+            --ephemeral-url http://127.0.0.1:18081 \
+            --report app/.app-certification/report.json
+
+      - name: Capture container diagnostics
+        id: logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          mkdir -p app/.app-certification/logs
+          docker logs app-cert-packaged \
+            > app/.app-certification/logs/packaged.log 2>&1
+          docker logs app-cert-ephemeral \
+            > app/.app-certification/logs/ephemeral.log 2>&1
+          docker inspect app-cert-packaged app-cert-ephemeral \
+            > app/.app-certification/logs/container-inspect.json 2>&1
+
+      - name: Stop and remove certification containers
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          docker stop app-cert-packaged app-cert-ephemeral
+          docker rm app-cert-packaged app-cert-ephemeral
+          docker network rm app-cert-packaged-net app-cert-ephemeral-net
+          docker volume rm app-cert-packaged-data
+
+      - name: Upload certification diagnostics
+        id: diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-${{ github.run_id }}
+          path: app/.app-certification
+          if-no-files-found: warn
+          retention-days: 14
