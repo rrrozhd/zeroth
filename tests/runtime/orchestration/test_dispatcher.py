@@ -30,6 +30,7 @@ from zeroth.contracts.graph import (
     SubgraphNode,
     SubgraphNodeData,
 )
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.orchestration import (
     MemoryBindingResolutionError,
     NodeDispatcher,
@@ -38,7 +39,7 @@ from zeroth.runtime.orchestration import (
     RuntimeToolExecutor,
 )
 from zeroth.runtime.orchestration.dispatcher import dispatch_subgraph_node
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunHistoryEntry, RunStatus
 
 
 class _StubUnitRunner:
@@ -205,7 +206,8 @@ async def test_dispatching_an_unsupported_node_type_raises_node_dispatcher_error
         await dispatcher.dispatch(_Weird(), _AnyRun(), {})
 
 
-async def test_subgraph_dispatch_seam_normalizes_child_output_and_audit() -> None:
+@pytest.mark.parametrize("resumed", [False, True])
+async def test_subgraph_dispatch_seam_rolls_up_child_cost(resumed: bool) -> None:
     node = SubgraphNode(
         node_id="subgraph",
         graph_version_ref="g:v1",
@@ -213,14 +215,35 @@ async def test_subgraph_dispatch_seam_normalizes_child_output_and_audit() -> Non
     )
     graph = _graph([node])
     parent = Run(graph_version_ref="g:v1", deployment_ref="g", status=RunStatus.RUNNING)
+    if resumed:
+        parent.metadata["pending_subgraph"] = {
+            "node_id": "subgraph",
+            "child_run_id": "child-run",
+        }
     child = Run(
         run_id="child-run",
         graph_version_ref="child:v1",
         deployment_ref="child",
         status=RunStatus.COMPLETED,
         final_output={"answer": 42},
+        execution_history=[
+            RunHistoryEntry(
+                node_id="paid-child",
+                status="completed",
+                cost_usd=0.25,
+                estimated_cost_usd=0.5,
+                cost_measurement=MeasurementState.ESTIMATED,
+            )
+        ],
     )
-    executor = type("Executor", (), {"execute": AsyncMock(return_value=child)})()
+    executor = type(
+        "Executor",
+        (),
+        {
+            "execute": AsyncMock(return_value=child),
+            "resume": AsyncMock(return_value=child),
+        },
+    )()
     orchestrator = type("Orchestrator", (), {})()
 
     result = await dispatch_subgraph_node(
@@ -238,7 +261,10 @@ async def test_subgraph_dispatch_seam_normalizes_child_output_and_audit() -> Non
         "subgraph_run_id": "child-run",
         "subgraph_graph_ref": "child",
         "subgraph_status": "COMPLETED",
-        "subgraph_resumed": False,
+        "subgraph_resumed": resumed,
+        "cost_usd": 0.25,
+        "estimated_cost_usd": 0.5,
+        "cost_measurement": MeasurementState.ESTIMATED,
     }
     assert result.terminal_run is None
 

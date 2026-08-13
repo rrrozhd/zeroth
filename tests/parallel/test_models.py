@@ -10,6 +10,7 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelStepLimitError
 from zeroth.runtime.parallel.executor import ParallelExecutor
 from zeroth.runtime.parallel.models import (
@@ -142,7 +143,8 @@ class TestBranchResult:
         assert r.error is None
         assert r.audit_refs == []
         assert r.execution_history == []
-        assert r.cost_usd == 0.0
+        assert r.cost_usd is None
+        assert r.cost_measurement is MeasurementState.UNMEASURED
 
     def test_failure_result(self) -> None:
         r = BranchResult(branch_index=1, output=None, error="boom")
@@ -168,7 +170,9 @@ class TestFanInResult:
     def test_defaults(self) -> None:
         fin = FanInResult(results=[])
         assert fin.merged_output == {}
-        assert fin.total_cost_usd == 0.0
+        assert fin.total_cost_usd is None
+        assert fin.total_estimated_cost_usd is None
+        assert fin.cost_measurement is MeasurementState.UNMEASURED
         assert fin.total_steps == 0
 
 

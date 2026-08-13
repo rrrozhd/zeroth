@@ -1,6 +1,8 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import Numeric, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
@@ -17,8 +19,6 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, clas
 
 
 def get_db() -> Generator[Session, None, None]:
-    Base.metadata.create_all(bind=engine)
-    _ensure_sqlite_compat()
     db = SessionLocal()
     try:
         yield db
@@ -28,8 +28,6 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_scoped_db(context: ScopeContext) -> Generator[ScopedSession, None, None]:
     """Yield a tenant-scoped econ gateway from an explicit trusted context."""
-    Base.metadata.create_all(bind=engine)
-    _ensure_sqlite_compat()
     db = SessionLocal()
     try:
         yield ScopedSession(db, context)
@@ -102,7 +100,32 @@ def _ensure_sqlite_compat() -> None:
 
         ensure_col("execution_events", "tenant_id", "tenant_id VARCHAR(128)")
         ensure_col("execution_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
-        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128)")
+        ensure_col(
+            "execution_events",
+            "cost_measurement",
+            "cost_measurement VARCHAR(16) DEFAULT 'unmeasured'",
+        )
+        ensure_col(
+            "execution_events",
+            "usage_measurement",
+            "usage_measurement VARCHAR(16) DEFAULT 'unmeasured'",
+        )
+        execution_columns = {
+            row[1]: row for row in conn.execute(text("PRAGMA table_info(execution_events)"))
+        }
+        cost_columns = ("token_cost_usd", "tool_cost_usd", "compute_cost_usd")
+        if any(execution_columns.get(column, (None,) * 4)[3] for column in cost_columns):
+            operations = Operations(MigrationContext.configure(conn))
+            with operations.batch_alter_table(
+                "execution_events", recreate="always"
+            ) as batch:
+                for column in cost_columns:
+                    batch.alter_column(
+                        column,
+                        existing_type=Numeric(12, 4),
+                        nullable=True,
+                    )
+        ensure_col("outcome_events", "tenant_id", "tenant_id VARCHAR(128) DEFAULT 'tenant_default'")
         ensure_col("outcome_events", "join_key", "join_key VARCHAR(128) DEFAULT ''")
         ensure_col("outcome_events", "implementation_id", "implementation_id VARCHAR(128)")
         ensure_col("outcome_events", "outcome_payload_json", "outcome_payload_json JSON DEFAULT '{}'")
@@ -134,9 +157,6 @@ def _ensure_sqlite_compat() -> None:
         # avoids sharing its module-level Operations proxy across startups.
         import importlib.util
         from pathlib import Path
-
-        from alembic.migration import MigrationContext
-        from alembic.operations import Operations
 
         migration_path = (
             Path(__file__).parent

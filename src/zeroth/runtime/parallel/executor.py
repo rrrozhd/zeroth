@@ -13,6 +13,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from zeroth.contracts.mappings.executor import _get_path, _set_path
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.errors import (
     BranchApprovalPauseSignal,
     FanOutValidationError,
@@ -278,12 +279,17 @@ class ParallelExecutor:
             # persisting just one would orphan the others (audit B10). Fail loudly
             # rather than silently corrupt state — list-based multi-pause resume is
             # the real fix and is out of scope for this hardening pass.
-            raise MultipleBranchPauseError(
+            error = MultipleBranchPauseError(
                 f"{len(pause_signals)} branches paused for approval in a best_effort "
                 "fan-out; concurrent multi-branch approval pauses are not yet "
                 "supported (would orphan child runs). Use fail_fast, or move the "
                 "approval gate outside the fan-out."
             )
+            error.branch_histories = [  # type: ignore[attr-defined]
+                (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+            ]
+            error.pause_signals = pause_signals  # type: ignore[attr-defined]
+            raise error
 
         pause_signal = pause_signals[0] if pause_signals else None
         if pause_signal is not None:
@@ -339,6 +345,21 @@ class ParallelExecutor:
                 if not task.done():
                     task.cancel()
             drained = await asyncio.gather(*tasks, return_exceptions=True)
+            pause_signals = [
+                result
+                for result in drained
+                if isinstance(result, BranchApprovalPauseSignal)
+            ]
+            if len(pause_signals) > 1:
+                error = MultipleBranchPauseError(
+                    f"{len(pause_signals)} branches paused for approval in a fail_fast "
+                    "fan-out; concurrent multi-branch approval pauses are not yet supported"
+                )
+                error.branch_histories = [  # type: ignore[attr-defined]
+                    (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+                ]
+                error.pause_signals = pause_signals  # type: ignore[attr-defined]
+                raise error from pause
             # Partition: completed-before-pause vs cancelled in-flight.
             completed_before_pause: list[BranchResult] = []
             cancelled_by_pause: list[BranchContext] = []
@@ -346,9 +367,7 @@ class ParallelExecutor:
                 if ctx.branch_index == pause.branch_index:
                     continue  # the paused branch itself
                 if isinstance(result, BranchApprovalPauseSignal):
-                    # Rare: two branches paused; keep the first, treat
-                    # the other as cancelled for bookkeeping.
-                    cancelled_by_pause.append(ctx)
+                    continue
                 elif isinstance(result, BaseException):
                     # CancelledError or other -- treat as cancelled.
                     cancelled_by_pause.append(ctx)
@@ -371,7 +390,11 @@ class ParallelExecutor:
             # Wait for cancellations to complete
             await asyncio.gather(*tasks, return_exceptions=True)
             msg = f"parallel execution failed (fail-fast): {exc}"
-            raise ParallelExecutionError(msg) from exc
+            error = ParallelExecutionError(msg)
+            error.branch_histories = [  # type: ignore[attr-defined]
+                (list(ctx.execution_history), list(ctx.audit_refs)) for ctx in branch_contexts
+            ]
+            raise error from exc
 
         return [
             BranchResult(
@@ -424,12 +447,27 @@ class ParallelExecutor:
         _set_path(merged_output, merge_path, reduced_value)
 
         # Aggregate cost and step counts
-        total_cost = sum(r.cost_usd for r in sorted_results)
+        costs = [result.cost_usd for result in sorted_results if result.cost_usd is not None]
+        estimates = [
+            result.estimated_cost_usd
+            for result in sorted_results
+            if result.estimated_cost_usd is not None
+        ]
+        states = [result.cost_measurement for result in sorted_results]
+        cost_measurement = (
+            MeasurementState.UNMEASURED
+            if not states or MeasurementState.UNMEASURED in states
+            else MeasurementState.ESTIMATED
+            if MeasurementState.ESTIMATED in states
+            else MeasurementState.MEASURED
+        )
         total_steps = sum(len(r.execution_history) for r in sorted_results)
 
         return FanInResult(
             results=sorted_results,
             merged_output=merged_output,
-            total_cost_usd=total_cost,
+            total_cost_usd=sum(costs) if costs else None,
+            total_estimated_cost_usd=sum(estimates) if estimates else None,
+            cost_measurement=cost_measurement,
             total_steps=total_steps,
         )

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.23.5.2] - 2026-08-13
 
+One governed client layer for outbound I/O (ZER-48), plus the findings this
+branch's own audit raised against it. Released as a single version: the
+intermediate numbers this branch used while it was open were working
+increments, and one of them collided with a `0.23.1` main shipped
+independently in the meantime.
+
 ### Fixed
 
 - An agent with no configured timeout no longer calls its LLM provider without a deadline.
@@ -20,10 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   oracle. Non-finite and non-positive values are discarded rather than honoured: `wait_for` reads
   `inf` as no deadline, and `AgentConfig` declares the field with `ge=0.0`, so `0` is authorable
   and would cancel every call instantly (ZER-48 follow-up / F-CORR-08).
-
-## [0.23.5.1] - 2026-08-12
-
-### Added
 
 Evidence, not behaviour. The initial audit proved by mutation that ten registered checks passed
 identically with their fix deleted — a green suite that could not have caught the regression it
@@ -46,12 +48,8 @@ was meant to guard. Each now fails when the fix is removed:
   `import httpx as hx` hid four banned constructions. Three pre-existing committed sites the
   scanner previously could not see are added to the allowlist (R30).
 
-## [0.23.5] - 2026-08-12
-
 Fixes found by this task's own initial audit, including four regressions the
 earlier commits in this series introduced.
-
-### Fixed
 
 - A circuit breaker on an endpoint carrying mixed traffic now opens. Endpoint health
   was being decided by whether the *request* could be replayed rather than by what the
@@ -84,15 +82,6 @@ earlier commits in this series introduced.
 - Retired sandbox output sets the truncation flags, so it is distinguishable from an
   execution that genuinely produced none (F-CORR-09).
 
-### Changed
-
-- The sidecar's 422 uses `HTTP_422_UNPROCESSABLE_CONTENT`, matching the rest of the
-  codebase and dropping a Starlette deprecation warning.
-
-## [0.23.4] - 2026-08-12
-
-### Fixed
-
 - Memory connectors are constructed with mandatory timeouts. redis-py leaves `socket_timeout`
   and `socket_connect_timeout` at `None`, and chromadb 1.5.6 builds its transport as
   `httpx.Client(timeout=None)` — explicitly disabled, not merely unset. `HttpClient` accepts no
@@ -118,8 +107,6 @@ earlier commits in this series introduced.
   the module, so no write opted in and a write was invisible for the default refresh interval
   (ZER-48 / A07-25).
 
-### Added
-
 - Memory-connector suites inject real degradation — malformed embeddings, malformed backend
   responses, a wrong key, and a slow peer driven against a real black-hole TCP socket. Across
   all five suites the only exception previously injected was a single Elasticsearch
@@ -128,10 +115,6 @@ earlier commits in this series introduced.
   `KeyError` subclass, because `delete`'s `KeyError` is the genuine not-found signal
   (ZER-48 / A07-32, acceptance criterion 4).
 
-## [0.23.3] - 2026-08-12
-
-### Added
-
 - A governed factory for outbound clients off the agent call path. It hands every caller one
   shared `httpx.AsyncClient` per `(purpose, base_url, timeout, redirects, transport)`, with a
   mandatory positive finite timeout — `None`, zero, negative, `inf` and `nan` are all refused
@@ -139,8 +122,6 @@ earlier commits in this series introduced.
   `app.state` and guarded by a lock with a double check, because a readiness probe is precisely
   the endpoint that is hit concurrently. `ResilientHttpClient` remains the governed layer for
   agent traffic and is untouched (ZER-48 / A02-16).
-
-### Fixed
 
 - The unauthenticated readiness probe no longer builds a dependency client per request. Its
   Redis client came from `redis_from_url` with neither `socket_timeout` nor
@@ -152,15 +133,6 @@ earlier commits in this series introduced.
 - Pooled outbound clients are released at shutdown. They are deliberately not closed when the
   request that first asked for one returns, so the service lifespan is the only place they can
   be, and a failure closing them is logged rather than allowed to mask the rest of teardown.
-
-### Changed
-
-- The transport-construction ratchet shrank from 20 recorded violations to 14 as those six call
-  sites moved onto the factory — the allowlist doing what it exists to do.
-
-## [0.23.2] - 2026-08-12
-
-### Fixed
 
 - A sandboxed execution always carries a finite deadline. `timeout_seconds` defaults to `None`
   and flowed straight into `asyncio.wait_for`, where `None` means wait forever, so a request
@@ -190,18 +162,12 @@ earlier commits in this series introduced.
   `observe` appended with no cap or reset, and `snapshot` copies rather than drains. The exported
   `_count` and `_sum` come from running totals so they stay monotonic (ZER-48 / A08-3).
 
-### Added
-
 - An architecture test bans transport-client construction outside the governed factories —
   `httpx.AsyncClient`, `httpx.Client`, `chromadb.HttpClient`, `aioredis.from_url` and a literal
   `asyncio.wait_for(..., timeout=None)` — seeded with today's 20 violations as an exact-set
   allowlist that fails both when a new violation appears and when an entry goes stale, so it can
   only shrink. It resolves `from … import … as …` aliases, without which it would miss the
   readiness probe's own unbounded Redis client (ZER-48 / acceptance criterion 1).
-
-## [0.23.1] - 2026-08-12
-
-### Fixed
 
 - Outbound HTTP retries obey one idempotency rule on both paths. A transport failure no
   longer replays a non-idempotent request, a retryable status now records a circuit-breaker
@@ -224,11 +190,120 @@ earlier commits in this series introduced.
 
 ### Changed
 
+- The sidecar's 422 uses `HTTP_422_UNPROCESSABLE_CONTENT`, matching the rest of the
+  codebase and dropping a Starlette deprecation warning.
+
+- The transport-construction ratchet shrank from 20 recorded violations to 14 as those six call
+  sites moved onto the factory — the allowlist doing what it exists to do.
+
 - `step_tracker` has no permissive default on subgraph dispatch. It is a required keyword on
   `dispatch_subgraph_node`, `SubgraphExecutor.execute` and `SubgraphExecutor.resume`, so a
   nested subgraph can no longer be handed a fresh step budget by omission (ZER-48 / A06-17).
 - `AuditRepository.list` accepts a `limit` that bounds the read to the most recent records,
   still returned oldest-first (ZER-48 / A02-14).
+
+## [0.23.1.1.1] - 2026-08-13
+
+### Fixed
+
+- The live-Postgres tenant-scope migration test builds an `execution_events` table that has the
+  cost columns, so `20260812_04` can run against it. Nothing in the migration chain creates that
+  table -- `create_all` does, from a model that has carried `token_cost_usd`, `tool_cost_usd` and
+  `compute_cost_usd` since the table was introduced -- so a database without them cannot exist and
+  the minimal fixture was simply unfaithful. The revision could not execute in this test at all,
+  which is why `main` was red on it, and why its cost classification had no live-Postgres coverage
+  anywhere. That classification is now asserted: an all-zero row must come out `unmeasured`.
+
+## [0.23.1.1] - 2026-08-13
+
+- Reject blank startup secrets and database DSNs, and make LangChain execution
+  identifiers collision-resistant.
+
+## [0.23.1] - 2026-08-13
+
+- Move econ schema compatibility to startup, make instrumentation lazy and
+  observable, and reject invalid backend or standalone signing configuration.
+
+## [0.23.0.11.2] - 2026-08-12
+
+- Preserve complete provider measurements when a post-response operational step fails.
+
+## [0.23.0.11.1] - 2026-08-12
+
+- Preserve absent provider token usage as unmeasured metadata instead of
+  inventing zero input, output, and total token counts.
+
+## [0.23.0.11] - 2026-08-12
+
+- Preserve child-run costs across successful token dispatch and failed parallel
+  resume, while reserving rejected audits for explicit governance decisions.
+
+## [0.23.0.10.1] - 2026-08-12
+
+- Preserve incomplete provider attempts and paused or failed child-run spend,
+  and keep eligible zero-cost rightsizing candidates competitive.
+
+## [0.23.0.10] - 2026-08-12
+
+- Preserve measurement completeness across budget checks, provider retries,
+  failed parallel resumes, concurrent approval pauses, and telemetry adapters.
+
+## [0.23.0.9] - 2026-08-12
+
+- Close accounting lifecycle gaps across token fan-out, MCP cleanup, failed
+  subgraphs, concurrent approvals, budget provenance, and model attribution.
+
+## [0.23.0.8] - 2026-08-12
+
+- Preserve source and branch accounting across fan-out failures and approval
+  pauses, flag estimated retries, and avoid cross-model token attribution.
+
+## [0.23.0.7] - 2026-08-12
+
+- Preserve cost and usage provenance across repeated fan-out, approval resume,
+  cascade fallback, retry analysis, and legacy SQLite startup.
+
+## [0.23.0.6.1] - 2026-08-12
+
+- Verify retry and tool-loop cost and usage accounting against every provider turn.
+
+## [0.23.0.6] - 2026-08-12
+
+- Close provider retry, cascade failure, subgraph resume, and fan-out cost accounting gaps.
+
+## [0.23.0.5] - 2026-08-12
+
+- Preserve failed-run, compaction, cascade, subgraph, and fan-out cost provenance through runtime composition.
+
+## [0.23.0.4] - 2026-08-12
+
+### Fixed
+
+- Preserve provider measurement provenance through parallel and failed executions,
+  and flag incomplete spend in aggregate budget, costing, and waste views.
+
+## [0.23.0.3] - 2026-08-12
+
+### Fixed
+
+- Preserve measured, estimated, and unmeasured provider cost and usage through execution,
+  compaction, budget, cap, and waste accounting boundaries.
+- Keep masked tool messages structurally intact and retain fractional experiment allocation.
+
+## [0.23.0.2] - 2026-08-12
+
+### Fixed
+
+- Persisted dropped-content schemas now fingerprint producer-controlled string
+  keys with a projection-scoped HMAC instead of a reusable public digest.
+
+## [0.23.0.1] - 2026-08-12
+
+### Fixed
+
+- Package, Console, documentation, and changelog versions stay synchronized,
+  while measured LangGraph image evidence remains bound to its recorded release
+  until the benchmark, image, SBOM, and provenance set is regenerated.
 
 ## [0.23.0] - 2026-08-12
 
@@ -249,6 +324,25 @@ earlier commits in this series introduced.
   or gateway row. Foreign resources retain the same empty or unknown observable as missing
   resources, including artifact and secret surfaces (ZER-44 / A01-14, A01-32, A01-29,
   A01-26, A02-1, A02-2, A02-26, A03-1, A06-3, A06-19, A07-19, A08-9, A10-6).
+
+## [0.23] - 2026-08-12
+
+### Changed
+
+- Dropped audit metadata now uses per-policy keyed HMAC summaries rather than
+  reusable unkeyed digests.
+- The legacy Redis audit emitter refuses raw writes and is no longer exported
+  from the audit package.
+
+### Fixed
+
+- Approval payloads and nested audit metadata are sanitized before persistence,
+  including secret-bearing mapping keys and key spelling variants.
+- Empty prompt-secret values are ignored safely, while short known secrets
+  trigger whole-value redaction.
+- Approval escalation uses pending-only writes, decision audit identifiers are
+  outcome-scoped, and encrypted checkpoint or token snapshot decode failures no
+  longer fall back to ciphertext as plaintext.
 ## [0.22.4] - 2026-08-12
 
 ### Added

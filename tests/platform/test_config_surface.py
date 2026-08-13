@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from typing import get_args, get_type_hints
+
+import pytest
 
 
 def test_config_publishes_its_whole_surface() -> None:
@@ -62,3 +65,42 @@ def test_config_imports_in_a_cold_interpreter() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_exact_dispatch_settings_have_closed_types() -> None:
+    from zeroth.platform.artifacts.models import ArtifactStoreSettings
+    from zeroth.platform.config.settings import (
+        ProvenanceSigningSettings,
+        RedisSettings,
+        SandboxSettings,
+        SecretsSettings,
+    )
+
+    expected = {
+        (RedisSettings, "mode"): {"local", "disabled"},
+        (SandboxSettings, "backend"): {"local", "docker", "auto", "sidecar"},
+        (SecretsSettings, "backend"): {"env", "vault"},
+        (ProvenanceSigningSettings, "mode"): {"env", "kms", "off"},
+        (ArtifactStoreSettings, "backend"): {"filesystem", "redis"},
+    }
+    for (model, field), choices in expected.items():
+        assert set(get_args(get_type_hints(model)[field])) == choices
+
+
+def test_postgres_requires_dsn_during_settings_validation() -> None:
+    from pydantic import ValidationError
+
+    from zeroth.platform.config.settings import DatabaseSettings
+
+    with pytest.raises(ValidationError, match="postgres backend requires postgres_dsn"):
+        DatabaseSettings(backend="postgres")
+
+
+@pytest.mark.parametrize("dsn", ["", "   "])
+def test_postgres_requires_nonblank_dsn(dsn: str) -> None:
+    from pydantic import ValidationError
+
+    from zeroth.platform.config.settings import DatabaseSettings
+
+    with pytest.raises(ValidationError, match="postgres backend requires postgres_dsn"):
+        DatabaseSettings(backend="postgres", postgres_dsn=dsn)

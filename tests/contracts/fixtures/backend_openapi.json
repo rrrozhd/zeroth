@@ -2493,6 +2493,14 @@
         ],
         "type": "object"
       },
+      "MeasurementState": {
+        "enum": [
+          "measured",
+          "estimated",
+          "unmeasured"
+        ],
+        "type": "string"
+      },
       "MemoryAccessRecord": {
         "additionalProperties": false,
         "properties": {
@@ -2647,6 +2655,16 @@
               }
             ]
           },
+          "cost_measurement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeasurementState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cost_usd": {
             "anyOf": [
               {
@@ -2693,6 +2711,16 @@
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
               },
               {
                 "type": "null"
@@ -4684,6 +4712,14 @@
           "confirmed_findings": {
             "default": 0,
             "type": "integer"
+          },
+          "cost_measurement_complete": {
+            "default": true,
+            "type": "boolean"
+          },
+          "estimated_cost_usd": {
+            "default": 0.0,
+            "type": "number"
           },
           "findings": {
             "default": 0,

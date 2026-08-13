@@ -102,6 +102,7 @@ class ApprovalService:
         allowed_actions = [ApprovalDecision.APPROVE, ApprovalDecision.REJECT]
         if allow_edits:
             allowed_actions.append(ApprovalDecision.EDIT_AND_APPROVE)
+        sanitized_payload = self.payload_sanitizer.sanitize(input_payload)
         record = ApprovalRecord(
             run_id=run.run_id,
             thread_id=run.thread_id,
@@ -114,8 +115,8 @@ class ApprovalService:
             allowed_actions=allowed_actions,
             summary=f"Approval required for node {node.node_id}",
             rationale="Human review is required before execution can continue.",
-            context_excerpt=self.payload_sanitizer.sanitize(input_payload),
-            proposed_payload=dict(input_payload),
+            context_excerpt=sanitized_payload,
+            proposed_payload=sanitized_payload,
             urgency_metadata=dict(node.human_approval.pause_behavior_config),
             resolution_schema_ref=node.human_approval.resolution_schema_ref,
         )
@@ -243,7 +244,7 @@ class ApprovalService:
         - auto_reject: resolves original as REJECTED with system actor
         - alert (default): marks original ESCALATED (webhook emission by caller)
 
-        If the approval is already ESCALATED, this is a no-op (prevents double-escalation).
+        If the approval is no longer pending, this is a no-op.
         """
         record = await self._require(
             approval_id,
@@ -252,15 +253,18 @@ class ApprovalService:
             deployment_ref=deployment_ref,
             graph_version_ref=graph_version_ref,
         )
-        if record.status is ApprovalStatus.ESCALATED:
-            return record  # already escalated, no-op per pitfall 3
+        if record.status is not ApprovalStatus.PENDING:
+            return record
 
         action = record.escalation_action or "alert"
 
         if action == "delegate":
             record.status = ApprovalStatus.ESCALATED
             record.updated_at = datetime.now(UTC)
-            await self.repository.write(record)
+            escalated = await self.repository.resolve_pending(record)
+            if escalated is None:
+                return await self._require(approval_id)
+            record = escalated
 
             delegate_identity_dict = record.urgency_metadata.get("delegate_identity")
             delegate_actor = (
@@ -317,7 +321,9 @@ class ApprovalService:
         else:  # "alert" or unknown
             record.status = ApprovalStatus.ESCALATED
             record.updated_at = datetime.now(UTC)
-            written = await self.repository.write(record)
+            written = await self.repository.resolve_pending(record)
+            if written is None:
+                return await self._require(approval_id)
             await self._notify(written, summary=f"[Escalated] {written.summary}")
             return written
 
@@ -600,7 +606,10 @@ class ApprovalService:
             return
         await self.audit_repository.write(
             NodeAuditRecord(
-                audit_id=f"{run.run_id}:audit:{len(run.audit_refs) + 1}",
+                audit_id=(
+                    f"{run.run_id}:approval-decision:{record.approval_id}:"
+                    f"{record.status.value}:{record.resolution.decision.value}:{status}"
+                ),
                 run_id=run.run_id,
                 thread_id=run.thread_id,
                 node_id=record.node_id,

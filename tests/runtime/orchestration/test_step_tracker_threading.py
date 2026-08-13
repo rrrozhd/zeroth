@@ -53,6 +53,12 @@ async def test_dispatch_forwards_the_tracker_it_was_given() -> None:
         run_id = "child-1"
         final_output: dict[str, object] = {"answer": 42}
         failure_state = None
+        # Read by the cost rollup the dispatcher gained from main. Empty
+        # metadata sends it down the execution-history path, which an empty
+        # history answers with an unmeasured rollup -- this test is about what
+        # reached the executor, not about cost.
+        metadata: dict[str, object] = {}
+        execution_history: list[object] = []
 
     class _Executor:
         async def execute(self, **kwargs: object) -> _Child:

@@ -7,6 +7,7 @@ the ParallelExecutor to manage concurrent branch execution.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +20,7 @@ from zeroth.contracts.graph.models import (
 # is graph contract vocabulary; the runtime execution objects stay here.
 from zeroth.contracts.graph.models import JoinConfig as JoinConfig
 from zeroth.contracts.graph.models import ParallelConfig as ParallelConfig
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.parallel.errors import ParallelStepLimitError
 
 
@@ -53,7 +55,9 @@ class BranchResult:
     error: str | None = None
     audit_refs: list[str] = field(default_factory=list)
     execution_history: list[Any] = field(default_factory=list)
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
+    estimated_cost_usd: float | None = None
+    cost_measurement: MeasurementState = MeasurementState.UNMEASURED
 
 
 @dataclass(slots=True)
@@ -84,9 +88,31 @@ class FanInResult:
 
     results: list[BranchResult]
     merged_output: dict[str, Any] = field(default_factory=dict)
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
+    total_estimated_cost_usd: float | None = None
+    cost_measurement: MeasurementState = MeasurementState.UNMEASURED
     total_steps: int = 0
     pause_state: dict[str, Any] | None = None
+
+
+BranchResult.__signature__ = inspect.signature(BranchResult).replace(
+    parameters=[
+        parameter.replace(annotation="float", default=0.0)
+        if name == "cost_usd"
+        else parameter
+        for name, parameter in inspect.signature(BranchResult).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement"}
+    ]
+)
+FanInResult.__signature__ = inspect.signature(FanInResult).replace(
+    parameters=[
+        parameter.replace(annotation="float", default=0.0)
+        if name == "total_cost_usd"
+        else parameter
+        for name, parameter in inspect.signature(FanInResult).parameters.items()
+        if name not in {"total_estimated_cost_usd", "cost_measurement"}
+    ]
+)
 
 
 class GlobalStepTracker:

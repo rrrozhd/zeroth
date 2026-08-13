@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 
@@ -63,9 +62,8 @@ class TokenSnapshotRowStore:
 
     def _decode(self, payload: str) -> TokenEngineSnapshot:
         encrypted_field = getattr(self.database, "encrypted_field", None)
-        if encrypted_field is not None:
-            with suppress(Exception):
-                payload = encrypted_field.decrypt(payload)
+        if encrypted_field is not None and not payload.lstrip().startswith("{"):
+            payload = encrypted_field.decrypt(payload)
         return TokenEngineSnapshot.model_validate_json(payload)
 
     def _decode_row(self, row: dict[str, object]) -> TokenEngineSnapshot:

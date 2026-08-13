@@ -1006,6 +1006,17 @@ export interface components {
         BudgetStatusOut: {
             /** Budget Cap Usd */
             budget_cap_usd?: number | null;
+            /**
+             * Cost Measurement
+             * @default measured
+             * @enum {string}
+             */
+            cost_measurement: "measured" | "estimated" | "unmeasured";
+            /**
+             * Measurement Complete
+             * @default true
+             */
+            measurement_complete: boolean;
             /** Tenant Id */
             tenant_id: string;
             /** Total Cost Usd */
@@ -1534,16 +1545,14 @@ export interface components {
         ExecutionEventCreate: {
             /** Capability Id */
             capability_id: string;
-            /**
-             * Compute Cost Usd
-             * @default 0
-             */
-            compute_cost_usd: number | string;
+            /** Compute Cost Usd */
+            compute_cost_usd?: number | string | null;
             /**
              * Compute Time Ms
              * @default 0
              */
             compute_time_ms: number;
+            cost_measurement?: components["schemas"]["MeasurementState"] | null;
             /** Execution Id */
             execution_id: string;
             /** Implementation Id */
@@ -1568,16 +1577,12 @@ export interface components {
              * Format: date-time
              */
             timestamp: string;
-            /**
-             * Token Cost Usd
-             * @default 0
-             */
-            token_cost_usd: number | string;
-            /**
-             * Tool Cost Usd
-             * @default 0
-             */
-            tool_cost_usd: number | string;
+            /** Token Cost Usd */
+            token_cost_usd?: number | string | null;
+            /** Tool Cost Usd */
+            tool_cost_usd?: number | string | null;
+            /** @default unmeasured */
+            usage_measurement: components["schemas"]["MeasurementState"];
         };
         /** ExperimentCreate */
         ExperimentCreate: {
@@ -1814,6 +1819,12 @@ export interface components {
             /** Total Ai Value Usd */
             total_ai_value_usd: number;
         };
+        /**
+         * MeasurementState
+         * @description Whether a value was observed, derived, or unavailable.
+         * @enum {string}
+         */
+        MeasurementState: "measured" | "estimated" | "unmeasured";
         /** OutcomeBatchIngestRequest */
         OutcomeBatchIngestRequest: {
             /** Events */

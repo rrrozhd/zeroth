@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from zeroth.contracts.governed import MemoryScope
 from zeroth.governance.audit import MemoryAccessRecord
+from zeroth.governance.audit.models import TokenUsage
 from zeroth.governance.guardrails.content import (
     BlocklistFilter,
     ContentFilter,
@@ -29,6 +30,7 @@ from zeroth.governance.guardrails.content import (
 )
 from zeroth.governance.policy.errors import parse_effective_capabilities, require_capabilities
 from zeroth.governance.policy.models import Capability
+from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.observability import start_span
 from zeroth.runtime.agents.errors import (
     AgentContentBlockedError,
@@ -123,8 +125,7 @@ def _narrow_mcp_argument_inverse_map(
             return value in inverse_map
         if isinstance(value, Mapping):
             return any(
-                (isinstance(key, str) and key in inverse_map)
-                or contains_transformed_string(item)
+                (isinstance(key, str) and key in inverse_map) or contains_transformed_string(item)
                 for key, item in value.items()
             )
         if isinstance(value, list | tuple):
@@ -219,9 +220,7 @@ def _restore_mcp_arguments(
     if _depth > 64:
         raise ToolDeclarationSafetyError("MCP arguments exceed the restoration depth limit")
     remaining_nodes = (
-        _remaining_nodes
-        if _remaining_nodes is not None
-        else [_MAX_MCP_ARGUMENT_RESTORATION_NODES]
+        _remaining_nodes if _remaining_nodes is not None else [_MAX_MCP_ARGUMENT_RESTORATION_NODES]
     )
     remaining_nodes[0] -= 1
     if remaining_nodes[0] < 0:
@@ -348,6 +347,7 @@ def _restore_mcp_arguments(
             )
         return restored
     if isinstance(value, list):
+
         def schemas_for_index(index: int) -> list[Mapping[str, Any]]:
             selected: list[Mapping[str, Any]] = []
             for candidate in schemas:
@@ -600,6 +600,9 @@ class AgentRunner:
                 messages,
                 self.config.model_name,
             )
+        compaction_results = [compaction_result] if compaction_result is not None else []
+        provider_measurements: list[Any] = []
+        budget_check_audit: dict[str, Any] | None = None
 
         # Pre-execution budget check (per D-10, ECON-03)
         if self.budget_enforcer is not None:
@@ -608,24 +611,43 @@ class AgentRunner:
                 if enforcement_context is not None
                 else "default"
             )
-            allowed, spend, cap = await self.budget_enforcer.check_budget(_tenant_id)
-            if not allowed:
-                raise BudgetExceededError(
-                    f"tenant budget exceeded: spent ${spend:.4f} of ${cap:.4f} cap",
-                    spend=spend,
+            budget_status = await self.budget_enforcer.check_budget_status(_tenant_id)
+            budget_check_audit = budget_status.model_dump(mode="json")
+            if not budget_status.allowed:
+                cap = budget_status.cap_usd or 0.0
+                error = BudgetExceededError(
+                    f"tenant budget exceeded: spent ${budget_status.spend_usd:.4f} "
+                    f"of ${cap:.4f} cap",
+                    spend=budget_status.spend_usd,
                     cap=cap,
                 )
+                self._attach_cost_audit(error, *compaction_results)
+                error.audit_record = {
+                    **getattr(error, "audit_record", {}),
+                    "budget_check": budget_check_audit,
+                }
+                raise error
 
-        # Inside the try, not before it: ``start()`` enters one stdio_client and
-        # one ClientSession per configured server and raises out of the loop on
-        # the first failure, leaving every server it already entered running.
-        # Only the ``finally`` below closes them.
+        # main closed the same A06-9 leak with a tighter shape than this branch
+        # did: the start gets its own guard that stops whatever it already
+        # entered, and it also attaches the cost audit and logs a failed cleanup.
+        # That is a superset of moving the call inside the outer try, so main's
+        # version is kept and the duplicate start below is dropped.
         try:
             await self._start_mcp_servers(effective_capabilities)
+        except Exception as exc:
+            self._attach_cost_audit(exc, *compaction_results)
+            try:
+                await self._stop_mcp_servers()
+            except Exception:
+                logger.warning("failed to clean up MCP servers after startup error", exc_info=True)
+            raise
+        try:
             last_error: Exception | None = None
             attempts = 0
             for attempt in range(1, max_attempts + 1):
                 attempts = attempt
+                response: ProviderResponse | None = None
                 try:
                     # Each retry rebuilds the provider request from the current message history.
                     request = self._build_provider_request(messages, prompt.metadata)
@@ -634,12 +656,15 @@ class AgentRunner:
                         request,
                         timeout_seconds=provider_timeout_seconds,
                     )
+                    provider_measurements.append(response)
                     response, messages, tool_audits = await self._resolve_tool_calls(
                         response=response,
                         messages=messages,
                         provider_timeout_seconds=provider_timeout_seconds,
                         approval_required_for_side_effects=approval_required_for_side_effects,
                         effective_capabilities=effective_capabilities,
+                        compaction_results=compaction_results,
+                        provider_measurements=provider_measurements,
                     )
                     # Validation turns the provider response into the typed Zeroth output.
                     output = self.output_validator.validate(self.config.output_model, response)
@@ -656,6 +681,11 @@ class AgentRunner:
                             "memory_interactions": [
                                 item.model_dump(mode="json") for item in memory_interactions
                             ],
+                            **(
+                                {"budget_check": budget_check_audit}
+                                if budget_check_audit is not None
+                                else {}
+                            ),
                         },
                     )
                     safety_audit: dict[str, Any] = {}
@@ -676,14 +706,9 @@ class AgentRunner:
                         record["response"] = self.content_guardrail.inspect(
                             record["response"], direction="output"
                         ).payload
-                    # Copy token usage from provider response to audit record (per D-11)
-                    if response.token_usage is not None:
-                        record["token_usage"] = response.token_usage.model_dump(mode="json")
-                    # Promote cost to the top level so per-node spend reaches the
-                    # NodeAuditRecord (and econ.waste). serialize_record only nests it
-                    # under "response"; the runtime lifts these top-level keys.
-                    if response.cost_usd is not None:
-                        record["cost_usd"] = response.cost_usd
+                    record.update(
+                        self._measurement_audit(*provider_measurements, *compaction_results)
+                    )
                     if response.cost_event_id is not None:
                         record["cost_event_id"] = response.cost_event_id
                     # Phase 37: Record compaction metadata in audit.
@@ -694,6 +719,12 @@ class AgentRunner:
                             "tokens_after": compaction_result.tokens_after,
                             "messages_before": compaction_result.original_count,
                             "messages_after": compaction_result.compacted_count,
+                            "token_usage": (
+                                compaction_result.token_usage.model_dump(mode="json")
+                                if isinstance(compaction_result.token_usage, TokenUsage)
+                                else None
+                            ),
+                            "cost_measurement": compaction_result.cost_measurement,
                         }
                     memory_interactions.extend(
                         await self._store_memory(
@@ -737,17 +768,30 @@ class AgentRunner:
                     )
                 except AgentContentBlockedError as exc:
                     # Content blocks are terminal — never retried or wrapped.
-                    self._attach_cost_audit(exc, response)
+                    self._attach_cost_audit(
+                        exc, *provider_measurements, *compaction_results
+                    )
                     raise
                 except TimeoutError as exc:
+                    provider_measurements.append(
+                        {
+                            "cost_measurement": MeasurementState.UNMEASURED,
+                            "usage_measurement": MeasurementState.UNMEASURED,
+                        }
+                    )
                     last_error = AgentTimeoutError(
                         f"provider timed out after {provider_timeout_seconds} second(s)"
                     )
                     if not retry_policy.retry_on_timeout or attempt == max_attempts:
+                        self._attach_cost_audit(
+                            last_error, *provider_measurements, *compaction_results
+                        )
                         raise last_error from exc
                 except AgentOutputValidationError as exc:
                     last_error = exc
-                    self._attach_cost_audit(exc, response)
+                    self._attach_cost_audit(
+                        exc, *provider_measurements, *compaction_results
+                    )
                     if not retry_policy.retry_on_validation_error or attempt == max_attempts:
                         raise
                 except Exception as exc:
@@ -755,10 +799,40 @@ class AgentRunner:
                     # Classify: only retry transient provider errors (per LLM-03)
                     retryable = is_retryable_provider_error(exc)
                     should_retry = retry_policy.retry_on_provider_error and retryable
+                    carried_audit = getattr(last_error, "audit_record", None)
+                    failed_attempt = (
+                        dict(carried_audit)
+                        if isinstance(carried_audit, Mapping)
+                        else {
+                            "cost_measurement": MeasurementState.UNMEASURED,
+                            "usage_measurement": MeasurementState.UNMEASURED,
+                        }
+                        if response is None
+                        else None
+                    )
+                    if failed_attempt is not None and should_retry and attempt < max_attempts:
+                        provider_measurements.append(failed_attempt)
                     if not should_retry or attempt == max_attempts:
                         if isinstance(last_error, AgentProviderError):
+                            terminal_parts = (
+                                provider_measurements
+                                if isinstance(carried_audit, Mapping) or failed_attempt is None
+                                else [*provider_measurements, failed_attempt]
+                            )
+                            self._attach_cost_audit(
+                                last_error,
+                                *terminal_parts,
+                                *compaction_results,
+                            )
                             raise last_error from exc
-                        raise AgentProviderError(str(last_error)) from last_error
+                        error = AgentProviderError(str(last_error))
+                        self._attach_cost_audit(
+                            error,
+                            *provider_measurements,
+                            *([failed_attempt] if failed_attempt is not None else []),
+                            *compaction_results,
+                        )
+                        raise error from last_error
                 if retry_policy.use_exponential_backoff:
                     delay = compute_backoff_delay(
                         attempt,
@@ -773,27 +847,108 @@ class AgentRunner:
                 last_error = AgentProviderError("provider call failed without a specific error")
             raise AgentRetryExhaustedError(attempts=attempts, last_error=last_error)
         finally:
-            await self._stop_mcp_servers()
+            try:
+                await self._stop_mcp_servers()
+            except Exception:
+                logger.warning("failed to clean up MCP servers", exc_info=True)
 
     @staticmethod
-    def _attach_cost_audit(error: Exception, response: ProviderResponse | None) -> None:
+    def _measurement_audit(*parts: Any) -> dict[str, Any]:
+        """Aggregate provider-boundary measurements without inventing zeroes."""
+        def value(part: Any, key: str) -> Any:
+            return part.get(key) if isinstance(part, Mapping) else getattr(part, key, None)
+
+        measured_parts: list[tuple[MeasurementState, Any, Any]] = []
+        usage_parts: list[TokenUsage] = []
+        usage_states: list[MeasurementState] = []
+        for part in parts:
+            if part is None:
+                continue
+            state = value(part, "cost_measurement")
+            try:
+                state = MeasurementState(state)
+            except (TypeError, ValueError):
+                state = None
+            if state is not None:
+                measured_parts.append(
+                    (state, value(part, "cost_usd"), value(part, "estimated_cost_usd"))
+                )
+            usage = value(part, "token_usage")
+            if isinstance(usage, Mapping):
+                try:
+                    usage = TokenUsage.model_validate(usage)
+                except ValidationError:
+                    usage = None
+            if isinstance(usage, TokenUsage):
+                usage_parts.append(usage)
+            usage_state = value(part, "usage_measurement")
+            try:
+                usage_states.append(MeasurementState(usage_state))
+            except (TypeError, ValueError):
+                if isinstance(part, ProviderResponse) or usage is not None:
+                    usage_states.append(
+                        MeasurementState.MEASURED
+                        if usage is not None
+                        else MeasurementState.UNMEASURED
+                    )
+        fragment: dict[str, Any] = {}
+        if usage_parts:
+            usage_models = {usage.model_name for usage in usage_parts}
+            fragment["token_usage"] = TokenUsage(
+                input_tokens=sum(usage.input_tokens for usage in usage_parts),
+                output_tokens=sum(usage.output_tokens for usage in usage_parts),
+                total_tokens=sum(usage.total_tokens for usage in usage_parts),
+                model_name=usage_parts[0].model_name if len(usage_models) == 1 else "",
+            ).model_dump(mode="json")
+        if usage_states:
+            fragment["usage_measurement"] = (
+                MeasurementState.UNMEASURED
+                if MeasurementState.UNMEASURED in usage_states
+                else MeasurementState.ESTIMATED
+                if MeasurementState.ESTIMATED in usage_states
+                else MeasurementState.MEASURED
+            )
+        if not measured_parts:
+            return fragment
+        states = [state for state, _, _ in measured_parts]
+        fragment["cost_measurement"] = (
+            MeasurementState.UNMEASURED
+            if MeasurementState.UNMEASURED in states
+            else MeasurementState.ESTIMATED
+            if MeasurementState.ESTIMATED in states
+            else MeasurementState.MEASURED
+        )
+        recorded = [cost for _, cost, _ in measured_parts if cost is not None]
+        estimates = [
+            estimated for _, _, estimated in measured_parts if estimated is not None
+        ]
+        if recorded:
+            fragment["cost_usd"] = sum(recorded)
+        if estimates:
+            fragment["estimated_cost_usd"] = sum(estimates)
+        return fragment
+
+    @classmethod
+    def _attach_cost_audit(cls, error: Exception, *parts: Any) -> None:
         """Bundle a paid response's cost onto a failing error's ``audit_record``.
 
-        Output-validation and content-block failures happen *after* a (paid)
-        provider call but *before* the success audit record is built, so without
-        this the spend is invisible to the audit trail -- and thus to
-        ``econ.waste.analyze_run``. Gated on ``cost_usd`` so only instrumented
-        (real-cost) calls are touched; merges into any ``audit_record`` the error
-        already carries (e.g. content-safety findings).
+        Failures after compaction or a provider call happen before the success
+        audit record is built. Merge their measured or estimated spend into any
+        ``audit_record`` the error already carries.
         """
-        if response is None or response.cost_usd is None:
-            return
-        fragment: dict[str, Any] = {"cost_usd": response.cost_usd}
-        if response.cost_event_id is not None:
-            fragment["cost_event_id"] = response.cost_event_id
-        if response.token_usage is not None:
-            fragment["token_usage"] = response.token_usage.model_dump(mode="json")
         existing = getattr(error, "audit_record", None)
+        fragment = cls._measurement_audit(existing, *parts)
+        response = next(
+            (part for part in reversed(parts) if isinstance(part, ProviderResponse)), None
+        )
+        if (
+            response is not None
+            and response.cost_event_id is not None
+            and not (isinstance(existing, Mapping) and existing.get("cost_event_id") is not None)
+        ):
+            fragment["cost_event_id"] = response.cost_event_id
+        if not fragment:
+            return
         error.audit_record = {**existing, **fragment} if isinstance(existing, Mapping) else fragment
 
     def _build_provider_request(
@@ -879,6 +1034,8 @@ class AgentRunner:
         provider_timeout_seconds: float | None,
         approval_required_for_side_effects: bool,
         effective_capabilities: set[Capability] | None = None,
+        compaction_results: list[Any] | None = None,
+        provider_measurements: list[Any] | None = None,
     ) -> tuple[Any, list[Any], list[dict[str, Any]]]:
         """Execute any tool calls the model requested and re-call the model.
 
@@ -890,6 +1047,8 @@ class AgentRunner:
         tool_calls_used = 0
         current_response = response
         current_messages = list(messages)
+        if provider_measurements is None:
+            provider_measurements = [response]
         while getattr(current_response, "tool_calls", None):
             if self.tool_executor is None and self._mcp_manager is None:
                 raise AgentProviderError(
@@ -908,6 +1067,7 @@ class AgentRunner:
                     self._build_provider_request(current_messages, {}, tool_choice="none"),
                     timeout_seconds=provider_timeout_seconds,
                 )
+                provider_measurements.append(current_response)
                 if getattr(current_response, "tool_calls", None):
                     raise AgentProviderError(
                         f"provider exceeded max_tool_calls={self.config.max_tool_calls} "
@@ -1043,15 +1203,18 @@ class AgentRunner:
                 tool_audits.append(audit)
             # Phase 37: Compact between tool call re-invocations if needed.
             if self.context_tracker is not None:
-                current_messages, _ = await self.context_tracker.maybe_compact(
+                current_messages, tool_compaction = await self.context_tracker.maybe_compact(
                     current_messages,
                     self.config.model_name,
                 )
+                if tool_compaction is not None and compaction_results is not None:
+                    compaction_results.append(tool_compaction)
             current_response = await run_provider_with_timeout(
                 self.provider,
                 self._build_provider_request(current_messages, {}),
                 timeout_seconds=provider_timeout_seconds,
             )
+            provider_measurements.append(current_response)
         return current_response, current_messages, tool_audits
 
     def _screen_discovered_tool(self, manifest: ToolAttachmentManifest) -> ToolAttachmentManifest:
@@ -1172,9 +1335,10 @@ class AgentRunner:
 
     async def _stop_mcp_servers(self) -> None:
         """Stop MCP server connections and clean up."""
-        if self._mcp_manager is not None:
-            await self._mcp_manager.stop()
-            self._mcp_manager = None
+        manager = self._mcp_manager
+        self._mcp_manager = None
+        if manager is not None:
+            await manager.stop()
 
     def _effective_timeout(
         self,

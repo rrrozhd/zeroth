@@ -38,7 +38,13 @@ ROOT = Path(__file__).resolve().parents[2]
 #: **This record may only shrink.** An entry clears when the evidence set is
 #: regenerated for the current version: re-run the benchmark, rebuild the image,
 #: re-derive the SBOM, then delete the line.
-STALE_EVIDENCE_RELEASES: dict[str, str] = {}
+STALE_EVIDENCE_RELEASES = {
+    "0.23.0": (
+        "benchmark, compatibility, and image evidence remain measured against "
+        "0.23.0; regenerate them for the current package release before clearing "
+        "this record."
+    ),
+}
 
 
 def _package_version() -> str:

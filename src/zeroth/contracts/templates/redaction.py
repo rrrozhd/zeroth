@@ -51,5 +51,10 @@ def redact_rendered_prompt(
     for var_name in sorted(secret_variable_names):
         value = variables.get(var_name)
         if value is not None:
-            redacted = redacted.replace(str(value), "***REDACTED***")
+            secret = str(value)
+            if not secret:
+                continue
+            if secret in redacted and len(secret) < 8:
+                return "***REDACTED***"
+            redacted = redacted.replace(secret, "***REDACTED***")
     return redacted

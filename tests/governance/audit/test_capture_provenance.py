@@ -111,7 +111,7 @@ def test_two_entries_with_unprintable_keys_digest_differently_from_one_of_them()
     one = projection.summarize({_UnprintableKey(): 1})
     two = projection.summarize({_UnprintableKey(): 1, _UnprintableKey(): "two"})
 
-    assert one["sha256"] != two["sha256"]
+    assert one["hmac_sha256"] != two["hmac_sha256"]
 
 
 def test_a_registered_secret_nested_in_a_set_is_masked_in_content_mode() -> None:
@@ -156,7 +156,7 @@ def test_a_label_shaped_credential_under_a_label_key_is_summarized_not_retained(
     assert LABEL_SHAPED_TOKEN not in captured.model_dump_json()
     metadata = captured.execution_metadata
     for key in ("reason_code", "decision", "status"):
-        assert set(metadata[key]) == {"sha256", "schema", "count"}
+        assert set(metadata[key]) == {"hmac_sha256", "schema", "count"}
 
 
 def test_a_reason_code_this_codebase_mints_still_survives_the_same_gate() -> None:
