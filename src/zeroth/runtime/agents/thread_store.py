@@ -7,6 +7,7 @@ unlike the in-memory store which loses data when the process stops.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -27,9 +28,23 @@ if TYPE_CHECKING:
     # no zeroth.integrations module sits on the agent runtime's import path.
     from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
 
+logger = logging.getLogger(__name__)
+
 THREAD_STATE_CHECKPOINT_KIND = "thread_state"
 THREAD_STATE_METADATA_KEY = "thread_state"
 THREAD_STATE_KIND_KEY = "checkpoint_kind"
+
+
+class ThreadCheckpointLinkError(RuntimeError):
+    """A checkpoint was written but the thread never came to reference it.
+
+    ``checkpoint()`` writes the checkpoint row and links it onto the thread in
+    two independent statements. When the link does not take — most plausibly
+    because ``ThreadRepository.resolve`` is a read-modify-write of the whole
+    thread row and a concurrent resolve dropped our ref — the state is written
+    but unreachable from ``load()``. Returning the checkpoint id in that case
+    would tell the caller the state was saved when nothing points at it.
+    """
 
 
 def _new_checkpoint_id() -> str:
@@ -167,14 +182,38 @@ class RepositoryThreadStateStore:
         checkpoint_id = _new_checkpoint_id()
         checkpoint = self._build_checkpoint(thread, state, checkpoint_id=checkpoint_id)
         await self._write_checkpoint(checkpoint, checkpoint_id=checkpoint_id)
-        await self._thread_repository.resolve(
-            thread_id,
-            graph_version_ref=thread.graph_version_ref,
-            deployment_ref=thread.deployment_ref,
-            state_snapshot_refs=[checkpoint_id],
-            checkpoint_refs=[checkpoint_id],
-            status=thread.status,
-        )
+        # A06-12: the write above and the link below are two statements against
+        # two tables and nothing makes them one transaction — an outer
+        # database.transaction() opens a SECOND connection here, so it would be
+        # two transactions either way. What this can do is refuse to report
+        # success for a checkpoint the thread does not actually reference:
+        # `load()` only ever walks the thread's refs, so an unlinked checkpoint
+        # is written state that can never be read back.
+        try:
+            resolved = await self._thread_repository.resolve(
+                thread_id,
+                graph_version_ref=thread.graph_version_ref,
+                deployment_ref=thread.deployment_ref,
+                state_snapshot_refs=[checkpoint_id],
+                checkpoint_refs=[checkpoint_id],
+                status=thread.status,
+            )
+        except BaseException:
+            # Propagate the caller's exception unchanged, but name the row that
+            # was left behind — it is otherwise untraceable.
+            logger.warning(
+                "thread %s: checkpoint %s was written but linking it failed; "
+                "the checkpoint row is orphaned",
+                thread_id,
+                checkpoint_id,
+            )
+            raise
+        if checkpoint_id not in (resolved.state_snapshot_refs or []):
+            raise ThreadCheckpointLinkError(
+                f"thread {thread_id}: checkpoint {checkpoint_id} was written but the "
+                "thread does not reference it, so the state cannot be loaded back. "
+                "A concurrent thread write most likely dropped the reference."
+            )
         return checkpoint_id
 
     async def checkpoint_optional(self, thread_id: str | None, state: dict[str, Any]) -> str | None:

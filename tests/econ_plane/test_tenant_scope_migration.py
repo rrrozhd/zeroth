@@ -11,16 +11,20 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from tests.conftest import requires_docker
+from zeroth.econ.plane import database as database_module
 from zeroth.econ.plane.capabilities import models as capability_models  # noqa: F401
 from zeroth.econ.plane.connectors import models as connector_models  # noqa: F401
-from zeroth.econ.plane.counterfactual import models as counterfactual_models  # noqa: F401
+from zeroth.econ.plane.counterfactual import (
+    models as counterfactual_models,  # noqa: F401
+)
 from zeroth.econ.plane.database import Base
-from zeroth.econ.plane import database as database_module
-from zeroth.econ.plane.instrumentation import models as instrumentation_models  # noqa: F401
+from zeroth.econ.plane.instrumentation import (
+    models as instrumentation_models,  # noqa: F401
+)
 
 _TABLES = (
     "execution_events",
@@ -346,6 +350,15 @@ def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, mo
                     "id INTEGER PRIMARY KEY, "
                     "tenant_id VARCHAR(128) DEFAULT 'tenant_default', "
                     "execution_id VARCHAR(128) NOT NULL, payload VARCHAR(32), "
+                    # The cost columns are part of this table in every real
+                    # database: nothing in the migration chain creates
+                    # execution_events -- create_all does, from a model that has
+                    # carried these three since the table was introduced. They
+                    # are NOT NULL here because that is their state at
+                    # 20260811_04; 20260812_04 is the revision that relaxes them.
+                    "token_cost_usd NUMERIC(12, 4) NOT NULL, "
+                    "tool_cost_usd NUMERIC(12, 4) NOT NULL, "
+                    "compute_cost_usd NUMERIC(12, 4) NOT NULL, "
                     "CONSTRAINT uq_execution_events_execution_id UNIQUE (execution_id))"
                 )
             )
@@ -361,8 +374,9 @@ def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, mo
             connection.execute(
                 text(
                     "INSERT INTO execution_events "
-                    "(id, tenant_id, execution_id, payload) VALUES "
-                    "(1, 'tenant_default', 'shared', 'event')"
+                    "(id, tenant_id, execution_id, payload, token_cost_usd, "
+                    "tool_cost_usd, compute_cost_usd) VALUES "
+                    "(1, 'tenant_default', 'shared', 'event', 0, 0, 0)"
                 )
             )
             for table in ("outcome_events", "valuation_runs", "value_estimates"):
@@ -406,6 +420,15 @@ def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, mo
             assert connection.execute(
                 text("SELECT tenant_id, execution_id, payload FROM execution_events")
             ).one() == ("default", "shared", "event")
+            # 20260812_04 classifies a pre-existing row by its recorded costs.
+            # An all-zero row is indistinguishable from one nobody measured, so
+            # it must come out "unmeasured" rather than silently "measured".
+            # Until this fixture carried the cost columns that revision could
+            # not run here at all, and its classification had no live-Postgres
+            # coverage anywhere.
+            assert connection.execute(
+                text("SELECT cost_measurement, usage_measurement FROM execution_events")
+            ).one() == ("unmeasured", "unmeasured")
             for table in ("outcome_events", "valuation_runs", "value_estimates"):
                 assert connection.execute(
                     text(f"SELECT tenant_id, payload FROM {table}")
@@ -440,15 +463,14 @@ def test_tenant_scope_migration_executes_on_live_postgres(postgres_container, mo
                     "VALUES (2, 'tenant-b', 'shared', 'other')"
                 )
             )
-        with pytest.raises(IntegrityError):
-            with engine.begin() as connection:
-                connection.execute(
-                    text(
-                        "INSERT INTO execution_events "
-                        "(id, tenant_id, execution_id, payload) "
-                        "VALUES (3, 'tenant-b', 'shared', 'duplicate')"
-                    )
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO execution_events "
+                    "(id, tenant_id, execution_id, payload) "
+                    "VALUES (3, 'tenant-b', 'shared', 'duplicate')"
                 )
+            )
 
         engine.dispose()
         engine = None

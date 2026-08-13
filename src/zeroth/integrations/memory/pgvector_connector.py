@@ -8,10 +8,11 @@ Per D-10, D-11, D-14 from Phase 14 planning.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import litellm
@@ -62,6 +63,11 @@ class PgvectorMemoryConnector:
             raise ValueError(
                 f"invalid pgvector table_name {table_name!r}: must match {_IDENT_RE.pattern}"
             )
+        # The connector owns only what it creates. A DSN string means it builds
+        # the connection itself and is responsible for closing it; an injected
+        # factory means the connection belongs to the caller, who may be
+        # lending a long-lived one. See :meth:`_operation`.
+        self._owns_connections = isinstance(conn_factory, str)
         if isinstance(conn_factory, str):
             dsn = conn_factory
 
@@ -74,15 +80,58 @@ class PgvectorMemoryConnector:
         self._embedding_model = embedding_model
         self._dimensions = embedding_dimensions
         self._setup_done = False
+        # ``_setup_done`` was read and written across an await, so two
+        # coroutines reaching first use together both saw False and both ran
+        # the DDL. The lock plus the second check inside it collapses that to
+        # one run; the check outside it keeps the steady state lock-free.
+        self._schema_lock = asyncio.Lock()
 
     async def _get_conn(self) -> psycopg.AsyncConnection:
         """Obtain an async connection from the factory, register vector type."""
         conn = await self._conn_factory()
         await register_vector_async(conn)
         if not self._setup_done:
-            await self._ensure_schema(conn)
-            self._setup_done = True
+            async with self._schema_lock:
+                if not self._setup_done:
+                    await self._ensure_schema(conn)
+                    self._setup_done = True
         return conn
+
+    @contextlib.asynccontextmanager
+    async def _operation(self) -> AsyncIterator[psycopg.AsyncConnection]:
+        """Yield a connection for one operation, closing it only if owned.
+
+        ``async with conn:`` on a psycopg connection does two things on exit:
+        it commits (or rolls back), and -- since psycopg 3.3.3 closes only
+        ``if not self._pool`` -- it closes any connection that did not come
+        from a pool. Applied unconditionally that reached past what this
+        connector owns twice over: a caller who lent a plain connection got it
+        closed out from under them after a single read, and *every* injected
+        connection received a ``COMMIT`` this connector was never asked for,
+        including after pure reads.
+
+        So the block is entered only for connections this connector created.
+        For an injected connection the caller keeps transaction and lifecycle
+        control; the deliberate ``commit()`` calls in ``write``/``delete``
+        remain, because durably storing what the caller asked to store is the
+        requested effect, not an incidental one.
+
+        A caller who injects a *factory that mints a fresh connection per call*
+        therefore owns each one and must close it; this connector will not. That
+        is a real cost, and it is the deliberate trade: A07-12's narrowed residual
+        is that an injected connection must not be closed or committed behind the
+        caller's back, and honouring that necessarily means a per-call factory's
+        result outlives the operation. The constructor signature is pinned by the
+        frozen protected-surface fixture, so ownership cannot become a parameter.
+        No in-repo caller injects either shape -- ``memory/factory.py`` passes a
+        DSN string, so the connector always owns what it opens.
+        """
+        conn = await self._get_conn()
+        if not self._owns_connections:
+            yield conn
+            return
+        async with conn:
+            yield conn
 
     async def _ensure_schema(self, conn: psycopg.AsyncConnection) -> None:
         """Create the pgvector extension, table, and HNSW index if needed."""
@@ -119,8 +168,7 @@ class PgvectorMemoryConnector:
         self, key: str, scope: MemoryScope, *, target: str | None = None
     ) -> MemoryEntry | None:
         """Look up a memory entry by key, scope, and target."""
-        conn = await self._get_conn()
-        async with conn:
+        async with self._operation() as conn:
             cur = await conn.execute(
                 f"SELECT key, value, scope, scope_target, metadata, created_at, updated_at "
                 f"FROM {self._table} WHERE key = %s AND scope = %s AND scope_target = %s",
@@ -139,8 +187,7 @@ class PgvectorMemoryConnector:
             f"{key}: {json.dumps(value)}" if isinstance(value, dict | list) else f"{key}: {value}"
         )
         embedding = await self._embed(text_for_embedding)
-        conn = await self._get_conn()
-        async with conn:
+        async with self._operation() as conn:
             await conn.execute(
                 f"""
                 INSERT INTO {self._table} (key, scope, scope_target, value, embedding)
@@ -155,8 +202,7 @@ class PgvectorMemoryConnector:
 
     async def delete(self, key: str, scope: MemoryScope, *, target: str | None = None) -> None:
         """Remove a memory entry. Raises KeyError if not found."""
-        conn = await self._get_conn()
-        async with conn:
+        async with self._operation() as conn:
             cur = await conn.execute(
                 f"DELETE FROM {self._table} WHERE key = %s AND scope = %s AND scope_target = %s",
                 [key, scope.value, target or ""],
@@ -172,8 +218,7 @@ class PgvectorMemoryConnector:
         text = query.get("text", "")
         limit = query.get("limit", 10)
         embedding = await self._embed(text)
-        conn = await self._get_conn()
-        async with conn:
+        async with self._operation() as conn:
             cur = await conn.execute(
                 f"SELECT key, value, scope, scope_target, metadata, created_at, updated_at "
                 f"FROM {self._table} "

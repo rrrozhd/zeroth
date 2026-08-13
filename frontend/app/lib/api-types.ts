@@ -334,11 +334,19 @@ export interface paths {
         put?: never;
         /**
          * Create Connector
-         * @description Create a runtime-managed connector: build, register live, persist.
+         * @description Create a runtime-managed connector: build, persist, then register live.
          *
          *     Backend construction is cheap and may connect lazily (pgvector opens
          *     its first connection on first use) -- use POST /connectors/{ref}/test
          *     for a real connectivity check.
+         *
+         *     A02-19: the live registry is an in-process dict and the config store is
+         *     SQL, so no transaction spans them. The ordering is what makes that safe:
+         *     the two steps that can fail come first and leave nothing behind, and the
+         *     one step that cannot fail -- assigning into the registry -- goes last.
+         *     Registering first meant a failed write left a connector serving
+         *     ``connector_ref`` lookups in this process and nowhere else, which
+         *     vanished at the next restart.
          */
         post: operations["create_connector_v1_connectors_post"];
         delete?: never;
@@ -358,12 +366,22 @@ export interface paths {
         /**
          * Update Connector
          * @description Reconfigure an existing runtime-managed connector (rebuild + re-register).
+         *
+         *     A02-19: same ordering rule as create -- the reconfiguration only goes
+         *     live once it is durable, so a failed write leaves the previous backend
+         *     both live and persisted instead of swapping in one that reverts at the
+         *     next restart.
          */
         put: operations["update_connector_v1_connectors__ref__put"];
         post?: never;
         /**
          * Delete Connector
          * @description Delete a runtime-managed connector (env-sourced ones cannot be deleted).
+         *
+         *     A02-19: the durable delete goes first for the same reason create's goes
+         *     last -- unregistering first meant a failed row delete left the connector
+         *     unresolvable in this process while its config survived, so the next
+         *     restart resurrected it.
          */
         delete: operations["delete_connector_v1_connectors__ref__delete"];
         options?: never;

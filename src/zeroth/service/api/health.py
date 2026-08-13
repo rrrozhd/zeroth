@@ -11,13 +11,18 @@ import inspect
 import time
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
-import httpx
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
-from redis.asyncio import from_url as redis_from_url
 
-from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
+from zeroth.contracts.langgraph_gateway.models import (
+    CompatibilityResult,
+    GovernanceLevel,
+)
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
+from zeroth.integrations.http.factory import (
+    governed_async_client,
+    governed_redis_client,
+)
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.platform.storage.schema_revision import (
     SchemaRevision,
@@ -153,20 +158,23 @@ async def check_schema_revision(
         return unknown_schema_revision(SERVICE_MIGRATIONS_PACKAGE)
 
 
-async def check_redis(redis_url: str | None) -> DependencyStatus:
-    """Check Redis connectivity by issuing a PING command."""
+async def check_redis(redis_url: str | None, app: object | None = None) -> DependencyStatus:
+    """Check Redis connectivity by issuing a PING command.
+
+    The client is governed and reused rather than built per probe. ``/health/ready``
+    answers *before* authentication, and ``redis_from_url`` sets neither
+    ``socket_timeout`` nor ``socket_connect_timeout``, so an unauthenticated caller
+    could drive unbounded, unbounded-duration client creation (A02-5, A02-16).
+    """
     if redis_url is None:
         return DependencyStatus(status="unavailable")
 
     start = time.monotonic()
     try:
-        client = redis_from_url(redis_url)
-        try:
-            await client.ping()
-            elapsed_ms = (time.monotonic() - start) * 1000
-            return DependencyStatus(status="ok", latency_ms=elapsed_ms)
-        finally:
-            await client.aclose()
+        client = await governed_redis_client(redis_url, purpose="health-probe", app=app)
+        await client.ping()
+        elapsed_ms = (time.monotonic() - start) * 1000
+        return DependencyStatus(status="ok", latency_ms=elapsed_ms)
     except Exception as exc:
         elapsed_ms = (time.monotonic() - start) * 1000
         return DependencyStatus(
@@ -176,15 +184,24 @@ async def check_redis(redis_url: str | None) -> DependencyStatus:
         )
 
 
-async def check_regulus(base_url: str | None, timeout: float = 5.0) -> DependencyStatus:
-    """Check Regulus service availability via its health endpoint."""
+async def check_regulus(
+    base_url: str | None, timeout: float = 5.0, app: object | None = None
+) -> DependencyStatus:
+    """Check Regulus service availability via its health endpoint.
+
+    Shared client for the same reason as :func:`check_redis`: this probe is
+    unauthenticated, so building one per request lets a caller drive connection
+    creation without limit.
+    """
     if base_url is None:
         return DependencyStatus(status="unavailable")
 
     start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            await client.get(f"{base_url}/health")
+        client = await governed_async_client(
+            purpose="health-probe-regulus", timeout=timeout, app=app
+        )
+        await client.get(f"{base_url}/health")
         elapsed_ms = (time.monotonic() - start) * 1000
         return DependencyStatus(status="ok", latency_ms=elapsed_ms)
     except Exception:
@@ -225,8 +242,8 @@ def register_health_routes(app: FastAPI) -> None:
         # Run all checks concurrently.
         db_check, redis_check, regulus_check, schema_revision = await asyncio.gather(
             check_database(database) if database else _unavailable("database not configured"),
-            check_redis(redis_url),
-            check_regulus(regulus_base_url),
+            check_redis(redis_url, request.app),
+            check_regulus(regulus_base_url, app=request.app),
             check_schema_revision(database)
             if database
             else _unknown_schema_revision(),

@@ -244,7 +244,9 @@ class ApprovalService:
         - auto_reject: resolves original as REJECTED with system actor
         - alert (default): marks original ESCALATED (webhook emission by caller)
 
-        If the approval is no longer pending, this is a no-op.
+        If the approval is no longer pending, this is a no-op. That covers both
+        double-escalation and, critically, a RESOLVED approval: SLA enforcement
+        must not re-open a decision a human already made.
         """
         record = await self._require(
             approval_id,
@@ -253,19 +255,17 @@ class ApprovalService:
             deployment_ref=deployment_ref,
             graph_version_ref=graph_version_ref,
         )
+        # A decided approval carries a resolution payload; flipping it to ESCALATED
+        # would leave status and payload contradicting each other, and ``delegate``
+        # would mint a second live approval for work already closed. The
+        # compare-and-set below is the authority -- this check only avoids the
+        # round-trip in the common case.
         if record.status is not ApprovalStatus.PENDING:
             return record
 
         action = record.escalation_action or "alert"
 
         if action == "delegate":
-            record.status = ApprovalStatus.ESCALATED
-            record.updated_at = datetime.now(UTC)
-            escalated = await self.repository.resolve_pending(record)
-            if escalated is None:
-                return await self._require(approval_id)
-            record = escalated
-
             delegate_identity_dict = record.urgency_metadata.get("delegate_identity")
             delegate_actor = (
                 ActorIdentity(**delegate_identity_dict)
@@ -297,9 +297,31 @@ class ApprovalService:
                     seconds=timeout_seconds
                 )
                 delegate_record.escalation_action = record.escalation_action
-            await self.repository.write(delegate_record)
+
+            # Claim the approval and mint the delegate in one transaction. The
+            # claim is a compare-and-set against the stored PENDING row, so
+            # exactly one of N concurrent SLA checkers gets past this line and
+            # exactly one delegate is created; losing the race -- to another
+            # checker or to a human who resolved the approval since our read --
+            # means we have no claim and create no delegate. Committing the two
+            # rows together additionally rules out the crash-shaped orphan: a
+            # failure after the claim but before the delegate would leave the
+            # approval ESCALATED with nobody holding it, and the ESCALATED
+            # short-circuit above means no later poll would ever retry it.
+            escalated = await self._claim_escalation_with_delegate(record, delegate_record)
+            if escalated is None:
+                return await self._require(
+                    approval_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    deployment_ref=deployment_ref,
+                    graph_version_ref=graph_version_ref,
+                )
+            # Notify only once both rows are committed: announcing a delegate
+            # whose transaction rolled back would page a human about an approval
+            # that does not exist.
             await self._notify(delegate_record)
-            return record
+            return escalated
 
         elif action == "auto_reject":
             from zeroth.governance.identity import AuthMethod
@@ -319,13 +341,49 @@ class ApprovalService:
             )
 
         else:  # "alert" or unknown
-            record.status = ApprovalStatus.ESCALATED
-            record.updated_at = datetime.now(UTC)
-            written = await self.repository.resolve_pending(record)
+            written = await self._claim_escalation(record)
             if written is None:
-                return await self._require(approval_id)
+                return await self._require(
+                    approval_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    deployment_ref=deployment_ref,
+                    graph_version_ref=graph_version_ref,
+                )
             await self._notify(written, summary=f"[Escalated] {written.summary}")
             return written
+
+    async def _claim_escalation(self, record: ApprovalRecord) -> ApprovalRecord | None:
+        """Flip a still-pending approval to ESCALATED, or return None if it moved.
+
+        ``ApprovalRepository.resolve_pending`` is a conditional write -- it updates
+        the row only while its stored status is still PENDING and publishes under a
+        write lock. Reusing it here (rather than an in-memory status check followed
+        by an unconditional ``write``) closes the window between the read in
+        ``escalate`` and the write: a human resolution or a second SLA checker that
+        lands inside that window makes the update match zero rows and this returns
+        None instead of overwriting the newer state.
+        """
+        record.status = ApprovalStatus.ESCALATED
+        record.updated_at = datetime.now(UTC)
+        return await self.repository.resolve_pending(record)
+
+    async def _claim_escalation_with_delegate(
+        self, record: ApprovalRecord, delegate: ApprovalRecord
+    ) -> ApprovalRecord | None:
+        """Claim a pending approval and mint its delegate together, or neither.
+
+        The delegate hand-off is one fact in two rows, so it needs one
+        transaction. The service cannot compose that itself: each repository call
+        opens its own connection, so an outer ``database.transaction()`` around
+        two repository calls is provably two transactions -- and on SQLite the
+        inner ``BEGIN IMMEDIATE`` would deadlock against the outer write lock.
+        The repository owns the composite instead, and keeps the same
+        compare-and-set predicate ``_claim_escalation`` relies on.
+        """
+        record.status = ApprovalStatus.ESCALATED
+        record.updated_at = datetime.now(UTC)
+        return await self.repository._escalate_to_delegate(record, delegate)  # noqa: SLF001
 
     async def resolve(
         self,

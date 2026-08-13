@@ -7,6 +7,7 @@ This coordinator owns the flag-on queue and never reconstructs work from
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from functools import partial
@@ -17,7 +18,10 @@ from pydantic import JsonValue
 
 from zeroth.contracts.governed import RunStatus
 from zeroth.contracts.graph import Graph, HumanApprovalNode, SubgraphNode
-from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.token_snapshot import (
+    TokenEngineSnapshot,
+    TokenEngineSnapshotState,
+)
 from zeroth.contracts.graph.tokens import (
     DispatchLifecycleState,
     IterationFrameState,
@@ -34,7 +38,10 @@ from zeroth.runtime.orchestration.dispatcher import (
 from zeroth.runtime.orchestration.errors import OrchestratorError
 from zeroth.runtime.orchestration.parallel_executor import sum_run_cost
 from zeroth.runtime.orchestration.token_lifecycle import (
+    CAS_MAX_ATTEMPTS,
+    CasSleep,
     TokenLifecycleAdapter,
+    cas_backoff,
     has_pending_structured_owner_work,
 )
 from zeroth.runtime.orchestration.token_loop_models import LoopReductionClaim
@@ -68,9 +75,20 @@ from zeroth.runtime.runs import Run
 class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
     """Coordinates durable token claims with the existing governed dispatch path."""
 
-    def __init__(self, driver: Any, store: TokenSnapshotStore) -> None:
+    def __init__(
+        self,
+        driver: Any,
+        store: TokenSnapshotStore,
+        *,
+        max_attempts: int = CAS_MAX_ATTEMPTS,
+        sleep: CasSleep = asyncio.sleep,
+    ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
         self.driver = driver
         self.store = store
+        self._cas_max_attempts = max_attempts
+        self._cas_sleep = sleep
         self._fanout_spans: dict[str, Any] = {}
 
     @staticmethod
@@ -311,9 +329,18 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 raise
             return loaded
 
+    async def _reload_contended(self, run_id: str, missing: str) -> TokenEngineSnapshot:
+        """Re-read a snapshot whose CAS was lost, or fail if it vanished."""
+        loaded = await self.store.get_token_snapshot(run_id)
+        if loaded is None:
+            raise OrchestratorError(missing) from None
+        return loaded
+
     async def _claim(self, snapshot: TokenEngineSnapshot) -> DispatchClaim:
+        """Claim the head of the queue, retrying a bounded number of lost CASes."""
         current = snapshot
-        while True:
+        last_error: TokenSnapshotConcurrencyError | None = None
+        for attempt in range(1, self._cas_max_attempts + 1):
             claim = claim_next_token(current)
             try:
                 committed = await self.store.compare_and_swap_token_snapshot(
@@ -321,24 +348,30 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     expected_revision=current.revision,
                     snapshot=claim.snapshot,
                 )
-                dispatch = next(
-                    item
-                    for item in committed.in_flight_dispatches
-                    if item.dispatch_id == claim.dispatch.dispatch_id
+            except TokenSnapshotConcurrencyError as exc:
+                last_error = exc
+                if attempt == self._cas_max_attempts:
+                    break
+                await cas_backoff(attempt, sleep=self._cas_sleep)
+                current = await self._reload_contended(
+                    current.run_id, "token snapshot disappeared during queue claim"
                 )
-                return DispatchClaim(snapshot=committed, dispatch=dispatch)
-            except TokenSnapshotConcurrencyError:
-                loaded = await self.store.get_token_snapshot(current.run_id)
-                if loaded is None:
-                    raise OrchestratorError(
-                        "token snapshot disappeared during queue claim"
-                    ) from None
-                current = loaded
+                continue
+            dispatch = next(
+                item
+                for item in committed.in_flight_dispatches
+                if item.dispatch_id == claim.dispatch.dispatch_id
+            )
+            return DispatchClaim(snapshot=committed, dispatch=dispatch)
+        assert last_error is not None
+        raise last_error
 
     async def _recover(self, snapshot: TokenEngineSnapshot) -> DispatchClaim:
+        """Re-own an in-flight dispatch, retrying a bounded number of lost CASes."""
         current = snapshot
         dispatch_id = snapshot.in_flight_dispatches[0].dispatch_id
-        while True:
+        last_error: TokenSnapshotConcurrencyError | None = None
+        for attempt in range(1, self._cas_max_attempts + 1):
             claim = recover_dispatch(current, dispatch_id=dispatch_id)
             try:
                 committed = await self.store.compare_and_swap_token_snapshot(
@@ -346,17 +379,21 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     expected_revision=current.revision,
                     snapshot=claim.snapshot,
                 )
-                dispatch = next(
-                    item
-                    for item in committed.in_flight_dispatches
-                    if item.dispatch_id == dispatch_id
+            except TokenSnapshotConcurrencyError as exc:
+                last_error = exc
+                if attempt == self._cas_max_attempts:
+                    break
+                await cas_backoff(attempt, sleep=self._cas_sleep)
+                current = await self._reload_contended(
+                    current.run_id, "token snapshot disappeared during recovery"
                 )
-                return DispatchClaim(snapshot=committed, dispatch=dispatch)
-            except TokenSnapshotConcurrencyError:
-                loaded = await self.store.get_token_snapshot(current.run_id)
-                if loaded is None:
-                    raise OrchestratorError("token snapshot disappeared during recovery") from None
-                current = loaded
+                continue
+            dispatch = next(
+                item for item in committed.in_flight_dispatches if item.dispatch_id == dispatch_id
+            )
+            return DispatchClaim(snapshot=committed, dispatch=dispatch)
+        assert last_error is not None
+        raise last_error
 
     async def _settle_fork_failure(self, run: Run, node: Any, exc: BaseException) -> Run:
         """End a failed fan-out the way the failure deserves.
@@ -530,6 +567,10 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                         parent_run=run,
                         node=node,
                         input_payload=input_payload,
+                        # Explicit, not defaulted: token scheduling owns the
+                        # aggregate work queue (see ``_drive``), so there is no
+                        # step tracker on this path to hand down.
+                        step_tracker=None,
                     )
                     if subgraph_result.terminal_run is not None:
                         return subgraph_result.terminal_run
@@ -1002,8 +1043,10 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         return await self.driver.external_stop(run) or run
 
     async def _transition(self, base, transition):
+        """Reapply a pure transition, retrying a bounded number of lost CASes."""
         current = base
-        while True:
+        last_error: TokenSnapshotConcurrencyError | None = None
+        for attempt in range(1, self._cas_max_attempts + 1):
             proposed = transition(current)
             try:
                 committed = await self.store.compare_and_swap_token_snapshot(
@@ -1011,15 +1054,19 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     expected_revision=current.revision,
                     snapshot=proposed,
                 )
-                self._close_closed_fanout_spans(committed)
-                return committed
-            except TokenSnapshotConcurrencyError:
-                loaded = await self.store.get_token_snapshot(current.run_id)
-                if loaded is None:
-                    raise OrchestratorError(
-                        "token snapshot disappeared during transition"
-                    ) from None
-                current = loaded
+            except TokenSnapshotConcurrencyError as exc:
+                last_error = exc
+                if attempt == self._cas_max_attempts:
+                    break
+                await cas_backoff(attempt, sleep=self._cas_sleep)
+                current = await self._reload_contended(
+                    current.run_id, "token snapshot disappeared during transition"
+                )
+                continue
+            self._close_closed_fanout_spans(committed)
+            return committed
+        assert last_error is not None
+        raise last_error
 
     async def _mark_snapshot_completed(self, snapshot: TokenEngineSnapshot) -> None:
         data = {name: getattr(snapshot, name) for name in type(snapshot).model_fields}
