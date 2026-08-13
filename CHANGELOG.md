@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2.1.3] - 2026-08-13
+
+- Restore the schema-health feature entry in release history.
+
 ## [0.23.2.1.2] - 2026-08-13
 
 - Synchronize generated service and Regulus API contracts with schema-revision
@@ -20,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve readiness-response compatibility and keep schema-revision health
   evidence stable across release acceptance.
+
+## [0.23.2] - 2026-08-13
+
+- Expose service and econ schema revisions through public health responses,
+  record known-behind acceptance proof, and report degraded readiness for stale
+  or unknown required schemas.
 
 ## [0.23.1.1] - 2026-08-13
 
