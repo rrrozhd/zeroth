@@ -656,3 +656,470 @@ def test_the_marker_survives_promotion_to_the_typed_tool_call_record() -> None:
 # The failure-path marker proof lives in tests/test_runner_mcp_wiring.py, where
 # the AgentRunner._resolve_tool_calls harness exists — it drives the real loop
 # with a raising MCP manager rather than calling build_call_audit directly.
+
+
+# ---------------------------------------------------------------------------
+# ZER-49 A06-1 / AC1 -- concurrent fan-out siblings are distinct operations
+# ---------------------------------------------------------------------------
+
+
+class _MemoryOperationStore:
+    """The claim/settle semantics of ``SideEffectOperationStore``, in memory.
+
+    Only the transitions ``_guarded_side_effect`` actually drives are modelled.
+    ``claim`` is synchronous under the hood, so within one event loop it is
+    atomic — which is exactly the first-claim-wins behaviour the real store gets
+    from ``insert_if_absent ... RETURNING``.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, object]] = {}
+        self.claims: list[dict[str, object]] = []
+
+    async def claim(self, operation_key: str, **fields: object):
+        from zeroth.platform.dispatch.operations import OperationClaim, OperationState
+
+        self.claims.append({"operation_key": operation_key, **fields})
+        row = self.rows.get(operation_key)
+        if row is None:
+            self.rows[operation_key] = {
+                "state": OperationState.IN_FLIGHT,
+                "receipt": None,
+                **fields,
+            }
+            return OperationClaim(state=OperationState.IN_FLIGHT, first_execution=True)
+        state = row["state"]
+        return OperationClaim(
+            state=state,  # type: ignore[arg-type]
+            first_execution=False,
+            receipt=row["receipt"],  # type: ignore[arg-type]
+            reconciliation_required=state is OperationState.IN_FLIGHT,
+        )
+
+    async def complete(self, operation_key: str, *, receipt: str) -> bool:
+        from zeroth.platform.dispatch.operations import OperationState
+
+        row = self.rows[operation_key]
+        if row["state"] is OperationState.COMPLETED:
+            return False
+        row["state"] = OperationState.COMPLETED
+        row["receipt"] = receipt
+        return True
+
+    async def fail(self, operation_key: str, *, error: str) -> None:
+        from zeroth.platform.dispatch.operations import OperationState
+
+        self.rows[operation_key]["state"] = OperationState.FAILED
+
+    async def mark_ambiguous(self, operation_key: str, *, reason: str) -> None:
+        from zeroth.platform.dispatch.operations import OperationState
+
+        self.rows[operation_key]["state"] = OperationState.AMBIGUOUS
+
+    async def get(self, operation_key: str):
+        return self.rows.get(operation_key)
+
+    @property
+    def operation_keys(self) -> list[str]:
+        return [str(claim["operation_key"]) for claim in self.claims]
+
+
+class _CountingUnitRunner:
+    """An integration that records how often the effect was actually applied."""
+
+    def __init__(self) -> None:
+        self.applications = 0
+
+    async def run(
+        self,
+        manifest_ref,
+        input_payload,
+        *,
+        enforcement_context=None,
+        operation_identity=None,
+    ):
+        self.applications += 1
+        return _CountingResult({"charged": dict(input_payload), "seq": self.applications})
+
+
+class _CountingResult:
+    def __init__(self, output: dict) -> None:
+        self.output_data = output
+        self.audit_record: dict = {}
+
+
+class _ExecutionSettings:
+    max_total_steps = 100
+
+
+class _FanOutGraph:
+    """Minimal graph: the fan-out path only looks nodes up and reads settings."""
+
+    def __init__(self, *nodes: object) -> None:
+        self.nodes = list(nodes)
+        self.edges: list[object] = []
+        self.execution_settings = _ExecutionSettings()
+
+
+class _NullRunRepository:
+    async def put(self, run):
+        return run
+
+    async def write_checkpoint(self, run):
+        return "cp"
+
+
+async def _no_ttls(run) -> None:
+    return None
+
+
+def _charge_unit_node():
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    return ExecutableUnitNode(
+        node_id="charge",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://charge-card",
+            execution_mode="wrapped_command",
+        ),
+    )
+
+
+def _fan_out_source():
+    class _Source:
+        node_id = "split"
+        node_type = "agent"
+        node_version = 1
+
+    return _Source()
+
+
+def _fan_out_run():
+    from zeroth.runtime.runs import Run
+
+    # A legacy (non-token) run: driver.py never stages ``token_dispatch`` for a
+    # node carrying ``parallel_config``, so the identity falls back to run_id.
+    return Run(run_id="run-fanout-1", graph_version_ref="g:v1", deployment_ref="d")
+
+
+def _fan_out_executor(dispatcher):
+    from zeroth.runtime.orchestration import RuntimeParallelExecutor
+
+    return RuntimeParallelExecutor(
+        run_repository=_NullRunRepository(),
+        refresh_artifact_ttls=_no_ttls,
+        node_dispatcher=dispatcher,
+        plan_next_nodes=lambda graph, run, node_id, output: ["charge"],
+    )
+
+
+def _guarded_dispatcher(store, runner):
+    from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
+    from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+
+    return NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=RuntimeToolExecutor(executable_unit_runner=runner),
+        operation_store=store,
+    )
+
+
+async def _run_two_branch_fan_out(store, runner):
+    from zeroth.runtime.parallel.models import ParallelConfig
+
+    graph = _FanOutGraph(_charge_unit_node())
+    run = _fan_out_run()
+    source = _fan_out_source()
+    output_data = {"items": [{"amount": 10}, {"amount": 20}]}
+
+    return await _fan_out_executor(_guarded_dispatcher(store, runner)).execute_fan_out(
+        graph,
+        run,
+        source,
+        "split",
+        {},
+        output_data,
+        {},
+        ParallelConfig(split_path="items"),
+    )
+
+
+async def test_concurrent_fan_out_siblings_get_distinct_operation_identities() -> None:
+    """AC1: N branches dispatching one downstream node are N operations.
+
+    Siblings share the run, share the fallback idempotency key (a parallel node
+    is never staged as a token dispatch) and share the target node, so nothing
+    in the derivation material told them apart. The first branch to claim was
+    recorded as the operation and every sibling was suppressed as a *replay of
+    it* -- handed branch 1's receipt as its own output. This is silent
+    cross-branch data corruption, which is strictly worse than a duplicate
+    effect, so the identities must differ.
+    """
+    store = _MemoryOperationStore()
+    runner = _CountingUnitRunner()
+
+    fan_in = await _run_two_branch_fan_out(store, runner)
+
+    keys = store.operation_keys
+    assert len(keys) == 2, "each branch must claim its own operation"
+    assert len(set(keys)) == 2, f"sibling branches minted the same identity: {keys}"
+    # The corruption proof: each branch must carry its OWN effect, not a sibling's.
+    assert runner.applications == 2
+    outputs = [result.output for result in fan_in.results]
+    assert [out["charged"] for out in outputs] == [{"amount": 10}, {"amount": 20}]
+
+
+async def test_a_replayed_fan_out_reproduces_each_branch_its_own_identity() -> None:
+    """Distinctness is only half the property: the branch key must also be stable.
+
+    A discriminator that moved between runs would make siblings distinct and
+    simultaneously destroy the guarantee the key exists for -- every recovery
+    would re-derive fresh keys, claim them as first executions and re-apply
+    every branch's effect. ``branch_id`` is ``run_id:branch:index``, so
+    re-splitting the same fan-out output reproduces it; this measures that
+    rather than trusting the derivation.
+    """
+    store = _MemoryOperationStore()
+    runner = _CountingUnitRunner()
+
+    await _run_two_branch_fan_out(store, runner)
+    first_pass = list(store.operation_keys)
+
+    replayed = await _run_two_branch_fan_out(store, runner)
+
+    assert store.operation_keys[2:] == first_pass, "recovery must re-derive the same keys"
+    assert runner.applications == 2, "the replay must be suppressed, not re-applied"
+    # Each branch must be handed back ITS OWN receipt -- the assertion that pins
+    # stability and the discriminator at the same time.
+    assert [result.output["charged"] for result in replayed.results] == [
+        {"amount": 10},
+        {"amount": 20},
+    ]
+
+
+async def test_a_fan_out_branch_agent_tool_call_is_distinct_per_branch() -> None:
+    """The same collision reached through an agent's tool call, not a unit node.
+
+    ``_dispatch_agent`` builds the tool executor with a factory closed over the
+    run only, so two branches running the same agent node and calling the same
+    tool with the same arguments derive one identity between them -- and the
+    provider's call id does not help, because it is the same replayed call id
+    on both sides.
+    """
+    from zeroth.contracts.graph import AgentNode, AgentNodeData, AgentToolBinding
+
+    store = _MemoryOperationStore()
+    runner = _CountingUnitRunner()
+
+    class _ToolCallingAgentRunner:
+        """A runner whose turn makes exactly one tool call."""
+
+        def __init__(self) -> None:
+            self.tool_executor = None
+            self.config = None
+            self.provider = None
+            self.memory_resolver = None
+            self.budget_enforcer = None
+            self.context_tracker = None
+
+        async def run(self, input_payload, *, thread_id=None, runtime_context=None):
+            class _Binding:
+                alias = "charge_card"
+                executable_unit_ref = "node://charge"
+
+            # A replay of the same turn replays the same provider call id.
+            await self.tool_executor(_Binding(), {"amount": 10}, "call-charge-1")
+            return _CountingResult({"done": True})
+
+    agent_node = AgentNode(
+        node_id="agent",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        agent=AgentNodeData(
+            instruction="charge it",
+            model_provider="test:model",
+            tool_bindings=[
+                AgentToolBinding(
+                    target_node_id="charge",
+                    name="charge_card",
+                    description="charge the card",
+                )
+            ],
+        ),
+    )
+    dispatcher = _guarded_dispatcher(store, runner)
+    dispatcher = dispatcher.__class__(
+        agent_runners={"agent": _ToolCallingAgentRunner()},
+        executable_unit_runner=runner,
+        tool_executor=dispatcher.tool_executor,
+        operation_store=store,
+    )
+    graph = _FanOutGraph(agent_node, _charge_unit_node())
+    run = _fan_out_run()
+
+    from zeroth.runtime.parallel.models import ParallelConfig
+
+    executor = _fan_out_executor(dispatcher)
+    executor = executor.__class__(
+        run_repository=_NullRunRepository(),
+        refresh_artifact_ttls=_no_ttls,
+        node_dispatcher=dispatcher,
+        plan_next_nodes=lambda graph, run, node_id, output: ["agent"],
+    )
+    await executor.execute_fan_out(
+        graph,
+        run,
+        _fan_out_source(),
+        "split",
+        {},
+        {"items": [{"amount": 10}, {"amount": 20}]},
+        {},
+        ParallelConfig(split_path="items"),
+    )
+
+    keys = store.operation_keys
+    assert len(keys) == 2, "each branch's tool call must claim its own operation"
+    assert len(set(keys)) == 2, f"sibling branches minted the same identity: {keys}"
+    assert runner.applications == 2
+
+
+def test_a_dispatch_outside_a_fan_out_keeps_its_existing_key() -> None:
+    """The backward-compatibility pin: only branch dispatches may move.
+
+    Widening the material for a branch orphans that branch's in-flight rows at
+    deploy, which is accepted. Moving the key for a *sequential* or token-engine
+    dispatch would orphan every other in-flight row for no reason, so the
+    no-branch derivation must stay byte-identical to what shipped.
+    """
+    from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
+    from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+    from zeroth.runtime.runs import Run
+
+    runner = _CountingUnitRunner()
+    dispatcher = NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=RuntimeToolExecutor(executable_unit_runner=runner),
+    )
+    run = Run(run_id="run-seq-1", graph_version_ref="g:v1", deployment_ref="d")
+    run.metadata["token_dispatch"] = {
+        "dispatch_id": "dsp-1",
+        "idempotency_key": "idem-1",
+        "attempt": 0,
+    }
+
+    identity = dispatcher._operation_identity_for(run, "unit://charge-card")
+
+    assert identity.target_ref == "unit://charge-card"
+    assert identity.operation_key == derive_operation_key(
+        run_id="run-seq-1",
+        idempotency_key="idem-1",
+        target_ref="unit://charge-card",
+        call_ordinal=0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ZER-49 A16-16 -- the mirror defect: an id-less provider under-merged
+# ---------------------------------------------------------------------------
+
+
+def _ai_message(*calls: dict) -> dict:
+    return {"tool_calls": [dict(call) for call in calls]}
+
+
+def test_an_id_less_tool_call_gets_the_same_id_on_every_extraction() -> None:
+    """A16-16: a replayed turn must be recognisable as the same call.
+
+    ``CallableProviderAdapter.ainvoke`` normalises through ``extract_tool_calls``,
+    whose id is what ``RuntimeToolExecutor`` keys the operation on. Minting a
+    random id there made every extraction of the SAME call a new logical
+    operation, so the durable dedupe could never fire -- the exact inverse of the
+    fan-out defect, and just as silent.
+    """
+    from zeroth.runtime.agents.tooling.tool_calls import extract_tool_calls
+
+    (first,) = extract_tool_calls(_ai_message({"name": "charge", "args": {"amount": 10}}))
+    (replay,) = extract_tool_calls(_ai_message({"name": "charge", "args": {"amount": 10}}))
+
+    assert first["id"], "the id must stay truthy or the executor falls back to a counter"
+    assert first["id"] == replay["id"]
+
+
+def test_id_less_tool_calls_within_one_turn_stay_distinct() -> None:
+    """The control: stability must not collapse two calls the model really made.
+
+    Two identical calls in one assistant message are two effects requested, not
+    one requested twice, so their ordinal keeps them apart. A content-only id
+    would merge them and drop real work.
+    """
+    from zeroth.runtime.agents.tooling.tool_calls import extract_tool_calls
+
+    same_args = extract_tool_calls(
+        _ai_message(
+            {"name": "charge", "args": {"amount": 10}},
+            {"name": "charge", "args": {"amount": 10}},
+        )
+    )
+    different_args = extract_tool_calls(
+        _ai_message(
+            {"name": "charge", "args": {"amount": 10}},
+            {"name": "charge", "args": {"amount": 20}},
+        )
+    )
+
+    assert len({call["id"] for call in same_args}) == 2
+    assert len({call["id"] for call in different_args}) == 2
+
+
+def test_an_id_less_provider_replay_derives_the_same_operation_key() -> None:
+    """Close the loop through the executor that actually mints the identity.
+
+    Asserting id stability alone would still allow the key to move; this drives
+    the same normalized call through ``build()`` twice, the way a recovered
+    worker replays a turn, and pins that the operation key is reproduced.
+    """
+    import asyncio
+
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+    from zeroth.runtime.agents.tooling.tool_calls import extract_tool_calls
+
+    node = ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref="unit://send-email",
+            execution_mode="wrapped_command",
+        ),
+    )
+    graph = _GraphOf(node)
+
+    def _factory(target_ref: str, ordinal: int):
+        return operation_identity(
+            run_id="run_1",
+            dispatch_id="dsp_abc",
+            idempotency_key="idem_abc",
+            attempt=0,
+            target_ref=target_ref,
+            call_ordinal=ordinal,
+        )
+
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    def _key_for_a_fresh_extraction():
+        (call,) = extract_tool_calls(_ai_message({"name": "send", "args": {"to": "a@b.c"}}))
+        runner = _RecordingRunner()
+        execute = _executor(runner).build(graph, {}, operation_identity_factory=_factory)
+        asyncio.run(execute(_Binding(), call["args"], call["id"]))
+        return runner.calls[0]["operation_identity"].operation_key
+
+    assert _key_for_a_fresh_extraction() == _key_for_a_fresh_extraction()

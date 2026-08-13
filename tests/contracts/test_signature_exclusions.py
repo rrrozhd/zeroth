@@ -65,6 +65,10 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "inventory_fingerprint",
         "run_id",
     ),
+    # ZER-49: the API-boundary report of whether a decision reached a policy
+    # action. Additive, optional, and decision-only; the response shape it
+    # documents is pinned in tests/econ_plane/test_decision_linkage_visibility.py.
+    "zeroth.econ.plane.enforcement.schemas:EnforcementActionOut": ("policy_action_effect",),
     "zeroth.governance.audit.models:ToolCallRecord": (
         "operation_first_execution",
         "operation_key",

@@ -51,7 +51,15 @@ def require_sidecar_secret(
 )
 async def execute(request: SidecarExecuteRequest) -> SidecarExecuteResponse:
     """Execute a command in an isolated Docker container."""
-    return await executor.execute(request)
+    try:
+        return await executor.execute(request)
+    except ValueError as exc:
+        # A rejected timeout is a bad request, not a server fault. Without this
+        # the resolver's ValueError reached no handler and surfaced as a 500,
+        # where the previous unbounded code answered 200 with timed_out=True.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
 
 @app.get(

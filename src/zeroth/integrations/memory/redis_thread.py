@@ -97,19 +97,71 @@ class RedisThreadMemoryConnector:
     ) -> list[MemoryEntry]:
         """Search thread entries, optionally filtered by text and limited.
 
+        Returns the ``limit`` most recent matching entries across every key in
+        scope, newest first.
+
+        Each key is its own sorted set, so a per-key ``zrevrange`` is ordered
+        only *within* that key. Appending those runs in ``scan_iter`` order and
+        slicing the result kept the promised count but handed back an arbitrary
+        cross-key subset -- with two keys and ``limit=10``, ten entries from
+        whichever key Redis happened to scan first, and nothing from the other
+        however recent it was. Scores are therefore pulled alongside the
+        members and the merge is ordered by score before it is truncated.
+
         Supported query fields:
         - ``text``: substring match against entry values
         - ``limit``: maximum number of entries to return (default 100)
+
+        One bound is inherited rather than fixed: each key is read only
+        ``limit`` deep, so a ``text`` filter can under-fill. If a key's top
+        ``limit`` entries all fail the filter while its next one would match,
+        that match is not returned. Reading deeper would mean reading each set
+        in full, which is what ``limit`` exists to prevent.
+
+        Args:
+            query: Query fields as described above.
+            scope: Memory scope to search within.
+            target: Scope target (thread id) to search within.
+
+        Returns:
+            Up to ``limit`` matching entries, most recent first.
+
+        Raises:
+            ValueError: ``limit`` is not a non-negative integer.
+
         """
-        limit = query.get("limit", 100)
+        limit = self._search_limit(query.get("limit", 100))
+        if limit == 0:
+            # zrevrange(key, 0, -1) reads every member of every set, so the
+            # old code answered "at most zero entries" by fetching all of them.
+            return []
         text = query.get("text", "").lower()
         pattern = f"{self._prefix}:{scope.value}:{target or ''}:*"
 
-        results: list[MemoryEntry] = []
+        scored: list[tuple[float, MemoryEntry]] = []
         async for redis_key in self._redis.scan_iter(match=pattern):
-            items = await self._redis.zrevrange(redis_key, 0, limit - 1)
-            for raw in items:
+            items = await self._redis.zrevrange(redis_key, 0, limit - 1, withscores=True)
+            for raw, score in items:
                 entry = MemoryEntry.model_validate_json(raw)
                 if not text or text in str(entry.value).lower():
-                    results.append(entry)
-        return results[:limit]
+                    scored.append((float(score), entry))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [entry for _, entry in scored[:limit]]
+
+    @staticmethod
+    def _search_limit(limit: Any) -> int:
+        """Validate the caller's ``limit`` as a non-negative entry count.
+
+        Args:
+            limit: The raw ``limit`` field from the query.
+
+        Returns:
+            The limit as an int.
+
+        Raises:
+            ValueError: ``limit`` is not a non-negative integer.
+
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise ValueError(f"search 'limit' must be a non-negative integer, got {limit!r}")
+        return limit

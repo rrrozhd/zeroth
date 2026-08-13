@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -54,6 +55,7 @@ class RunWorker:
         worker_id:           Unique ID for this worker instance.
         dead_letter_manager: Optional; marks repeatedly-failing runs as dead-letter.
         metrics_collector:   Optional; records execution metrics.
+
     """
 
     deployment_ref: str
@@ -109,12 +111,65 @@ class RunWorker:
             self.worker_id,
             **self._lease_scope(),
         )
-        for run_id in orphans:
+        # Recovery obeys the same concurrency bound as the poll loop. Creating a
+        # task per orphan meant a crash with a large backlog dispatched the whole
+        # backlog at once, ignoring max_concurrency entirely.
+        if len(orphans) > self.max_concurrency:
+            logger.warning(
+                "worker %s recovering %d orphaned runs at concurrency %d; "
+                "the remainder start as slots free",
+                self.worker_id,
+                len(orphans),
+                self.max_concurrency,
+            )
+        # Named outside the run-/wakeup-/recover- namespace on purpose: this is
+        # the recovery *loop*, not a run. _extract_run_id parses any of those
+        # prefixes as a run id, so a "recover-orphans-w1" task made
+        # graceful_shutdown drive clear_fence and release_lease against a
+        # fabricated run called "orphans-w1".
+        task = asyncio.create_task(
+            self._recover_orphans(orphans),
+            name=f"orphan-recovery-loop-{self.worker_id}",
+        )
+        self._track(task)
+
+    async def _recover_orphans(self, orphans: Sequence[str]) -> None:
+        """Re-execute *orphans*, never more than ``max_concurrency`` in flight.
+
+        The gate is a local count of live recovery tasks, deliberately not the
+        worker's slot semaphore. ``_execute_leased_run`` acquires and releases
+        that semaphore itself, and it does so around a window with unguarded
+        awaits: acquiring here as well would either double-release or, if one of
+        those awaits raised, drain the semaphore and wedge this loop forever.
+        Slot ownership stays entirely with the callee.
+        """
+        in_flight: set[asyncio.Task[None]] = set()
+        for index, run_id in enumerate(orphans):
+            if self._stopping:
+                # These were CLAIMED by this worker, so they are leased to a
+                # process that is leaving. They have no task, so
+                # graceful_shutdown's "for task in pending" cannot see them, and
+                # without this they would sit RUNNING until the lease TTL
+                # expired. Hand them back explicitly instead.
+                undispatched = list(orphans[index:])
+                logger.info(
+                    "worker %s stopping; releasing %d claimed but undispatched orphaned runs",
+                    self.worker_id,
+                    len(undispatched),
+                )
+                for pending_run_id in undispatched:
+                    await self._release_to_pending(pending_run_id)
+                break
+            while len(in_flight) >= self.max_concurrency:
+                _done, in_flight = await asyncio.wait(
+                    in_flight, return_when=asyncio.FIRST_COMPLETED
+                )
             logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
             task = asyncio.create_task(
                 self._execute_leased_run(run_id, is_recovery=True),
                 name=f"recover-{run_id}",
             )
+            in_flight.add(task)
             self._track(task)
 
     async def poll_loop(self) -> None:
@@ -171,24 +226,95 @@ class RunWorker:
             self.metrics_collector.increment("zeroth_runs_started_total")
         started_at = time.perf_counter()
         acquired_here = False
+        # A06-2: everything the finally has to undo is declared BEFORE the
+        # permit is acquired, and the try opens immediately after it. The setup
+        # below (generation read, fence install, two task spawns) used to sit
+        # outside the try: a throw there skipped the whole finally, so the
+        # permit, the lease, the fence and the bookkeeping all leaked for the
+        # worker's lifetime — and a drive task spawned just before the throw
+        # kept executing with no renewal loop watching its lease.
+        fence_installed = False
+        drive_task: asyncio.Task | None = None
+        renewal_task: asyncio.Task | None = None
         if not slot_reserved:
             await self._semaphore.acquire()
             acquired_here = True
-        # Captured right after the claim: the renewal loop presents it back so a
-        # lease that was released and re-acquired is detected even when the same
-        # worker id ends up holding it again.
-        generation = await self.lease_manager.current_generation(run_id)
-        self._lease_generations[run_id] = generation
-        fence_installed = await self._install_write_fence(run_id, generation)
-        drive_task = asyncio.create_task(
-            self._drive_run(run_id, is_recovery=is_recovery),
-            name=f"drive-{run_id}",
-        )
-        self._active_drives[run_id] = drive_task
-        renewal_task = asyncio.create_task(
-            self._renewal_loop(run_id),
-            name=f"renew-{run_id}",
-        )
+        try:
+            # Captured right after the claim: the renewal loop presents it back so a
+            # lease that was released and re-acquired is detected even when the same
+            # worker id ends up holding it again.
+            generation = await self.lease_manager.current_generation(run_id)
+            self._lease_generations[run_id] = generation
+            fence_installed = await self._install_write_fence(run_id, generation)
+            drive_task = asyncio.create_task(
+                self._drive_run(run_id, is_recovery=is_recovery),
+                name=f"drive-{run_id}",
+            )
+            self._active_drives[run_id] = drive_task
+            renewal_task = asyncio.create_task(
+                self._renewal_loop(run_id),
+                name=f"renew-{run_id}",
+            )
+            # The drive's OWN outcome is handled by _await_drive_outcome and
+            # nowhere else. A setup failure above is not a run failure:
+            # converting it would mark a run FAILED over a transient lease-store
+            # read, and — when the fence install itself is what threw — issue
+            # that terminal write unfenced, which is exactly what ZER-26/AUD-004
+            # forbids. Setup throws propagate untouched; only the cleanup below
+            # is now guaranteed.
+            await self._await_drive_outcome(run_id, drive_task, started_at)
+        finally:
+            # Stop the drive BEFORE the fence comes down and the lease goes
+            # back — the same ordering graceful_shutdown relies on. On the
+            # normal path the task is already done and this is a no-op; it only
+            # bites when the setup threw after the spawn.
+            if drive_task is not None and not drive_task.done():
+                drive_task.cancel()
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await drive_task
+            if fence_installed:
+                self.run_repository.clear_fence(run_id)
+            # Suppress ANY outcome of the renewal task (audit B4). The normal path
+            # raises CancelledError (a BaseException, so it is listed explicitly —
+            # `suppress(Exception)` alone would let it through). But if
+            # _renewal_loop already finished by RAISING (e.g. its lease-renewal DB
+            # transaction hit "database is locked"), cancel() is a no-op on the
+            # done task and `await` re-raises that non-CancelledError — which would
+            # escape this finally BEFORE release_lease + semaphore.release() run,
+            # permanently leaking the concurrency slot. We cancelled it and don't
+            # care about its result either way. It is None when the setup threw
+            # before the spawn.
+            if renewal_task is not None:
+                renewal_task.cancel()
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await renewal_task
+            self._active_drives.pop(run_id, None)
+            self._lost_leases.discard(run_id)
+            self._lease_generations.pop(run_id, None)
+            # release_lease is owner-qualified, so a displaced worker calling it
+            # cannot clear the new owner's lease.
+            await self.lease_manager.release_lease(run_id, self.worker_id)
+            if slot_reserved or acquired_here:
+                self._semaphore.release()
+
+    async def _await_drive_outcome(
+        self, run_id: str, drive_task: asyncio.Task, started_at: float
+    ) -> None:
+        """Await the drive and convert ONLY the drive's own outcome.
+
+        Sits outside ``_execute_leased_run`` to keep that function under the
+        mccabe ceiling the commit gate ratchets, and it draws exactly the
+        boundary the inline ``try`` drew: it is entered only once the fence is
+        installed and the drive is spawned, so a *setup* throw still propagates
+        untouched rather than routing into ``_handle_run_exception``. That
+        distinction is load-bearing — routing setup failures here would mark a
+        run FAILED over a transient lease-store read and, when the fence
+        install itself threw, issue that terminal write unfenced
+        (ZER-26/AUD-004). Cleanup stays with the caller's ``finally``, and the
+        bare ``raise`` below still re-raises the cancellation into it.
+        """
+        import time
+
         try:
             await drive_task
             elapsed = time.perf_counter() - started_at
@@ -204,29 +330,6 @@ class RunWorker:
             await self._handle_fencing_rejection(run_id)
         except Exception:
             await self._handle_run_exception(run_id)
-        finally:
-            if fence_installed:
-                self.run_repository.clear_fence(run_id)
-            renewal_task.cancel()
-            # Suppress ANY outcome of the renewal task (audit B4). The normal path
-            # raises CancelledError (a BaseException, so it is listed explicitly —
-            # `suppress(Exception)` alone would let it through). But if
-            # _renewal_loop already finished by RAISING (e.g. its lease-renewal DB
-            # transaction hit "database is locked"), cancel() is a no-op on the
-            # done task and `await` re-raises that non-CancelledError — which would
-            # escape this finally BEFORE release_lease + semaphore.release() run,
-            # permanently leaking the concurrency slot. We cancelled it and don't
-            # care about its result either way.
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                await renewal_task
-            self._active_drives.pop(run_id, None)
-            self._lost_leases.discard(run_id)
-            self._lease_generations.pop(run_id, None)
-            # release_lease is owner-qualified, so a displaced worker calling it
-            # cannot clear the new owner's lease.
-            await self.lease_manager.release_lease(run_id, self.worker_id)
-            if slot_reserved or acquired_here:
-                self._semaphore.release()
 
     async def _install_write_fence(self, run_id: str, generation: int | None) -> bool:
         """ZER-26/AUD-004: fence this drive's run-state saves on the lease.
@@ -246,7 +349,7 @@ class RunWorker:
         return True
 
     async def _handle_fencing_rejection(self, run_id: str) -> None:
-        """The fence fired before the renewal loop noticed: ownership moved.
+        """Handle a fence that fired before the renewal loop noticed ownership moved.
 
         The refused write is the proof. The run is the new owner's, so no run
         state is written — only the durable evidence and the metric.
@@ -576,3 +679,24 @@ class RunWorker:
     def _track(self, task: asyncio.Task) -> None:
         self._active_tasks.add(task)
         task.add_done_callback(self._active_tasks.discard)
+        task.add_done_callback(self._report_task_outcome)
+
+    @staticmethod
+    def _report_task_outcome(task: asyncio.Task) -> None:
+        """Retrieve a finished task's exception so it is logged, not swallowed.
+
+        ``discard`` was the only done-callback, so nothing ever called
+        ``task.exception()``. A run that raised outside its own error handling
+        surfaced nowhere but a garbage-collection warning, if at all.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "worker task %s failed: %s: %s",
+                task.get_name(),
+                type(exc).__name__,
+                exc,
+                exc_info=exc,
+            )

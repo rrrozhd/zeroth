@@ -7,11 +7,16 @@ and fencing cancellation across queued, waiting, and executing tokens.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import random
+from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel
 
-from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot, TokenEngineSnapshotState
+from zeroth.contracts.graph.token_snapshot import (
+    TokenEngineSnapshot,
+    TokenEngineSnapshotState,
+)
 from zeroth.contracts.graph.tokens import (
     CancellationFence,
     DispatchLifecycleState,
@@ -42,6 +47,33 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
 )
 
 TokenLifecycleTransition = Callable[[TokenEngineSnapshot], TokenEngineSnapshot]
+CasSleep = Callable[[float], Awaitable[None]]
+
+# Attempt budget for one contended snapshot CAS. Eight is what
+# ``apply_token_transition`` already spends against the same store, so a
+# lifecycle command and a scheduler transition give up at the same point
+# instead of one of them retrying forever.
+CAS_MAX_ATTEMPTS = 8
+# 5 ms is the delay the async-sqlite busy path already uses for this class of
+# contention. The ceiling keeps a wedged run from waiting seconds per attempt:
+# eight full-jitter attempts cost well under a second in the worst case.
+CAS_BASE_DELAY_SECONDS = 0.005
+CAS_MAX_DELAY_SECONDS = 0.25
+
+
+async def cas_backoff(attempt: int, *, sleep: CasSleep = asyncio.sleep) -> None:
+    """Wait a bounded, full-jitter exponential delay before retrying a lost CAS.
+
+    Retrying a lost CAS immediately is what turns contention into a livelock:
+    every loser reloads and re-collides in lockstep. Jitter spreads the retries
+    apart, so the delay is uniform over the whole ceiling rather than fixed.
+
+    Args:
+        attempt: 1-based number of the attempt that just lost.
+        sleep: Injected so tests can observe the delay instead of spending it.
+    """
+    ceiling = min(CAS_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), CAS_MAX_DELAY_SECONDS)
+    await sleep(random.uniform(0.0, ceiling))  # noqa: S311 - backoff jitter, not crypto
 
 
 def _data(model: BaseModel) -> dict[str, object]:
@@ -695,13 +727,32 @@ def acknowledge_cancellation(
 class TokenLifecycleAdapter:
     """CAS-retrying persistence boundary for lifecycle transitions."""
 
-    def __init__(self, store: TokenSnapshotStore) -> None:
+    def __init__(
+        self,
+        store: TokenSnapshotStore,
+        *,
+        max_attempts: int = CAS_MAX_ATTEMPTS,
+        sleep: CasSleep = asyncio.sleep,
+    ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
         self.store = store
+        self._max_attempts = max_attempts
+        self._sleep = sleep
 
     async def _apply(
         self, run_id: str, transition: TokenLifecycleTransition
     ) -> TokenEngineSnapshot:
-        while True:
+        """Reload and reapply one lifecycle transition until its CAS wins.
+
+        The retry budget is finite on purpose. This is the operator path --
+        pause, resume, stop, cancel all land here -- so an unbounded loop let a
+        single admin request spin forever under sustained contention. Exhausting
+        the budget re-raises the last :class:`TokenSnapshotConcurrencyError`,
+        which is what the scheduler's own bounded CAS already raises.
+        """
+        last_error: TokenSnapshotConcurrencyError | None = None
+        for attempt in range(1, self._max_attempts + 1):
             current = await self.store.get_token_snapshot(run_id)
             if current is None:
                 raise KeyError(f"token snapshot for run {run_id!r} does not exist")
@@ -714,8 +765,12 @@ class TokenLifecycleAdapter:
                     expected_revision=current.revision,
                     snapshot=proposed,
                 )
-            except TokenSnapshotConcurrencyError:
-                continue
+            except TokenSnapshotConcurrencyError as exc:
+                last_error = exc
+                if attempt < self._max_attempts:
+                    await cas_backoff(attempt, sleep=self._sleep)
+        assert last_error is not None
+        raise last_error
 
     async def pause(self, run_id: str) -> TokenEngineSnapshot:
         return await self._apply(run_id, pause_snapshot)
@@ -743,8 +798,13 @@ class TokenLifecycleAdapter:
 
 
 __all__ = [
+    "CAS_BASE_DELAY_SECONDS",
+    "CAS_MAX_ATTEMPTS",
+    "CAS_MAX_DELAY_SECONDS",
+    "CasSleep",
     "TokenLifecycleAdapter",
     "acknowledge_cancellation",
+    "cas_backoff",
     "has_pending_structured_owner_work",
     "pause_snapshot",
     "request_cancellation",

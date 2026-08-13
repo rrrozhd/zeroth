@@ -299,20 +299,36 @@ class RedisRunStore(RunStore):
         return f"{self.prefix}:thread:{thread_id}:active"
 
     async def _rewrite_list(self, key: str, values: list[str]) -> None:
-        """Rewrite one redis list key from scratch."""
+        """Rewrite one redis list key from scratch, in a single MULTI/EXEC.
+
+        The DELETE and the RPUSHes used to be separate round-trips, so every
+        concurrent reader between them saw an empty or half-rebuilt list. This
+        runs on *read* paths (``list_run_ids``, ``delete``, and
+        ``interrupts.get_requests``), so an ordinary read could blank another
+        reader's view of a thread's runs for the duration of the rewrite.
+
+        MULTI/EXEC closes that torn read and nothing more. It does NOT close
+        the lost-append race against ``_record_thread_run``: ``values`` is a
+        snapshot the CALLER computed from an earlier LRANGE, so an append that
+        lands in between is still overwritten here. Closing that needs a WATCH
+        established before the caller's read — as ``put()`` does — which is a
+        change in the callers, not in this method.
+        """
         client = await self._client()
-        await client.delete(key)
-        if values:
-            for value in values:
-                await client.rpush(key, value)
-            await self._maybe_expire(key)
+        async with client.pipeline(transaction=True) as pipe:
+            pipe.delete(key)
+            if values:
+                pipe.rpush(key, *values)
+                if self.ttl_seconds is not None:
+                    pipe.expire(key, int(self.ttl_seconds))
+            await pipe.execute()
 
     async def _record_thread_run(self, thread_id: str, run_id: str) -> None:
         """Append a run id to thread history exactly once."""
         client = await self._client()
         key = self._thread_run_index_key(thread_id)
         existing = [value for value in await client.lrange(key, 0, -1)]
-        normalized = [current for current in (self._decode_text(value) for value in existing) if current is not None]
+        normalized = [current for current in (self._decode_text(value) for value in existing) if current is not None]  # noqa: E501
         if run_id not in normalized:
             await client.rpush(key, run_id)
         await self._maybe_expire(key)
@@ -393,7 +409,7 @@ class RedisRunStore(RunStore):
             return
         history_key = self._thread_run_index_key(state.thread_id)
         raw_history = [value for value in await client.lrange(history_key, 0, -1)]
-        normalized = [current for current in (self._decode_text(value) for value in raw_history) if current is not None]
+        normalized = [current for current in (self._decode_text(value) for value in raw_history) if current is not None]  # noqa: E501
         filtered = [current for current in normalized if current != run_id]
         await self._rewrite_list(history_key, filtered)
         active_key = self._thread_active_key(state.thread_id)
@@ -432,7 +448,7 @@ class RedisRunStore(RunStore):
     async def get_latest_checkpoint(self, thread_id: str) -> RunState | None:
         """Fetch most recent checkpoint snapshot for a thread id."""
         client = await self._client()
-        checkpoint_id = self._decode_text(await client.lindex(self._thread_checkpoint_index_key(thread_id), -1))
+        checkpoint_id = self._decode_text(await client.lindex(self._thread_checkpoint_index_key(thread_id), -1))  # noqa: E501
         if checkpoint_id is None:
             return None
         return await self.get_checkpoint(checkpoint_id)
@@ -474,7 +490,7 @@ class RedisRunStore(RunStore):
         client = await self._client()
         key = self._thread_run_index_key(thread_id)
         raw_history = await client.lrange(key, 0, -1)
-        normalized = [current for current in (self._decode_text(value) for value in raw_history) if current is not None]
+        normalized = [current for current in (self._decode_text(value) for value in raw_history) if current is not None]  # noqa: E501
         unique_in_order: list[str] = []
         seen: set[str] = set()
         for run_id in normalized:

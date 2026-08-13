@@ -142,8 +142,8 @@ async def test_the_declared_regulus_origin_is_served_by_a_real_control_plane(
         assert mounted.json() == {
             "status": "ok",
             "schema_revision": {
-                "applied": "20260812_04",
-                "head": "20260812_04",
+                "applied": "20260812_07",
+                "head": "20260812_07",
                 "state": "current",
             },
         }
@@ -172,8 +172,8 @@ async def test_candidates_rebind_and_restore_preimported_econ_storage(tmp_path: 
                 assert response.json() == {
                     "status": "ok",
                     "schema_revision": {
-                        "applied": "20260812_04",
-                        "head": "20260812_04",
+                        "applied": "20260812_07",
+                        "head": "20260812_07",
                         "state": "current",
                     },
                 }

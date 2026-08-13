@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
+from zeroth.integrations.http.factory import governed_async_client
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import (
     Permission,
@@ -58,6 +59,23 @@ def _regulus_self_auth_headers(request: Request) -> dict[str, str] | None:
     return provider() if provider is not None else None
 
 
+async def _regulus_client(request: Request, timeout: float) -> httpx.AsyncClient:
+    """Return the shared, bounded client this app uses to reach Regulus.
+
+    Each of these handlers used to build a throwaway ``httpx.AsyncClient`` per
+    request, so every cost query paid a fresh TCP and TLS handshake and no
+    connection was ever kept alive (A02-16). The cache is anchored on the app, so
+    a test that builds a fresh app per case does not inherit a client bound to an
+    event loop that has already closed.
+    """
+    return await governed_async_client(
+        purpose="regulus-cost",
+        timeout=timeout,
+        app=request.app,
+        transport=getattr(request.app.state, "regulus_transport", None),
+    )
+
+
 def register_cost_routes(app: FastAPI | APIRouter) -> None:
     """Register cost attribution query routes on the FastAPI app."""
 
@@ -79,19 +97,19 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         if regulus_base_url is None:
             raise HTTPException(status_code=503, detail="Regulus backend not configured")
         try:
-            async with httpx.AsyncClient(timeout=regulus_timeout) as client:
-                resp = await client.get(
-                    f"{regulus_base_url}/budget/status",
-                    params={"tenant_id": tenant_id},
-                    headers=_regulus_self_auth_headers(request),
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return TenantCostResponse(
-                    tenant_id=tenant_id,
-                    total_cost_usd=float(data.get("total_cost_usd", 0)),
-                    budget_cap_usd=data.get("budget_cap_usd"),
-                )
+            client = await _regulus_client(request, regulus_timeout)
+            resp = await client.get(
+                f"{regulus_base_url}/budget/status",
+                params={"tenant_id": tenant_id},
+                headers=_regulus_self_auth_headers(request),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return TenantCostResponse(
+                tenant_id=tenant_id,
+                total_cost_usd=float(data.get("total_cost_usd", 0)),
+                budget_cap_usd=data.get("budget_cap_usd"),
+            )
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,
             # which is the Regulus base URL -- internal infrastructure the caller
@@ -121,19 +139,19 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         if regulus_base_url is None:
             raise HTTPException(status_code=503, detail="Regulus backend not configured")
         try:
-            async with httpx.AsyncClient(timeout=regulus_timeout) as client:
-                resp = await client.put(
-                    f"{regulus_base_url}/budget/tenants/{tenant_id}",
-                    json={"budget_cap_usd": body.budget_cap_usd},
-                    headers=_regulus_self_auth_headers(request),
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return TenantCostResponse(
-                    tenant_id=tenant_id,
-                    total_cost_usd=float(data.get("total_cost_usd", 0)),
-                    budget_cap_usd=data.get("budget_cap_usd"),
-                )
+            client = await _regulus_client(request, regulus_timeout)
+            resp = await client.put(
+                f"{regulus_base_url}/budget/tenants/{tenant_id}",
+                json={"budget_cap_usd": body.budget_cap_usd},
+                headers=_regulus_self_auth_headers(request),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return TenantCostResponse(
+                tenant_id=tenant_id,
+                total_cost_usd=float(data.get("total_cost_usd", 0)),
+                budget_cap_usd=data.get("budget_cap_usd"),
+            )
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,
             # which is the Regulus base URL -- internal infrastructure the caller
@@ -163,18 +181,18 @@ def register_cost_routes(app: FastAPI | APIRouter) -> None:
         if regulus_base_url is None:
             raise HTTPException(status_code=503, detail="Regulus backend not configured")
         try:
-            async with httpx.AsyncClient(timeout=regulus_timeout) as client:
-                resp = await client.get(
-                    f"{regulus_base_url}/dashboard/kpis",
-                    params={"deployment_ref": deployment_ref},
-                    headers=_regulus_self_auth_headers(request),
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return DeploymentCostResponse(
-                    deployment_ref=deployment_ref,
-                    total_cost_usd=float(data.get("total_cost_usd", 0)),
-                )
+            client = await _regulus_client(request, regulus_timeout)
+            resp = await client.get(
+                f"{regulus_base_url}/dashboard/kpis",
+                params={"deployment_ref": deployment_ref},
+                headers=_regulus_self_auth_headers(request),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return DeploymentCostResponse(
+                deployment_ref=deployment_ref,
+                total_cost_usd=float(data.get("total_cost_usd", 0)),
+            )
         except httpx.HTTPError as exc:
             # A02-10: an httpx error's message carries the full URL it dialled,
             # which is the Regulus base URL -- internal infrastructure the caller

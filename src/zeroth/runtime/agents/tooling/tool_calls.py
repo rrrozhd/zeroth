@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import json
-import uuid
 from typing import Any, TypedDict
 
 
@@ -9,6 +9,26 @@ class NormalizedToolCall(TypedDict):
     id: str
     name: str
     args: dict[str, Any]
+
+
+def _synthetic_call_id(ordinal: int, name: str, args: dict[str, Any]) -> str:
+    """Name an id-less tool call by its own content, never by chance.
+
+    A provider that emits no call id still emits a *call*, and that call has to
+    be nameable: ``RuntimeToolExecutor`` keys the side-effect operation on the
+    id whenever one is present, and ``build_tool_message`` needs a non-empty id
+    to pair the result back to its request.
+
+    Minting a random id satisfied both and broke the first: a fresh uuid4 per
+    extraction meant the same replayed call derived a different operation key
+    every time, so the durable dedupe could never recognise a repeat and silently
+    never fired. Deriving the id from the call itself makes a replay of the same
+    turn reproduce the same id -- while the ordinal keeps two same-name,
+    same-argument calls in one turn apart, because those are two effects the
+    model asked for, not one asked for twice.
+    """
+    material = json.dumps([ordinal, name, args], sort_keys=True, default=str).encode()
+    return f"zcall_{hashlib.sha256(material).hexdigest()[:24]}"
 
 
 def _normalize_args(value: Any) -> dict[str, Any]:
@@ -43,11 +63,14 @@ def extract_tool_calls(ai_message: Any) -> list[NormalizedToolCall]:
         args = raw.get("args", {})
         if not isinstance(name, str) or not name:
             continue
+        normalized_args = _normalize_args(args)
         out.append(
             {
-                "id": str(raw_id) if raw_id else str(uuid.uuid4()),
+                "id": (
+                    str(raw_id) if raw_id else _synthetic_call_id(len(out), name, normalized_args)
+                ),
                 "name": name,
-                "args": _normalize_args(args),
+                "args": normalized_args,
             }
         )
     return out

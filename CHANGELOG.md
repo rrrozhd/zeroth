@@ -7,38 +7,268 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.23.2.2.1] - 2026-08-13
+## [0.23.7] - 2026-08-13
 
-- Qualify approval wait diagnostics as pause or terminal-resume evidence.
-
-## [0.23.2.2] - 2026-08-13
-
-- Preserve redacted tool-call audits when an agent fails after tool execution.
-
-## [0.23.2.1.3] - 2026-08-13
-
-- Restore the schema-health feature entry in release history.
-
-## [0.23.2.1.2] - 2026-08-13
-
-- Synchronize generated service and Regulus API contracts with schema-revision
-  health responses.
-
-## [0.23.2.1.1] - 2026-08-13
-
-- Isolate release acceptance from pre-imported Regulus database state.
-
-## [0.23.2.1] - 2026-08-13
-
-- Preserve readiness-response compatibility and keep schema-revision health
-  evidence stable across release acceptance.
-
-## [0.23.2] - 2026-08-13
+### Added
 
 - Expose service and econ schema revisions through public health responses,
   record known-behind acceptance proof, and report degraded readiness for stale
   or unknown required schemas.
 
+### Fixed
+
+- Preserve redacted tool-call audits when an agent fails after tool execution.
+- Qualify approval wait diagnostics as pause or terminal-resume evidence.
+- Keep schema-revision health compatibility and generated service and Regulus
+  contracts synchronized across release acceptance.
+
+## [0.23.6.1] - 2026-08-13
+
+### Fixed
+
+- Sibling branches of a parallel fan-out mint distinct operation identities. Every branch derived
+  the same key, so only the first executed and the rest were suppressed as replays and handed the
+  first branch's receipt -- silent cross-branch data corruption, not a duplicate effect. The branch
+  discriminator is folded into the operation target, which also makes it visible in the durable
+  audit (ZER-49, A06-1). A tool call from a provider that supplies no call id now gets a
+  deterministic identity, so a replay reproduces it and deduplication fires (ZER-49, A16-16), and
+  the agent tool budget spans a run rather than resetting each retry (ZER-49, A06-24).
+- `put_run` performs its thread, checkpoint and runs-row writes in one transaction on both the
+  fenced and unfenced paths; the unfenced path previously opened eight, so a failure of the last
+  write left a thread row claiming a checkpoint its runs row never recorded. The fenced path also
+  gains the tenant ownership check the unfenced path already performed (ZER-49, A07-16).
+- The econ connector outbox claims rows exclusively, with `FOR UPDATE SKIP LOCKED` on PostgreSQL
+  and a conditional `UPDATE ... RETURNING` on SQLite, where the locking clause is silently compiled
+  away (ZER-49, A01-12). Batched outcome ingestion commits once and carries a uniqueness key, so a
+  partially applied batch no longer leaves committed events behind a 422 and a retry cannot
+  duplicate them (ZER-49, A01-38). Concurrent erasures sharing an idempotency key produce one
+  receipt (ZER-49, A01-48).
+- Approving an enforcement action transitions the policy action it actually proposed rather than
+  the newest row for the capability; rows predating the link are decided without touching a policy
+  action and reported as unlinked rather than silently mis-resolved (ZER-49, A01-11).
+- Escalation and its delegate commit together, so a crash between them can no longer leave an
+  ESCALATED approval with no delegate that the SLA checker never retries (ZER-49, A03-11, A03-12).
+- A worker no longer leaks a concurrency permit when run setup fails between acquiring the slot and
+  entering the guarded block, and an orphaned drive task is cancelled (ZER-49, A06-2). Parallel
+  branch results are paired with their contexts by branch index rather than by position, and an
+  unknown or duplicate index is refused rather than silently mispaired (ZER-49, A06-6).
+- The token runtime's compare-and-set retry loops are bounded with backoff and jitter, so an
+  operator `pause`/`resume`/`stop`/`cancel` can no longer spin indefinitely under sustained
+  contention (ZER-49, A16-11, A06-14, A16-23).
+- An admin replay that cannot transition the run no longer clears its lease and failure count, and
+  connector create and delete order their durable write before their in-process one (ZER-49,
+  A02-17, A02-19). A partial document ingest now reports what it wrote (ZER-49, A07-23). A Redis
+  run-list rewrite is one transactional pipeline, so a reader cannot observe a half-rebuilt list
+  (ZER-49, A06-13). A thread checkpoint whose link is not persisted fails loudly instead of
+  reporting success while the state is unreachable (ZER-49, A06-12).
+
+
+## [0.23.5.2] - 2026-08-13
+
+One governed client layer for outbound I/O (ZER-48), plus the findings this
+branch's own audit raised against it. Released as a single version: the
+intermediate numbers this branch used while it was open were working
+increments, and one of them collided with a `0.23.1` main shipped
+independently in the meantime.
+
+### Fixed
+
+- An agent with no configured timeout no longer calls its LLM provider without a deadline.
+  `AgentConfig.timeout_seconds` and the policy override both default to `None`,
+  `AgentRunner._effective_timeout` returned `None` when neither named a value, and
+  `run_provider_with_timeout` answered a `None` timeout by invoking the adapter with no
+  `asyncio.wait_for` at all — so the highest-volume outbound call in the system was unbounded.
+  Both the resolver and the call site now apply a bound, and each carries its own regression
+  oracle. Non-finite and non-positive values are discarded rather than honoured: `wait_for` reads
+  `inf` as no deadline, and `AgentConfig` declares the field with `ge=0.0`, so `0` is authorable
+  and would cancel every call instantly (ZER-48 follow-up / F-CORR-08).
+
+Evidence, not behaviour. The initial audit proved by mutation that ten registered checks passed
+identically with their fix deleted — a green suite that could not have caught the regression it
+was meant to guard. Each now fails when the fix is removed:
+
+- The econ dashboard gains its first executing test (29 cases). Nothing in the repository imported
+  the module, yet 255 lines had been rewritten and semantics changed; eight of the new tests fail
+  against the pre-rewrite bodies (R07).
+- Parallel fan-out bounds are driven through the executor rather than asserted as constants on the
+  model, with peak in-flight pinned by equality so a factory that never suspends cannot pass (R20).
+- Histogram bounding asserts both halves of its design: the retained window is capped *and*
+  `_count`/`_sum` still reflect every observation (R21).
+- ARQ wakeup failures are asserted through `caplog`, including that the enqueue path logs at
+  WARNING rather than DEBUG (R14).
+- The audit-read bound is asserted at the call sites, whose fake now records the `limit` kwarg (R08).
+- The CLI tool's default deadline is driven with a real child outliving a monkeypatched-small
+  default (R19).
+- The sidecar resolver's *application* is pinned, not just the resolver (R15).
+- The transport ratchet resolves module aliases from `ast.Import`, closing an evasion where
+  `import httpx as hx` hid four banned constructions. Three pre-existing committed sites the
+  scanner previously could not see are added to the allowlist (R30).
+
+Fixes found by this task's own initial audit, including four regressions the
+earlier commits in this series introduced.
+
+- A circuit breaker on an endpoint carrying mixed traffic now opens. Endpoint health
+  was being decided by whether the *request* could be replayed rather than by what the
+  *response* said, so a 503 answered to a POST took the success branch and zeroed the
+  failure count a concurrent GET had just raised — alternating GET/POST 503 oscillated
+  and never tripped. The two questions are now separate (ZER-48 audit / F-CORR-03).
+- Orphan recovery no longer names its loop task `recover-…`, a prefix `_extract_run_id`
+  decodes as a run id, which made graceful shutdown drive fence and lease writes against
+  a run that never existed (F-CORR-01).
+- Orphans claimed but not yet dispatched are released when the worker stops. They had no
+  task, so shutdown's hand-back never saw them and they stayed RUNNING against an exiting
+  worker until the lease TTL expired (F-CORR-02).
+- A non-positive sidecar timeout answers 422 instead of an unhandled 500, and the deadline
+  is resolved before any container, network or coroutine exists (F-CORR-07).
+- All three timeout resolvers refuse non-finite values. `asyncio.wait_for(..., timeout=inf)`
+  never fires, JSON carries the `Infinity` literal, and `PolicyDefinition.timeout_override_seconds`
+  is authored data with no constraint — so a declared bound could still be no bound
+  (F-CONC-01).
+- Deterministic client-side transport faults (`UnsupportedProtocol`, `LocalProtocolError`)
+  are raised unretried with their real type, instead of being retried against a host that
+  was never dialled and flattened into a retry-exhaustion error (F-CORR-05).
+- Connect and pool failures are replayable whatever the method is: the request provably
+  never reached the peer, so the idempotency gate does not apply to them (F-CORR-06).
+- An explicitly empty `retryable_status_codes` no longer unlocks non-idempotent replay —
+  the most restrictive status policy was granting the most permissive one (F-CORR-04).
+- Pooled clients no longer share a cookie jar across callers, one failing `aclose()` no
+  longer strands the clients behind it, a client built while shutdown holds the lock is
+  closed rather than orphaned, and the app-less fallback cache is keyed by the running
+  event loop (F-CONC-02, F-CONC-03, F-CONC-04, F-CONC-05).
+- Retired sandbox output sets the truncation flags, so it is distinguishable from an
+  execution that genuinely produced none (F-CORR-09).
+
+- Memory connectors are constructed with mandatory timeouts. redis-py leaves `socket_timeout`
+  and `socket_connect_timeout` at `None`, and chromadb 1.5.6 builds its transport as
+  `httpx.Client(timeout=None)` — explicitly disabled, not merely unset. `HttpClient` accepts no
+  timeout argument at all and its `chroma_*_request_timeout_seconds` settings are gRPC-only, so
+  the ceiling is bound to the session the client actually uses, and construction *raises* rather
+  than returning an unbounded client if that session is not exposed. Elasticsearch is out of
+  scope: elasticsearch-py already stamps `request_timeout=10.0` (ZER-48 / A07-14).
+- Every synchronous Chroma call is offloaded off the event loop, including the
+  `get_or_create_collection` round-trip inside `_get_collection`, which runs ahead of every
+  read, write, delete and search — so the loop was stalled twice per operation, not once
+  (ZER-48 / A07-15).
+- The pgvector connector owns only the connections it creates. An injected connection is no
+  longer closed after one operation nor given a blanket commit. The audit's stated harm —
+  "breaks every other user of that pool" — is refuted against psycopg 3.3.3, whose `__aexit__`
+  closes only when there is no pool; this fixes the narrower residual that is real
+  (ZER-48 / A07-12).
+- Concurrent first callers no longer both run schema creation. The ready flag was checked and
+  set across an `await`, and the module held no lock (ZER-48 / A07-24).
+- Thread search returns the highest-scoring entries across keys rather than an arbitrary
+  cross-key subset ordered only within each key, and `limit=0` returns nothing instead of
+  reading every member of every set (ZER-48 / A07-21).
+- An Elasticsearch write is visible to the search that follows it. `refresh` appeared nowhere in
+  the module, so no write opted in and a write was invisible for the default refresh interval
+  (ZER-48 / A07-25).
+
+- Memory-connector suites inject real degradation — malformed embeddings, malformed backend
+  responses, a wrong key, and a slow peer driven against a real black-hole TCP socket. Across
+  all five suites the only exception previously injected was a single Elasticsearch
+  `NotFoundError`. The two measured parser breakages (`{}` → `KeyError('ids')`, a flat
+  `{"ids": []}` → `IndexError`) now raise a typed connector error, deliberately not a
+  `KeyError` subclass, because `delete`'s `KeyError` is the genuine not-found signal
+  (ZER-48 / A07-32, acceptance criterion 4).
+
+- A governed factory for outbound clients off the agent call path. It hands every caller one
+  shared `httpx.AsyncClient` per `(purpose, base_url, timeout, redirects, transport)`, with a
+  mandatory positive finite timeout — `None`, zero, negative, `inf` and `nan` are all refused
+  rather than silently meaning "no bound" — and explicit pool limits. The cache is anchored on
+  `app.state` and guarded by a lock with a double check, because a readiness probe is precisely
+  the endpoint that is hit concurrently. `ResilientHttpClient` remains the governed layer for
+  agent traffic and is untouched (ZER-48 / A02-16).
+
+- The unauthenticated readiness probe no longer builds a dependency client per request. Its
+  Redis client came from `redis_from_url` with neither `socket_timeout` nor
+  `socket_connect_timeout` set — redis-py leaves both `None` — so an unauthenticated caller
+  could drive unbounded, unbounded-duration client creation. That client is now shared and
+  carries both socket bounds (ZER-48 / A02-5).
+- `cost_api`, `regulus_proxy_api` and `health` reuse pooled clients instead of paying a fresh
+  TCP and TLS handshake on every call (ZER-48 / A02-16).
+- Pooled outbound clients are released at shutdown. They are deliberately not closed when the
+  request that first asked for one returns, so the service lifespan is the only place they can
+  be, and a failure closing them is logged rather than allowed to mask the rest of teardown.
+
+- A sandboxed execution always carries a finite deadline. `timeout_seconds` defaults to `None`
+  and flowed straight into `asyncio.wait_for`, where `None` means wait forever, so a request
+  body that simply omitted the field bought an unbounded container; the in-repo path reached the
+  same value because the manifest timeout, the policy override and `_effective_timeout` all
+  defaulted to `None`. Both the sidecar and the LOCAL/DOCKER backends now resolve an absent
+  timeout to a real bound, and a non-positive one is refused (ZER-48 / A07-2).
+- Every `docker` helper invocation — network create, network rm, `docker info` — is deadlined and
+  reaps the child it gives up on. The only bounded wait was around the container's own execution,
+  and the first helper call runs before it (ZER-48 / A07-6).
+- Captured sandbox output ages out of the executor's retention window while the execution's
+  identity and terminal status are kept. `_executions` doubles as the permanent
+  duplicate-execution guard, so evicting entries to bound memory would have reopened replay
+  (ZER-48 / A07-7).
+- A unit's `zeroth-output.json` is read under a size cap. The workspace is bind-mounted
+  read-write with no disk quota among the container's resource flags, so its size was chosen by
+  the code being sandboxed (ZER-48 / A07-10).
+- A CLI tool without an explicit timeout gets a bounded default, and its child process is killed
+  on cancellation as well as on timeout — cancellation raises `CancelledError`, which never
+  entered the `except TimeoutError` branch, so the child outlived the cancelled task
+  (ZER-48 / A06-11).
+- Parallel fan-out is bounded. `max_branches` and `max_concurrency` both defaulted to `None`
+  while the branch list comes from the preceding node's output, so a 50,000-element result
+  spawned 50,000 branches and ran them at once. `None` now resolves to a default ceiling rather
+  than to no ceiling (ZER-48 / A06-15).
+- Histogram observations are bounded to a rolling window. The collector lives for the process,
+  `observe` appended with no cap or reset, and `snapshot` copies rather than drains. The exported
+  `_count` and `_sum` come from running totals so they stay monotonic (ZER-48 / A08-3).
+
+- An architecture test bans transport-client construction outside the governed factories —
+  `httpx.AsyncClient`, `httpx.Client`, `chromadb.HttpClient`, `aioredis.from_url` and a literal
+  `asyncio.wait_for(..., timeout=None)` — seeded with today's 20 violations as an exact-set
+  allowlist that fails both when a new violation appears and when an entry goes stale, so it can
+  only shrink. It resolves `from … import … as …` aliases, without which it would miss the
+  readiness probe's own unbounded Redis client (ZER-48 / acceptance criterion 1).
+
+- Outbound HTTP retries obey one idempotency rule on both paths. A transport failure no
+  longer replays a non-idempotent request, a retryable status now records a circuit-breaker
+  failure so an endpoint that is up but answering 5xx can trip the breaker, and every
+  `httpx.TransportError` — not just timeout and connect — is retried, counted and audited
+  (ZER-48 / A07-3, A07-4, A07-5, A07-31).
+- LangGraph gateway transport, status and decode failures are logged with their cause while
+  the raised error stays opaque to callers; a run of heartbeat failures is now countable
+  instead of silent (ZER-48 / A07-9).
+- Unbounded reads carry explicit bounds: `latest_cost_estimate` returns one row instead of
+  raising `MultipleResultsFound` on a capability's second estimate, econ dashboard panels
+  aggregate in SQL, and the econ-analytics and rightsizing routes bound their audit reads
+  (ZER-48 / A01-5, A01-49, A02-14).
+- MCP servers are started inside the block that stops them, so a partially-failed startup no
+  longer leaks the servers it already entered, and the handshake and tool calls carry
+  deadlines that the agent timeout could never cover (ZER-48 / A06-9, A06-10).
+- Orphan recovery runs within `max_concurrency` rather than dispatching a whole backlog at
+  once, and a tracked worker task's exception is retrieved and logged (ZER-48 / A06-23).
+- ARQ pool and wakeup failures name the exception that caused them (ZER-48 / A08-10).
+
+### Changed
+
+- The sidecar's 422 uses `HTTP_422_UNPROCESSABLE_CONTENT`, matching the rest of the
+  codebase and dropping a Starlette deprecation warning.
+
+- The transport-construction ratchet shrank from 20 recorded violations to 14 as those six call
+  sites moved onto the factory — the allowlist doing what it exists to do.
+
+- `step_tracker` has no permissive default on subgraph dispatch. It is a required keyword on
+  `dispatch_subgraph_node`, `SubgraphExecutor.execute` and `SubgraphExecutor.resume`, so a
+  nested subgraph can no longer be handed a fresh step budget by omission (ZER-48 / A06-17).
+- `AuditRepository.list` accepts a `limit` that bounds the read to the most recent records,
+  still returned oldest-first (ZER-48 / A02-14).
+
+## [0.23.1.1.1] - 2026-08-13
+
+### Fixed
+
+- The live-Postgres tenant-scope migration test builds an `execution_events` table that has the
+  cost columns, so `20260812_04` can run against it. Nothing in the migration chain creates that
+  table -- `create_all` does, from a model that has carried `token_cost_usd`, `tool_cost_usd` and
+  `compute_cost_usd` since the table was introduced -- so a database without them cannot exist and
+  the minimal fixture was simply unfaithful. The revision could not execute in this test at all,
+  which is why `main` was red on it, and why its cost classification had no live-Postgres coverage
+  anywhere. That classification is now asserted: an all-zero row must come out `unmeasured`.
 ## [0.23.1.1] - 2026-08-13
 
 - Reject blank startup secrets and database DSNs, and make LangChain execution

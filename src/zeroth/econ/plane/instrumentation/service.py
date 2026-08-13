@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
 from zeroth.econ.plane.capabilities.models import Capability, Implementation
 from zeroth.econ.plane.capabilities.service import active_experiment, pick_ab_arm
-from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.config import settings
+from zeroth.econ.plane.connectors.service import enqueue_connector_event
 from zeroth.econ.plane.instrumentation.models import ExecutionEvent, OutcomeEvent
 from zeroth.econ.plane.instrumentation.schemas import ExecutionEventCreate, OutcomeEventCreate
 from zeroth.econ.plane.scoped_session import ScopedSession
@@ -87,7 +88,7 @@ def _event_metadata_identity(metadata: dict | None) -> dict:
 def _datetime_identity(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def _execution_conflicts(
@@ -102,7 +103,10 @@ def _execution_conflicts(
         "capability_id": (existing.capability_id, payload.capability_id),
         "implementation_id": (existing.implementation_id, payload.implementation_id),
         "join_key": (existing.join_key, join_key),
-        "timestamp": (_datetime_identity(existing.timestamp), _datetime_identity(payload.timestamp)),
+        "timestamp": (
+            _datetime_identity(existing.timestamp),
+            _datetime_identity(payload.timestamp),
+        ),
         "model_version": (existing.model_version, payload.model_version),
         "token_cost_usd": (existing.token_cost_usd, payload.token_cost_usd),
         "tool_cost_usd": (existing.tool_cost_usd, payload.tool_cost_usd),
@@ -221,7 +225,99 @@ def ingest_execution(
     return "inserted", row
 
 
+def _existing_outcome(
+    db: ScopedSession,
+    *,
+    tenant_id: str,
+    join_key: str,
+    outcome_type: str,
+    occurred_at: datetime,
+    implementation_id: str | None,
+) -> OutcomeEvent | None:
+    """Return the already-stored outcome with this identity, if any.
+
+    The identity matches ``uq_outcome_events_tenant_identity``.  The database
+    constraint is the race-proof guard; this lookup is what turns a retry into a
+    reported duplicate instead of an IntegrityError, and it is also what makes a
+    repeated event *inside one batch* resolvable -- the batch runs in a single
+    transaction, so the constraint alone would abort the whole request.
+    """
+    implementation_match = (
+        OutcomeEvent.implementation_id.is_(None)
+        if implementation_id is None
+        else OutcomeEvent.implementation_id == implementation_id
+    )
+    return db.execute(
+        select(OutcomeEvent).where(
+            OutcomeEvent.tenant_id == tenant_id,
+            OutcomeEvent.join_key == join_key,
+            OutcomeEvent.outcome_type == outcome_type,
+            OutcomeEvent.occurred_at == occurred_at,
+            implementation_match,
+        )
+    ).scalar_one_or_none()
+
+
 def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEvent:
+    """Ingest one outcome and commit it. Thin wrapper over the status-aware form."""
+    return ingest_outcome_with_status(db, payload)[1]
+
+
+def ingest_outcomes(
+    db: ScopedSession, payloads: Sequence[OutcomeEventCreate]
+) -> list[tuple[str, OutcomeEvent]]:
+    """Ingest a batch of outcomes inside exactly one transaction.
+
+    Every event is staged with ``commit=False`` and a single commit closes the
+    batch, so a rejection on event N leaves *nothing* persisted rather than
+    committing events 1..N-1 behind a 422 the caller cannot attribute (A01-38).
+    The rollback is explicit: the request-scoped session outlives this call, and
+    a half-built transaction left on it would leak into whatever ran next.
+    """
+    db = _require_exact_scoped_session(db)
+    results: list[tuple[str, OutcomeEvent]] = []
+    try:
+        for payload in payloads:
+            results.append(ingest_outcome_with_status(db, payload, commit=False))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    for _status, row in results:
+        db.refresh(row)
+    return results
+
+
+def _assert_outcome_consistent(
+    payload: OutcomeEventCreate,
+    linked_execution: ExecutionEvent | None,
+    join_key: str,
+) -> None:
+    """Cross-check an outcome payload against the execution it claims to close.
+
+    Sits outside :func:`ingest_outcome_with_status` only to keep that function
+    under the mccabe ceiling the commit gate ratchets — it is not a new
+    validation seam. The four checks, their order and their exact messages are
+    unchanged, and they still run before the row is built, so a rejected
+    outcome writes nothing.
+    """
+    if settings.strict_join_key_enforcement and not join_key:
+        raise ValueError("join_key is required for outcome ingestion")
+    if linked_execution is not None and join_key != linked_execution.join_key:
+        raise ValueError("outcome join_key does not match execution join_key")
+    if linked_execution is not None and payload.capability_id != linked_execution.capability_id:
+        raise ValueError("outcome capability_id does not match execution capability_id")
+    if (
+        linked_execution is not None
+        and payload.implementation_id is not None
+        and payload.implementation_id != linked_execution.implementation_id
+    ):
+        raise ValueError("outcome implementation_id does not match execution implementation_id")
+
+
+def ingest_outcome_with_status(
+    db: ScopedSession, payload: OutcomeEventCreate, *, commit: bool = True
+) -> tuple[str, OutcomeEvent]:
     db = _require_exact_scoped_session(db)
     tenant_id = _bound_tenant(db)
     _assert_requested_tenant(payload.tenant_id, tenant_id)
@@ -242,19 +338,13 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         if linked_execution is None:
             raise ValueError("execution_id was not found in the bound tenant")
 
-    join_key = payload.join_key or (linked_execution.join_key if linked_execution else "") or payload.execution_id or ""
-    if settings.strict_join_key_enforcement and not join_key:
-        raise ValueError("join_key is required for outcome ingestion")
-    if linked_execution is not None and join_key != linked_execution.join_key:
-        raise ValueError("outcome join_key does not match execution join_key")
-    if linked_execution is not None and payload.capability_id != linked_execution.capability_id:
-        raise ValueError("outcome capability_id does not match execution capability_id")
-    if (
-        linked_execution is not None
-        and payload.implementation_id is not None
-        and payload.implementation_id != linked_execution.implementation_id
-    ):
-        raise ValueError("outcome implementation_id does not match execution implementation_id")
+    join_key = (
+        payload.join_key
+        or (linked_execution.join_key if linked_execution else "")
+        or payload.execution_id
+        or ""
+    )
+    _assert_outcome_consistent(payload, linked_execution, join_key)
     implementation_id = payload.implementation_id or (
         linked_execution.implementation_id if linked_execution is not None else None
     )
@@ -265,10 +355,21 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         implementation_id=implementation_id,
     )
 
-    occurred_at = payload.occurred_at or payload.outcome_timestamp or datetime.now(timezone.utc)
+    occurred_at = payload.occurred_at or payload.outcome_timestamp or datetime.now(UTC)
     outcome_payload = dict(payload.outcome_payload_json)
     if payload.outcome_value is not None and "value" not in outcome_payload:
         outcome_payload["value"] = payload.outcome_value
+
+    duplicate = _existing_outcome(
+        db,
+        tenant_id=tenant_id,
+        join_key=join_key,
+        outcome_type=payload.outcome_type,
+        occurred_at=occurred_at,
+        implementation_id=implementation_id,
+    )
+    if duplicate is not None:
+        return "duplicate", duplicate
 
     row = OutcomeEvent(
         tenant_id=tenant_id,
@@ -280,11 +381,14 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
         outcome_payload_json=outcome_payload,
         outcome_value=str(payload.outcome_value) if payload.outcome_value is not None else "",
         occurred_at=occurred_at,
-        ingested_at=datetime.now(timezone.utc),
+        ingested_at=datetime.now(UTC),
         outcome_timestamp=payload.outcome_timestamp or occurred_at,
         provenance=payload.provenance,
     )
     db.add(row)
+    # SessionLocal is autoflush=False, so without this the *next* event in a batch
+    # would not see this one and _existing_outcome would miss an in-batch repeat.
+    db.flush()
     if settings.connectors_enabled:
         try:
             enqueue_connector_event(
@@ -306,9 +410,10 @@ def ingest_outcome(db: ScopedSession, payload: OutcomeEventCreate) -> OutcomeEve
             )
         except Exception:  # noqa: BLE001
             pass
-    db.commit()
-    db.refresh(row)
-    return row
+    if commit:
+        db.commit()
+        db.refresh(row)
+    return "inserted", row
 
 
 def query_outcomes(

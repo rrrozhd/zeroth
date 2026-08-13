@@ -21,6 +21,8 @@ from zeroth.runtime.parallel.errors import (
     ParallelExecutionError,
 )
 from zeroth.runtime.parallel.models import (
+    DEFAULT_MAX_BRANCHES,
+    DEFAULT_MAX_CONCURRENCY,
     BranchContext,
     BranchResult,
     FanInResult,
@@ -82,9 +84,14 @@ class ParallelExecutor:
             msg = "split_path resolved to an empty list"
             raise FanOutValidationError(msg)
 
-        # Enforce max_branches cap
-        if config.max_branches is not None and len(value) > config.max_branches:
-            msg = f"branch count {len(value)} exceeds max_branches {config.max_branches}"
+        # Enforce the branch ceiling. ``None`` resolves to the default rather
+        # than to "no ceiling": the branch list is data-controlled, so an absent
+        # cap used to mean the fan-out width was chosen by upstream output.
+        max_branches = (
+            config.max_branches if config.max_branches is not None else DEFAULT_MAX_BRANCHES
+        )
+        if len(value) > max_branches:
+            msg = f"branch count {len(value)} exceeds max_branches {max_branches}"
             raise FanOutValidationError(msg)
 
         # Create one BranchContext per item
@@ -184,16 +191,16 @@ class ParallelExecutor:
         raises exactly what the inner one raises (``BranchApprovalPauseSignal``
         passes straight through ``wait_for``); only a genuine timeout surfaces as
         ``TimeoutError``, which the fail-mode handlers already treat as a branch
-        failure. Returns the factory unchanged when neither control is set.
+        failure. The concurrency semaphore is always present now that
+        ``max_concurrency`` carries a bounded default.
         """
-        semaphore = (
-            asyncio.Semaphore(config.max_concurrency)
+        # Same resolution: absent throttle means the default, never unbounded.
+        semaphore = asyncio.Semaphore(
+            config.max_concurrency
             if config.max_concurrency is not None
-            else None
+            else DEFAULT_MAX_CONCURRENCY
         )
         timeout = config.branch_timeout_seconds
-        if semaphore is None and timeout is None:
-            return factory
 
         async def wrapped(ctx: BranchContext) -> dict[str, Any]:
             async def _run() -> dict[str, Any]:
@@ -249,12 +256,14 @@ class ParallelExecutor:
             elif isinstance(result, BaseException):
                 # In best-effort semantics a regular Exception becomes a
                 # BranchResult with error; in-flight pauses mean this
-                # sibling was cancelled by the pause handler.
+                # sibling was cancelled by the pause handler. `str()` is empty
+                # for some of them (CancelledError most of all), and an empty
+                # error reads downstream as "no detail" — fall back to the type.
                 completed_results.append(
                     BranchResult(
                         branch_index=ctx.branch_index,
                         output=None,
-                        error=str(result),
+                        error=str(result) or type(result).__name__,
                     )
                 )
             else:
@@ -300,14 +309,38 @@ class ParallelExecutor:
             completed_before_pause: list[BranchResult] = [
                 br for br in completed_results if br.error is None
             ]
-            cancelled_by_pause: list[BranchContext] = [
-                ctx
-                for ctx, br in zip(
-                    [c for c in branch_contexts if c.branch_index != pause_signal.branch_index],
-                    [br for br in completed_results],
-                    strict=False,
+            # A06-6: pair by branch_index, not by position. The old zip filtered
+            # the contexts by the pause index while leaving the results
+            # unfiltered, and `strict=False` swallowed any length difference —
+            # so whenever the two lists disagreed, every context was paired with
+            # the wrong result and the mismatch never surfaced. They disagree
+            # whenever the pause index is not one of ours: BranchApprovalPauseSignal
+            # is a BaseException, so it escapes SubgraphExecutor's `except
+            # Exception` and a pause raised in a NESTED fan-out arrives here
+            # carrying the inner branch index.
+            contexts_by_index: dict[int, BranchContext] = {}
+            for ctx in branch_contexts:
+                if ctx.branch_index in contexts_by_index:
+                    raise ParallelExecutionError(
+                        f"duplicate branch_index {ctx.branch_index} in a paused fan-out: "
+                        "branch contexts cannot be paired with their results, and "
+                        "persisting the pause state would attribute a branch's outcome "
+                        "to the wrong branch."
+                    )
+                contexts_by_index[ctx.branch_index] = ctx
+            if pause_signal.branch_index not in contexts_by_index:
+                raise ParallelExecutionError(
+                    f"approval pause reported branch_index {pause_signal.branch_index}, "
+                    f"which is not one of this fan-out's branches "
+                    f"({sorted(contexts_by_index)}). A pause from a nested fan-out "
+                    "cannot be resumed at this level — it would stash a paused branch "
+                    "this fan-out never had. Move the approval gate out of the nested "
+                    "fan-out."
                 )
-                if br.error is not None
+            cancelled_by_pause: list[BranchContext] = [
+                contexts_by_index[br.branch_index]
+                for br in completed_results
+                if br.error is not None and br.branch_index != pause_signal.branch_index
             ]
             # Stash these on the exception instance for the runtime.
             pause_signal.completed_branch_results = completed_before_pause  # type: ignore[attr-defined]

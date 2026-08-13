@@ -48,6 +48,7 @@ def _release_abandoned_task(task: asyncio.Task) -> None:
 
     Args:
         task: The finished task that was abandoned at a shutdown bound.
+
     """
     _ABANDONED_TASKS.discard(task)
     if task.cancelled():
@@ -267,6 +268,7 @@ async def _drain_audit_delivery(app: FastAPI, *, timeout: float = 5.0) -> None:
     Args:
         app: The application whose ``state.bootstrap`` owns the delivery stage.
         timeout: Seconds the bounded shutdown may take, in total.
+
     """
     queue = getattr(app.state.bootstrap, "audit_delivery_queue", None)
     aclose = getattr(queue, "aclose", None)
@@ -305,6 +307,7 @@ async def _close_gateway_transport(app: FastAPI, *, timeout: float) -> None:
     Raises:
         BaseException: Whatever the transport's own close raised, so the caller
             can preserve it -- after the drain has run.
+
     """
     transport = getattr(app.state.bootstrap, "langgraph_gateway_transport", None)
     aclose = getattr(transport, "aclose", None)
@@ -360,8 +363,10 @@ async def service_lifespan(app: FastAPI):
             finally:
                 stopped = True
                 transport_error = await _stop_gateway_and_drain_audit(app)
+                await _close_governed_clients(app)
     finally:
         if not stopped:
+            await _close_governed_clients(app)
             failure = await _stop_gateway_and_drain_audit(app)
             if failure is not None:
                 # Never raised: the startup failure already propagating here is
@@ -377,6 +382,24 @@ async def service_lifespan(app: FastAPI):
         raise transport_error
 
 
+async def _close_governed_clients(app: FastAPI) -> None:
+    """Release the pooled outbound clients this app's handlers share.
+
+    The governed factory hands every non-agent call site one long-lived
+    ``httpx.AsyncClient`` (and the readiness probe's Redis client) anchored on
+    ``app.state``, so nothing closes them when the request that first asked for
+    one returns -- that is the point. Shutdown is therefore the only place they
+    are released, and a failure here must not mask whatever else teardown is
+    already reporting.
+    """
+    from zeroth.integrations.http.factory import aclose_all  # noqa: PLC0415
+
+    try:
+        await aclose_all(app)
+    except Exception:
+        logger.warning("closing governed outbound clients failed", exc_info=True)
+
+
 async def _stop_gateway_and_drain_audit(app: FastAPI) -> BaseException | None:
     """Stop the gateway transport, then drain the audit stage, both bounded.
 
@@ -388,6 +411,7 @@ async def _stop_gateway_and_drain_audit(app: FastAPI) -> BaseException | None:
         the rest of teardown has run. The drain runs either way: a transport
         that failed to stop is not a reason to abandon evidence already
         accepted, and is exactly when the backlog is least likely to be empty.
+
     """
     transport_error: BaseException | None = None
     try:

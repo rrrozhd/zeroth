@@ -9,10 +9,10 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
-from zeroth.integrations.memory.governed.connector import MemoryConnector
-from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 from zeroth.integrations.memory.elastic_connector import ElasticsearchMemoryConnector
+from zeroth.integrations.memory.governed.connector import MemoryConnector
+from zeroth.integrations.memory.governed.models import MemoryEntry, MemoryScope
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,9 +69,7 @@ class TestIndexNaming:
 
 class TestWrite:
     async def test_write_indexes_document(self, connector, _mock_es_client):
-        await connector.write(
-            "doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__"
-        )
+        await connector.write("doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__")
         _mock_es_client.index.assert_awaited_once()
         call_kwargs = _mock_es_client.index.call_args.kwargs
         assert call_kwargs["id"] == "doc1"
@@ -107,9 +105,7 @@ class TestRead:
     async def test_read_returns_none_for_missing(self, connector, _mock_es_client):
         from elasticsearch import NotFoundError
 
-        _mock_es_client.get = AsyncMock(
-            side_effect=NotFoundError(404, "not found", {})
-        )
+        _mock_es_client.get = AsyncMock(side_effect=NotFoundError(404, "not found", {}))
         entry = await connector.read("missing", MemoryScope.SHARED, target="__shared__")
         assert entry is None
 
@@ -152,12 +148,8 @@ class TestSearch:
         _mock_es_client.search.assert_awaited_once()
 
     async def test_search_empty_text_uses_match_all(self, connector, _mock_es_client):
-        _mock_es_client.search = AsyncMock(
-            return_value={"hits": {"hits": []}}
-        )
-        await connector.search(
-            {"text": "", "limit": 10}, MemoryScope.SHARED, target="__shared__"
-        )
+        _mock_es_client.search = AsyncMock(return_value={"hits": {"hits": []}})
+        await connector.search({"text": "", "limit": 10}, MemoryScope.SHARED, target="__shared__")
         call_kwargs = _mock_es_client.search.call_args.kwargs
         assert "match_all" in str(call_kwargs["body"]["query"])
 
@@ -176,9 +168,7 @@ class TestDelete:
     async def test_delete_raises_key_error_if_not_found(self, connector, _mock_es_client):
         from elasticsearch import NotFoundError
 
-        _mock_es_client.delete = AsyncMock(
-            side_effect=NotFoundError(404, "not found", {})
-        )
+        _mock_es_client.delete = AsyncMock(side_effect=NotFoundError(404, "not found", {}))
         with pytest.raises(KeyError):
             await connector.delete("missing", MemoryScope.SHARED, target="__shared__")
 
@@ -243,3 +233,38 @@ class TestElasticsearchLive:
                 await client.indices.delete(index=index, ignore_unavailable=True)
             finally:
                 await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Write visibility (A07-25)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteVisibility:
+    """A07-25: a write must be visible to the search that follows it.
+
+    Elasticsearch buffers an indexed document until the next scheduled refresh
+    (``index.refresh_interval``, 1s by default). Without a refresh policy the
+    connector's own write-then-search sequence silently misses the document it
+    just stored -- the failure is a wrong answer, not an error.
+    """
+
+    async def test_write_asks_elasticsearch_to_wait_for_a_refresh(self, connector, _mock_es_client):
+        await connector.write("doc1", {"text": "hello"}, MemoryScope.SHARED, target="__shared__")
+
+        assert _mock_es_client.index.call_args.kwargs["refresh"] == "wait_for"
+
+    async def test_delete_asks_elasticsearch_to_wait_for_a_refresh(
+        self, connector, _mock_es_client
+    ):
+        """A delete is a write: the document must stop answering searches too."""
+        await connector.delete("doc1", MemoryScope.SHARED, target="__shared__")
+
+        assert _mock_es_client.delete.call_args.kwargs["refresh"] == "wait_for"
+
+    def test_the_refresh_policy_is_wait_for_rather_than_a_forced_refresh(self):
+        """``refresh=True`` would cut a segment per write and charge the whole index."""
+        from zeroth.integrations.memory import elastic_connector
+
+        assert elastic_connector._REFRESH_POLICY == "wait_for"
+        assert elastic_connector._REFRESH_POLICY is not True

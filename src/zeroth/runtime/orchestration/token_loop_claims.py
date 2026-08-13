@@ -7,7 +7,11 @@ import uuid
 from pydantic import JsonValue
 
 from zeroth.contracts.graph.models import JoinConfig
-from zeroth.contracts.graph.tokens import IterationFrameState, LoopInstance, LoopLifecycleState
+from zeroth.contracts.graph.tokens import (
+    IterationFrameState,
+    LoopInstance,
+    LoopLifecycleState,
+)
 from zeroth.runtime.orchestration.token_join_models import JoinReducerInput
 from zeroth.runtime.orchestration.token_join_reducers import reduce_join_inputs
 from zeroth.runtime.orchestration.token_loop_closure import (
@@ -123,6 +127,17 @@ async def _release_claim_with_cas(
     raise LoopReductionReleaseError("loop reduction claim release exhausted CAS attempts")
 
 
+def _require_positive_attempts(max_attempts: int) -> None:
+    """Reject a non-positive retry budget.
+
+    Kept out of ``close_ready_loop_with_cas`` deliberately: that function is already
+    over the complexity ceiling the commit gate ratchets against, and a guard clause
+    inline would raise it further for no gain in clarity.
+    """
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be positive")
+
+
 async def close_ready_loop_with_cas(
     store: TokenSnapshotStore,
     run_id: str,
@@ -135,6 +150,7 @@ async def close_ready_loop_with_cas(
     max_attempts: int = 8,
 ):
     """Claim and evaluate a continuation reducer once, then publish through CAS."""
+    _require_positive_attempts(max_attempts)
     current = await store.get_token_snapshot(run_id)
     if current is None:
         raise TokenLoopTransitionError(f"run {run_id!r} has no token snapshot")
@@ -143,6 +159,11 @@ async def close_ready_loop_with_cas(
         return current
     inputs = _inputs(current, loop)
     if not inputs or (len(inputs) == 1 and continuation_config is None):
+        # Re-raise the CAS error the store actually reported: it carries the run
+        # id and the two genuinely different revisions. Rebuilding it here put a
+        # message string where the run id belongs and reported the same revision
+        # as both expected and actual, so the exhaustion read "expected N, found N".
+        finalization_error: TokenSnapshotConcurrencyError | None = None
         for _ in range(max_attempts):
             current = await store.get_token_snapshot(run_id)
             if current is None:
@@ -158,13 +179,11 @@ async def close_ready_loop_with_cas(
                 return await store.compare_and_swap_token_snapshot(
                     run_id, expected_revision=current.revision, snapshot=proposed
                 )
-            except TokenSnapshotConcurrencyError:
+            except TokenSnapshotConcurrencyError as exc:
+                finalization_error = exc
                 continue
-        raise TokenSnapshotConcurrencyError(
-            "loop finalization exhausted CAS attempts",
-            expected_revision=current.revision,
-            actual_revision=current.revision,
-        )
+        assert finalization_error is not None
+        raise finalization_error
     config = continuation_config
     if len(inputs) > 1 and config is None:
         raise TokenLoopTransitionError(
@@ -205,6 +224,7 @@ async def close_ready_loop_with_cas(
     def prepared(_config: JoinConfig, _items: tuple[JoinReducerInput, ...]) -> JsonValue:
         return reduced
 
+    closure_error: TokenSnapshotConcurrencyError | None = None
     for _ in range(max_attempts):
         current = await store.get_token_snapshot(run_id)
         if current is None:
@@ -220,13 +240,14 @@ async def close_ready_loop_with_cas(
             return await store.compare_and_swap_token_snapshot(
                 run_id, expected_revision=current.revision, snapshot=proposed
             )
-        except TokenSnapshotConcurrencyError:
+        except TokenSnapshotConcurrencyError as exc:
+            # Same defect as the finalization branch above: the store's own error
+            # is the only one that knows the run id and the two revisions that
+            # actually differed.
+            closure_error = exc
             continue
-    raise TokenSnapshotConcurrencyError(
-        "loop closure exhausted CAS attempts",
-        expected_revision=current.revision,
-        actual_revision=current.revision,
-    )
+    assert closure_error is not None
+    raise closure_error
 
 
 async def reclaim_abandoned_loop_reduction_with_cas(

@@ -160,6 +160,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={"query": "hello"},
+            step_tracker=None,
         )
 
         # Child run should have parent_run_id set
@@ -187,6 +188,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         child_run_arg = orch.run_repository.create.call_args[0][0]
@@ -228,6 +230,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         child_run_arg = orch.run_repository.create.call_args[0][0]
@@ -254,6 +257,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={"x": 1},
+            step_tracker=None,
         )
 
         child_run_arg = orch.run_repository.create.call_args[0][0]
@@ -281,6 +285,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         assert result.status == RunStatus.COMPLETED
@@ -306,6 +311,7 @@ class TestSubgraphExecutorHappyPath:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         # _drive() should have been called
@@ -343,6 +349,7 @@ class TestSubgraphExecutorDepthTracking:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         child_run_arg = orch.run_repository.create.call_args[0][0]
@@ -380,6 +387,7 @@ class TestSubgraphExecutorDepthTracking:
                 node=node,
                 node_id="s1",
                 input_payload={},
+                step_tracker=None,
             )
 
         # resolver.resolve should NOT have been called
@@ -413,6 +421,7 @@ class TestSubgraphExecutorCycleDetection:
                 node=node,
                 node_id="s1",
                 input_payload={},
+                step_tracker=None,
             )
 
     @pytest.mark.asyncio
@@ -438,6 +447,7 @@ class TestSubgraphExecutorCycleDetection:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
         assert result is not None
 
@@ -463,6 +473,7 @@ class TestSubgraphExecutorCycleDetection:
             node=node,
             node_id="s1",
             input_payload={},
+            step_tracker=None,
         )
 
         child_run_arg = orch.run_repository.create.call_args[0][0]
@@ -501,6 +512,7 @@ class TestSubgraphExecutorErrors:
                 node=node,
                 node_id="s1",
                 input_payload={},
+                step_tracker=None,
             )
 
     @pytest.mark.asyncio
@@ -518,4 +530,5 @@ class TestSubgraphExecutorErrors:
                 node=node,
                 node_id="s1",
                 input_payload={},
+                step_tracker=None,
             )

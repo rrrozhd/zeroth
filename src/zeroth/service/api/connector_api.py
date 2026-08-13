@@ -21,8 +21,8 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from zeroth.integrations.memory.factory import build_connector
 from zeroth.integrations.memory.governed.models import MemoryScope
-from zeroth.integrations.memory.runtime_configs import apply_config
 from zeroth.platform.primitives.error_vocabulary import safe_error_detail
 from zeroth.service.api.authorization import Permission, require_permission
 
@@ -208,11 +208,19 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
     async def create_connector(
         request: Request, payload: ConnectorCreateRequest
     ) -> ConnectorSummaryResponse:
-        """Create a runtime-managed connector: build, register live, persist.
+        """Create a runtime-managed connector: build, persist, then register live.
 
         Backend construction is cheap and may connect lazily (pgvector opens
         its first connection on first use) -- use POST /connectors/{ref}/test
         for a real connectivity check.
+
+        A02-19: the live registry is an in-process dict and the config store is
+        SQL, so no transaction spans them. The ordering is what makes that safe:
+        the two steps that can fail come first and leave nothing behind, and the
+        one step that cannot fail -- assigning into the registry -- goes last.
+        Registering first meant a failed write left a connector serving
+        ``connector_ref`` lookups in this process and nowhere else, which
+        vanished at the next restart.
         """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
@@ -229,9 +237,7 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 detail=f"ref {payload.ref!r} collides with an env-sourced connector",
             )
         try:
-            manifest, connector = apply_config(
-                registry, payload.ref, payload.backend_type, payload.params
-            )
+            manifest, connector = build_connector(payload.backend_type, payload.params)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -239,13 +245,20 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
         config = await repo.upsert(
             payload.ref, payload.backend_type, payload.params, tenant_id=tenant
         )
+        registry.register(payload.ref, manifest, connector)
         return _summary(payload.ref, manifest, connector, config=config)
 
     @app.put("/connectors/{ref}", response_model=ConnectorSummaryResponse)
     async def update_connector(
         request: Request, ref: str, payload: ConnectorUpdateRequest
     ) -> ConnectorSummaryResponse:
-        """Reconfigure an existing runtime-managed connector (rebuild + re-register)."""
+        """Reconfigure an existing runtime-managed connector (rebuild + re-register).
+
+        A02-19: same ordering rule as create -- the reconfiguration only goes
+        live once it is durable, so a failed write leaves the previous backend
+        both live and persisted instead of swapping in one that reverts at the
+        next restart.
+        """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
         tenant = _tenant(request)
@@ -255,17 +268,24 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 detail=f"runtime connector {ref!r} not found",
             )
         try:
-            manifest, connector = apply_config(registry, ref, payload.backend_type, payload.params)
+            manifest, connector = build_connector(payload.backend_type, payload.params)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
         config = await repo.upsert(ref, payload.backend_type, payload.params, tenant_id=tenant)
+        registry.register(ref, manifest, connector)
         return _summary(ref, manifest, connector, config=config)
 
     @app.delete("/connectors/{ref}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_connector(request: Request, ref: str) -> Response:
-        """Delete a runtime-managed connector (env-sourced ones cannot be deleted)."""
+        """Delete a runtime-managed connector (env-sourced ones cannot be deleted).
+
+        A02-19: the durable delete goes first for the same reason create's goes
+        last -- unregistering first meant a failed row delete left the connector
+        unresolvable in this process while its config survived, so the next
+        restart resurrected it.
+        """
         await require_permission(request, Permission.CONNECTOR_ADMIN)
         registry, repo = _require_repo(request)
         tenant = _tenant(request)
@@ -279,8 +299,8 @@ def register_connector_routes(app: FastAPI | APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"runtime connector {ref!r} not found",
             )
-        registry.unregister(ref)
         await repo.delete(ref, tenant_id=tenant)
+        registry.unregister(ref)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/connectors/{ref}/test", response_model=ConnectorTestResponse)

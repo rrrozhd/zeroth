@@ -6,6 +6,7 @@ tool calls through the appropriate MCP client session.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import AsyncExitStack
 from typing import Any
@@ -16,6 +17,26 @@ from zeroth.governance.policy.models import Capability
 from zeroth.runtime.agents.tools import ToolAttachmentManifest
 
 logger = logging.getLogger(__name__)
+
+#: Deadline for an MCP handshake or tool call, in seconds.
+#:
+#: Startup runs *before* the agent's own ``timeout_seconds`` covers anything, so
+#: a server that connects and then never answers used to hang the whole run with
+#: no deadline anywhere in the module. These are the module's own bounds.
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 30.0
+DEFAULT_CALL_TIMEOUT_SECONDS = 60.0
+
+
+class MCPTimeoutError(TimeoutError):
+    """An MCP server did not answer within its deadline."""
+
+    def __init__(self, operation: str, server_name: str, timeout_seconds: float) -> None:
+        super().__init__(
+            f"MCP server {server_name!r} did not answer {operation} within {timeout_seconds}s"
+        )
+        self.operation = operation
+        self.server_name = server_name
+        self.timeout_seconds = timeout_seconds
 
 
 class MCPServerConfig(BaseModel):
@@ -36,11 +57,31 @@ class MCPClientManager:
     correct server. Uses AsyncExitStack for lifecycle management.
     """
 
-    def __init__(self, configs: list[MCPServerConfig]) -> None:
+    def __init__(
+        self,
+        configs: list[MCPServerConfig],
+        *,
+        startup_timeout_seconds: float = DEFAULT_STARTUP_TIMEOUT_SECONDS,
+        call_timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS,
+    ) -> None:
         self._configs = configs
         self._sessions: dict[str, Any] = {}  # server_name -> ClientSession
         self._tool_map: dict[str, str] = {}  # tool_name -> server_name
         self._exit_stack = AsyncExitStack()
+        self._startup_timeout_seconds = startup_timeout_seconds
+        self._call_timeout_seconds = call_timeout_seconds
+
+    async def _deadline(self, awaitable: Any, operation: str, server_name: str) -> Any:
+        """Await *awaitable* under the deadline that fits *operation*."""
+        timeout = (
+            self._call_timeout_seconds
+            if operation == "call_tool"
+            else self._startup_timeout_seconds
+        )
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout)
+        except TimeoutError as exc:
+            raise MCPTimeoutError(operation, server_name, timeout) from exc
 
     async def start(self) -> list[ToolAttachmentManifest]:
         """Connect to all configured MCP servers and discover tools.
@@ -62,10 +103,10 @@ class MCPClientManager:
             session = await self._exit_stack.enter_async_context(
                 ClientSession(transport[0], transport[1])
             )
-            await session.initialize()
+            await self._deadline(session.initialize(), "initialize", config.name)
             self._sessions[config.name] = session
 
-            response = await session.list_tools()
+            response = await self._deadline(session.list_tools(), "list_tools", config.name)
             for tool in response.tools:
                 tool_name = tool.name
                 if tool_name in self._tool_map:
@@ -116,7 +157,9 @@ class MCPClientManager:
         original_name = tool_name
         if tool_name.startswith(f"{server_name}__"):
             original_name = tool_name[len(f"{server_name}__") :]
-        result = await session.call_tool(original_name, arguments)
+        result = await self._deadline(
+            session.call_tool(original_name, arguments), "call_tool", server_name
+        )
         # Extract content from CallToolResult
         if hasattr(result, "content") and result.content:
             # MCP returns list of content blocks; concatenate text blocks
