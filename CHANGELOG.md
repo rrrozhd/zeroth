@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.5.2] - 2026-08-13
+
+### Fixed
+
+- An agent with no configured timeout no longer calls its LLM provider without a deadline.
+  `AgentConfig.timeout_seconds` and the policy override both default to `None`,
+  `AgentRunner._effective_timeout` returned `None` when neither named a value, and
+  `run_provider_with_timeout` answered a `None` timeout by invoking the adapter with no
+  `asyncio.wait_for` at all — so the highest-volume outbound call in the system was unbounded.
+  Both the resolver and the call site now apply a bound, and each carries its own regression
+  oracle. Non-finite and non-positive values are discarded rather than honoured: `wait_for` reads
+  `inf` as no deadline, and `AgentConfig` declares the field with `ge=0.0`, so `0` is authorable
+  and would cancel every call instantly (ZER-48 follow-up / F-CORR-08).
+
 ## [0.23.5.1] - 2026-08-12
 
 ### Added
