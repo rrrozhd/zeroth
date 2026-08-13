@@ -3632,6 +3632,12 @@ export interface components {
             runtime?: string | null;
         };
         /**
+         * MeasurementState
+         * @description Whether a value was observed, derived, or unavailable.
+         * @enum {string}
+         */
+        MeasurementState: "measured" | "estimated" | "unmeasured";
+        /**
          * MemoryAccessRecord
          * @description A record of a single memory read or write during a node execution.
          *
@@ -3716,6 +3722,7 @@ export interface components {
             }[];
             /** Cost Event Id */
             cost_event_id?: string | null;
+            cost_measurement?: components["schemas"]["MeasurementState"] | null;
             /** Cost Usd */
             cost_usd?: number | null;
             /** Deployment Ref */
@@ -3736,6 +3743,8 @@ export interface components {
             erasure_reason?: string | null;
             /** Error */
             error?: string | null;
+            /** Estimated Cost Usd */
+            estimated_cost_usd?: number | null;
             /** Execution Metadata */
             execution_metadata?: {
                 [key: string]: unknown;
@@ -4883,6 +4892,16 @@ export interface components {
              * @default 0
              */
             confirmed_findings: number;
+            /**
+             * Cost Measurement Complete
+             * @default true
+             */
+            cost_measurement_complete: boolean;
+            /**
+             * Estimated Cost Usd
+             * @default 0
+             */
+            estimated_cost_usd: number;
             /**
              * Findings
              * @default 0

@@ -54,6 +54,7 @@ from zeroth.runtime.parallel.errors import FanOutValidationError, ParallelExecut
 from zeroth.runtime.parallel.models import GlobalStepTracker
 from zeroth.runtime.parallel.reducers import dispatch_strategy
 from zeroth.runtime.runs import Run, RunFailureState
+from zeroth.runtime.runs.costs import rollup_cost_history, rollup_run_cost
 from zeroth.runtime.subgraphs.errors import (
     SubgraphCycleError,
     SubgraphDepthLimitError,
@@ -358,14 +359,32 @@ class GraphDriver:
             # paused due to an approval inside a subgraph branch.
             pending_psg = run.metadata.get("pending_parallel_subgraph")
             if pending_psg and pending_psg.get("node_id") == node_id:
-                fan_in_resume = await self.parallel_runtime.execute_fan_out_resume(
-                    graph,
-                    run,
-                    node,
-                    node_id,
-                    pending_psg,
-                    step_tracker=step_tracker,
-                )
+                try:
+                    fan_in_resume = await self.parallel_runtime.execute_fan_out_resume(
+                        graph,
+                        run,
+                        node,
+                        node_id,
+                        pending_psg,
+                        step_tracker=step_tracker,
+                    )
+                except Exception as exc:
+                    source_output = pending_psg.get("split_input", dict(input_payload))
+                    await self.audit_recorder.record_history(
+                        run,
+                        node,
+                        node_id,
+                        pending_psg.get("source_input", input_payload),
+                        source_output,
+                        pending_psg.get("source_audit")
+                        or {"resumed_parallel_fan_out": True},
+                        started_at=node_started_at,
+                    )
+                    self.increment_node_visit(run, node_id)
+                    del run.metadata["pending_parallel_subgraph"]
+                    return await self.fail_run(
+                        run, "parallel_execution_failed", str(exc)
+                    )
                 if fan_in_resume.pause_state is not None:
                     # Nested approval inside the resumed branch (audit B8). Persist
                     # the pause durably via the SAME handler as the first pause,
@@ -397,9 +416,10 @@ class GraphDriver:
                     run,
                     node,
                     node_id,
-                    input_payload,
+                    pending_psg.get("source_input", input_payload),
                     source_output,
-                    {"resumed_parallel_fan_out": True},
+                    pending_psg.get("source_audit")
+                    or {"resumed_parallel_fan_out": True},
                     started_at=node_started_at,
                 )
                 self.increment_node_visit(run, node_id)
@@ -518,6 +538,12 @@ class GraphDriver:
 
                     # Resume the child run (not create a new one).
                     child_run = await self.resume_graph(subgraph, child_run_id)
+                    child_cost = rollup_cost_history(child_run.execution_history)
+                    child_run.metadata.update(
+                        total_cost_usd=child_cost.cost_usd,
+                        total_estimated_cost_usd=child_cost.estimated_cost_usd,
+                        cost_measurement=child_cost.cost_measurement,
+                    )
 
                     if child_run.status == RunStatus.WAITING_APPROVAL:
                         # Still waiting (nested approval or another gate in subgraph).
@@ -533,11 +559,29 @@ class GraphDriver:
                     if child_run.status != RunStatus.COMPLETED:
                         failure = child_run.failure_state
                         detail = failure.message if failure is not None else "unknown failure"
-                        return await self.fail_run(
-                            run,
-                            "subgraph_execution_failed",
+                        error = SubgraphExecutionError(
                             f"child run {child_run.run_id} ended "
                             f"{child_run.status.value}: {detail}",
+                        )
+                        error.audit_record = {  # type: ignore[attr-defined]
+                            "subgraph_run_id": child_run.run_id,
+                            "subgraph_graph_ref": graph_ref,
+                            "subgraph_status": child_run.status.value,
+                            "subgraph_resumed": True,
+                            "cost_usd": child_cost.cost_usd,
+                            "estimated_cost_usd": child_cost.estimated_cost_usd,
+                            "cost_measurement": child_cost.cost_measurement,
+                        }
+                        await self.audit_recorder.record_failed_execution(
+                            run,
+                            node,
+                            node_id,
+                            input_payload,
+                            error,
+                            started_at=node_started_at,
+                        )
+                        return await self.fail_run(
+                            run, "subgraph_execution_failed", str(error)
                         )
 
                     # Child completed -- clear pending state, use output.
@@ -552,6 +596,9 @@ class GraphDriver:
                         "subgraph_graph_ref": graph_ref,
                         "subgraph_status": child_run.status.value,
                         "subgraph_resumed": True,
+                        "cost_usd": child_run.metadata.get("total_cost_usd"),
+                        "estimated_cost_usd": child_run.metadata.get("total_estimated_cost_usd"),
+                        "cost_measurement": child_run.metadata.get("cost_measurement"),
                     }
 
                     # Continue normal post-node flow.
@@ -598,7 +645,17 @@ class GraphDriver:
                     SubgraphExecutionError,
                     SubgraphCycleError,
                 ) as exc:
-                    return await self.fail_run(run, "subgraph_execution_failed", str(exc))
+                    await self.audit_recorder.record_failed_execution(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        exc,
+                        started_at=node_started_at,
+                    )
+                    return await self.fail_run(
+                        run, "subgraph_execution_failed", str(exc)
+                    )
 
                 # Check if child paused for approval -- propagate up.
                 if child_run.status == RunStatus.WAITING_APPROVAL:
@@ -616,13 +673,32 @@ class GraphDriver:
                     await self.refresh_artifact_ttls(persisted)
                     return persisted
 
+                child_cost = rollup_run_cost(child_run)
                 if child_run.status != RunStatus.COMPLETED:
                     failure = child_run.failure_state
                     detail = failure.message if failure is not None else "unknown failure"
-                    return await self.fail_run(
-                        run,
-                        "subgraph_execution_failed",
+                    error = SubgraphExecutionError(
                         f"child run {child_run.run_id} ended {child_run.status.value}: {detail}",
+                    )
+                    error.audit_record = {  # type: ignore[attr-defined]
+                        "subgraph_run_id": child_run.run_id,
+                        "subgraph_graph_ref": node.subgraph.graph_ref,
+                        "subgraph_status": child_run.status.value,
+                        "subgraph_depth": child_run.metadata.get("subgraph_depth", 0),
+                        "cost_usd": child_cost.cost_usd,
+                        "estimated_cost_usd": child_cost.estimated_cost_usd,
+                        "cost_measurement": child_cost.cost_measurement,
+                    }
+                    await self.audit_recorder.record_failed_execution(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        error,
+                        started_at=node_started_at,
+                    )
+                    return await self.fail_run(
+                        run, "subgraph_execution_failed", str(error)
                     )
 
                 # Use child run's final_output as this node's output.
@@ -635,6 +711,9 @@ class GraphDriver:
                     "subgraph_graph_ref": node.subgraph.graph_ref,
                     "subgraph_status": child_run.status.value,
                     "subgraph_depth": child_run.metadata.get("subgraph_depth", 0),
+                    "cost_usd": child_run.metadata.get("total_cost_usd"),
+                    "estimated_cost_usd": child_run.metadata.get("total_estimated_cost_usd"),
+                    "cost_measurement": child_run.metadata.get("cost_measurement"),
                 }
 
                 # Record history and plan next nodes (same post-node flow as normal nodes).
@@ -666,6 +745,11 @@ class GraphDriver:
                 # cost_usd, so the run halts on the NEXT node once it crosses the cap.
                 if self.per_run_cap_usd is not None:
                     spent = sum_run_cost(run)
+                    if spent is None:
+                        raise BudgetExceededError(
+                            "per-run budget cannot be evaluated: cost is unmeasured",
+                            cap=self.per_run_cap_usd,
+                        )
                     if spent >= self.per_run_cap_usd:
                         raise BudgetExceededError(
                             f"per-run budget exceeded: ${spent:.4f} >= ${self.per_run_cap_usd:.4f}",
@@ -706,6 +790,16 @@ class GraphDriver:
                             step_tracker=step_tracker,
                         )
                 except (FanOutValidationError, ParallelExecutionError) as exc:
+                    await self.audit_recorder.record_history(
+                        run,
+                        node,
+                        node_id,
+                        input_payload,
+                        output_data,
+                        audit_record,
+                        started_at=node_started_at,
+                    )
+                    self.increment_node_visit(run, node_id)
                     return await self.fail_run(run, "parallel_execution_failed", str(exc))
                 # D-11: Check for run-wide approval pause from a branch's subgraph.
                 if fan_in_result.pause_state is not None:

@@ -231,9 +231,9 @@ def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
         select(
             func.coalesce(
                 func.sum(
-                    ExecutionEvent.token_cost_usd
-                    + ExecutionEvent.tool_cost_usd
-                    + ExecutionEvent.compute_cost_usd
+                    func.coalesce(ExecutionEvent.token_cost_usd, 0)
+                    + func.coalesce(ExecutionEvent.tool_cost_usd, 0)
+                    + func.coalesce(ExecutionEvent.compute_cost_usd, 0)
                 ),
                 0,
             )
@@ -242,6 +242,22 @@ def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
             ExecutionEvent.timestamp >= window_start.replace(tzinfo=None),
         )
     ).scalar_one()
+    measurements = set(
+        db.execute(
+            select(ExecutionEvent.cost_measurement).where(
+                ExecutionEvent.tenant_id == tenant_id,
+                ExecutionEvent.timestamp >= window_start.replace(tzinfo=None),
+            )
+        ).scalars()
+    )
+    measurement_complete = "unmeasured" not in measurements
+    cost_measurement = (
+        "unmeasured"
+        if not measurement_complete
+        else "estimated"
+        if "estimated" in measurements
+        else "measured"
+    )
     row = db.execute(
         select(TenantBudget).where(TenantBudget.tenant_id == tenant_id)
     ).scalar_one_or_none()
@@ -249,6 +265,8 @@ def get_budget_status(db: ScopedSession, tenant_id: str) -> dict:
         "tenant_id": tenant_id,
         "total_cost_usd": float(spend or 0),
         "budget_cap_usd": row.budget_cap_usd if row is not None else None,
+        "measurement_complete": measurement_complete,
+        "cost_measurement": cost_measurement,
         "window": "month_to_date",
         "window_start": window_start,
     }

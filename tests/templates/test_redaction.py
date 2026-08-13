@@ -76,7 +76,7 @@ class TestRedactRenderedPrompt:
         result = redact_rendered_prompt(rendered, variables, secret_names)
         assert "sk-123" not in result
         assert "tok-456" not in result
-        assert result.count("***REDACTED***") == 2
+        assert result == "***REDACTED***"
 
     def test_missing_variable_skipped(self):
         """If a secret variable name is not in the variables dict, skip it."""
@@ -94,3 +94,15 @@ class TestRedactRenderedPrompt:
         result1 = redact_rendered_prompt(rendered, variables, secret_names)
         result2 = redact_rendered_prompt(rendered, variables, secret_names)
         assert result1 == result2
+
+    def test_empty_secret_is_ignored(self):
+        rendered = "Keep this prompt intact."
+
+        assert redact_rendered_prompt(rendered, {"api_key": ""}, {"api_key"}) == rendered
+
+    def test_single_character_secret_redacts_whole_prompt(self):
+        rendered = "Categorize this text"
+
+        assert redact_rendered_prompt(rendered, {"api_key": "a"}, {"api_key"}) == (
+            "***REDACTED***"
+        )

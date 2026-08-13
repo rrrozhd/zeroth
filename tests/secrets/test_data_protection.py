@@ -138,8 +138,13 @@ async def test_audit_records_do_not_contain_raw_secret_values_at_rest(tmp_path: 
     assert audit.input_snapshot == {}
     dropped = audit.execution_metadata[CAPTURE_METADATA_KEY]["dropped_fields"]
     assert dropped["input_snapshot"]["count"] == 1
-    assert dropped["input_snapshot"]["sha256"] == _payload_digest({"value": "[REDACTED:API_KEY]"})
-    assert dropped["input_snapshot"]["sha256"] != _payload_digest({"value": "super-secret"})
+    assert len(dropped["input_snapshot"]["hmac_sha256"]) == 64
+    assert dropped["input_snapshot"]["hmac_sha256"] != _payload_digest(
+        {"value": "[REDACTED:API_KEY]"}
+    )
+    assert dropped["input_snapshot"]["hmac_sha256"] != _payload_digest(
+        {"value": "super-secret"}
+    )
 
     async with database.transaction() as connection:
         row = await connection.fetch_one("SELECT record_json FROM node_audits", ())

@@ -287,16 +287,44 @@ async def test_persisted_audit_and_approval_models_round_trip(sqlite_db) -> None
     assert persisted_audit is not None
     # The durable write is the capture boundary, so what round-trips is exactly
     # what the capture policy produced -- not what the producer submitted. The
-    # comparison stays byte-for-byte: storage adds nothing and drops nothing of
-    # its own beyond the chain fields excluded below.
+    # comparison stays byte-for-byte outside policy-keyed HMAC values: storage
+    # adds nothing and drops nothing of its own beyond the chain fields excluded
+    # below. Each policy owns a random key, so only valid digest values are
+    # normalized while their keys, schemas, counts, and surrounding content stay
+    # exact.
     expected = AuditCapturePolicy().apply(audit)
-    assert persisted_audit.model_dump(
-        mode="json",
-        exclude={"chain_sequence", "digest_version", "pii_commitments", "record_digest"},
-    ) == expected.model_dump(
-        mode="json",
-        exclude={"chain_sequence", "digest_version", "pii_commitments", "record_digest"},
+    hmac_value = re.compile(r'(?<="hmac_sha256": ")[0-9a-f]{64}(?=")')
+    hmac_schema_key = re.compile(
+        r'(?<=\[")[0-9a-f]{16}(?=", "(?:NoneType|bool|int|float|str|dict|list)"\])'
     )
+    excluded = {"chain_sequence", "digest_version", "pii_commitments", "record_digest"}
+    persisted_json = json.dumps(
+        persisted_audit.model_dump(mode="json", exclude=excluded), sort_keys=True
+    )
+    expected_json = json.dumps(expected.model_dump(mode="json", exclude=excluded), sort_keys=True)
+
+    def normalize_policy_keyed_values(rendered: str) -> Any:
+        value = json.loads(
+            hmac_schema_key.sub("<policy-keyed>", hmac_value.sub("<policy-keyed>", rendered))
+        )
+
+        def normalize_entries(item: Any) -> Any:
+            if isinstance(item, dict):
+                normalized = {key: normalize_entries(value) for key, value in item.items()}
+                if isinstance(normalized.get("<entries>"), list):
+                    normalized["<entries>"] = sorted(
+                        normalized["<entries>"], key=lambda entry: json.dumps(entry, sort_keys=True)
+                    )
+                return normalized
+            if isinstance(item, list):
+                return [normalize_entries(value) for value in item]
+            return item
+
+        return normalize_entries(value)
+
+    normalized_persisted = normalize_policy_keyed_values(persisted_json)
+    normalized_expected = normalize_policy_keyed_values(expected_json)
+    assert normalized_persisted == normalized_expected
     assert persisted_audit.input_snapshot == {}
     assert persisted_audit.chain_sequence == 1
     assert persisted_audit.digest_version == 3

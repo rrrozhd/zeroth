@@ -8,12 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from zeroth.runtime.agents.errors import AgentProviderError
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
+from zeroth.runtime.agents.errors import AgentOutputValidationError, AgentProviderError
 from zeroth.runtime.agents.mcp import MCPClientManager, MCPServerConfig
 from zeroth.runtime.agents.models import AgentConfig
 from zeroth.runtime.agents.provider import ProviderResponse
 from zeroth.runtime.agents.runner import AgentRunner
 from zeroth.runtime.agents.tools import ToolAttachmentManifest
+from zeroth.runtime.context.models import CompactionResult
 
 
 class SimpleInput(BaseModel):
@@ -38,6 +41,25 @@ def _make_config(**overrides) -> AgentConfig:
 
 def _make_provider_response(content: str = '{"result": "ok"}'):
     return ProviderResponse(content=content)
+
+
+def _paid_compaction() -> CompactionResult:
+    return CompactionResult(
+        messages=[{"role": "user", "content": "compacted"}],
+        original_count=2,
+        compacted_count=1,
+        tokens_before=20,
+        tokens_after=5,
+        strategy_name="test",
+        token_usage=TokenUsage(
+            input_tokens=3,
+            output_tokens=2,
+            total_tokens=5,
+            model_name="compact-model",
+        ),
+        estimated_cost_usd=0.25,
+        cost_measurement=MeasurementState.ESTIMATED,
+    )
 
 
 class TestAgentConfigMCPServers:
@@ -949,6 +971,92 @@ class TestAgentRunnerMCPWiring:
                 await runner.run(SimpleInput(text="hello"))
 
             mock_stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mcp_startup_failure_keeps_paid_compaction_and_cleans_partial_manager(self):
+        config = _make_config(
+            mcp_servers=[MCPServerConfig(name="test", command="echo", args=[])]
+        )
+        tracker = AsyncMock()
+        compaction = _paid_compaction()
+        tracker.maybe_compact = AsyncMock(return_value=(compaction.messages, compaction))
+        runner = AgentRunner(config, AsyncMock(), context_tracker=tracker)
+
+        with (
+            patch.object(MCPClientManager, "start", new=AsyncMock(side_effect=RuntimeError("start"))),
+            patch.object(MCPClientManager, "stop", new=AsyncMock()) as stop,
+            pytest.raises(RuntimeError, match="start") as raised,
+        ):
+            await runner.run(SimpleInput(text="hello"))
+
+        assert raised.value.audit_record["estimated_cost_usd"] == pytest.approx(0.25)
+        assert raised.value.audit_record["token_usage"]["total_tokens"] == 5
+        stop.assert_awaited_once()
+        assert runner._mcp_manager is None
+
+    @pytest.mark.asyncio
+    async def test_mcp_cleanup_failure_does_not_replace_success(self):
+        config = _make_config(
+            mcp_servers=[MCPServerConfig(name="test", command="echo", args=[])]
+        )
+        response = ProviderResponse(
+            content='{"result": "ok"}',
+            cost_usd=0.4,
+            token_usage=TokenUsage(
+                input_tokens=4,
+                output_tokens=3,
+                total_tokens=7,
+                model_name="test-model",
+            ),
+        )
+        runner = AgentRunner(config, AsyncMock())
+
+        with (
+            patch.object(MCPClientManager, "start", new=AsyncMock(return_value=[])),
+            patch.object(MCPClientManager, "stop", new=AsyncMock(side_effect=RuntimeError("stop"))),
+            patch(
+                "zeroth.runtime.agents.runner.run_provider_with_timeout",
+                new=AsyncMock(return_value=response),
+            ),
+        ):
+            result = await runner.run(SimpleInput(text="hello"))
+
+        assert result.output_data == {"result": "ok"}
+        assert result.audit_record["cost_usd"] == pytest.approx(0.4)
+        assert result.audit_record["token_usage"]["total_tokens"] == 7
+        assert runner._mcp_manager is None
+
+    @pytest.mark.asyncio
+    async def test_mcp_cleanup_failure_does_not_replace_paid_validation_failure(self):
+        config = _make_config(
+            mcp_servers=[MCPServerConfig(name="test", command="echo", args=[])]
+        )
+        response = ProviderResponse(
+            content='{"wrong": "shape"}',
+            cost_usd=0.4,
+            token_usage=TokenUsage(
+                input_tokens=4,
+                output_tokens=3,
+                total_tokens=7,
+                model_name="test-model",
+            ),
+        )
+        runner = AgentRunner(config, AsyncMock())
+
+        with (
+            patch.object(MCPClientManager, "start", new=AsyncMock(return_value=[])),
+            patch.object(MCPClientManager, "stop", new=AsyncMock(side_effect=RuntimeError("stop"))),
+            patch(
+                "zeroth.runtime.agents.runner.run_provider_with_timeout",
+                new=AsyncMock(return_value=response),
+            ),
+            pytest.raises(AgentOutputValidationError) as raised,
+        ):
+            await runner.run(SimpleInput(text="hello"))
+
+        assert raised.value.audit_record["cost_usd"] == pytest.approx(0.4)
+        assert raised.value.audit_record["token_usage"]["total_tokens"] == 7
+        assert runner._mcp_manager is None
 
     @pytest.mark.asyncio
     async def test_mcp_tool_call_routes_through_manager(self):

@@ -34,6 +34,7 @@ class BudgetCheckResult(BaseModel):
     cap_usd: float | None = Field(allow_inf_nan=False)
     degraded: bool = False
     failure_mode: Literal["none", "fail_open", "fail_closed"] = "none"
+    measurement_complete: bool = True
 
 
 class BudgetEnforcer:
@@ -126,7 +127,11 @@ class BudgetEnforcer:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                spend = float(data.get("total_cost_usd", 0))
+                if data.get("measurement_complete") is not True:
+                    raise ValueError("budget spend contains unmeasured execution cost")
+                if "total_cost_usd" not in data or data["total_cost_usd"] is None:
+                    raise ValueError("budget response omitted total_cost_usd")
+                spend = float(data["total_cost_usd"])
                 # No configured cap comes back as null — unlimited, not an error.
                 cap_raw = data.get("budget_cap_usd")
                 cap = float(cap_raw) if cap_raw is not None else None
@@ -156,6 +161,7 @@ class BudgetEnforcer:
                     cap_usd=0.0,
                     degraded=True,
                     failure_mode="fail_closed",
+                    measurement_complete=False,
                 )
             # Fail-open (default): Regulus unavailability must not block execution
             # (D-12). But a silent fail-open means budget governance can evaporate
@@ -173,4 +179,5 @@ class BudgetEnforcer:
                 cap_usd=None,
                 degraded=True,
                 failure_mode="fail_open",
+                measurement_complete=False,
             )

@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1.1] - 2026-08-13
+
+- Reject blank startup secrets and database DSNs, and make LangChain execution
+  identifiers collision-resistant.
+
+## [0.23.1] - 2026-08-13
+
+- Move econ schema compatibility to startup, make instrumentation lazy and
+  observable, and reject invalid backend or standalone signing configuration.
+
+## [0.23.0.11.2] - 2026-08-12
+
+- Preserve complete provider measurements when a post-response operational step fails.
+
+## [0.23.0.11.1] - 2026-08-12
+
+- Preserve absent provider token usage as unmeasured metadata instead of
+  inventing zero input, output, and total token counts.
+
+## [0.23.0.11] - 2026-08-12
+
+- Preserve child-run costs across successful token dispatch and failed parallel
+  resume, while reserving rejected audits for explicit governance decisions.
+
+## [0.23.0.10.1] - 2026-08-12
+
+- Preserve incomplete provider attempts and paused or failed child-run spend,
+  and keep eligible zero-cost rightsizing candidates competitive.
+
+## [0.23.0.10] - 2026-08-12
+
+- Preserve measurement completeness across budget checks, provider retries,
+  failed parallel resumes, concurrent approval pauses, and telemetry adapters.
+
+## [0.23.0.9] - 2026-08-12
+
+- Close accounting lifecycle gaps across token fan-out, MCP cleanup, failed
+  subgraphs, concurrent approvals, budget provenance, and model attribution.
+
+## [0.23.0.8] - 2026-08-12
+
+- Preserve source and branch accounting across fan-out failures and approval
+  pauses, flag estimated retries, and avoid cross-model token attribution.
+
+## [0.23.0.7] - 2026-08-12
+
+- Preserve cost and usage provenance across repeated fan-out, approval resume,
+  cascade fallback, retry analysis, and legacy SQLite startup.
+
+## [0.23.0.6.1] - 2026-08-12
+
+- Verify retry and tool-loop cost and usage accounting against every provider turn.
+
+## [0.23.0.6] - 2026-08-12
+
+- Close provider retry, cascade failure, subgraph resume, and fan-out cost accounting gaps.
+
+## [0.23.0.5] - 2026-08-12
+
+- Preserve failed-run, compaction, cascade, subgraph, and fan-out cost provenance through runtime composition.
+
+## [0.23.0.4] - 2026-08-12
+
+### Fixed
+
+- Preserve provider measurement provenance through parallel and failed executions,
+  and flag incomplete spend in aggregate budget, costing, and waste views.
+
+## [0.23.0.3] - 2026-08-12
+
+### Fixed
+
+- Preserve measured, estimated, and unmeasured provider cost and usage through execution,
+  compaction, budget, cap, and waste accounting boundaries.
+- Keep masked tool messages structurally intact and retain fractional experiment allocation.
+
+## [0.23.0.2] - 2026-08-12
+
+### Fixed
+
+- Persisted dropped-content schemas now fingerprint producer-controlled string
+  keys with a projection-scoped HMAC instead of a reusable public digest.
+
+## [0.23.0.1] - 2026-08-12
+
+### Fixed
+
+- Package, Console, documentation, and changelog versions stay synchronized,
+  while measured LangGraph image evidence remains bound to its recorded release
+  until the benchmark, image, SBOM, and provenance set is regenerated.
+
 ## [0.23.0] - 2026-08-12
 
 ### Changed
@@ -26,6 +117,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or gateway row. Foreign resources retain the same empty or unknown observable as missing
   resources, including artifact and secret surfaces (ZER-44 / A01-14, A01-32, A01-29,
   A01-26, A02-1, A02-2, A02-26, A03-1, A06-3, A06-19, A07-19, A08-9, A10-6).
+
+## [0.23] - 2026-08-12
+
+### Changed
+
+- Dropped audit metadata now uses per-policy keyed HMAC summaries rather than
+  reusable unkeyed digests.
+- The legacy Redis audit emitter refuses raw writes and is no longer exported
+  from the audit package.
+
+### Fixed
+
+- Approval payloads and nested audit metadata are sanitized before persistence,
+  including secret-bearing mapping keys and key spelling variants.
+- Empty prompt-secret values are ignored safely, while short known secrets
+  trigger whole-value redaction.
+- Approval escalation uses pending-only writes, decision audit identifiers are
+  outcome-scoped, and encrypted checkpoint or token snapshot decode failures no
+  longer fall back to ciphertext as plaintext.
 ## [0.22.4] - 2026-08-12
 
 ### Added

@@ -49,6 +49,7 @@ class TestEnvVarOverrides:
 
     def test_env_var_override(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("ZEROTH_DATABASE__BACKEND", "postgres")
+        monkeypatch.setenv("ZEROTH_DATABASE__POSTGRES_DSN", "postgresql://localhost/zeroth")
         from zeroth.platform.config.settings import ZerothSettings
 
         settings = ZerothSettings()

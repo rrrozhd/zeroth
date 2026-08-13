@@ -23,6 +23,7 @@ from zeroth.contracts.graph import (
 )
 from zeroth.contracts.templates import TemplateReference, TemplateRegistry, TemplateRenderer
 from zeroth.econ.analytics.adapter import InstrumentedProviderAdapter
+from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit.models import TokenUsage
 from zeroth.integrations.execution import ExecutableUnitRunResult
 from zeroth.integrations.memory.connectors import KeyValueMemoryConnector
@@ -167,9 +168,9 @@ class _BudgetEnforcer:
     def __init__(self) -> None:
         self.tenants: list[str] = []
 
-    async def check_budget(self, tenant_id: str) -> tuple[bool, float, float]:
+    async def check_budget_status(self, tenant_id: str) -> BudgetCheckResult:
         self.tenants.append(tenant_id)
-        return True, 0.0, 10.0
+        return BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=10.0)
 
 
 class _ToolRunner:
@@ -350,8 +351,12 @@ async def test_concurrent_dispatches_fork_all_mutable_runner_state(sqlite_db) ->
     assert {event.tenant_id for event in regulus.events} == {"tenant-A", "tenant-B"}
     assert {event.token_cost_usd for event in regulus.events} == {Decimal("0.25")}
     assert {event.metadata["run_id"] for event in regulus.events} == {"run-A", "run-B"}
-    assert audit_a["cost_usd"] == 0.25
-    assert audit_b["cost_usd"] == 0.25
+    assert audit_a["estimated_cost_usd"] == 0.5
+    assert audit_b["estimated_cost_usd"] == 0.5
+    assert audit_a["token_usage"]["total_tokens"] == 10
+    assert audit_b["token_usage"]["total_tokens"] == 10
+    assert audit_a["cost_measurement"] == "estimated"
+    assert audit_b["cost_measurement"] == "estimated"
 
     assert prototype.config is original_config
     assert prototype.provider is original_provider

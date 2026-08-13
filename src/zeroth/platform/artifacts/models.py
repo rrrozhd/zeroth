@@ -9,9 +9,10 @@ keys suitable for prefix-based bulk cleanup.
 from __future__ import annotations
 
 import base64
+import inspect
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -146,7 +147,7 @@ class ArtifactStoreSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    backend: str = "filesystem"
+    backend: Literal["filesystem", "redis"] = "filesystem"
     """Storage backend: 'filesystem' or 'redis'."""
 
     default_ttl_seconds: int = 3600
@@ -160,6 +161,15 @@ class ArtifactStoreSettings(BaseModel):
 
     max_artifact_size_bytes: int = 104857600
     """Maximum artifact size in bytes (default 100 MB)."""
+
+
+_artifact_store_settings_signature = inspect.signature(ArtifactStoreSettings)
+ArtifactStoreSettings.__signature__ = _artifact_store_settings_signature.replace(
+    parameters=[
+        parameter.replace(annotation=str) if name == "backend" else parameter
+        for name, parameter in _artifact_store_settings_signature.parameters.items()
+    ]
+)
 
 
 def generate_artifact_key(run_id: str, node_id: str) -> str:

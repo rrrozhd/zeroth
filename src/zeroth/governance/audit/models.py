@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.platform.measurement import MeasurementState
 from zeroth.platform.primitives import utc_now
 
 
@@ -161,6 +162,8 @@ class NodeAuditRecord(BaseModel):
     execution_metadata: dict[str, Any] = Field(default_factory=dict)
     token_usage: TokenUsage | None = None
     cost_usd: float | None = None
+    estimated_cost_usd: float | None = None
+    cost_measurement: MeasurementState | None = None
     cost_event_id: str | None = None
     error: str | None = None
     condition_results: list[dict[str, Any]] = Field(default_factory=list)
@@ -207,7 +210,24 @@ class NodeAuditRecord(BaseModel):
         # render as "completed before started". Clamp so the invariant holds.
         if self.completed_at is not None and self.completed_at < self.started_at:
             self.completed_at = self.started_at
+        if self.cost_measurement is None:
+            self.cost_measurement = (
+                MeasurementState.MEASURED
+                if self.cost_usd is not None
+                else MeasurementState.ESTIMATED
+                if self.estimated_cost_usd is not None
+                else MeasurementState.UNMEASURED
+            )
         return self
+
+
+NodeAuditRecord.__signature__ = inspect.signature(NodeAuditRecord).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(NodeAuditRecord).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement"}
+    ]
+)
 
 
 class AuditQuery(BaseModel):

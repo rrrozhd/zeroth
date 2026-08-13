@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Graph
+from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.integrations.execution import ExecutableUnitRunner
 from zeroth.integrations.memory.registry import InMemoryConnectorRegistry, MemoryConnectorResolver
 from zeroth.integrations.persistence.runs import RunRepository
@@ -94,7 +95,9 @@ async def test_dispatch_injects_memory_resolver(sqlite_db) -> None:
 async def test_dispatch_injects_budget_enforcer(sqlite_db) -> None:
     """When orchestrator has budget_enforcer set, it is injected onto the runner during dispatch."""
     budget_enforcer = MagicMock()
-    budget_enforcer.check_budget = AsyncMock(return_value=(True, 0.0, 100.0))
+    budget_enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=100.0)
+    )
     runner = _make_runner()
 
     assert runner.budget_enforcer is None
@@ -118,7 +121,9 @@ async def test_dispatch_preserves_originals_when_none(sqlite_db) -> None:
     """When orchestrator has no resolver/enforcer (None), runner values are preserved."""
     original_resolver = MemoryConnectorResolver(registry=InMemoryConnectorRegistry())
     original_enforcer = MagicMock()
-    original_enforcer.check_budget = AsyncMock(return_value=(True, 0.0, 100.0))
+    original_enforcer.check_budget_status = AsyncMock(
+        return_value=BudgetCheckResult(allowed=True, spend_usd=0.0, cap_usd=100.0)
+    )
     runner = _make_runner()
     runner.memory_resolver = original_resolver
     runner.budget_enforcer = original_enforcer
