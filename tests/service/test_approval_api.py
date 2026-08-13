@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,17 +28,29 @@ def _is_terminal(client, run_id: str) -> bool:
     return status not in _NON_TERMINAL
 
 
-def _describe(client, run_id: str):
+def _describe(client, run_id: str, phase: str):
     """What the run looked like when a wait gave up — see ZER21-AUD-001."""
 
     def describe() -> str:
         body = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
         return (
-            f"run {run_id} status={body.get('status')!r} "
+            f"phase={phase!r} run {run_id} status={body.get('status')!r} "
             f"failure_state={body.get('failure_state')!r}"
         )
 
     return describe
+
+
+def test_approval_wait_description_identifies_phase() -> None:
+    client = Mock()
+    client.get.return_value.json.return_value = {
+        "status": "running",
+        "failure_state": None,
+    }
+
+    assert "phase='approval_pause'" in _describe(client, "run-1", "approval_pause")()
+    assert "phase='terminal_resume'" in _describe(client, "run-1", "terminal_resume")()
+
 
 async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope(sqlite_db) -> None:
     service, _ = await deploy_service(sqlite_db, approval_graph(graph_id="graph-approval-query"))
@@ -55,7 +68,8 @@ async def test_approval_api_queries_pending_approvals_by_id_run_thread_and_scope
             lambda: (
                 client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
                 == "paused_for_approval"
-            )
+            ),
+            describe=_describe(client, run_id, "approval_pause"),
         )
 
         paused_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
@@ -158,7 +172,7 @@ async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
                 client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
                 == "paused_for_approval"
             ),
-            describe=_describe(client, run_id),
+            describe=_describe(client, run_id, "approval_pause"),
         )
         approval_id = client.get(
             f"/runs/{run_id}",
@@ -183,7 +197,10 @@ async def test_approval_api_resolves_all_decisions_and_resumes_when_appropriate(
         # the expected value would never be satisfied by a wrong terminal outcome, so the
         # test would burn the whole deadline and then report a timeout instead of the
         # wrong status it actually observed.
-        wait_for(lambda: _is_terminal(client, run_id), describe=_describe(client, run_id))
+        wait_for(
+            lambda: _is_terminal(client, run_id),
+            describe=_describe(client, run_id, "terminal_resume"),
+        )
         run_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert response.status_code == 200
@@ -221,7 +238,7 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
                 client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
                 == "paused_for_approval"
             ),
-            describe=_describe(client, run_id),
+            describe=_describe(client, run_id, "approval_pause"),
         )
         approval_id = client.get(
             f"/runs/{run_id}",
@@ -244,7 +261,10 @@ async def test_approval_api_duplicate_resolution_is_idempotent(sqlite_db) -> Non
         )
         # Same reason as above: the resolve response carries a best-effort view of the
         # run, so settle on the observable terminal state before asserting on it.
-        wait_for(lambda: _is_terminal(client, run_id), describe=_describe(client, run_id))
+        wait_for(
+            lambda: _is_terminal(client, run_id),
+            describe=_describe(client, run_id, "terminal_resume"),
+        )
         run_payload = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 
     assert first_response.status_code == 200
@@ -290,7 +310,7 @@ async def test_resolve_returns_a_best_effort_run_view_not_a_terminal_guarantee(s
                 client.get(f"/runs/{run_id}", headers=operator_headers()).json()["status"]
                 == "paused_for_approval"
             ),
-            describe=_describe(client, run_id),
+            describe=_describe(client, run_id, "approval_pause"),
         )
         approval_id = client.get(f"/runs/{run_id}", headers=operator_headers()).json()[
             "approval_paused_state"
@@ -308,7 +328,8 @@ async def test_resolve_returns_a_best_effort_run_view_not_a_terminal_guarantee(s
         assert response.json()["run"]["status"] in _NON_TERMINAL
 
         wait_for(
-            lambda: _is_terminal(client, run_id), describe=_describe(client, run_id)
+            lambda: _is_terminal(client, run_id),
+            describe=_describe(client, run_id, "terminal_resume"),
         )
         settled = client.get(f"/runs/{run_id}", headers=operator_headers()).json()
 

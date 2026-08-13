@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2.2.1] - 2026-08-13
+
+- Qualify approval wait diagnostics as pause or terminal-resume evidence.
+
 ## [0.23.2.2] - 2026-08-13
 
 - Preserve redacted tool-call audits when an agent fails after tool execution.
