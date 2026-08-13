@@ -3238,12 +3238,16 @@
             },
             "type": "object"
           },
+          "schema_revision": {
+            "$ref": "#/components/schemas/SchemaRevision"
+          },
           "status": {
             "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "schema_revision"
         ],
         "type": "object"
       },
@@ -4005,6 +4009,45 @@
           "deployment_ref",
           "graph_version_ref",
           "thread_id"
+        ],
+        "type": "object"
+      },
+      "SchemaRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "current",
+              "behind",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied",
+          "head",
+          "state"
         ],
         "type": "object"
       },
