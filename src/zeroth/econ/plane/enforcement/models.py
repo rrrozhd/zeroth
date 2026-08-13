@@ -38,7 +38,16 @@ class PolicyAction(Base):
     scope_definition: ClassVar[ResourceScopeDefinition] = ResourceScopeDefinition(
         resource_name="econ.policy_action", table_name=__tablename__, operations=_ALL_OPERATIONS
     )
-    __table_args__ = (Index("ix_policy_actions_tenant_status_proposed", "tenant_id", "status", "proposed_at"),)  # noqa: E501
+    __table_args__ = (
+        Index("ix_policy_actions_tenant_status_proposed", "tenant_id", "status", "proposed_at"),
+        #: At most one policy action per enforcement action.  The service reads
+        #: the link with ``scalar_one_or_none()``, so a second row does not
+        #: degrade the decision -- it makes the enforcement action permanently
+        #: undecidable behind a 500.  Nullable-unique: NULL never collides with
+        #: NULL on either dialect, so every unlinked row stays legal.  Named to
+        #: match revision 20260812_06, which builds the same index.
+        Index("uq_policy_actions_enforcement_action_id", "enforcement_action_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")

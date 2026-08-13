@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from pydantic import JsonValue
@@ -14,6 +15,11 @@ from zeroth.contracts.graph.tokens import (
 )
 from zeroth.runtime.orchestration.token_join_models import JoinReducerInput
 from zeroth.runtime.orchestration.token_join_reducers import reduce_join_inputs
+from zeroth.runtime.orchestration.token_lifecycle import (
+    CAS_MAX_ATTEMPTS,
+    CasSleep,
+    cas_backoff,
+)
 from zeroth.runtime.orchestration.token_loop_closure import (
     _claim_matches,
     _config_fingerprint,
@@ -41,6 +47,26 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
 )
 
 
+async def _pace_retry(attempt: int, max_attempts: int, sleep: CasSleep) -> None:
+    """Wait before the next CAS attempt, and never after the last one.
+
+    Every loop in this module retries a lost CAS against the same
+    :class:`TokenSnapshotStore` the lifecycle adapter uses, so they must pace
+    themselves the same way: retrying immediately makes contention a livelock,
+    and a capped loop that retries immediately just fails fast without ever
+    giving the retry a chance to win. The backoff and jitter math is not
+    duplicated here -- it stays in :func:`cas_backoff`; this only decides
+    whether the caller still has an attempt left worth pacing.
+
+    Args:
+        attempt: 1-based number of the attempt that just lost.
+        max_attempts: The loop's total retry budget.
+        sleep: Injected so tests can observe the delay instead of spending it.
+    """
+    if attempt < max_attempts:
+        await cas_backoff(attempt, sleep=sleep)
+
+
 async def _claim_loop_with_cas(
     store: TokenSnapshotStore,
     run_id: str,
@@ -49,9 +75,10 @@ async def _claim_loop_with_cas(
     *,
     owner_id: str,
     max_attempts: int,
+    sleep: CasSleep = asyncio.sleep,
 ) -> LoopReductionClaim:
     claim_id = uuid.uuid4().hex
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise LoopReductionRecoveryError(f"run {run_id!r} has no token snapshot")
@@ -86,6 +113,7 @@ async def _claim_loop_with_cas(
                 run_id, expected_revision=current.revision, snapshot=proposed
             )
         except TokenSnapshotConcurrencyError:
+            await _pace_retry(attempt, max_attempts, sleep)
             continue
         return claim
     raise LoopReductionRecoveryError("loop reduction claim exhausted CAS attempts")
@@ -98,8 +126,9 @@ async def _release_claim_with_cas(
     claim: LoopReductionClaim,
     *,
     max_attempts: int,
+    sleep: CasSleep = asyncio.sleep,
 ):
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise LoopReductionReleaseError(f"run {run_id!r} has no token snapshot")
@@ -123,6 +152,7 @@ async def _release_claim_with_cas(
                 run_id, expected_revision=current.revision, snapshot=proposed
             )
         except TokenSnapshotConcurrencyError:
+            await _pace_retry(attempt, max_attempts, sleep)
             continue
     raise LoopReductionReleaseError("loop reduction claim release exhausted CAS attempts")
 
@@ -147,7 +177,8 @@ async def close_ready_loop_with_cas(
     reducer: LoopReducer = reduce_join_inputs,
     claim_owner_id: str | None = None,
     claimed_reduction: LoopReductionClaim | None = None,
-    max_attempts: int = 8,
+    max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ):
     """Claim and evaluate a continuation reducer once, then publish through CAS."""
     _require_positive_attempts(max_attempts)
@@ -164,7 +195,7 @@ async def close_ready_loop_with_cas(
         # message string where the run id belongs and reported the same revision
         # as both expected and actual, so the exhaustion read "expected N, found N".
         finalization_error: TokenSnapshotConcurrencyError | None = None
-        for _ in range(max_attempts):
+        for attempt in range(1, max_attempts + 1):
             current = await store.get_token_snapshot(run_id)
             if current is None:
                 raise TokenLoopTransitionError(f"run {run_id!r} has no token snapshot")
@@ -181,6 +212,7 @@ async def close_ready_loop_with_cas(
                 )
             except TokenSnapshotConcurrencyError as exc:
                 finalization_error = exc
+                await _pace_retry(attempt, max_attempts, sleep)
                 continue
         assert finalization_error is not None
         raise finalization_error
@@ -197,6 +229,7 @@ async def close_ready_loop_with_cas(
         config,
         owner_id=claim_owner_id or uuid.uuid4().hex,
         max_attempts=max_attempts,
+        sleep=sleep,
     )
     claimed = await store.get_token_snapshot(run_id)
     if claimed is None:
@@ -214,6 +247,7 @@ async def close_ready_loop_with_cas(
                 loop_instance_id,
                 active_claim,
                 max_attempts=max_attempts,
+                sleep=sleep,
             )
         except Exception as exc:
             raise LoopReductionReleaseError(
@@ -225,7 +259,7 @@ async def close_ready_loop_with_cas(
         return reduced
 
     closure_error: TokenSnapshotConcurrencyError | None = None
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise TokenLoopTransitionError(f"run {run_id!r} has no token snapshot")
@@ -245,6 +279,7 @@ async def close_ready_loop_with_cas(
             # is the only one that knows the run id and the two revisions that
             # actually differed.
             closure_error = exc
+            await _pace_retry(attempt, max_attempts, sleep)
             continue
     assert closure_error is not None
     raise closure_error
@@ -257,13 +292,14 @@ async def reclaim_abandoned_loop_reduction_with_cas(
     *,
     observed_claim: LoopReductionClaim,
     new_owner_id: str,
-    max_attempts: int = 8,
+    max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ) -> LoopReductionClaim:
     """Replace exactly one explicitly observed abandoned claim through CAS."""
     if not new_owner_id:
         raise LoopReductionRecoveryError("recovery owner cannot be empty")
     replacement_id = uuid.uuid4().hex
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise LoopReductionRecoveryError(f"run {run_id!r} has no token snapshot")
@@ -293,6 +329,7 @@ async def reclaim_abandoned_loop_reduction_with_cas(
                 run_id, expected_revision=current.revision, snapshot=proposed
             )
         except TokenSnapshotConcurrencyError:
+            await _pace_retry(attempt, max_attempts, sleep)
             continue
         return replacement_claim
     raise LoopReductionClaimChangedError("loop reduction recovery exhausted CAS attempts")

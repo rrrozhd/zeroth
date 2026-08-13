@@ -17,7 +17,11 @@ from tests.service.helpers import (
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
 from zeroth.governance.identity import ServiceRole
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
-from zeroth.runtime.runs import RunStatus
+from zeroth.runtime.orchestration.token_snapshot_store import (
+    TokenSnapshotConcurrencyError,
+    TokenSnapshotWriteDisabledError,
+)
+from zeroth.runtime.runs import Run, RunStatus
 from zeroth.service.bootstrap import bootstrap_app
 from zeroth.service.bootstrap.factory import bootstrap_scoped_app
 
@@ -494,3 +498,334 @@ async def test_replay_that_fails_midway_leaves_the_run_wholly_unreset(sqlite_db)
     assert after["failure_count"] == 3
     assert after["lease_worker_id"] == "w1"
     assert after["lease_expires_at"] == "2099-01-01T00:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# F-10b -- a contended lifecycle CAS is a conflict, not a server error
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _always_losing_snapshot_cas(repository):
+    """Make every token-snapshot CAS on *repository* lose, and count the losses.
+
+    This is exactly what a sustained-contention window looks like to
+    ``TokenLifecycleAdapter._apply``: it reloads and re-proposes on every
+    attempt and never wins, so after its bounded budget it re-raises the last
+    :class:`TokenSnapshotConcurrencyError`. The count is yielded because the
+    routes have three ways to answer 200 *without ever reaching the manager*
+    (no snapshot, an already-terminal run, a repository that is not a
+    ``TokenSnapshotStore``) — a green assertion on the status code proves
+    nothing unless the CAS was actually attempted.
+    """
+    attempts: list[str] = []
+
+    async def _conflict(run_id, *, expected_revision, snapshot):  # noqa: ANN001
+        del snapshot
+        attempts.append(run_id)
+        raise TokenSnapshotConcurrencyError(
+            run_id,
+            expected_revision=expected_revision,
+            actual_revision=(expected_revision or 0) + 1,
+        )
+
+    repository.compare_and_swap_token_snapshot = _conflict
+    try:
+        yield attempts
+    finally:
+        del repository.compare_and_swap_token_snapshot
+
+
+async def _contended_running_run(service):
+    """Seed a RUNNING run with a token snapshot that no worker can claim.
+
+    Deliberately not created through ``POST /runs``: the app's own bootstrap
+    starts a durable ``RunWorker`` against the same database, and a PENDING run
+    is claimed and driven out from under the assertions during the CAS budget's
+    (sub-second, but real) backoff. RUNNING with a NULL lease matches neither
+    ``claim_pending`` (wants PENDING) nor ``claim_orphaned`` (wants a non-NULL
+    lease), so the only writer in the window is the route under test.
+    """
+    run = await service.run_repository.create(
+        Run(
+            graph_version_ref="g:v1",
+            deployment_ref=service.deployment.deployment_ref,
+            status=RunStatus.RUNNING,
+        )
+    )
+    snapshot = initialize_token_snapshot(run_id=run.run_id, root_node_id="agent-step", payload={})
+    await service.run_repository.compare_and_swap_token_snapshot(
+        run.run_id, expected_revision=None, snapshot=snapshot
+    )
+    return run.run_id, await service.run_repository.get_token_snapshot(run.run_id)
+
+
+async def test_cancel_under_snapshot_contention_conflicts_instead_of_500(sqlite_db) -> None:
+    """F-10b: an operator cancel that loses its CAS budget is a 409, not a 500.
+
+    ``TokenSnapshotConcurrencyError`` subclasses ``RuntimeError``, so the
+    route's ``except ValueError`` never saw it and a purely retryable
+    contention condition surfaced to the operator as an unhandled server
+    error. Nothing is written on that path -- the lifecycle CAS runs before the
+    repository transition -- so the response must say "conflict, try again",
+    and neither the run's failure identity nor its snapshot may move.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-contended", DEPLOYMENT + "-cancel-contended"
+    )
+    run_id, before_snapshot = await _contended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _always_losing_snapshot_cas(service.run_repository) as attempts:
+            response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    after_run = await service.run_repository.get(run_id)
+    after_snapshot = await service.run_repository.get_token_snapshot(run_id)
+
+    assert attempts, "the contended CAS was never reached; this test proves nothing"
+    assert response.status_code == 409, (
+        f"a retryable contention condition surfaced as {response.status_code}"
+    )
+    assert after_run is not None
+    assert after_run.status is not RunStatus.FAILED, "the 409 path wrote the terminal status"
+    assert after_run.failure_state is None, "the 409 path wrote a failure identity"
+    assert before_snapshot is not None and after_snapshot is not None
+    assert after_snapshot.state is before_snapshot.state
+    assert after_snapshot.state is not TokenEngineSnapshotState.CANCELLED
+    assert after_snapshot.revision == before_snapshot.revision
+
+
+async def test_interrupt_under_snapshot_contention_conflicts_instead_of_500(sqlite_db) -> None:
+    """F-10b, the pause half: same boundary, same surfaced contract."""
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-interrupt-contended", DEPLOYMENT + "-interrupt-contended"
+    )
+    run_id, before_snapshot = await _contended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _always_losing_snapshot_cas(service.run_repository) as attempts:
+            response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+
+    after_run = await service.run_repository.get(run_id)
+    after_snapshot = await service.run_repository.get_token_snapshot(run_id)
+
+    assert attempts, "the contended CAS was never reached; this test proves nothing"
+    assert response.status_code == 409, (
+        f"a retryable contention condition surfaced as {response.status_code}"
+    )
+    assert after_run is not None
+    assert after_run.status is RunStatus.RUNNING, "the 409 path wrote run state"
+    assert before_snapshot is not None and after_snapshot is not None
+    assert after_snapshot.state is before_snapshot.state
+    assert after_snapshot.state is not TokenEngineSnapshotState.PAUSED
+    assert after_snapshot.revision == before_snapshot.revision
+
+
+# ---------------------------------------------------------------------------
+# F-10c -- token state erased mid-request is a conflict, not a server error
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _snapshot_vanishing_after_first_read(repository):
+    """Serve the real snapshot once, then nothing — the route's own TOCTOU window.
+
+    Both routes ask ``get_token_snapshot`` whether a run owns token state, and
+    only then does ``TokenLifecycleAdapter._apply`` reload it. Retention erasure
+    (``ErasureService.erase_run`` deletes the snapshot and *keeps* the redacted
+    run row) and ``delete_run`` both land in that gap, and the adapter answers a
+    missing snapshot with ``KeyError`` — not a ``ValueError``, so it escaped the
+    routes' handler as an unhandled 500.
+
+    The ordering matters: a patch that returns ``None`` to *every* caller is
+    vacuous, because the route's own existence check would then route around
+    the lifecycle entirely and answer 200 without ever reaching the adapter.
+    The call log is yielded so a test can prove the reload actually happened.
+    """
+    real = repository.get_token_snapshot
+    reads: list[str] = []
+
+    async def _vanishing(run_id: str):  # noqa: ANN202
+        reads.append(run_id)
+        return await real(run_id) if len(reads) == 1 else None
+
+    repository.get_token_snapshot = _vanishing
+    try:
+        yield reads
+    finally:
+        del repository.get_token_snapshot
+
+
+async def test_cancel_when_token_state_vanishes_conflicts_instead_of_500(sqlite_db) -> None:
+    """F-10c: a cancel whose token state is erased mid-request is a 409, not a 500.
+
+    Nothing is written on this path — the adapter raises on its reload, before
+    any CAS — so the run must keep both its status and its failure identity,
+    and the operator must get a conflict they can act on rather than a server
+    error. Re-issuing converges: the second request's existence check sees no
+    snapshot, routes around the lifecycle and cancels the run outright.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-vanished", DEPLOYMENT + "-cancel-vanished"
+    )
+    run_id, before_snapshot = await _contended_running_run(service)
+    assert before_snapshot is not None
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _snapshot_vanishing_after_first_read(service.run_repository) as reads:
+            response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    after_run = await service.run_repository.get(run_id)
+
+    assert len(reads) >= 2, "the adapter's reload was never reached; this test proves nothing"
+    assert response.status_code == 409, (
+        f"an erased token snapshot surfaced as {response.status_code}"
+    )
+    detail = response.json()["detail"]
+    assert "no longer has token state" in detail, detail
+    assert "lost a concurrent token-state update" not in detail, (
+        "the vanished snapshot is indistinguishable from CAS contention in a log"
+    )
+    assert after_run is not None
+    assert after_run.status is not RunStatus.FAILED, "the 409 path wrote the terminal status"
+    assert after_run.failure_state is None, "the 409 path wrote a failure identity"
+
+
+async def test_interrupt_when_token_state_vanishes_conflicts_instead_of_500(sqlite_db) -> None:
+    """F-10c, the pause half: same window, same surfaced contract."""
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-interrupt-vanished", DEPLOYMENT + "-interrupt-vanished"
+    )
+    run_id, before_snapshot = await _contended_running_run(service)
+    assert before_snapshot is not None
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with _snapshot_vanishing_after_first_read(service.run_repository) as reads:
+            response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+
+    after_run = await service.run_repository.get(run_id)
+
+    assert len(reads) >= 2, "the adapter's reload was never reached; this test proves nothing"
+    assert response.status_code == 409, (
+        f"an erased token snapshot surfaced as {response.status_code}"
+    )
+    detail = response.json()["detail"]
+    assert "no longer has token state" in detail, detail
+    assert after_run is not None
+    assert after_run.status is RunStatus.RUNNING, "the 409 path wrote run state"
+
+
+async def test_the_three_lifecycle_conflicts_read_differently(sqlite_db) -> None:
+    """One route, three 409s: an operator reading a log must tell them apart.
+
+    "Not interruptible", "lost the CAS" and "token state is gone" want three
+    different operator responses — accept it, retry the same call, re-issue and
+    expect the run to be cancelled outright. They are the same status code by
+    design, so the detail string is the only thing carrying that difference.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-conflict-vocab", DEPLOYMENT + "-conflict-vocab"
+    )
+    settled = await service.run_repository.create(
+        Run(
+            graph_version_ref="g:v1",
+            deployment_ref=service.deployment.deployment_ref,
+            status=RunStatus.COMPLETED,
+        )
+    )
+    contended_id, _ = await _contended_running_run(service)
+    vanished_id, _ = await _contended_running_run(service)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        not_interruptible = client.post(
+            f"/admin/runs/{settled.run_id}/interrupt", headers=admin_headers()
+        )
+        with _always_losing_snapshot_cas(service.run_repository) as attempts:
+            contention = client.post(
+                f"/admin/runs/{contended_id}/interrupt", headers=admin_headers()
+            )
+        with _snapshot_vanishing_after_first_read(service.run_repository) as reads:
+            vanished = client.post(f"/admin/runs/{vanished_id}/interrupt", headers=admin_headers())
+
+    assert attempts, "the contended CAS was never reached; this test proves nothing"
+    assert len(reads) >= 2, "the adapter's reload was never reached; this test proves nothing"
+    details = [
+        not_interruptible.json()["detail"],
+        contention.json()["detail"],
+        vanished.json()["detail"],
+    ]
+    assert [r.status_code for r in (not_interruptible, contention, vanished)] == [409, 409, 409]
+    assert len(set(details)) == 3, f"two conflicts read identically in a log: {details}"
+
+
+async def test_cancel_converges_after_the_token_state_was_really_erased(sqlite_db) -> None:
+    """The 409's advice must be true: re-issuing after erasure actually cancels.
+
+    This is what makes 409 the right status rather than 404 or 410 — retention
+    erasure deletes the token snapshot and *keeps* the redacted run row, so the
+    run is neither missing nor permanently gone, and the very next request can
+    still cancel it. Reproduced with the exact repository call
+    ``ErasureService.erase_run`` makes (the plain erase, not the fenced
+    variant), so the state under test is the one an operator's retry lands in.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-cancel-converge", DEPLOYMENT + "-cancel-converge"
+    )
+    run_id, before_snapshot = await _contended_running_run(service)
+    assert before_snapshot is not None
+
+    async with service.run_repository.database.transaction(write_lock=True) as conn:
+        await service.run_repository.erase_token_snapshot_for_run_in_transaction(conn, run_id)
+    assert await service.run_repository.get_token_snapshot(run_id) is None, (
+        "erasure left token state behind; this test reproduces the wrong state"
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(f"/admin/runs/{run_id}/cancel", headers=admin_headers())
+
+    after_run = await service.run_repository.get(run_id)
+
+    assert response.status_code == 200, (
+        f"a re-issued cancel after erasure answered {response.status_code}; the 409's "
+        "'re-issue the request' advice is a lie"
+    )
+    assert after_run is not None
+    assert after_run.status is RunStatus.FAILED
+
+
+async def test_permanent_token_snapshot_errors_are_never_dressed_as_conflicts(sqlite_db) -> None:
+    """A permanent snapshot failure must not be sold to the operator as retryable.
+
+    ``TokenSnapshotWriteDisabledError`` (a durable erasure fence) and
+    ``TokenSnapshotCorruptionError`` are ``RuntimeError`` siblings of the
+    contention error, and both are permanent: a 409 would send an operator into
+    a retry loop that cannot terminate. This is why the contention handler keys
+    on the concrete class instead of on ``RuntimeError``, and why the vanished-
+    snapshot handler keys on ``KeyError`` alone.
+
+    Deliberately asserts *not 409* rather than ``== 500``: the point being
+    pinned is the distinction, not a blessing of today's unhandled-error status
+    as the right long-term answer for a fenced run.
+    """
+    service, app = await _make_service_and_app(
+        sqlite_db, "graph-permanent-err", DEPLOYMENT + "-permanent-err"
+    )
+    run_id, _ = await _contended_running_run(service)
+    attempts: list[str] = []
+
+    async def _write_disabled(run_id, *, expected_revision, snapshot):  # noqa: ANN001
+        del expected_revision, snapshot
+        attempts.append(run_id)
+        raise TokenSnapshotWriteDisabledError(run_id)
+
+    service.run_repository.compare_and_swap_token_snapshot = _write_disabled
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(f"/admin/runs/{run_id}/interrupt", headers=admin_headers())
+    finally:
+        del service.run_repository.compare_and_swap_token_snapshot
+
+    assert attempts, "the fenced CAS was never reached; this test proves nothing"
+    assert response.status_code != 409, (
+        "a permanent erasure fence was rendered as a retryable conflict"
+    )
