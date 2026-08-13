@@ -149,6 +149,45 @@ async def test_the_declared_regulus_origin_is_served_by_a_real_control_plane(
         }
 
 
+async def test_candidates_rebind_and_restore_preimported_econ_storage(tmp_path: Path) -> None:
+    from zeroth.econ.plane import config as econ_config
+    from zeroth.econ.plane import database as econ_database
+    from zeroth.econ.plane.common import bootstrap as econ_bootstrap
+
+    previous_database_engine = econ_database.engine
+    previous_bootstrap_engine = econ_bootstrap.engine
+    previous_database_bind = econ_database.SessionLocal.kw["bind"]
+    previous_bootstrap_bind = econ_bootstrap.SessionLocal.kw["bind"]
+    previous_database_url = econ_config.settings.database_url
+    previous_schema_revision = econ_bootstrap._schema_revision
+
+    for name in ("first", "second"):
+        instance = EphemeralCandidate(tmp_path / name)
+        await instance.provision()
+        await instance.serve()
+        try:
+            async with httpx.AsyncClient(base_url=instance.base_url, timeout=10.0) as client:
+                response = await client.get("/regulus/health", headers=_headers("admin"))
+                assert response.status_code == 200, response.text
+                assert response.json() == {
+                    "status": "ok",
+                    "schema_revision": {
+                        "applied": "20260812_04",
+                        "head": "20260812_04",
+                        "state": "current",
+                    },
+                }
+        finally:
+            await instance.aclose()
+
+        assert econ_database.engine is previous_database_engine
+        assert econ_bootstrap.engine is previous_bootstrap_engine
+        assert econ_database.SessionLocal.kw["bind"] is previous_database_bind
+        assert econ_bootstrap.SessionLocal.kw["bind"] is previous_bootstrap_bind
+        assert econ_config.settings.database_url == previous_database_url
+        assert econ_bootstrap._schema_revision is previous_schema_revision
+
+
 async def test_product_migrations_scenario_rejects_service_parent_revision(
     stale_schema_candidate: EphemeralCandidate,
     tmp_path: Path,
