@@ -3816,7 +3816,7 @@
       },
       "ReadinessResponse": {
         "additionalProperties": false,
-        "description": "Response payload for the readiness probe.",
+        "description": "Serialized readiness payload with schema-revision evidence.",
         "properties": {
           "checks": {
             "additionalProperties": {
@@ -3825,13 +3825,17 @@
             "title": "Checks",
             "type": "object"
           },
+          "schema_revision": {
+            "$ref": "#/components/schemas/SchemaRevision"
+          },
           "status": {
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "schema_revision"
         ],
         "title": "ReadinessResponse",
         "type": "object"
@@ -4713,6 +4717,50 @@
           "thread_id"
         ],
         "title": "RunStatusResponse",
+        "type": "object"
+      },
+      "SchemaRevision": {
+        "additionalProperties": false,
+        "description": "One schema's applied revision, shipped head, and conservative state.",
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head"
+          },
+          "state": {
+            "enum": [
+              "current",
+              "behind",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied",
+          "head",
+          "state"
+        ],
+        "title": "SchemaRevision",
         "type": "object"
       },
       "ServiceRole": {
