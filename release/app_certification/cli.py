@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -16,11 +18,17 @@ from .runner import CertificationRunner, HttpResult
 class UrlHttpBoundary:
     """Execute declared smoke requests against two caller-supplied origins."""
 
-    def __init__(self, packaged_url: str, ephemeral_url: str) -> None:
+    def __init__(
+        self,
+        packaged_url: str,
+        ephemeral_url: str,
+        headers: Mapping[str, str],
+    ) -> None:
         self.urls = {
             "packaged-smoke": packaged_url.rstrip("/"),
             "ephemeral-smoke": ephemeral_url.rstrip("/"),
         }
+        self.headers = {"Content-Type": "application/json", **headers}
 
     def __call__(self, check: str, smoke: SmokeSpec) -> HttpResult:
         body = json.dumps(smoke.request_json, sort_keys=True, separators=(",", ":")).encode()
@@ -28,13 +36,27 @@ class UrlHttpBoundary:
             self.urls[check] + smoke.path,
             data=body,
             method=smoke.method,
-            headers={"Content-Type": "application/json"},
+            headers=self.headers,
         )
         try:
             with urlopen(request, timeout=30) as response:  # noqa: S310 - explicit caller URL
                 return HttpResult(response.status, json.load(response))
         except HTTPError as error:
             return HttpResult(error.code, json.load(error))
+
+
+def resolve_smoke_headers(
+    smoke: SmokeSpec,
+    environ: Mapping[str, str] = os.environ,
+) -> dict[str, str]:
+    """Resolve validated header names without persisting secret values."""
+    headers: dict[str, str] = {}
+    for header, env_name in smoke.headers_from_env.items():
+        value = environ.get(env_name)
+        if not value:
+            raise ValueError(f"smoke HTTP header {header!r} requires environment {env_name}")
+        headers[header] = value
+    return headers
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,7 +79,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _run(args: argparse.Namespace) -> int:
     declaration = load_declaration(args.declaration)
-    http = UrlHttpBoundary(args.packaged_url, args.ephemeral_url)
+    headers = resolve_smoke_headers(declaration.smoke)
+    http = UrlHttpBoundary(args.packaged_url, args.ephemeral_url, headers)
     report = CertificationRunner(args.root, declaration, http=http).run(
         expected_commit=args.app_commit,
         image_digest=args.image_digest,

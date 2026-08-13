@@ -18,6 +18,8 @@ from release.app_certification import (
     validate_report,
     write_report,
 )
+from release.app_certification.cli import main as certification_main
+from release.app_certification.cli import resolve_smoke_headers
 
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
@@ -29,6 +31,7 @@ def declaration_data() -> dict:
         "app_name": "reference-app",
         "zeroth_version": "0.23.8",
         "lock_path": "uv.lock",
+        "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
         "sbom_path": "evidence/app.spdx.json",
         "provenance_path": "evidence/provenance.json",
@@ -208,11 +211,20 @@ def test_missing_lock_fails_dependency_lock_without_hiding_report(tmp_path: Path
     assert "missing" in failure.detail
 
 
-@pytest.mark.parametrize("lock_path", ["", "/tmp/uv.lock", "../uv.lock"])
+@pytest.mark.parametrize("lock_path", ["", "/tmp/uv.lock", "../uv.lock", "bad\npath", r"bad\path"])
 def test_invalid_lock_path_is_rejected(lock_path: str) -> None:
     data = declaration_data()
     data["lock_path"] = lock_path
     with pytest.raises(ValidationError, match="lock_path"):
+        AppDeclaration.model_validate(data)
+
+
+@pytest.mark.parametrize("reference", ["-bad:tag", "bad reference:tag", "app\nforged=value"])
+def test_unsafe_image_reference_is_rejected(reference: str) -> None:
+    data = declaration_data()
+    data["image_reference"] = reference
+
+    with pytest.raises(ValidationError, match="image_reference"):
         AppDeclaration.model_validate(data)
 
 
@@ -305,3 +317,64 @@ def test_json_loader_rejects_duplicate_check_names(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="duplicate JSON key 'graph'"):
         load_declaration(path)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Bad Header": "CERT_KEY"},
+        {"X-API-Key": "9BAD_ENV"},
+        {"Content-Type": "CERT_KEY"},
+    ],
+)
+def test_unsafe_smoke_header_environment_mapping_is_rejected(headers: dict[str, str]) -> None:
+    data = declaration_data()
+    data["smoke"]["headers_from_env"] = headers
+
+    with pytest.raises(ValidationError, match="smoke"):
+        AppDeclaration.model_validate(data)
+
+
+def test_cli_fails_closed_when_smoke_header_environment_is_missing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    data = declaration_data()
+    data["smoke"]["headers_from_env"] = {"X-API-Key": "MISSING_CERTIFICATION_KEY"}
+    declaration = tmp_path / "certification.json"
+    declaration.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.delenv("MISSING_CERTIFICATION_KEY", raising=False)
+    report = tmp_path / "report.json"
+
+    result = certification_main(
+        [
+            "run",
+            "--declaration",
+            str(declaration),
+            "--root",
+            str(tmp_path),
+            "--app-commit",
+            COMMIT,
+            "--image-digest",
+            DIGEST,
+            "--packaged-url",
+            "http://127.0.0.1:18080",
+            "--ephemeral-url",
+            "http://127.0.0.1:18081",
+            "--report",
+            str(report),
+        ]
+    )
+
+    assert result == 2
+    assert "MISSING_CERTIFICATION_KEY" in capsys.readouterr().err
+    assert not report.exists()
+
+
+def test_smoke_headers_resolve_only_from_the_named_environment() -> None:
+    data = declaration_data()
+    data["smoke"]["headers_from_env"] = {"X-API-Key": "CERTIFICATION_KEY"}
+    smoke = AppDeclaration.model_validate(data).smoke
+
+    assert resolve_smoke_headers(smoke, {"CERTIFICATION_KEY": "opaque-value"}) == {
+        "X-API-Key": "opaque-value"
+    }
