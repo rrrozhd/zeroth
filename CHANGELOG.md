@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.6.1] - 2026-08-13
+
+### Fixed
+
+- Sibling branches of a parallel fan-out mint distinct operation identities. Every branch derived
+  the same key, so only the first executed and the rest were suppressed as replays and handed the
+  first branch's receipt -- silent cross-branch data corruption, not a duplicate effect. The branch
+  discriminator is folded into the operation target, which also makes it visible in the durable
+  audit (ZER-49, A06-1). A tool call from a provider that supplies no call id now gets a
+  deterministic identity, so a replay reproduces it and deduplication fires (ZER-49, A16-16), and
+  the agent tool budget spans a run rather than resetting each retry (ZER-49, A06-24).
+- `put_run` performs its thread, checkpoint and runs-row writes in one transaction on both the
+  fenced and unfenced paths; the unfenced path previously opened eight, so a failure of the last
+  write left a thread row claiming a checkpoint its runs row never recorded. The fenced path also
+  gains the tenant ownership check the unfenced path already performed (ZER-49, A07-16).
+- The econ connector outbox claims rows exclusively, with `FOR UPDATE SKIP LOCKED` on PostgreSQL
+  and a conditional `UPDATE ... RETURNING` on SQLite, where the locking clause is silently compiled
+  away (ZER-49, A01-12). Batched outcome ingestion commits once and carries a uniqueness key, so a
+  partially applied batch no longer leaves committed events behind a 422 and a retry cannot
+  duplicate them (ZER-49, A01-38). Concurrent erasures sharing an idempotency key produce one
+  receipt (ZER-49, A01-48).
+- Approving an enforcement action transitions the policy action it actually proposed rather than
+  the newest row for the capability; rows predating the link are decided without touching a policy
+  action and reported as unlinked rather than silently mis-resolved (ZER-49, A01-11).
+- Escalation and its delegate commit together, so a crash between them can no longer leave an
+  ESCALATED approval with no delegate that the SLA checker never retries (ZER-49, A03-11, A03-12).
+- A worker no longer leaks a concurrency permit when run setup fails between acquiring the slot and
+  entering the guarded block, and an orphaned drive task is cancelled (ZER-49, A06-2). Parallel
+  branch results are paired with their contexts by branch index rather than by position, and an
+  unknown or duplicate index is refused rather than silently mispaired (ZER-49, A06-6).
+- The token runtime's compare-and-set retry loops are bounded with backoff and jitter, so an
+  operator `pause`/`resume`/`stop`/`cancel` can no longer spin indefinitely under sustained
+  contention (ZER-49, A16-11, A06-14, A16-23).
+- An admin replay that cannot transition the run no longer clears its lease and failure count, and
+  connector create and delete order their durable write before their in-process one (ZER-49,
+  A02-17, A02-19). A partial document ingest now reports what it wrote (ZER-49, A07-23). A Redis
+  run-list rewrite is one transactional pipeline, so a reader cannot observe a half-rebuilt list
+  (ZER-49, A06-13). A thread checkpoint whose link is not persisted fails loudly instead of
+  reporting success while the state is unreachable (ZER-49, A06-12).
+
+
 ## [0.23.5.2] - 2026-08-13
 
 One governed client layer for outbound I/O (ZER-48), plus the findings this
