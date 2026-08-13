@@ -9,11 +9,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import httpx
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import from_url as redis_from_url
 
 from zeroth.contracts.langgraph_gateway.models import CompatibilityResult, GovernanceLevel
@@ -51,13 +51,20 @@ class ReadinessResponse(BaseModel):
 
     status: str  # "ok" | "degraded" | "unhealthy"
     checks: dict[str, DependencyStatus] = Field(default_factory=dict)
+
+
+class _ReadinessPayload(TypedDict):
+    """Serialized readiness payload with schema-revision evidence."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+
+    status: str
+    checks: NotRequired[dict[str, DependencyStatus]]
     schema_revision: SchemaRevision
 
-    @model_validator(mode="after")
-    def _current_schema_when_ready(self) -> ReadinessResponse:
-        if self.status == "ok" and self.schema_revision.state != "current":
-            raise ValueError("ok readiness requires current schema revision evidence")
-        return self
+
+# Preserve the established OpenAPI name without replacing the legacy constructor.
+_ReadinessPayload.__name__ = _ReadinessPayload.__qualname__ = "ReadinessResponse"
 
 
 class LivenessResponse(BaseModel):
@@ -188,8 +195,8 @@ async def check_regulus(base_url: str | None, timeout: float = 5.0) -> Dependenc
 def register_health_routes(app: FastAPI) -> None:
     """Register /health/ready and /health/live endpoints on the app."""
 
-    @app.get("/health/ready", response_model=ReadinessResponse)
-    async def health_ready(request: Request) -> ReadinessResponse:
+    @app.get("/health/ready", response_model=_ReadinessPayload)
+    async def health_ready(request: Request) -> _ReadinessPayload:
         bootstrap = request.app.state.bootstrap
 
         # Gather database reference from bootstrap.
@@ -241,11 +248,11 @@ def register_health_routes(app: FastAPI) -> None:
             checks["audit_delivery"] = _audit_delivery_check(delivery)
 
         status = determine_readiness_status(checks, schema_revision)
-        return ReadinessResponse(
-            status=status,
-            checks=checks,
-            schema_revision=schema_revision,
-        )
+        return {
+            "status": status,
+            "checks": checks,
+            "schema_revision": schema_revision,
+        }
 
     @app.get("/health/live", response_model=LivenessResponse)
     async def health_live() -> LivenessResponse:

@@ -251,7 +251,6 @@ async def test_readiness_ok_when_all_healthy():
     response = ReadinessResponse(
         status="ok",
         checks=checks,
-        schema_revision=SchemaRevision(applied="026", head="026", state="current"),
     )
     assert response.status == "ok"
 
@@ -348,6 +347,18 @@ async def test_register_health_routes_adds_endpoints():
     assert "/health/live" in routes
 
 
+def test_readiness_openapi_preserves_response_component() -> None:
+    schema = _readiness_app(FakeDatabase()).openapi()
+    response_schema = schema["paths"]["/health/ready"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]
+
+    assert response_schema == {"$ref": "#/components/schemas/ReadinessResponse"}
+    assert "schema_revision" in schema["components"]["schemas"]["ReadinessResponse"][
+        "required"
+    ]
+
+
 @pytest.mark.asyncio
 async def test_readiness_reports_current_service_schema_revision():
     """A migrated service exposes the applied and shipped Alembic revisions."""
@@ -435,7 +446,7 @@ async def test_readiness_body_carries_no_driver_text_when_dependencies_fail():
     """A02-4 end to end, over the WHOLE body at WHATEVER status code it returns.
 
     ``/health/ready`` answers before authentication and returns **200** even when
-    a dependency is down -- ``health_ready`` builds a ``ReadinessResponse``
+    a dependency is down -- ``health_ready`` builds a readiness payload
     regardless of what ``determine_readiness_status`` decides. An assertion scoped
     to 4xx/5xx bodies would pass while the leak stayed open, so this asserts on
     the serialized body itself, whatever the status code.

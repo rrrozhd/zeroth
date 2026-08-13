@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2.1] - 2026-08-13
+
+- Preserve readiness-response compatibility and keep schema-revision health
+  evidence stable across release acceptance.
+
 ## [0.23.1.1] - 2026-08-13
 
 - Reject blank startup secrets and database DSNs, and make LangChain execution
