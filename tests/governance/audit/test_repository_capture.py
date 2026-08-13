@@ -120,7 +120,7 @@ async def test_the_captured_row_still_records_what_it_dropped(sqlite_db: Any) ->
     capture = stored.execution_metadata[CAPTURE_METADATA_KEY]
     assert capture["classification"] == CaptureDecision.METADATA_ONLY.value
     assert capture["content_retained"] is False
-    assert len(capture["dropped_fields"]["input_snapshot"]["sha256"]) == 64
+    assert len(capture["dropped_fields"]["input_snapshot"]["hmac_sha256"]) == 64
 
 
 async def test_a_capture_marker_already_on_the_record_does_not_prevent_capture(

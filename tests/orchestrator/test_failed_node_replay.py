@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from zeroth.contracts.graph import AgentNode, AgentNodeData, Edge, ExecutionSettings, Graph
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents import AgentConfig, AgentRunner
 from zeroth.runtime.agents.provider import CallableProviderAdapter, ProviderResponse
 from zeroth.runtime.orchestration import OrchestratorError, RuntimeOrchestrator
@@ -120,7 +121,11 @@ async def test_failed_dispatch_replays_identical_payload_and_token_once(
         attempts += 1
         if attempts == 1:
             raise RuntimeError("transient dispatch failure")
-        return ProviderResponse(content={**request.metadata["input_payload"], "done": True})
+        return ProviderResponse(
+            content={**request.metadata["input_payload"], "done": True},
+            cost_usd=0.2,
+            cost_measurement=MeasurementState.MEASURED,
+        )
 
     handlers = {
         "source": lambda _req: ProviderResponse(content={"value": 7}),
@@ -172,7 +177,17 @@ async def test_failed_dispatch_replays_identical_payload_and_token_once(
         [] if token_engine else None,
     ]
     assert attempts == 2
-    assert [entry.node_id for entry in resumed.execution_history].count("target") == 1
+    target_history = [
+        entry for entry in resumed.execution_history if entry.node_id == "target"
+    ]
+    assert [entry.status for entry in target_history] == ["failed", "completed"]
+    assert target_history[0].cost_usd is None
+    assert target_history[1].cost_usd == pytest.approx(0.2)
+    assert [entry.cost_measurement for entry in target_history] == [
+        MeasurementState.UNMEASURED,
+        MeasurementState.MEASURED,
+    ]
+    assert len({entry.audit_ref for entry in target_history}) == 2
     assert resumed.final_output == {**expected, "done": True}
     assert resumed.pending_node_ids == []
     assert resumed.current_node_ids == []
@@ -237,6 +252,42 @@ async def test_failed_fan_out_does_not_create_ordinary_in_flight_record(sqlite_d
     assert failed.status is RunStatus.FAILED
     assert failed.failure_state is not None
     assert failed.failure_state.reason == "parallel_execution_failed"
+    assert "in_flight_dispatch" not in failed.metadata
+
+
+async def test_token_fan_out_validation_failure_settles_paid_source_once(sqlite_db) -> None:
+    source = _node("source")
+    source.parallel_config = ParallelConfig(split_path="items")
+    graph = Graph(
+        graph_id="failed-token-fan-out",
+        name="failed-token-fan-out",
+        entry_step="source",
+        execution_settings=ExecutionSettings(sequential_join_enabled=True),
+        nodes=[source, _node("target")],
+        edges=[Edge(edge_id="source-target", source_node_id="source", target_node_id="target")],
+    )
+    orchestrator = _orchestrator(
+        sqlite_db,
+        {
+            "source": lambda _req: ProviderResponse(
+                content={"value": 7},
+                cost_usd=0.125,
+                cost_measurement=MeasurementState.MEASURED,
+            ),
+            "target": lambda _req: ProviderResponse(content={"done": True}),
+        },
+    )
+
+    failed = await orchestrator.run_graph(graph, {"value": 7})
+
+    assert failed.status is RunStatus.FAILED
+    assert failed.failure_state is not None
+    assert failed.failure_state.reason == "parallel_execution_failed"
+    source_history = [entry for entry in failed.execution_history if entry.node_id == "source"]
+    assert len(source_history) == 1
+    assert source_history[0].cost_usd == pytest.approx(0.125)
+    assert source_history[0].audit_ref is not None
+    assert failed.audit_refs.count(source_history[0].audit_ref) == 1
     assert "in_flight_dispatch" not in failed.metadata
 
 

@@ -59,6 +59,7 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotStore,
 )
 from zeroth.runtime.orchestration.tool_executor import node_by_id
+from zeroth.runtime.parallel.errors import ParallelExecutionError
 from zeroth.runtime.parallel.models import BranchContext
 from zeroth.runtime.parallel.reducers import dispatch_strategy
 from zeroth.runtime.runs import Run
@@ -139,7 +140,9 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                 else:
                     claim = None
                 if claim is not None:
-                    terminal = await self._dispatch_claim(graph, run, claim)
+                    terminal = await self._dispatch_or_settle_parallel_failure(
+                        graph, run, claim
+                    )
                     if terminal is not None:
                         return terminal
                     continue
@@ -163,11 +166,18 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
             )
             if failed is not None:
                 return failed
-            if (
-                self.driver.per_run_cap_usd is not None
-                and sum_run_cost(run) >= self.driver.per_run_cap_usd
-            ):
+            spent: float | None = None
+            if self.driver.per_run_cap_usd is not None:
                 spent = sum_run_cost(run)
+                if spent is None:
+                    return await self.driver.fail_run(
+                        run,
+                        "node_execution_failed",
+                        "per-run budget cannot be evaluated: cost is unmeasured",
+                    )
+                if spent < self.driver.per_run_cap_usd:
+                    spent = None
+            if spent is not None:
                 return await self.driver.fail_run(
                     run,
                     "node_execution_failed",
@@ -189,7 +199,7 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
                     raise OrchestratorError("token engine is non-terminal with an empty work queue")
                 await self._mark_snapshot_completed(snapshot)
                 continue
-            terminal = await self._dispatch_claim(graph, run, claim)
+            terminal = await self._dispatch_or_settle_parallel_failure(graph, run, claim)
             if terminal is not None:
                 return terminal
 
@@ -360,6 +370,24 @@ class TokenRuntimeCoordinator(TokenRuntimeLoopSupport, TokenRuntimeSupport):
         if isinstance(exc, SideEffectReconciliationExhaustedError):
             return await self.driver.pause_for_reconciliation(run, node.node_id, str(exc))
         return await self.driver.fail_run(run, "parallel_execution_failed", str(exc))
+
+    async def _dispatch_or_settle_parallel_failure(
+        self,
+        graph: Graph,
+        run: Run,
+        claim: DispatchClaim,
+    ) -> Run | None:
+        """Settle routing-time fan-out failures after the source audit is durable."""
+        try:
+            return await self._dispatch_claim(graph, run, claim)
+        except ParallelExecutionError as exc:
+            await TokenLifecycleAdapter(self.store).cancel(run.run_id)
+            run.metadata.pop("token_dispatch", None)
+            run.metadata.pop("in_flight_dispatch", None)
+            run.current_node_ids = []
+            run.current_step = None
+            node = node_by_id(graph, claim.dispatch.token.current_node_id)
+            return await self._settle_fork_failure(run, node, exc)
 
     async def _dispatch_claim(self, graph: Graph, run: Run, claim: DispatchClaim) -> Run | None:
         dispatch = claim.dispatch

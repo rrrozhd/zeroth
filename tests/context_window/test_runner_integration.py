@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
+from zeroth.governance.audit.models import TokenUsage
+from zeroth.platform.measurement import MeasurementState
 from zeroth.runtime.agents.models import (
     AgentConfig,
     AgentRunResult,
@@ -23,6 +25,7 @@ from zeroth.runtime.agents.provider import (
     ProviderResponse,
 )
 from zeroth.runtime.agents.runner import AgentRunner
+from zeroth.runtime.context.models import CompactionResult
 
 
 class SimpleInput(BaseModel):
@@ -155,13 +158,12 @@ async def test_compacted_messages_persisted_in_thread_state() -> None:
     compacted_msgs = [{"role": "user", "content": "compacted"}]
     compaction_result = _make_compaction_result()
     tracker = AsyncMock()
-    tracker.maybe_compact = AsyncMock(
-        return_value=(compacted_msgs, compaction_result)
-    )
+    tracker.maybe_compact = AsyncMock(return_value=(compacted_msgs, compaction_result))
     store = InMemoryThreadStateStore()
 
     runner = AgentRunner(
-        _make_config(), provider,
+        _make_config(),
+        provider,
         thread_state_store=store,
         context_tracker=tracker,
     )
@@ -186,13 +188,12 @@ async def test_archived_messages_persisted_in_thread_state() -> None:
     compacted_msgs = [{"role": "user", "content": "compacted"}]
     compaction_result = _make_compaction_result(archived_messages=archived)
     tracker = AsyncMock()
-    tracker.maybe_compact = AsyncMock(
-        return_value=(compacted_msgs, compaction_result)
-    )
+    tracker.maybe_compact = AsyncMock(return_value=(compacted_msgs, compaction_result))
     store = InMemoryThreadStateStore()
 
     runner = AgentRunner(
-        _make_config(), provider,
+        _make_config(),
+        provider,
         thread_state_store=store,
         context_tracker=tracker,
     )
@@ -212,10 +213,12 @@ async def test_archived_messages_persisted_in_thread_state() -> None:
 @pytest.mark.asyncio
 async def test_compacted_messages_restored_from_thread_state() -> None:
     """When thread state has compacted_messages, they are used as starting messages."""
-    provider = DeterministicProviderAdapter([
-        ProviderResponse(content='{"answer":"first"}'),
-        ProviderResponse(content='{"answer":"second"}'),
-    ])
+    provider = DeterministicProviderAdapter(
+        [
+            ProviderResponse(content='{"answer":"first"}'),
+            ProviderResponse(content='{"answer":"second"}'),
+        ]
+    )
     compacted_msgs = [{"role": "user", "content": "compacted-context"}]
     compaction_result = _make_compaction_result()
     tracker = AsyncMock()
@@ -229,7 +232,8 @@ async def test_compacted_messages_restored_from_thread_state() -> None:
     store = InMemoryThreadStateStore()
 
     runner = AgentRunner(
-        _make_config(), provider,
+        _make_config(),
+        provider,
         thread_state_store=store,
         context_tracker=tracker,
     )
@@ -278,7 +282,8 @@ async def test_no_compacted_messages_in_state_without_compaction() -> None:
     store = InMemoryThreadStateStore()
 
     runner = AgentRunner(
-        _make_config(), provider,
+        _make_config(),
+        provider,
         thread_state_store=store,
         context_tracker=tracker,
     )
@@ -333,7 +338,8 @@ async def test_compaction_in_tool_call_resolution() -> None:
         max_tool_calls=4,
     )
     runner = AgentRunner(
-        config, provider,
+        config,
+        provider,
         tool_executor=tool_executor,
         context_tracker=tracker,
     )
@@ -343,3 +349,66 @@ async def test_compaction_in_tool_call_resolution() -> None:
     # maybe_compact called at least twice: once before first LLM call,
     # once inside tool call resolution before re-invocation
     assert call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_compaction_measurement_reaches_final_audit() -> None:
+    tool_call_response = ProviderResponse(
+        content=None,
+        tool_calls=[{"id": "tc-1", "name": "search", "args": {"q": "test"}}],
+        cost_usd=0.0,
+        cost_measurement=MeasurementState.MEASURED,
+    )
+    final_response = ProviderResponse(
+        content='{"answer":"found it"}',
+        cost_usd=0.1,
+        cost_measurement=MeasurementState.MEASURED,
+    )
+    provider = DeterministicProviderAdapter([tool_call_response, final_response])
+    tool_compaction = CompactionResult(
+        messages=[{"role": "user", "content": "compacted"}],
+        original_count=4,
+        compacted_count=1,
+        tokens_before=20,
+        tokens_after=10,
+        strategy_name="llm_summarization",
+        token_usage=TokenUsage(
+            input_tokens=2,
+            output_tokens=3,
+            total_tokens=5,
+            model_name="gpt-4o",
+        ),
+        estimated_cost_usd=0.4,
+        cost_measurement=MeasurementState.ESTIMATED,
+    )
+    tracker = AsyncMock()
+    tracker.maybe_compact = AsyncMock(
+        side_effect=lambda messages, _model: (
+            (messages, None)
+            if tracker.maybe_compact.call_count == 1
+            else (tool_compaction.messages, tool_compaction)
+        )
+    )
+
+    from zeroth.runtime.agents.tools import ToolAttachmentManifest
+
+    runner = AgentRunner(
+        _make_config(
+            tool_attachments=[
+                ToolAttachmentManifest(
+                    alias="search",
+                    executable_unit_ref="tools:search",
+                )
+            ]
+        ),
+        provider,
+        tool_executor=lambda *_args: {"result": "ok"},
+        context_tracker=tracker,
+    )
+
+    result = await runner.run({"query": "hi"})
+
+    assert result.audit_record["cost_usd"] == 0.1
+    assert result.audit_record["estimated_cost_usd"] == 0.4
+    assert result.audit_record["cost_measurement"] is MeasurementState.ESTIMATED
+    assert result.audit_record["token_usage"]["total_tokens"] == 5

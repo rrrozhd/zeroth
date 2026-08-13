@@ -129,6 +129,46 @@ def test_payload_sanitizer_redacts_keys_and_omits_fields() -> None:
     }
 
 
+def test_payload_sanitizer_normalizes_sensitive_key_names() -> None:
+    sanitizer = PayloadSanitizer(
+        AuditRedactionConfig(
+            redact_keys={"api_key"},
+            omit_paths={("private_data", "access_token")},
+        )
+    )
+
+    assert sanitizer.sanitize(
+        {
+            "API_KEY": "first",
+            "Api-Key": "second",
+            "api_key": "third",
+            "Private-Data": {"Access_Token": "hidden", "keep": "visible"},
+        }
+    ) == {
+        "API_KEY": "***REDACTED***",
+        "Api-Key": "***REDACTED***",
+        "api_key": "***REDACTED***",
+        "Private-Data": {"keep": "visible"},
+    }
+
+
+def test_payload_sanitizer_bounds_depth_and_cycles() -> None:
+    sanitizer = PayloadSanitizer()
+    cycle: dict[str, object] = {}
+    cycle["self"] = cycle
+    deeply_nested: dict[str, object] = {}
+    cursor = deeply_nested
+    for _ in range(20):
+        child: dict[str, object] = {}
+        cursor["child"] = child
+        cursor = child
+
+    sanitized = sanitizer.sanitize({"cycle": cycle, "deep": deeply_nested})
+
+    assert sanitized["cycle"]["self"] == "***REDACTED***"
+    assert "***REDACTED***" in json.dumps(sanitized["deep"])
+
+
 async def test_audit_repository_round_trips_actor_and_scope(sqlite_db) -> None:
     repository = AuditRepository.scoped(
         sqlite_db,

@@ -20,6 +20,7 @@ from zeroth.contracts.graph import (
     ExecutionSettings,
     Graph,
 )
+from zeroth.econ.analytics.budget import BudgetCheckResult
 from zeroth.governance.audit import AuditRepository
 from zeroth.governance.policy import (
     PolicyDecision,
@@ -412,15 +413,36 @@ async def test_policy_denial_in_branch(sqlite_db) -> None:
 class MockBudgetEnforcer:
     """Simple mock for BudgetEnforcer that returns configurable results."""
 
-    def __init__(self, *, allowed: bool = True, spend: float = 0.0, cap: float = 100.0):
+    def __init__(
+        self,
+        *,
+        allowed: bool = True,
+        spend: float = 0.0,
+        cap: float | None = 100.0,
+        degraded: bool = False,
+        measurement_complete: bool = True,
+    ):
         self._allowed = allowed
         self._spend = spend
         self._cap = cap
+        self._degraded = degraded
+        self._measurement_complete = measurement_complete
         self.call_count = 0
 
     async def check_budget(self, tenant_id: str) -> tuple[bool, float, float]:
         self.call_count += 1
-        return self._allowed, self._spend, self._cap
+        return self._allowed, self._spend, self._cap if self._cap is not None else float("inf")
+
+    async def check_budget_status(self, tenant_id: str) -> BudgetCheckResult:
+        self.call_count += 1
+        return BudgetCheckResult(
+            allowed=self._allowed,
+            spend_usd=self._spend,
+            cap_usd=self._cap,
+            degraded=self._degraded,
+            failure_mode="fail_open" if self._degraded and self._allowed else "none",
+            measurement_complete=self._measurement_complete,
+        )
 
 
 @pytest.mark.asyncio
@@ -460,6 +482,25 @@ async def test_budget_check_allowed_proceeds(sqlite_db) -> None:
     assert budget.call_count >= 1
     last_output = run.metadata.get("last_output", {})
     assert len(last_output.get("items", [])) == 3
+
+
+@pytest.mark.asyncio
+async def test_budget_check_degraded_status_is_preserved(sqlite_db) -> None:
+    budget = MockBudgetEnforcer(degraded=True, measurement_complete=False, cap=None)
+    orchestrator = _make_orchestrator(
+        {"source": _source_runner(), "sink": _sink_runner()},
+        sqlite_db,
+        budget_enforcer=budget,
+    )
+
+    graph = _fan_out_graph().model_copy(
+        update={"execution_settings": ExecutionSettings(sequential_join_enabled=False)}
+    )
+    run = await orchestrator.run_graph(graph, {"value": 1})
+
+    assert run.status is RunStatus.COMPLETED
+    assert run.metadata["budget_check"]["degraded"] is True
+    assert run.metadata["budget_check"]["measurement_complete"] is False
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ cross-model shape that does not fit a per-run audit pass and lives outside
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any
@@ -29,6 +30,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.econ.measurement import MeasurementState
 from zeroth.governance.audit.models import NodeAuditRecord
 from zeroth.runtime.runs import Run
 
@@ -69,6 +71,8 @@ class EconReport(BaseModel):
     run_id: str
     run_status: str
     total_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
+    cost_measurement_complete: bool = True
     cost_by_node: dict[str, float] = Field(default_factory=dict)
     findings: list[WasteFinding] = Field(default_factory=list)
 
@@ -95,11 +99,22 @@ class EconReport(BaseModel):
             "run_id": self.run_id,
             "run_status": self.run_status,
             "total_cost_usd": self.total_cost_usd,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "cost_measurement_complete": self.cost_measurement_complete,
             "confirmed_waste_usd": self.confirmed_waste_usd,
             "flagged_waste_usd": self.flagged_waste_usd,
             "waste_ratio": self.waste_ratio,
             "findings": len(self.findings),
         }
+
+
+EconReport.__signature__ = inspect.signature(EconReport).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(EconReport).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement_complete"}
+    ]
+)
 
 
 def _attempts(record: NodeAuditRecord) -> int:
@@ -168,8 +183,15 @@ def analyze_run(
     cost_by_node: dict[str, float] = {}
     exec_costs: dict[str, list[float]] = {}
     total_cost = 0.0
+    estimated_cost = 0.0
+    measurement_complete = True
     for record in audits:
-        cost = record.cost_usd or 0.0
+        if record.cost_measurement is MeasurementState.UNMEASURED:
+            measurement_complete = False
+        estimated_cost += (
+            record.estimated_cost_usd if record.estimated_cost_usd is not None else 0.0
+        )
+        cost = record.cost_usd if record.cost_usd is not None else 0.0
         total_cost += cost
         cost_by_node[record.node_id] = cost_by_node.get(record.node_id, 0.0) + cost
         exec_costs.setdefault(record.node_id, []).append(cost)
@@ -251,13 +273,18 @@ def analyze_run(
 
     for record in audits:
         attempts = _attempts(record)
-        cost = record.cost_usd or 0.0
-        if attempts <= 1 or cost <= 0:
+        if attempts <= 1 or (
+            record.cost_usd is None and record.estimated_cost_usd is None
+        ):
             continue
-        # Failed attempts aren't recorded individually; estimate their cost as the
-        # final (recorded) attempt's. Different dollars from loop_reexecution
-        # (retries within one record vs repeated records), so no double-count.
-        estimated = cost * (attempts - 1)
+        # The audit cost is the aggregate across all attempts. Without per-attempt
+        # amounts, the failed attempts' share cannot be split out honestly.
+        measurement_complete = False
+        aggregate_metadata = {"attempts": attempts}
+        if record.cost_usd is not None:
+            aggregate_metadata["aggregate_cost_usd"] = record.cost_usd
+        if record.estimated_cost_usd is not None:
+            aggregate_metadata["aggregate_estimated_cost_usd"] = record.estimated_cost_usd
         if failed:
             findings.append(
                 WasteFinding(
@@ -266,10 +293,10 @@ def analyze_run(
                     wasted_usd=0.0,
                     severity="info",
                     detail=(
-                        f"node succeeded after {attempts} attempts "
-                        "(cost already counted in the failed-run total)"
+                        f"node made {attempts} attempts; retry overhead is indeterminate "
+                        "and aggregate spend is already represented in the run totals"
                     ),
-                    metadata={"attempts": attempts},
+                    metadata=aggregate_metadata,
                 )
             )
         else:
@@ -277,13 +304,13 @@ def analyze_run(
                 WasteFinding(
                     kind=WasteKind.RETRY_OVERHEAD,
                     node_id=record.node_id,
-                    wasted_usd=estimated,
-                    severity="warning",
+                    wasted_usd=0.0,
+                    severity="info",
                     detail=(
-                        f"node succeeded after {attempts} attempts; "
-                        f"~${estimated:.4f} estimated retry overhead"
+                        f"node succeeded after {attempts} attempts; retry overhead "
+                        "is indeterminate without per-attempt costs"
                     ),
-                    metadata={"attempts": attempts, "final_cost_usd": cost},
+                    metadata=aggregate_metadata,
                 )
             )
 
@@ -309,6 +336,8 @@ def analyze_run(
         run_id=run_id,
         run_status=getattr(run_status, "value", str(run_status)),
         total_cost_usd=total_cost,
+        estimated_cost_usd=estimated_cost,
+        cost_measurement_complete=measurement_complete,
         cost_by_node=cost_by_node,
         findings=findings,
     )
@@ -332,6 +361,10 @@ def waste_gate(
     unset limit is never enforced.
     """
     problems: list[str] = []
+    if not report.cost_measurement_complete and any(
+        limit is not None for limit in (max_confirmed_usd, max_flagged_usd, max_waste_ratio)
+    ):
+        problems.append("cost measurement is incomplete; waste thresholds cannot be decided")
     if max_confirmed_usd is not None and report.confirmed_waste_usd > max_confirmed_usd:
         problems.append(
             f"confirmed_waste ${report.confirmed_waste_usd:.4f} > max ${max_confirmed_usd:.4f}"
@@ -381,6 +414,8 @@ class WasteRollup(BaseModel):
     runs_with_waste: int = 0
     runs_with_cost: int = 0
     total_cost_usd: float = 0.0
+    estimated_cost_usd: float = 0.0
+    cost_measurement_complete: bool = True
     total_confirmed_waste_usd: float = 0.0
     total_flagged_waste_usd: float = 0.0
     # (confirmed + flagged) / total spend across the window -- spend-weighted, not a
@@ -418,7 +453,8 @@ def waste_rollup(
     terminal_statuses = {RunStatus.COMPLETED.value, RunStatus.FAILED.value}
     terminal = [r for r in top_level if getattr(r.status, "value", r.status) in terminal_statuses]
 
-    total_cost = confirmed = flagged = 0.0
+    total_cost = estimated_cost = confirmed = flagged = 0.0
+    measurement_complete = True
     runs_with_cost = runs_with_waste = 0
     n_findings = n_confirmed = n_flagged = 0
     by_kind: dict[WasteKind, list[float]] = {}  # kind -> [count, wasted]
@@ -427,6 +463,8 @@ def waste_rollup(
     for run in terminal:
         report = analyze_run(run.run_id, run.status, audits_by_run.get(run.run_id, []))
         total_cost += report.total_cost_usd
+        estimated_cost += report.estimated_cost_usd
+        measurement_complete = measurement_complete and report.cost_measurement_complete
         if report.total_cost_usd > 0:
             runs_with_cost += 1
         c, f = report.confirmed_waste_usd, report.flagged_waste_usd
@@ -456,6 +494,8 @@ def waste_rollup(
         runs_with_waste=runs_with_waste,
         runs_with_cost=runs_with_cost,
         total_cost_usd=round(total_cost, 6),
+        estimated_cost_usd=round(estimated_cost, 6),
+        cost_measurement_complete=measurement_complete,
         total_confirmed_waste_usd=round(confirmed, 6),
         total_flagged_waste_usd=round(flagged, 6),
         waste_ratio=waste_ratio,
@@ -476,6 +516,17 @@ def _rollup_note(report: WasteRollup) -> str:
     """Honest one-line reading of the rollup -- never overclaim, never fake a number."""
     if report.window_runs == 0:
         return "No runs on record yet — invoke a workflow to build a waste history."
+    if not report.cost_measurement_complete:
+        return (
+            f"Cost measurement is incomplete across the last {report.window_runs} run(s); "
+            f"recorded spend is ${report.total_cost_usd:.4f} and estimated spend is "
+            f"${report.estimated_cost_usd:.4f}, so waste thresholds cannot be decided."
+        )
+    if report.runs_with_cost == 0 and report.estimated_cost_usd > 0:
+        return (
+            f"The last {report.window_runs} run(s) have no recorded spend and "
+            f"${report.estimated_cost_usd:.4f} estimated spend."
+        )
     if report.runs_with_cost == 0:
         return (
             f"The last {report.window_runs} run(s) are recorded but none has attributed cost — "
@@ -492,3 +543,12 @@ def _rollup_note(report: WasteRollup) -> str:
         f"${report.total_flagged_waste_usd:.4f} flagged waste across {report.window_runs} run(s) "
         f"({report.waste_ratio:.0%} of ${report.total_cost_usd:.4f} spend){where}."
     )
+
+
+WasteRollup.__signature__ = inspect.signature(WasteRollup).replace(
+    parameters=[
+        parameter
+        for name, parameter in inspect.signature(WasteRollup).parameters.items()
+        if name not in {"estimated_cost_usd", "cost_measurement_complete"}
+    ]
+)

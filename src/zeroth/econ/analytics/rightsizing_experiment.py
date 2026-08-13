@@ -249,11 +249,13 @@ def build_experiment_dataset(
         if not record.output_snapshot:
             stats.skipped_empty_output += 1
             continue
-        # Only keep outputs the incumbent itself produced (when the producing model is on
-        # record). If usage carries no model name, we can't tell — keep it.
-        if incumbent_bare is not None and record.token_usage is not None:
+        # Neutral usage is a mixed-model aggregate and cannot be attributed to an
+        # incumbent. Different named models are excluded for the same reason.
+        if record.token_usage is not None:
             produced_by = record.token_usage.model_name
-            if produced_by and _bare_model(produced_by) != incumbent_bare:
+            if not produced_by or (
+                incumbent_bare is not None and _bare_model(produced_by) != incumbent_bare
+            ):
                 stats.skipped_other_model += 1
                 continue
         cases.append(
@@ -308,9 +310,11 @@ def build_labeled_dataset(
         if not record.input_snapshot:
             stats.skipped_empty_output += 1
             continue
-        if incumbent_bare is not None and record.token_usage is not None:
+        if record.token_usage is not None:
             produced_by = record.token_usage.model_name
-            if produced_by and _bare_model(produced_by) != incumbent_bare:
+            if not produced_by or (
+                incumbent_bare is not None and _bare_model(produced_by) != incumbent_bare
+            ):
                 stats.skipped_other_model += 1
                 continue
         cases.append(
@@ -563,7 +567,7 @@ async def run_experiment(
         if not o.is_incumbent and o.meets_bar and o.est_cost_per_1k_calls_usd is not None
     ]
     if eligible:
-        best = min(eligible, key=lambda o: o.est_cost_per_1k_calls_usd or float("inf"))
+        best = min(eligible, key=lambda o: o.est_cost_per_1k_calls_usd)
         report.recommended_model = f"{best.provider}/{best.model}" if best.provider else best.model
         if report.cases >= min_cases:
             report.verdict = "confirmed"

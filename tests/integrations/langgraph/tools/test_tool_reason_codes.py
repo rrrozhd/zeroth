@@ -169,7 +169,7 @@ async def test_an_unregistered_failure_is_summarized_instead_of_retained(sqlite_
     )
 
     assert normalize_reason_code("UnregisteredProbeError") not in REASON_CODES
-    assert set(persisted) == {"sha256", "schema", "count"}  # type: ignore[call-overload]
+    assert set(persisted) == {"hmac_sha256", "schema", "count"}  # type: ignore[call-overload]
 
 
 async def test_content_smuggled_alongside_the_reason_code_never_reaches_storage(

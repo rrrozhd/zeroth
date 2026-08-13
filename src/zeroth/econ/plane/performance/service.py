@@ -73,11 +73,11 @@ def calculate_snapshots(db: ScopedSession) -> list[PerformanceSnapshot]:
         if estimate is None:
             continue
 
-        cost = float(estimate.estimated_cost_usd) or 1e-6
+        cost = float(estimate.estimated_cost_usd)
         value = float(estimate.estimated_value_usd)
         net = float(estimate.net_margin_usd)
 
-        aer = value / cost
+        aer = value / cost if cost != 0.0 else 0.0
         expected_loss = max(0.0, -net)
         capital_impact = max(1.0, cost)
         risk_adjusted_return = (value - expected_loss) / capital_impact

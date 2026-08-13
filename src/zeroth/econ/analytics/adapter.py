@@ -15,12 +15,14 @@ no event and attributes zero marginal cost, recording the avoided spend as
 
 from __future__ import annotations
 
+import contextlib
 from decimal import Decimal
 from time import perf_counter
 
 from zeroth.econ.analytics.client import RegulusClient
 from zeroth.econ.analytics.cost import CostEstimator
 from zeroth.econ.instrumentation import ExecutionEvent
+from zeroth.econ.measurement import MeasurementState
 from zeroth.runtime.agents.provider import ProviderAdapter, ProviderRequest, ProviderResponse
 
 
@@ -69,23 +71,22 @@ class InstrumentedProviderAdapter:
         elapsed_ms = int((perf_counter() - start) * 1000)
 
         # Extract token counts from response (may be None)
-        input_tokens = 0
-        output_tokens = 0
-        total_tokens = 0
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        total_tokens: int | None = None
         if response.token_usage is not None:
             input_tokens = response.token_usage.input_tokens
             output_tokens = response.token_usage.output_tokens
             total_tokens = response.token_usage.total_tokens
 
-        # Estimate cost -- defaults to 0 on failure
-        try:
-            estimated_cost = self._cost_estimator.estimate(
-                request.model_name,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-        except Exception:
-            estimated_cost = Decimal("0")
+        estimated_cost: Decimal | None = None
+        if response.token_usage is not None:
+            with contextlib.suppress(Exception):
+                estimated_cost = self._cost_estimator.estimate(
+                    request.model_name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
 
         # Cache hit: an inner CachingProviderAdapter short-circuited the model call,
         # so there is no new spend. Emitting an event or stamping cost here would
@@ -97,10 +98,21 @@ class InstrumentedProviderAdapter:
             return response.model_copy(
                 update={
                     "cost_usd": 0.0,
+                    "cost_measurement": MeasurementState.MEASURED,
                     "cost_event_id": None,
-                    "metadata": {**response.metadata, "cache_saved_usd": float(estimated_cost)},
+                    "metadata": {
+                        **response.metadata,
+                        "cache_saved_usd": (
+                            float(estimated_cost) if estimated_cost is not None else None
+                        ),
+                    },
                 }
             )
+
+        # An inner instrumentation layer already owns this measurement/event.
+        # Repricing it here would count the same provider call twice.
+        if response.cost_measurement is not MeasurementState.UNMEASURED:
+            return response
 
         # No Regulus client (cost tracking on, event stream off): still attribute the
         # local litellm cost estimate so the audit trail and local econ lenses work,
@@ -108,7 +120,17 @@ class InstrumentedProviderAdapter:
         # reference. Mirrors the already-shipped cache-hit shape (cost_usd + no event).
         if self._regulus_client is None:
             return response.model_copy(
-                update={"cost_usd": float(estimated_cost), "cost_event_id": None}
+                update={
+                    "estimated_cost_usd": (
+                        float(estimated_cost) if estimated_cost is not None else None
+                    ),
+                    "cost_measurement": (
+                        MeasurementState.ESTIMATED
+                        if estimated_cost is not None
+                        else MeasurementState.UNMEASURED
+                    ),
+                    "cost_event_id": None,
+                }
             )
 
         # Build and emit the Regulus ExecutionEvent
@@ -118,6 +140,16 @@ class InstrumentedProviderAdapter:
             model_version=request.model_name,
             tenant_id=self._tenant_id,
             token_cost_usd=estimated_cost,
+            cost_measurement=(
+                MeasurementState.ESTIMATED
+                if estimated_cost is not None
+                else MeasurementState.UNMEASURED
+            ),
+            usage_measurement=(
+                MeasurementState.MEASURED
+                if response.token_usage is not None
+                else MeasurementState.UNMEASURED
+            ),
             latency_ms=elapsed_ms,
             compute_time_ms=elapsed_ms,
             metadata={
@@ -134,7 +166,14 @@ class InstrumentedProviderAdapter:
         # Return enriched response with cost attribution
         return response.model_copy(
             update={
-                "cost_usd": float(estimated_cost),
+                "estimated_cost_usd": (
+                    float(estimated_cost) if estimated_cost is not None else None
+                ),
+                "cost_measurement": (
+                    MeasurementState.ESTIMATED
+                    if estimated_cost is not None
+                    else MeasurementState.UNMEASURED
+                ),
                 "cost_event_id": event.execution_id,
             }
         )

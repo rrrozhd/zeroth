@@ -1,6 +1,6 @@
 # Deploy the LangGraph release
 
-This is the canonical clean install and operations path for Zeroth `0.23.0`.
+This is the canonical clean install and operations path for Zeroth `0.23.1.1`.
 The tested compatibility matrix is LangGraph `1.2.9`, Agent Server `0.11.1`,
 and Zeroth adapter `1.0`.
 
@@ -16,7 +16,7 @@ Use Python 3.12 and install only the deployment surface you operate:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install "zeroth-core[langgraph,langgraph-gateway]==0.23.0"
+pip install "zeroth-core[langgraph,langgraph-gateway]==0.23.1.1"
 ```
 
 For managed Agent Server deployments, put the Zeroth gateway in front of the

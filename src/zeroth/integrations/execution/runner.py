@@ -69,6 +69,8 @@ class ExecutableUnitInputError(ExecutableUnitExecutionError):
 class ExecutableUnitAdmissionError(ExecutableUnitExecutionError):
     """Raised when an executable unit fails admission control before execution."""
 
+    governance_rejection = True
+
     def __init__(self, message: str, *, audit_record: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
         self.audit_record = dict(audit_record or {})

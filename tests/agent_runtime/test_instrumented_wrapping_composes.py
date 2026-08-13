@@ -87,6 +87,8 @@ async def test_instrumented_wrapping_composes_and_cost_fires(
 
     # Composition preserved: inner content flows through the wrapper.
     assert response.content == "hello"
-    # Cost instrumentation fired: cost_usd was stamped from the local estimate.
-    assert response.cost_usd is not None
-    assert response.cost_usd > 0
+    # Local model pricing is an estimate, not recorded provider billing.
+    assert response.cost_usd is None
+    assert response.estimated_cost_usd is not None
+    assert response.estimated_cost_usd > 0
+    assert response.cost_measurement == "estimated"
