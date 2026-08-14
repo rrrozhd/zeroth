@@ -17,9 +17,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import ceil
 from typing import Any
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
+from zeroth.governance.guardrails.policy import EffectiveGuardrailSettings
+from zeroth.governance.guardrails.rate_limit import (
+    QuotaDecision,
+    QuotaEnforcer,
+    TokenBucketRateLimiter,
+    guardrail_identity_key,
+)
 from zeroth.integrations.persistence.runs import retention_queries
 from zeroth.integrations.persistence.runs.checkpoint_store import (
     CheckpointRowStore,
@@ -98,6 +106,50 @@ _UNSCOPED_WORKSPACE = object()
 
 # A02-12: defensive ceiling for list_runs, independent of any route-level bound.
 _LIST_RUNS_MAX_LIMIT = 1000
+
+
+class GuardrailAdmissionRejectedError(RuntimeError):
+    """A shared ingress decision refused a run without consuming capacity."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        retry_after_seconds: int,
+        utilization: float,
+    ) -> None:
+        super().__init__(f"guardrail admission rejected: {reason}")
+        self.reason = reason
+        self.retry_after_seconds = max(1, retry_after_seconds)
+        self.utilization = max(0, min(1, utilization))
+
+
+def _guardrail_key(kind: str, run: Run) -> str:
+    subject = None if run.submitted_by is None else run.submitted_by.subject
+    return guardrail_identity_key(
+        kind,
+        tenant_id=run.tenant_id,
+        workspace_id=run.workspace_id,
+        deployment_ref=run.deployment_ref,
+        subject=subject,
+    )
+
+
+async def _quota_decision(
+    runs: BoundStructuredTable,
+    run: Run,
+    settings: EffectiveGuardrailSettings,
+    enforcer: QuotaEnforcer,
+) -> QuotaDecision | None:
+    limit = settings.quota_daily_limit
+    if limit is None:
+        return None
+    return await enforcer._decide_bound(  # noqa: SLF001 - shared transaction seam
+        runs.bind(enforcer.table),
+        _guardrail_key("daily-quota", run),
+        limit=limit,
+        window_seconds=86_400,
+    )
 
 
 def _validate_transition(current: RunStatus, new: RunStatus) -> None:
@@ -185,6 +237,65 @@ def _thread_values(thread: Thread) -> dict[str, object]:
     }
 
 
+@persistence_surface(
+    "service.guardrail_admission_state",
+    probe=named_isolation_probe("_drive_guardrail_admission_state"),
+)
+@dataclass(slots=True)
+class GuardrailAdmissionCoordinator:
+    """Serialize ingress and lease decisions for one trusted tenant scope."""
+
+    database: AsyncDatabase
+    scope_context: ScopeContext | NullWorkspaceScopeContext
+    table: ScopedTable = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.table = ScopedTable(
+            self.database,
+            SERVICE_SCOPE_REGISTRY,
+            "service.guardrail_admission_state",
+            self.scope_context,
+        )
+
+    @persistence_operation(
+        ResourceOperation.CREATE,
+        ResourceOperation.READ,
+    )
+    async def coordinate(
+        self,
+        deployment_ref: str,
+        *,
+        transaction: BoundStructuredTable | None = None,
+    ) -> None:
+        """Create and lock a deployment's shared coordination row."""
+        if transaction is not None:
+            await self._coordinate_bound(transaction.bind(self.table), deployment_ref)
+            return
+        async with self.table.transaction(write_lock=True) as admission:
+            await self._coordinate_bound(admission, deployment_ref)
+
+    @persistence_operation(ResourceOperation.READ)
+    async def exists(self, deployment_ref: str) -> bool:
+        """Report whether one coordination row exists in this exact scope."""
+        async with self.table.transaction() as admission:
+            row = await admission.select_one(
+                where={"deployment_ref": deployment_ref}, columns=("deployment_ref",)
+            )
+        return row is not None
+
+    async def _coordinate_bound(
+        self,
+        admission: BoundStructuredTable,
+        deployment_ref: str,
+    ) -> None:
+        now = utc_now().isoformat()
+        await admission.insert_if_absent(
+            {"deployment_ref": deployment_ref, "created_at": now},
+            conflict_columns=("tenant_id", "workspace_scope", "deployment_ref"),
+        )
+        await admission.select_one(where={"deployment_ref": deployment_ref}, for_update=True)
+
+
 @dataclass(slots=True)
 class _RunThreadStore:
     """Low-level async store that handles raw read/write operations for runs and threads.
@@ -199,6 +310,7 @@ class _RunThreadStore:
     runs: ScopedTable = field(init=False)
     threads: ScopedTable = field(init=False)
     token_snapshots: ScopedTable = field(init=False)
+    admission_state: GuardrailAdmissionCoordinator = field(init=False)
     # ZER-26/AUD-004: per-run write fences. While a fence is installed for a
     # run id, every save of that run's row carries the lease predicate, so a
     # displaced worker's write is refused *inside* the statement rather than by
@@ -220,6 +332,7 @@ class _RunThreadStore:
             "service.token_engine_snapshots",
             self.scope_context,
         )
+        self.admission_state = GuardrailAdmissionCoordinator(self.database, self.scope_context)
 
     def validate_owner(self, tenant_id: str, workspace_id: str | None) -> None:
         if tenant_id != self.scope_context.tenant_id:
@@ -287,55 +400,121 @@ class _RunThreadStore:
             worker_id, generation = fence
             raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
 
-    async def create_run(self, run: Run) -> None:
+    async def create_run(
+        self,
+        run: Run,
+        *,
+        settings: EffectiveGuardrailSettings | None = None,
+        rate_limiter: TokenBucketRateLimiter | None = None,
+        quota_enforcer: QuotaEnforcer | None = None,
+    ) -> None:
         """Atomically insert a new run and its thread/checkpoint state."""
         self.validate_owner(run.tenant_id, run.workspace_id)
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
         run.touch()
-        snapshot = run.model_dump(mode="json")
         async with self.runs.transaction(write_lock=True) as runs:
-            # Claim the globally unique ID before inspecting related rows. A
-            # collision therefore has one generic result and cannot disclose
-            # whether its existing owner also uses the guessed thread ID.
-            await self._save_run_bound(runs, run, None, insert_only=True)
-            threads = runs.bind(self.threads)
-            seed = Thread(
-                thread_id=run.thread_id,
-                graph_version_ref=run.graph_version_ref,
-                deployment_ref=run.deployment_ref,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
-                status=ThreadStatus.ACTIVE,
+            if settings is not None:
+                if rate_limiter is None or quota_enforcer is None:
+                    raise ValueError("guarded admission requires rate and quota enforcers")
+                await self._guarded_admission_bound(
+                    runs,
+                    run,
+                    settings,
+                    rate_limiter,
+                    quota_enforcer,
+                )
+            await self._insert_run_state_bound(runs, run, checkpoint_id)
+
+    async def _guarded_admission_bound(
+        self,
+        runs: BoundStructuredTable,
+        run: Run,
+        settings: EffectiveGuardrailSettings,
+        rate_limiter: TokenBucketRateLimiter,
+        quota_enforcer: QuotaEnforcer,
+    ) -> None:
+        """Reserve queue, rate, and quota capacity under one replica-shared lock."""
+        await self.admission_state.coordinate(run.deployment_ref, transaction=runs)
+        pending = await runs.count(
+            where={"deployment_ref": run.deployment_ref, "status": RunStatus.PENDING.value}
+        )
+        if pending >= settings.backpressure_queue_depth:
+            excess = pending - settings.backpressure_queue_depth + 1
+            retry = ceil(excess / settings.max_concurrency)
+            raise GuardrailAdmissionRejectedError(
+                "queue",
+                retry_after_seconds=retry,
+                utilization=pending / settings.backpressure_queue_depth,
             )
-            await threads.insert_if_absent(
-                _thread_values(seed),
-                conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
+        rate = await rate_limiter._decide_bound(  # noqa: SLF001 - shared transaction seam
+            runs.bind(rate_limiter.table),
+            _guardrail_key("token-bucket", run),
+            capacity=settings.bucket_capacity,
+            refill_rate=settings.rate_limit_refill_rate,
+        )
+        if not rate.allowed:
+            raise GuardrailAdmissionRejectedError(
+                "rate",
+                retry_after_seconds=rate.retry_after_seconds,
+                utilization=rate.utilization,
             )
-            row = await threads.select_one(
-                where={"thread_id": run.thread_id},
-                for_update=True,
+        quota = await _quota_decision(runs, run, settings, quota_enforcer)
+        if quota is not None and not quota.allowed:
+            raise GuardrailAdmissionRejectedError(
+                "quota",
+                retry_after_seconds=quota.retry_after_seconds,
+                utilization=quota.utilization,
             )
-            if row is None:  # pragma: no cover - insert/read transaction contract
-                raise RuntimeError("thread row unavailable after scoped insert")
-            thread = row_to_thread(row)
-            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
-                raise ValueError("thread identity mismatch")
-            thread.run_ids = _merge(thread.run_ids, [run.run_id])
-            thread.last_run_id = run.run_id
-            checkpoint_order = len(thread.checkpoint_refs)
-            thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
-            thread.updated_at = utc_now()
-            await self._save_thread_bound(threads, thread)
-            await self.checkpoints.write_row_bound(
-                runs.bind(self.checkpoints.table),
-                checkpoint_id=checkpoint_id,
-                run_id=run.run_id,
-                thread_id=run.thread_id,
-                checkpoint_order=checkpoint_order,
-                state_json=to_json_value(snapshot),
-                created_at=run.updated_at.isoformat(),
-            )
+        run.metadata["guardrail_admission"] = {
+            "queue_depth": pending + 1,
+            "queue_utilization": (pending + 1) / settings.backpressure_queue_depth,
+            "rate_utilization": rate.utilization,
+            "quota_utilization": None if quota is None else quota.utilization,
+        }
+
+    async def _insert_run_state_bound(
+        self,
+        runs: BoundStructuredTable,
+        run: Run,
+        checkpoint_id: str,
+    ) -> None:
+        """Insert the run, thread, and initial checkpoint in one transaction."""
+        await self._save_run_bound(runs, run, None, insert_only=True)
+        threads = runs.bind(self.threads)
+        seed = Thread(
+            thread_id=run.thread_id,
+            graph_version_ref=run.graph_version_ref,
+            deployment_ref=run.deployment_ref,
+            tenant_id=run.tenant_id,
+            workspace_id=run.workspace_id,
+            status=ThreadStatus.ACTIVE,
+        )
+        await threads.insert_if_absent(
+            _thread_values(seed),
+            conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
+        )
+        row = await threads.select_one(where={"thread_id": run.thread_id}, for_update=True)
+        if row is None:  # pragma: no cover - insert/read transaction contract
+            raise RuntimeError("thread row unavailable after scoped insert")
+        thread = row_to_thread(row)
+        if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
+            raise ValueError("thread identity mismatch")
+        thread.run_ids = _merge(thread.run_ids, [run.run_id])
+        thread.last_run_id = run.run_id
+        checkpoint_order = len(thread.checkpoint_refs)
+        thread.checkpoint_refs = _merge(thread.checkpoint_refs, [checkpoint_id])
+        thread.updated_at = utc_now()
+        await self._save_thread_bound(threads, thread)
+        await self.checkpoints.write_row_bound(
+            runs.bind(self.checkpoints.table),
+            checkpoint_id=checkpoint_id,
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            checkpoint_order=checkpoint_order,
+            state_json=to_json_value(run.model_dump(mode="json")),
+            created_at=run.updated_at.isoformat(),
+        )
 
     async def save_thread(self, thread: Thread) -> None:
         """Insert or update a thread record in the database."""
@@ -744,6 +923,7 @@ class _RunThreadStore:
     method_names=frozenset(
         {
             "create",
+            "create_guarded",
             "get",
             "list_runs",
             "list_dead_letter_runs",
@@ -837,6 +1017,26 @@ class RunRepository:
     async def create(self, run: Run) -> Run:
         """Save a new run and return the persisted version."""
         await self._store.create_run(run)
+        created = await self.get(run.run_id)
+        assert created is not None
+        return created
+
+    @persistence_operation(ResourceOperation.CREATE)
+    async def create_guarded(
+        self,
+        run: Run,
+        *,
+        settings: EffectiveGuardrailSettings,
+        rate_limiter: TokenBucketRateLimiter,
+        quota_enforcer: QuotaEnforcer,
+    ) -> Run:
+        """Atomically reserve guardrail capacity and persist a new run."""
+        await self._store.create_run(
+            run,
+            settings=settings,
+            rate_limiter=rate_limiter,
+            quota_enforcer=quota_enforcer,
+        )
         created = await self.get(run.run_id)
         assert created is not None
         return created

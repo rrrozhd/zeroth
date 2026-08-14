@@ -34,6 +34,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "governance/audit/coordination.py",
         "governance/audit/repository.py",
         "governance/decisions/repository.py",
+        "governance/guardrails/policy.py",
         "governance/retention/audit_log_repository.py",
         "governance/retention/claims.py",
         "governance/retention/cleanup_state_repository.py",
@@ -74,6 +75,8 @@ _SERVICE_TABLES = (
     "deployment_versions",
     "enforcement_heartbeats",
     "graph_versions",
+    "guardrail_admission_state",
+    "guardrail_policy_revisions",
     "langgraph_decisions",
     "langgraph_inventories",
     "langgraph_run_attestations",
@@ -103,6 +106,7 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "approvals",
         "deployment_versions",
         "graph_versions",
+        "guardrail_admission_state",
         "node_audits",
         "run_checkpoints",
         "runs",
@@ -113,6 +117,7 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
 )
 _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     {
+        "guardrail_admission_state",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
@@ -158,6 +163,10 @@ _TASK9_RESOURCE_OPERATIONS = {
             ResourceOperation.UPDATE,
         }
     ),
+    "guardrail_policy_revisions": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "guardrail_admission_state": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
     "memory_connector_configs": frozenset(ResourceOperation),
     "node_audits": frozenset(
         {
@@ -350,6 +359,7 @@ class ScopedJoin:
 
 class _StructuredTable:
     """Represent StructuredTable within the structural tenant-isolation boundary."""
+
     __slots__ = ("__database", "__registry", "__resource_name")
 
     def __init__(

@@ -9767,6 +9767,18 @@
     },
     {
       "evidence": [
+        "schema_model:zeroth.service.api.guardrail_api"
+      ],
+      "kind": "class",
+      "legacy_ids": [
+        "zeroth.core.service.guardrail_api:GuardrailPolicyResponse"
+      ],
+      "module": "zeroth.service.api.guardrail_api",
+      "name": "GuardrailPolicyResponse",
+      "signature": "(*, tenant_revision: zeroth.governance.guardrails.policy.GuardrailPolicyRevision | None, deployment_revision: zeroth.governance.guardrails.policy.GuardrailPolicyRevision | None, effective: zeroth.governance.guardrails.policy.EffectiveGuardrailSettings) -> None"
+    },
+    {
+      "evidence": [
         "schema_model:zeroth.service.api.health"
       ],
       "kind": "class",

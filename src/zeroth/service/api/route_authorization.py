@@ -45,6 +45,8 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
     **_routes(
         Permission.DEPLOYMENT_ADMIN,
         "create_deployment",
+        "put_deployment_guardrails",
+        "put_tenant_guardrails",
         "rollback_deployment",
     ),
     **_routes(
@@ -52,7 +54,10 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "get_attestation",
         "get_attestation_verify",
         "get_deployment_metadata",
+        "get_deployment_guardrails",
+        "get_guardrail_history",
         "get_input_contract",
+        "get_tenant_guardrails",
         "get_output_contract",
         "get_result_error_state_schema",
         "list_connectors",

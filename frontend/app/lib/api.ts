@@ -41,6 +41,8 @@ export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
 export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+export type GuardrailPolicyPatch = S["GuardrailPolicyPatch"];
+export type GuardrailPolicyResponse = S["GuardrailPolicyResponse"];
 
 // GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
 // an open object, so the generated operation's response type (`unknown`) flows
@@ -690,6 +692,22 @@ export function verifyRunChain(runId: string): Promise<AuditVerification> {
 // selected ref explicitly).
 export function getDeploymentMetadata(ref: string): Promise<DeploymentMetadata> {
   return apiFetch<DeploymentMetadata>(`/v1/deployments/${encodeURIComponent(ref)}/metadata`);
+}
+
+export function getDeploymentGuardrails(ref: string): Promise<GuardrailPolicyResponse> {
+  return apiFetch<GuardrailPolicyResponse>(
+    `/v1/deployments/${encodeURIComponent(ref)}/guardrails`,
+  );
+}
+
+export function updateDeploymentGuardrails(
+  ref: string,
+  body: GuardrailPolicyPatch,
+): Promise<GuardrailPolicyResponse> {
+  return apiFetch<GuardrailPolicyResponse>(
+    `/v1/deployments/${encodeURIComponent(ref)}/guardrails`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
 }
 
 export function getDeploymentTimeline(ref: string): Promise<AuditTimeline> {

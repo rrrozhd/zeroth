@@ -66,6 +66,7 @@ import {
   type PublicContractSchema,
 } from "@/app/lib/api";
 import { isConfigured } from "@/app/lib/config";
+import { GuardrailsPanel } from "./GuardrailsPanel";
 
 // --------------------------------------------------------------------------
 // Shared helpers (mirrors the Runs screen conventions)
@@ -562,6 +563,7 @@ function DeploymentDetail({
       </div>
 
       {/* Panels — each owns its own load/empty/error */}
+      <GuardrailsPanel refId={d.deployment_ref} />
       <MetadataPanel refId={d.deployment_ref} />
       <ContractsPanel refId={d.deployment_ref} />
       <AttestationPanel refId={d.deployment_ref} />

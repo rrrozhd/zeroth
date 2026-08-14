@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8] - 2026-08-14
+
+### Added
+
+- Add bounded, append-only tenant and deployment ingress-guardrail policies,
+  with field-wise precedence, atomic shared queue and capacity enforcement,
+  actionable retry responses, scoped audit evidence, and guardrail metrics.
+- Add authorized guardrail inspection and editing to the HTTP API and
+  Deployments console, including effective values, inherited overrides, and
+  inline validation and remediation feedback.
+
 ## [0.23.7] - 2026-08-13
 
 ### Added

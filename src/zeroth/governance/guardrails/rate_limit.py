@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime
+from math import ceil
 
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
@@ -15,6 +17,7 @@ from zeroth.platform.storage import (
     ScopedTable,
     persistence_operation,
 )
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.platform.storage.scoping import named_isolation_probe, persistence_surface
 
 
@@ -34,6 +37,26 @@ def guardrail_identity_key(
     ).encode("utf-8")
     digest = hashlib.sha256(canonical).hexdigest()
     return f"guardrail:{kind}:v1:{digest}"
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    """Atomic token-bucket decision with actionable retry telemetry."""
+
+    allowed: bool
+    remaining: float
+    utilization: float
+    retry_after_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class QuotaDecision:
+    """Atomic rolling-quota decision with actionable retry telemetry."""
+
+    allowed: bool
+    remaining: int
+    utilization: float
+    retry_after_seconds: int
 
 
 @persistence_surface(
@@ -71,6 +94,11 @@ class TokenBucketRateLimiter:
     async def get(self, bucket_key: str) -> dict[str, object] | None:
         return await self._buckets.select_one(where={"bucket_key": bucket_key})
 
+    @property
+    def table(self) -> ScopedTable:
+        """Return the structurally scoped table for a coordinated transaction."""
+        return self._buckets
+
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
     )
@@ -91,57 +119,71 @@ class TokenBucketRateLimiter:
         Returns:
             True if a token was consumed, False if the bucket is empty.
         """
-        now = utc_now()
-        now_iso = now.isoformat()
-        # write_lock serializes the read-modify-write. Without it two concurrent
-        # callers interleave between the SELECT and the UPDATE and both consume the
-        # same token, letting N requests through a capacity-1 bucket (audit S4).
+        return (
+            await self.decide(
+                bucket_key,
+                capacity=capacity,
+                refill_rate=refill_rate,
+            )
+        ).allowed
+
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    async def decide(
+        self,
+        bucket_key: str,
+        *,
+        capacity: float = 10.0,
+        refill_rate: float = 1.0,
+    ) -> RateLimitDecision:
+        """Consume one token atomically and return remaining/retry telemetry."""
         async with self._buckets.transaction(write_lock=True) as buckets:
-            row = await buckets.select_one(
-                where={"bucket_key": bucket_key},
-                columns=("token_count", "last_refill_at"),
-                for_update=True,
+            return await self._decide_bound(
+                buckets,
+                bucket_key,
+                capacity=capacity,
+                refill_rate=refill_rate,
             )
-            if row is None:
-                # Cold start: create the bucket full, then fall through to the
-                # uniform refill+consume path (so the first request consumes one
-                # token exactly like every later one). ON CONFLICT DO NOTHING so
-                # concurrent first-requests can't collide on the UNIQUE key (a
-                # plain INSERT raised IntegrityError -> 500); re-read the locked row.
-                await buckets.insert_if_absent(
-                    {
-                        "bucket_key": bucket_key,
-                        "token_count": capacity,
-                        "last_refill_at": now_iso,
-                        "capacity": capacity,
-                        "refill_rate": refill_rate,
-                    },
-                    conflict_columns=("tenant_id", "bucket_key"),
-                )
-                row = await buckets.select_one(
-                    where={"bucket_key": bucket_key},
-                    columns=("token_count", "last_refill_at"),
-                    for_update=True,
-                )
-            assert row is not None
 
-            last_refill = datetime.fromisoformat(row["last_refill_at"])
-            elapsed = max(0.0, (now - last_refill).total_seconds())
-            refilled = min(capacity, row["token_count"] + elapsed * refill_rate)
-
-            if refilled < 1.0:
-                # Update tokens without consuming (no bucket should go negative).
-                await buckets.update(
-                    {"token_count": refilled, "last_refill_at": now_iso},
-                    where={"bucket_key": bucket_key},
-                )
-                return False
-
-            await buckets.update(
-                {"token_count": refilled - 1.0, "last_refill_at": now_iso},
-                where={"bucket_key": bucket_key},
-            )
-            return True
+    async def _decide_bound(
+        self,
+        buckets: BoundStructuredTable,
+        bucket_key: str,
+        *,
+        capacity: float,
+        refill_rate: float,
+    ) -> RateLimitDecision:
+        """Apply a token decision inside an existing coordinated transaction."""
+        now = utc_now()
+        row = await _locked_bucket(buckets, bucket_key, capacity, refill_rate, now)
+        last_refill = datetime.fromisoformat(str(row["last_refill_at"]))
+        elapsed = max(0.0, (now - last_refill).total_seconds())
+        refilled = min(capacity, float(row["token_count"]) + elapsed * refill_rate)
+        allowed = refilled >= 1
+        remaining = refilled - 1 if allowed else refilled
+        await buckets.update(
+            {
+                "token_count": remaining,
+                "last_refill_at": now.isoformat(),
+                "capacity": capacity,
+                "refill_rate": refill_rate,
+            },
+            where={"bucket_key": bucket_key},
+        )
+        retry = (
+            0
+            if allowed
+            else max(1, ceil((1 - refilled) / refill_rate))
+            if refill_rate > 0
+            else 86_400
+        )
+        return RateLimitDecision(
+            allowed=allowed,
+            remaining=remaining,
+            utilization=max(0, min(1, 1 - remaining / capacity)),
+            retry_after_seconds=retry,
+        )
 
 
 @persistence_surface("service.quota_counters", probe=named_isolation_probe("_drive_quota_counters"))
@@ -177,6 +219,11 @@ class QuotaEnforcer:
     async def get(self, counter_key: str) -> dict[str, object] | None:
         return await self._counters.select_one(where={"counter_key": counter_key})
 
+    @property
+    def table(self) -> ScopedTable:
+        """Return the structurally scoped table for a coordinated transaction."""
+        return self._counters
+
     @persistence_operation(
         ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
     )
@@ -197,55 +244,115 @@ class QuotaEnforcer:
         Returns:
             True if within quota (counter incremented), False if exhausted.
         """
-        now = utc_now()
-        now_iso = now.isoformat()
-        # write_lock serializes the check-and-increment. Without it two concurrent
-        # requests at value=limit-1 both pass the ceiling check and both increment,
-        # silently overshooting the daily quota (audit S3).
+        return (
+            await self.decide(
+                counter_key,
+                limit=limit,
+                window_seconds=window_seconds,
+            )
+        ).allowed
+
+    @persistence_operation(
+        ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE
+    )
+    async def decide(
+        self,
+        counter_key: str,
+        *,
+        limit: int,
+        window_seconds: int = 86400,
+    ) -> QuotaDecision:
+        """Increment a rolling quota atomically and return remaining/retry telemetry."""
         async with self._counters.transaction(write_lock=True) as counters:
-            row = await counters.select_one(
-                where={"counter_key": counter_key},
-                columns=("value", "window_start", "window_seconds"),
-                for_update=True,
+            return await self._decide_bound(
+                counters,
+                counter_key,
+                limit=limit,
+                window_seconds=window_seconds,
             )
-            if row is None:
-                # Cold start: create the counter at zero, then fall through to the
-                # uniform ceiling+increment path (so the first request is counted
-                # and gated exactly like every later one). ON CONFLICT DO NOTHING so
-                # concurrent first-requests can't collide on the UNIQUE key; re-read
-                # the locked row.
-                await counters.insert_if_absent(
-                    {
-                        "counter_key": counter_key,
-                        "value": 0,
-                        "window_start": now_iso,
-                        "window_seconds": window_seconds,
-                    },
-                    conflict_columns=("tenant_id", "counter_key"),
-                )
-                row = await counters.select_one(
-                    where={"counter_key": counter_key},
-                    columns=("value", "window_start", "window_seconds"),
-                    for_update=True,
-                )
-            assert row is not None
 
-            window_start = datetime.fromisoformat(row["window_start"])
-            if (now - window_start).total_seconds() > row["window_seconds"]:
-                # Window expired: reset.
-                await counters.update(
-                    {"value": 1, "window_start": now_iso, "window_seconds": window_seconds},
-                    where={"counter_key": counter_key},
-                )
-                return True
+    async def _decide_bound(
+        self,
+        counters: BoundStructuredTable,
+        counter_key: str,
+        *,
+        limit: int,
+        window_seconds: int,
+    ) -> QuotaDecision:
+        """Apply a quota decision inside an existing coordinated transaction."""
+        now = utc_now()
+        row = await _locked_quota(counters, counter_key, window_seconds, now)
+        window_start = datetime.fromisoformat(str(row["window_start"]))
+        elapsed = max(0.0, (now - window_start).total_seconds())
+        if elapsed >= int(row["window_seconds"]):
+            value = 0
+            window_start = now
+            elapsed = 0
+        else:
+            value = int(row["value"])
+        allowed = value < limit
+        next_value = value + 1 if allowed else value
+        await counters.update(
+            {
+                "value": next_value,
+                "window_start": window_start.isoformat(),
+                "window_seconds": window_seconds,
+            },
+            where={"counter_key": counter_key},
+        )
+        retry = 0 if allowed else max(1, ceil(window_seconds - elapsed))
+        return QuotaDecision(
+            allowed=allowed,
+            remaining=max(0, limit - next_value),
+            utilization=max(0, min(1, next_value / limit)),
+            retry_after_seconds=retry,
+        )
 
-            if row["value"] >= limit:
-                return False
 
-            await counters.update(
-                {"value": int(row["value"]) + 1}, where={"counter_key": counter_key}
-            )
-            return True
+async def _locked_bucket(
+    buckets: BoundStructuredTable,
+    bucket_key: str,
+    capacity: float,
+    refill_rate: float,
+    now: datetime,
+) -> dict[str, object]:
+    row = await buckets.select_one(where={"bucket_key": bucket_key}, for_update=True)
+    if row is None:
+        await buckets.insert_if_absent(
+            {
+                "bucket_key": bucket_key,
+                "token_count": capacity,
+                "last_refill_at": now.isoformat(),
+                "capacity": capacity,
+                "refill_rate": refill_rate,
+            },
+            conflict_columns=("tenant_id", "bucket_key"),
+        )
+        row = await buckets.select_one(where={"bucket_key": bucket_key}, for_update=True)
+    assert row is not None
+    return row
+
+
+async def _locked_quota(
+    counters: BoundStructuredTable,
+    counter_key: str,
+    window_seconds: int,
+    now: datetime,
+) -> dict[str, object]:
+    row = await counters.select_one(where={"counter_key": counter_key}, for_update=True)
+    if row is None:
+        await counters.insert_if_absent(
+            {
+                "counter_key": counter_key,
+                "value": 0,
+                "window_start": now.isoformat(),
+                "window_seconds": window_seconds,
+            },
+            conflict_columns=("tenant_id", "counter_key"),
+        )
+        row = await counters.select_one(where={"counter_key": counter_key}, for_update=True)
+    assert row is not None
+    return row
 
 
 # These two constructors predate postponed annotations and their immutable public

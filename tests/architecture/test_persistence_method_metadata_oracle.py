@@ -76,9 +76,15 @@ zeroth.governance.audit.repository|AuditRepository|write_many|CRU
 zeroth.governance.decisions.repository|DecisionRepository|find_by_idempotency_key|R
 zeroth.governance.decisions.repository|DecisionRepository|find_replay|R
 zeroth.governance.decisions.repository|DecisionRepository|record|CR
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|append|C
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|current|R
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|effective|R
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|history|N
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|check_and_increment|CRU
+zeroth.governance.guardrails.rate_limit|QuotaEnforcer|decide|CRU
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|get|R
 zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|check_and_consume|CRU
+zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|decide|CRU
 zeroth.governance.guardrails.rate_limit|TokenBucketRateLimiter|get|R
 zeroth.governance.retention.audit_log_repository|RetentionAuditLogRepository|get|R
 zeroth.governance.retention.audit_log_repository|RetentionAuditLogRepository|get_in_transaction|R
@@ -124,10 +130,13 @@ zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|list_id
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row|CU
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row_bound|CU
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row_in_connection|CU
+zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|coordinate|CR
+zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|exists|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|clear_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|compare_and_swap_token_snapshot|CU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|count_pending|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|create|C
+zeroth.integrations.persistence.runs.run_repository|RunRepository|create_guarded|C
 zeroth.integrations.persistence.runs.run_repository|RunRepository|delete|D
 zeroth.integrations.persistence.runs.run_repository|RunRepository|erase_checkpoints_for_run|D
 zeroth.integrations.persistence.runs.run_repository|RunRepository|erase_checkpoints_for_run_in_transaction|D
@@ -268,7 +277,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 182
+    assert len(METHOD_METADATA_ORACLE) == 191
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

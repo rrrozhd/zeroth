@@ -39,6 +39,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
     "service.runs": {
         RunRepository: {
             "create": frozenset({O.CREATE}),
+            "create_guarded": frozenset({O.CREATE}),
             "get": frozenset({O.READ}),
             "list_runs": frozenset({O.ENUMERATE}),
             "list_dead_letter_runs": frozenset({O.ENUMERATE}),
