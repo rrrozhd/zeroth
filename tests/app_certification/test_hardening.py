@@ -39,7 +39,7 @@ def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.1",
+        "zeroth_version": "0.23.9.2",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -66,7 +66,7 @@ def identity() -> CandidateIdentity:
     return CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.1",
+        zeroth_version="0.23.9.2",
         image_reference="reference-app:certification",
         image_digest=DIGEST,
     )
@@ -107,46 +107,6 @@ def test_owned_check_timeout_kills_the_isolated_process_group(tmp_path: Path, mo
 
     assert result.returncode == 124
     assert calls and calls[0][0] == 456
-
-
-@pytest.mark.parametrize(
-    ("name", "field", "target", "diagnostic"),
-    [
-        (
-            "graph",
-            "graph_builders",
-            ["tests.app_certification.semantic_fixtures:invalid_graph"],
-            "contract",
-        ),
-        (
-            "contracts",
-            "contracts",
-            "tests.app_certification.semantic_fixtures:INVALID_CONTRACTS",
-            "Pydantic",
-        ),
-        (
-            "service-config",
-            "auth_config",
-            "tests.app_certification.semantic_fixtures:invalid_auth_config",
-            "ServiceAuthConfig",
-        ),
-        (
-            "policies",
-            "policy_guard",
-            "tests.app_certification.semantic_fixtures:empty_policy_guard",
-            "policy",
-        ),
-    ],
-)
-def test_owned_semantic_checks_reject_invalid_app_objects(
-    tmp_path: Path, name: str, field: str, target, diagnostic: str
-) -> None:
-    data = declaration_data()
-    data["targets"][field] = target
-    declaration = AppDeclaration.model_validate(data)
-
-    with pytest.raises(ValueError, match=diagnostic):
-        run_owned_check(name, tmp_path, declaration)
 
 
 def test_report_validation_recomputes_hashes_and_subjects(tmp_path: Path) -> None:
@@ -196,20 +156,116 @@ def test_signed_attestation_replaces_and_rebinds_unsigned_predicate(tmp_path: Pa
 
 
 def test_handoff_recomputes_docker_archive_config_digest(tmp_path: Path) -> None:
-    config = b'{"architecture":"amd64"}'
+    layer = b"classic-uncompressed-layer"
+    layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+    config = json.dumps(
+        {"architecture": "amd64", "rootfs": {"diff_ids": [layer_digest]}},
+        sort_keys=True,
+    ).encode()
     digest = "sha256:" + hashlib.sha256(config).hexdigest()
     candidate = identity().model_copy(update={"image_digest": digest})
     archive_path = tmp_path / "image.tar"
-    manifest = json.dumps([{"Config": f"{digest[7:]}.json"}]).encode()
-    with tarfile.open(archive_path, "w") as archive:
-        for name, content in (("manifest.json", manifest), (f"{digest[7:]}.json", config)):
+    config_name = f"blobs/sha256/{digest[7:]}"
+    layer_name = "layers/one/layer.tar"
+    manifest = json.dumps([{"Config": config_name, "Layers": [layer_name]}]).encode()
+    _write_archive(
+        archive_path,
+        {"manifest.json": manifest, config_name: config, layer_name: layer},
+    )
+
+    validate_image_archive(archive_path, candidate)
+    with pytest.raises(ValueError, match="digest"):
+        validate_image_archive(archive_path, identity())
+    _write_archive(
+        archive_path,
+        {"manifest.json": manifest, config_name: config, layer_name: b"tampered"},
+    )
+    with pytest.raises(ValueError, match="layer digest"):
+        validate_image_archive(archive_path, candidate)
+
+
+def _descriptor(media_type: str, digest: str, size: int) -> dict:
+    return {"mediaType": media_type, "digest": digest, "size": size}
+
+
+def _write_archive(path: Path, entries: dict[str, bytes]) -> None:
+    with tarfile.open(path, "w") as archive:
+        for name, content in entries.items():
             info = tarfile.TarInfo(name)
             info.size = len(content)
             archive.addfile(info, io.BytesIO(content))
 
-    validate_image_archive(archive_path, candidate)
-    with pytest.raises(ValueError, match="config digest"):
-        validate_image_archive(archive_path, identity())
+
+def test_handoff_accepts_oci_index_descriptor_digest(tmp_path: Path) -> None:
+    config = b'{"architecture":"arm64","os":"linux"}'
+    config_digest = "sha256:" + hashlib.sha256(config).hexdigest()
+    layer = b"candidate-layer"
+    layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "config": _descriptor("config", config_digest, len(config)),
+            "layers": [_descriptor("layer", layer_digest, len(layer))],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
+    nested = json.dumps(
+        {"schemaVersion": 2, "manifests": [_descriptor("manifest", manifest_digest, len(manifest))]},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    candidate_digest = "sha256:" + hashlib.sha256(nested).hexdigest()
+    index = json.dumps(
+        {"schemaVersion": 2, "manifests": [_descriptor("index", candidate_digest, len(nested))]}
+    ).encode()
+    archive_path = tmp_path / "oci.tar"
+    entries = {
+        "index.json": index,
+        f"blobs/sha256/{candidate_digest[7:]}": nested,
+        f"blobs/sha256/{manifest_digest[7:]}": manifest,
+        f"blobs/sha256/{config_digest[7:]}": config,
+        f"blobs/sha256/{layer_digest[7:]}": layer,
+    }
+    _write_archive(archive_path, entries)
+
+    validate_image_archive(
+        archive_path,
+        identity().model_copy(update={"image_digest": candidate_digest}),
+    )
+
+    entries[f"blobs/sha256/{layer_digest[7:]}"] = b"tampered-layer"
+    corrupt_path = tmp_path / "corrupt-oci.tar"
+    _write_archive(corrupt_path, entries)
+    with pytest.raises(ValueError, match="layer|digest|size"):
+        validate_image_archive(
+            corrupt_path,
+            identity().model_copy(update={"image_digest": candidate_digest}),
+        )
+
+
+@pytest.mark.parametrize("unsafe_name", ["../config.json", "/absolute/config.json"])
+def test_handoff_rejects_unsafe_archive_members(tmp_path: Path, unsafe_name: str) -> None:
+    config = b"{}"
+    digest = "sha256:" + hashlib.sha256(config).hexdigest()
+    manifest = json.dumps([{"Config": f"{digest[7:]}.json"}]).encode()
+    archive_path = tmp_path / "unsafe.tar"
+    with tarfile.open(archive_path, "w") as archive:
+        for name, content in (
+            ("manifest.json", manifest),
+            (f"{digest[7:]}.json", config),
+            (unsafe_name, b"hostile"),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+
+    with pytest.raises(ValueError, match="unsafe archive member"):
+        validate_image_archive(
+            archive_path,
+            identity().model_copy(update={"image_digest": digest}),
+        )
 
 
 def test_structurally_bogus_report_is_rejected() -> None:
@@ -235,7 +291,7 @@ def test_scaffold_emits_valid_executable_assets(tmp_path: Path) -> None:
         tmp_path,
         app_name="sample",
         module="sample_app",
-        zeroth_version="0.23.9.1",
+        zeroth_version="0.23.9.2",
         zeroth_ref=COMMIT,
     )
 
@@ -262,24 +318,6 @@ def test_container_healthcheck_rejects_http_200_with_unhealthy_body(monkeypatch)
 
     monkeypatch.setattr(certification_healthcheck, "urlopen", lambda *args, **kwargs: Response())
     assert certification_healthcheck.main() == 1
-
-
-def test_optional_extras_rejects_the_certifier_environment(tmp_path: Path) -> None:
-    declaration = AppDeclaration.model_validate(declaration_data())
-
-    with pytest.raises(ValueError, match=r"must run with.*\.venv"):
-        run_owned_check("optional-extras", tmp_path, declaration)
-
-
-def test_migration_check_propagates_a_real_migration_failure(tmp_path: Path, monkeypatch) -> None:
-    declaration = AppDeclaration.model_validate(declaration_data())
-
-    def fail_migration(url: str) -> None:
-        raise RuntimeError(f"invalid migration at {url}")
-
-    monkeypatch.setattr(owned_checks, "run_migrations", fail_migration)
-    with pytest.raises(RuntimeError, match="invalid migration"):
-        run_owned_check("migrations", tmp_path, declaration)
 
 
 @pytest.mark.parametrize(

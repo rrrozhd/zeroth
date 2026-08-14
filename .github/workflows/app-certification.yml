@@ -47,7 +47,6 @@ jobs:
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - name: Validate pins and prepare isolated app environment
         id: prepare
-        shell: bash
         env:
           DECLARATION_PATH: ${{ inputs.declaration_path }}
           ZEROTH_REF: ${{ inputs.zeroth_ref }}
@@ -77,24 +76,45 @@ jobs:
             exit 1
           }
           uv sync --directory zeroth --frozen --all-extras
-          uv sync --directory app --frozen --all-extras
-          mkdir -p app/.zeroth-certifier app/.app-certification
-          uv build --directory zeroth --wheel --out-dir app/.zeroth-certifier
-          cp zeroth/requirements-image.txt app/.zeroth-certifier/requirements-image.txt
-          npm ci --prefix app/frontend
+          mkdir trusted-certifier
+          uv build --directory zeroth --wheel --out-dir trusted-certifier
+          cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
+          sudo useradd --system --create-home --home-dir /home/app-cert-candidate \
+            --shell /usr/sbin/nologin app-cert-candidate
+          chmod -R go-w zeroth app
+          mkdir app/.venv
+          sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
+          sudo cp -R app/frontend /home/app-cert-candidate/frontend
+          sudo chown -R app-cert-candidate:app-cert-candidate \
+            /home/app-cert-candidate/frontend
+          sudo -H -u app-cert-candidate env -i \
+            HOME=/home/app-cert-candidate PATH="$PATH" \
+            UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/app/.venv" \
+            uv sync --directory app --frozen --all-extras
+          sudo -H -u app-cert-candidate env -i \
+            HOME=/home/app-cert-candidate PATH="$PATH" \
+            npm ci --prefix /home/app-cert-candidate/frontend
+          sudo chown -R "$USER":"$USER" app/.venv
+          chmod -R go-w zeroth app
+          git -C app diff --exit-code
+          git -C app diff --cached --exit-code
+          mkdir -m 700 app/.zeroth-certifier
+          mkdir -m 700 app/.app-certification
+          cp trusted-certifier/* app/.zeroth-certifier/
           APP_PYTHON="$GITHUB_WORKSPACE/app/.venv/bin/python"
           [[ -x "$APP_PYTHON" ]] || {
             echo "app uv environment has no Python interpreter" >&2
             exit 1
           }
-          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth:$GITHUB_WORKSPACE/app"
+          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth"
           cp "$DECLARATION_FILE" app/.app-certification/declaration.json
-          "$APP_PYTHON" -m release.app_certification validate-declaration \
+          ZEROTH_PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          "$ZEROTH_PYTHON" -m release.app_certification validate-declaration \
             --declaration "$DECLARATION_FILE"
-          DECLARED_VERSION=$("$APP_PYTHON" -c \
+          DECLARED_VERSION=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["zeroth_version"])' \
             "$DECLARATION_FILE")
-          CERTIFIER_VERSION=$("$APP_PYTHON" -c \
+          CERTIFIER_VERSION=$("$ZEROTH_PYTHON" -c \
             'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' \
             zeroth/pyproject.toml)
           [[ "$DECLARED_VERSION" == "$CERTIFIER_VERSION" ]] || {
@@ -102,21 +122,21 @@ jobs:
             exit 1
           }
           APP_COMMIT=$(git -C app rev-parse HEAD)
-          DOCKERFILE=$("$APP_PYTHON" -c \
+          DOCKERFILE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
             "$DECLARATION_FILE")
-          IMAGE_REFERENCE=$("$APP_PYTHON" -c \
+          IMAGE_REFERENCE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
             "$DECLARATION_FILE")
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
-          APP_CERTIFICATION_API_KEY=$("$APP_PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
+          APP_CERTIFICATION_API_KEY=$("$ZEROTH_PYTHON" -c \
+            'import secrets; print(secrets.token_hex(32))')
           echo "::add-mask::$APP_CERTIFICATION_API_KEY"
           echo "APP_CERTIFICATION_API_KEY=$APP_CERTIFICATION_API_KEY" >> "$GITHUB_ENV"
       - name: Build and measure application image
         id: image
-        shell: bash
         env:
           DOCKERFILE: ${{ steps.prepare.outputs.dockerfile }}
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
@@ -140,15 +160,14 @@ jobs:
           upload-artifact: "false"
       - name: Bind SBOM and provenance predicate to measured candidate
         id: evidence
-        shell: bash
         env:
-          PYTHONPATH: ${{ github.workspace }}/zeroth:${{ github.workspace }}/app
+          PYTHONPATH: ${{ github.workspace }}/zeroth
           DECLARATION_PATH: ${{ inputs.declaration_path }}
           APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          app/.venv/bin/python -m release.app_certification prepare-evidence \
+          zeroth/.venv/bin/python -m release.app_certification prepare-evidence \
             --declaration "app/$DECLARATION_PATH" \
             --root app \
             --app-commit "$APP_COMMIT" \
@@ -156,7 +175,6 @@ jobs:
             --raw-sbom app/.app-certification/image.spdx.json
       - name: Start isolated packaged and ephemeral containers
         id: containers
-        shell: bash
         env:
           IMAGE_ID: ${{ steps.image.outputs.digest }}
         run: |
@@ -178,7 +196,6 @@ jobs:
             "$IMAGE_ID"
       - name: Require healthy container state and readiness payload
         id: health
-        shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/zeroth
         run: |
@@ -197,13 +214,12 @@ jobs:
           }
           wait_healthy app-cert-packaged
           wait_healthy app-cert-ephemeral
-          app/.venv/bin/python -m release.app_certification probe-readiness \
+          zeroth/.venv/bin/python -m release.app_certification probe-readiness \
             --url http://127.0.0.1:18080/health/ready
-          app/.venv/bin/python -m release.app_certification probe-readiness \
+          zeroth/.venv/bin/python -m release.app_certification probe-readiness \
             --url http://127.0.0.1:18081/health/ready
       - name: Run fail-closed certification
         id: certify
-        shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/zeroth:${{ github.workspace }}/app
           DECLARATION_PATH: ${{ inputs.declaration_path }}
@@ -211,18 +227,18 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          app/.venv/bin/python -m release.app_certification run \
+          zeroth/.venv/bin/python -m release.app_certification run \
             --declaration "app/$DECLARATION_PATH" \
             --root app \
             --app-commit "$APP_COMMIT" \
             --image-digest "$IMAGE_DIGEST" \
             --packaged-url http://127.0.0.1:18080 \
             --ephemeral-url http://127.0.0.1:18081 \
-            --report app/.app-certification/report.json
+            --report app/.app-certification/report.json \
+            --check-python app/.venv/bin/python \
+            --untrusted-user app-cert-candidate
       - name: Finalize canonical report and stage diagnostics
-        id: finalizer
         if: ${{ always() }}
-        shell: bash
         env:
           APP_CHECKOUT: ${{ steps.app-checkout.outcome }}
           CERTIFIER_CHECKOUT: ${{ steps.certifier-checkout.outcome }}
@@ -235,54 +251,11 @@ jobs:
           CERTIFY: ${{ steps.certify.outcome }}
         run: |
           set -euo pipefail
-          mkdir -p app/.app-certification
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          stages = {name.lower(): os.environ[name] for name in (
-              "APP_CHECKOUT", "CERTIFIER_CHECKOUT", "PREPARE", "IMAGE", "SBOM",
-              "EVIDENCE", "CONTAINERS", "HEALTH", "CERTIFY",
-          )}
-          root = Path("app/.app-certification")
-          (root / "workflow-stages.json").write_text(
-              json.dumps(stages, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-          )
-          report = root / "report.json"
-          if report.exists():
-              raise SystemExit(0)
-          checks = (
-              "graph", "service-config", "contracts", "dependency-lock",
-              "optional-extras", "migrations", "container-startup", "health",
-              "policies", "frontend-api", "packaged-smoke", "ephemeral-smoke",
-              "sbom", "provenance",
-          )
-          stage = {
-              "container-startup": "containers", "health": "health",
-              "packaged-smoke": "certify", "ephemeral-smoke": "certify",
-              "sbom": "sbom", "provenance": "evidence",
-          }
-          payload = {
-              "schema_version": 1,
-              "status": "failed",
-              "candidate": None,
-              "checks": [
-                  {
-                      "name": name,
-                      "status": "failed",
-                      "detail": f"{name}: workflow stage {stage.get(name, 'prepare')} "
-                      f"outcome={stages[stage.get(name, 'prepare')]}",
-                  }
-                  for name in checks
-              ],
-              "evidence": None,
-          }
-          report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-          PY
+          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
+            -m release.app_certification finalize-workflow \
+            --root app/.app-certification || python3 -c 'import json,os,pathlib; r=pathlib.Path("app/.app-certification"); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); p.exists() or p.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"prepare"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n")'
       - name: Capture container diagnostics
-        id: logs
         if: ${{ always() }}
-        shell: bash
         run: |
           set +e
           mkdir -p app/.app-certification/logs
@@ -291,9 +264,7 @@ jobs:
           docker inspect app-cert-packaged app-cert-ephemeral \
             > app/.app-certification/logs/container-inspect.json 2>&1
       - name: Stop and remove certification containers
-        id: cleanup
         if: ${{ always() }}
-        shell: bash
         run: |
           set +e
           docker stop app-cert-packaged app-cert-ephemeral
@@ -301,7 +272,6 @@ jobs:
           docker network rm app-cert-packaged-net app-cert-ephemeral-net
           docker volume rm app-cert-packaged-data
       - name: Upload unprivileged certification handoff
-        id: diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -309,9 +279,58 @@ jobs:
           path: app/.app-certification
           if-no-files-found: error
           retention-days: 14
-  attest:
+  verify:
     needs: certify
-    if: ${{ needs.certify.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image_reference: ${{ steps.validate.outputs.image_reference }}
+      image_digest: ${{ steps.validate.outputs.image_digest }}
+      provenance_path: ${{ steps.validate.outputs.provenance_path }}
+      verdict_sha256: ${{ steps.validate.outputs.verdict_sha256 }}
+    steps:
+      - name: Checkout pinned Zeroth verifier only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Download immutable unprivileged handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: app-certification-handoff-${{ github.run_id }}
+          path: evidence
+      - name: Validate and authenticate handoff without candidate execution
+        id: validate
+        env:
+          APP_COMMIT: ${{ github.sha }}
+          ZEROTH_REF: ${{ inputs.zeroth_ref }}
+        run: |
+          set -euo pipefail
+          uv sync --directory zeroth --frozen
+          [[ "$(git -C zeroth rev-parse HEAD)" == "$ZEROTH_REF" ]]
+          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          VERSION=$("$PYTHON" -c \
+            'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
+          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
+            validate-handoff --report evidence/report.json --root evidence/root \
+            --image-archive evidence/image.tar --app-commit "$APP_COMMIT" \
+            --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
+            --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
+      - name: Upload authenticated unprivileged verdict
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-verified-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
+  attest:
+    needs: verify
+    if: ${{ needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -328,33 +347,23 @@ jobs:
           persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-      - name: Download immutable unprivileged handoff
+      - name: Download authenticated unprivileged verdict
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: app-certification-handoff-${{ github.run_id }}
+          name: app-certification-verified-${{ github.run_id }}
           path: evidence
-      - name: Validate handoff without executing candidate code
-        id: validate
-        shell: bash
-        env:
-          APP_COMMIT: ${{ github.sha }}
+      - name: Authenticate verifier verdict before OIDC
+        id: authenticate
         run: |
           set -euo pipefail
           uv sync --directory zeroth --frozen
-          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
-          VERSION=$("$PYTHON" -c \
-            'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
-          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
-            validate-handoff \
-            --report evidence/report.json \
-            --root evidence/root \
-            --image-archive evidence/image.tar \
-            --app-commit "$APP_COMMIT" \
-            --zeroth-version "$VERSION" >> "$GITHUB_OUTPUT"
+          EXPECTED='${{ needs.verify.outputs.verdict_sha256 }}'
+          ACTUAL="sha256:$(sha256sum evidence/verdict.json | cut -d ' ' -f 1)"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+          [[ "$(git -C zeroth rev-parse HEAD)" == '${{ inputs.zeroth_ref }}' ]]
       - name: Extract validated custom predicate
-        shell: bash
         env:
-          PROVENANCE_PATH: ${{ steps.validate.outputs.provenance_path }}
+          PROVENANCE_PATH: ${{ needs.verify.outputs.provenance_path }}
         run: |
           set -euo pipefail
           zeroth/.venv/bin/python -c \
@@ -364,13 +373,12 @@ jobs:
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-name: ${{ steps.validate.outputs.image_reference }}
-          subject-digest: ${{ steps.validate.outputs.image_digest }}
+          subject-name: ${{ needs.verify.outputs.image_reference }}
+          subject-digest: ${{ needs.verify.outputs.image_digest }}
           predicate-type: https://zeroth.dev/app-certification/provenance/v1
           predicate-path: evidence/attestation-predicate.json
       - name: Bind signed provenance into final report
         id: finalize-attestation
-        shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/zeroth
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
@@ -380,15 +388,6 @@ jobs:
             --bundle "$BUNDLE" \
             --report evidence/report.json \
             --root evidence/root
-      - name: Record attestation stage outcome
-        if: ${{ always() }}
-        shell: bash
-        env:
-          VALIDATE: ${{ steps.validate.outcome }}
-          PROVENANCE: ${{ steps.provenance.outcome }}
-          FINALIZE: ${{ steps.finalize-attestation.outcome }}
-        run: |
-          python3 -c 'import json,os,pathlib; pathlib.Path("evidence/attestation-stage.json").write_text(json.dumps({"validate":os.environ["VALIDATE"],"provenance":os.environ["PROVENANCE"],"finalize":os.environ["FINALIZE"]},indent=2,sort_keys=True)+"\n")'
       - name: Upload final signed certification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

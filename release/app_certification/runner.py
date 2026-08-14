@@ -149,6 +149,7 @@ class CertificationRunner:
         http: HttpBoundary | None = None,
         commit_reader: CommitReader = read_git_commit,
         declaration_path: Path | None = None,
+        check_python: Path | None = None,
     ) -> None:
         self.root = root.resolve()
         self.declaration = declaration
@@ -156,6 +157,7 @@ class CertificationRunner:
         self.http = http
         self.commit_reader = commit_reader
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
+        self.check_python = (check_python or Path(sys.executable)).resolve()
 
     def run(self, *, expected_commit: str, image_digest: str) -> CertificationReport:
         identity, identity_error = self._identity(expected_commit, image_digest)
@@ -211,7 +213,7 @@ class CertificationRunner:
 
     def _command(self, name: str) -> CheckResult:
         argv = [
-            sys.executable,
+            str(self.check_python),
             "-m",
             "release.app_certification.checks",
             name,

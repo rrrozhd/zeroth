@@ -12659,6 +12659,7 @@ _CONTRACT_REGISTRY_BINDING_INVENTORY = frozenset(
         "examples/service/seed_deployment.py::main::default_compatibility",
         "apps/vendor_dd/entrypoint.py::contract_registry_for_deployment::scoped",
         "apps/vendor_dd/seed.py::main::scoped",
+        "release/app_certification/checks.py::_registered_validation::scoped",
         "src/zeroth/contracts/registry/registry.py::for_scope::scoped",
         "src/zeroth/service/persistence_isolation_probes.py::_drive_contract_versions::scoped",
         "src/zeroth/service/bootstrap/factory.py::bootstrap_scoped_service::scoped",

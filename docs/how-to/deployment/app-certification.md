@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.1 \
+  --zeroth-version 0.23.9.2 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -48,17 +48,21 @@ itself is not sufficient.
 
 ## Identity, evidence, and privileges
 
-The unprivileged `certify` job runs all app and container code with only
-`contents: read`. It measures the exact app commit and local image digest,
+The `certify` job has only `contents: read`. App dependency hooks and semantic
+imports run as a dedicated local user that can write only its isolated virtual
+environment and frontend copy; the pinned certifier and handoff remain
+runner-owned. The job measures the exact app commit and local image descriptor,
 generates an SPDX SBOM, and writes a canonical report even when preparation,
 build, startup, or health fails.
 
-Only after that job succeeds does the separate `attest` job receive
-`id-token: write`, `attestations: write`, and `artifact-metadata: write`. It
-downloads the immutable handoff, executes only the pinned Zeroth verifier,
-recomputes the report and evidence hashes, proves the Docker archive config
-digest, and then signs the exact image subject. Candidate code is never checked
-out or executed in the privileged job.
+A fresh, unprivileged `verify` job downloads that handoff and uses a clean
+pinned Zeroth checkout to validate its hashes, Docker/OCI descriptor tree,
+config, and layers. It emits a digest-bound verdict that candidate code cannot
+rewrite. Only after verification succeeds does the separate `attest` job
+receive `id-token: write`, `attestations: write`, and
+`artifact-metadata: write`; it authenticates the verdict before signing the
+exact image subject. Candidate code is never checked out or executed in either
+post-certification job.
 
 The final report cross-binds the app commit, exact Zeroth version, image name
 and digest, SPDX subject, signed provenance predicate, and hashes of both
