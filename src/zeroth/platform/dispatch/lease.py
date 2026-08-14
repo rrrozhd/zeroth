@@ -14,7 +14,7 @@ executing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -115,6 +115,46 @@ class FencedRunWriteRejectedError(RuntimeError):
         self.generation = generation
 
 
+@dataclass(frozen=True, slots=True)
+class LeaseClaimResult:
+    """One claim outcome, including concurrency state from the same transaction."""
+
+    run_id: str | None
+    concurrency_saturated: bool
+    active_count: int
+    max_concurrency: int | None
+
+    @property
+    def utilization(self) -> float:
+        """Return bounded active-slot utilization for audit and metrics."""
+        if self.max_concurrency is None:
+            return 0.0
+        return min(1.0, self.active_count / self.max_concurrency)
+
+
+@dataclass(frozen=True, slots=True)
+class _ConcurrencyAvailability:
+    """Shared-capacity snapshot read in the claim transaction."""
+
+    slots: int | None
+    active_count: int
+    max_concurrency: int | None
+
+    @property
+    def saturated(self) -> bool:
+        """Return whether the shared deployment has no execution slot."""
+        return self.slots == 0
+
+    def result(self, run_id: str | None) -> LeaseClaimResult:
+        """Bind one run claim to the capacity snapshot that governed it."""
+        return LeaseClaimResult(
+            run_id=run_id,
+            concurrency_saturated=self.saturated,
+            active_count=self.active_count,
+            max_concurrency=self.max_concurrency,
+        )
+
+
 @dataclass(slots=True)
 class LeaseManager:
     """Manages worker leases on runs stored in an async database.
@@ -126,12 +166,6 @@ class LeaseManager:
 
     database: AsyncDatabase
     lease_duration_seconds: int = 60
-    _last_concurrency_saturated: bool = field(default=False, init=False, repr=False)
-
-    @property
-    def last_claim_saturated(self) -> bool:
-        """Whether the most recent bounded claim found no shared running slot."""
-        return self._last_concurrency_saturated
 
     # ---------------------------------------------------------------------------
     # Backend detection
@@ -183,6 +217,29 @@ class LeaseManager:
             **concurrency,
         )
 
+    async def claim_pending_result(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
+    ) -> LeaseClaimResult:
+        """Claim once and return saturation observed by this exact call."""
+        scope = (
+            {}
+            if tenant_id is None and workspace_id is _UNSCOPED_WORKSPACE
+            else {"tenant_id": tenant_id, "workspace_id": workspace_id}
+        )
+        concurrency = {} if max_concurrency is None else {"max_concurrency": max_concurrency}
+        claim = (
+            self._claim_pending_pg_result
+            if self._is_postgres()
+            else self._claim_pending_sqlite_result
+        )
+        return await claim(deployment_ref, worker_id, **scope, **concurrency)
+
     async def _claim_pending_sqlite(
         self,
         deployment_ref: str,
@@ -192,6 +249,25 @@ class LeaseManager:
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
         max_concurrency: int | None = None,
     ) -> str | None:
+        """Preserve the legacy run-id-only SQLite claim contract."""
+        result = await self._claim_pending_sqlite_result(
+            deployment_ref,
+            worker_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            max_concurrency=max_concurrency,
+        )
+        return result.run_id
+
+    async def _claim_pending_sqlite_result(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
+    ) -> LeaseClaimResult:
         """Claim using a guarded UPDATE ... RETURNING (SQLite).
 
         The previous shape selected a candidate, updated it, then re-read to
@@ -204,18 +280,16 @@ class LeaseManager:
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
-            if (
-                await self._available_concurrency_slots(
-                    conn,
-                    deployment_ref,
-                    now,
-                    tenant_id=tenant_id,
-                    workspace_id=workspace_id,
-                    max_concurrency=max_concurrency,
-                )
-                == 0
-            ):
-                return None
+            availability = await self._available_concurrency_slots(
+                conn,
+                deployment_ref,
+                now,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                max_concurrency=max_concurrency,
+            )
+            if availability.saturated:
+                return availability.result(None)
             row = await conn.fetch_one(
                 f"""
                 SELECT run_id FROM runs
@@ -229,7 +303,7 @@ class LeaseManager:
                 (deployment_ref, *scope_params, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
-                return None
+                return availability.result(None)
             # The generation advances with the claim so a displaced worker's
             # writes can be told apart from the new owner's.
             won = await conn.fetch_one(
@@ -255,7 +329,8 @@ class LeaseManager:
                     now.isoformat(),
                 ),
             )
-        return None if won is None else str(won["run_id"])
+        run_id = None if won is None else str(won["run_id"])
+        return availability.result(run_id)
 
     async def _claim_pending_pg(
         self,
@@ -266,6 +341,25 @@ class LeaseManager:
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
         max_concurrency: int | None = None,
     ) -> str | None:
+        """Preserve the legacy run-id-only PostgreSQL claim contract."""
+        result = await self._claim_pending_pg_result(
+            deployment_ref,
+            worker_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            max_concurrency=max_concurrency,
+        )
+        return result.run_id
+
+    async def _claim_pending_pg_result(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
+    ) -> LeaseClaimResult:
         """Atomic claim using SELECT ... FOR UPDATE SKIP LOCKED (Postgres).
 
         Workers skip rows already being claimed by another worker.
@@ -275,18 +369,16 @@ class LeaseManager:
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
-            if (
-                await self._available_concurrency_slots(
-                    conn,
-                    deployment_ref,
-                    now,
-                    tenant_id=tenant_id,
-                    workspace_id=workspace_id,
-                    max_concurrency=max_concurrency,
-                )
-                == 0
-            ):
-                return None
+            availability = await self._available_concurrency_slots(
+                conn,
+                deployment_ref,
+                now,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                max_concurrency=max_concurrency,
+            )
+            if availability.saturated:
+                return availability.result(None)
             row = await conn.fetch_one(
                 f"""
                 SELECT run_id FROM runs
@@ -301,7 +393,7 @@ class LeaseManager:
                 (deployment_ref, *scope_params, _STATUS_PENDING, now.isoformat()),
             )
             if row is None:
-                return None
+                return availability.result(None)
             run_id = row["run_id"]
             await conn.execute(
                 """
@@ -314,7 +406,7 @@ class LeaseManager:
                 """,
                 (worker_id, now.isoformat(), expires_at.isoformat(), run_id),
             )
-        return run_id
+        return availability.result(str(run_id))
 
     async def _available_concurrency_slots(
         self,
@@ -325,11 +417,10 @@ class LeaseManager:
         tenant_id: str | None,
         workspace_id: str | None | object,
         max_concurrency: int | None,
-    ) -> int | None:
-        """Serialize active leases and return slots; ``None`` means unbounded."""
+    ) -> _ConcurrencyAvailability:
+        """Serialize active leases and return same-transaction utilization."""
         if max_concurrency is None:
-            self._last_concurrency_saturated = False
-            return None
+            return _ConcurrencyAvailability(None, 0, None)
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
         if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
@@ -360,8 +451,7 @@ class LeaseManager:
         )
         active_count = 0 if row is None else int(row["active_count"])
         slots = max(0, max_concurrency - active_count)
-        self._last_concurrency_saturated = slots == 0
-        return slots
+        return _ConcurrencyAvailability(slots, active_count, max_concurrency)
 
     async def claim_orphaned(
         self,
@@ -371,6 +461,7 @@ class LeaseManager:
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
         max_concurrency: int | None = None,
+        claim_limit: int | None = None,
     ) -> list[str]:
         """Claim all RUNNING runs with expired leases for this deployment.
 
@@ -383,7 +474,7 @@ class LeaseManager:
         claimed: list[str] = []
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
-            slots = await self._available_concurrency_slots(
+            availability = await self._available_concurrency_slots(
                 conn,
                 deployment_ref,
                 now,
@@ -391,9 +482,15 @@ class LeaseManager:
                 workspace_id=workspace_id,
                 max_concurrency=max_concurrency,
             )
-            if slots == 0:
+            if claim_limit is not None and claim_limit < 1:
+                raise ValueError("claim_limit must be positive")
+            if availability.saturated:
                 return []
-            limit_sql = "" if slots is None else f" LIMIT {slots}"
+            available = availability.slots
+            limit = claim_limit if available is None else available
+            if claim_limit is not None and available is not None:
+                limit = min(claim_limit, available)
+            limit_sql = "" if limit is None else f" LIMIT {limit}"
             rows = await conn.fetch_all(
                 f"""
                 SELECT run_id FROM runs

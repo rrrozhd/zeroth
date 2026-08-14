@@ -14,7 +14,10 @@ from zeroth.contracts.graph.engine_mode import token_engine_enabled
 from zeroth.contracts.registry import ContractReference
 from zeroth.contracts.registry.errors import ContractNotFoundError
 from zeroth.governance.audit import AuditRepository, NodeAuditRecord
-from zeroth.governance.guardrails.policy import EffectiveGuardrailSettings
+from zeroth.governance.guardrails.policy import (
+    EffectiveGuardrailSettings,
+    configured_guardrails,
+)
 from zeroth.governance.guardrails.rate_limit import guardrail_identity_key
 from zeroth.governance.identity import ActorIdentity
 from zeroth.integrations.persistence.runs import RunRepository
@@ -423,26 +426,18 @@ async def _effective_guardrail_settings(
     bootstrap: RunApiBootstrapLike,
     deployment_ref: str,
 ) -> EffectiveGuardrailSettings | None:
+    """Resolve the same configured baseline and revision chain used by operators."""
     repository = getattr(bootstrap, "guardrail_policy_repository", None)
     if repository is not None:
-        tenant = await repository.current("tenant")
-        deployment = await repository.current("deployment", deployment_ref=deployment_ref)
-        if tenant is not None or deployment is not None:
-            return await repository.effective(deployment_ref)
+        return await repository.effective(deployment_ref)
     config = getattr(bootstrap, "guardrail_config", None)
     if config is None:
         return None
-    return EffectiveGuardrailSettings(
-        rate_limit_capacity=config.rate_limit_capacity,
-        rate_limit_refill_rate=config.rate_limit_refill_rate,
-        rate_limit_burst=getattr(config, "rate_limit_burst", 0),
-        quota_daily_limit=config.quota_daily_limit,
-        backpressure_queue_depth=config.backpressure_queue_depth,
-        max_concurrency=getattr(config, "max_concurrency", 8),
-    )
+    return configured_guardrails(config)
 
 
 def _guardrail_http_error(exc: GuardrailAdmissionRejectedError) -> HTTPException:
+    """Map bounded rejection reasons to their status and time-based retry hint."""
     details = {
         "queue": "queue capacity exceeded",
         "rate": "rate limit exceeded",

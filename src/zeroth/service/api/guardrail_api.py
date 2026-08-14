@@ -12,6 +12,8 @@ from zeroth.governance.guardrails.policy import (
     GuardrailPolicyRevision,
     PolicyScope,
 )
+from zeroth.governance.identity import AuthenticatedPrincipal
+from zeroth.service.api.authentication import record_service_denial
 from zeroth.service.api.authorization import Permission, require_permission
 
 
@@ -30,7 +32,7 @@ def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
 
     @app.get("/guardrails", response_model=GuardrailPolicyResponse)
     async def get_tenant_guardrails(request: Request) -> GuardrailPolicyResponse:
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        await _require_tenant_authority(request)
         bootstrap = request.app.state.bootstrap
         return await _response(bootstrap, bootstrap.deployment.deployment_ref)
 
@@ -39,14 +41,14 @@ def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
         request: Request,
         body: GuardrailPolicyPatch,
     ) -> GuardrailPolicyResponse:
-        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
+        principal = await _require_tenant_authority(request)
         bootstrap = request.app.state.bootstrap
         await _append(bootstrap, "tenant", body, principal.subject)
         return await _response(bootstrap, bootstrap.deployment.deployment_ref)
 
     @app.get("/guardrails/history", response_model=list[GuardrailPolicyRevision])
     async def get_guardrail_history(request: Request) -> list[GuardrailPolicyRevision]:
-        await require_permission(request, Permission.DEPLOYMENT_READ)
+        await _require_tenant_authority(request)
         return await _repository(request).history()
 
     @app.get(
@@ -91,6 +93,32 @@ def _repository(request: Request) -> GuardrailPolicyRepository:
     if not isinstance(repository, GuardrailPolicyRepository):
         raise HTTPException(status_code=503, detail="guardrail policy storage unavailable")
     return repository
+
+
+async def _require_tenant_authority(request: Request) -> AuthenticatedPrincipal:
+    """Require unscoped authority for the deployment's whole tenant."""
+    principal = await require_permission(
+        request,
+        Permission.GUARDRAIL_TENANT_ADMIN,
+        enforce_deployment_scope=False,
+    )
+    bootstrap = request.app.state.bootstrap
+    deployment = bootstrap.deployment
+    if principal.tenant_id == deployment.tenant_id and principal.workspace_id is None:
+        return principal
+    await record_service_denial(
+        audit_repository=getattr(bootstrap, "audit_repository", None),
+        deployment=deployment,
+        request=request,
+        node_id="service.authorization",
+        status="forbidden",
+        error="tenant-wide guardrail scope mismatch",
+        actor=principal.to_actor(),
+        metadata={"permission": Permission.GUARDRAIL_TENANT_ADMIN.value},
+    )
+    if principal.tenant_id != deployment.tenant_id:
+        raise HTTPException(status_code=404, detail="deployment not found")
+    raise HTTPException(status_code=403, detail="forbidden")
 
 
 async def _require_deployment(bootstrap, deployment_ref: str, principal) -> None:

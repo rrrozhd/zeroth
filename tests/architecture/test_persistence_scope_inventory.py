@@ -4400,6 +4400,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/runtime/orchestration/parallel_executor.py::branch_coro_factory::write",
     "src/zeroth/runtime/orchestration/parallel_executor.py::execute_fan_out_resume::write",
     "src/zeroth/runtime/orchestration/run_worker.py::_record_worker_audit::write",
+    "src/zeroth/runtime/orchestration/run_worker.py::_write_concurrency_audit::write",
     "src/zeroth/service/api/audit_api.py::_verify_run_chain::list_by_run",
     "src/zeroth/service/api/audit_api.py::get_deployment_evidence::list_by_deployment",
     "src/zeroth/service/api/audit_api.py::get_deployment_timeline::list_by_deployment",

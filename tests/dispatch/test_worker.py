@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
-from zeroth.platform.dispatch.lease import LeaseManager
+from zeroth.platform.observability.metrics import MetricsCollector
+from zeroth.platform.dispatch.lease import LeaseClaimResult, LeaseManager
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
 from zeroth.runtime.orchestration.run_worker import RunWorker
 from zeroth.integrations.persistence.runs import RunRepository
@@ -106,8 +107,12 @@ async def test_worker_refreshes_shared_concurrency_and_keeps_static_local_ceilin
         ),
     )
     shared_lease_manager = SimpleNamespace(
-        claim_pending=AsyncMock(return_value=None),
-        last_claim_saturated=False,
+        claim_pending_result=AsyncMock(
+            side_effect=[
+                SimpleNamespace(run_id=None, concurrency_saturated=False),
+                SimpleNamespace(run_id=None, concurrency_saturated=False),
+            ]
+        ),
     )
     worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -123,13 +128,15 @@ async def test_worker_refreshes_shared_concurrency_and_keeps_static_local_ceilin
     await worker._claim_pending()
 
     assert [
-        call.kwargs["max_concurrency"] for call in shared_lease_manager.claim_pending.call_args_list
+        call.kwargs["max_concurrency"]
+        for call in shared_lease_manager.claim_pending_result.call_args_list
     ] == [2, 5]
     assert worker._semaphore._value == 8
 
     static_lease_manager = SimpleNamespace(
-        claim_pending=AsyncMock(return_value=None),
-        last_claim_saturated=False,
+        claim_pending_result=AsyncMock(
+            return_value=SimpleNamespace(run_id=None, concurrency_saturated=False)
+        ),
     )
     static_worker = RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -140,8 +147,68 @@ async def test_worker_refreshes_shared_concurrency_and_keeps_static_local_ceilin
         max_concurrency=3,
     )
     await static_worker._claim_pending()
-    assert static_lease_manager.claim_pending.call_args.kwargs["max_concurrency"] is None
+    assert static_lease_manager.claim_pending_result.call_args.kwargs["max_concurrency"] is None
     assert static_worker._semaphore._value == 3
+
+
+async def test_interleaved_poll_and_wakeup_keep_saturation_per_claim() -> None:
+    first_ready = asyncio.Event()
+    second_done = asyncio.Event()
+
+    class _InterleavedClaims:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.last_claim_saturated = False
+
+        async def _result(self):
+            self.calls += 1
+            if self.calls == 1:
+                self.last_claim_saturated = True
+                first_ready.set()
+                await second_done.wait()
+                return LeaseClaimResult(
+                    run_id=None,
+                    concurrency_saturated=True,
+                    active_count=1,
+                    max_concurrency=1,
+                )
+            await first_ready.wait()
+            self.last_claim_saturated = False
+            second_done.set()
+            return LeaseClaimResult(
+                run_id="run-from-wakeup",
+                concurrency_saturated=False,
+                active_count=0,
+                max_concurrency=1,
+            )
+
+        async def claim_pending(self, *args, **kwargs):
+            del args, kwargs
+            return (await self._result()).run_id
+
+        async def claim_pending_result(self, *args, **kwargs):
+            del args, kwargs
+            return await self._result()
+
+    metrics = MetricsCollector()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=_InterleavedClaims(),  # type: ignore[arg-type]
+        metrics_collector=metrics,
+    )
+
+    poll = asyncio.create_task(worker._claim_pending(), name="poll-claim")
+    await first_ready.wait()
+    wakeup = asyncio.create_task(worker._claim_pending(), name="wakeup-claim")
+    assert await asyncio.gather(poll, wakeup) == [None, "run-from-wakeup"]
+
+    assert (
+        metrics.snapshot()["counters"]['zeroth_guardrail_rejections_total{reason="concurrency"}']
+        == 1
+    )
 
 
 async def _worker_tick(worker: RunWorker) -> None:

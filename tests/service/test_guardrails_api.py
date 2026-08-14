@@ -13,6 +13,7 @@ from tests.service.helpers import (
     deploy_service,
     operator_headers,
 )
+from zeroth.governance.guardrails.policy import GuardrailPolicyPatch
 from zeroth.service.bootstrap import bootstrap_app
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.governance.identity import ActorIdentity, AuthMethod
@@ -23,14 +24,26 @@ from zeroth.service.api.run_api import _check_guardrails
 DEPLOYMENT = "guardrail-test"
 
 
+async def _set_deployment_policy(service, **values: object) -> None:
+    await service.guardrail_policy_repository.append(
+        scope="deployment",
+        deployment_ref=service.deployment.deployment_ref,
+        policy=GuardrailPolicyPatch.model_validate(values),
+        changed_by="test-admin",
+    )
+
+
 async def test_rate_limit_rejection_returns_429_with_retry_after(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-ratelimit"),
         deployment_ref=DEPLOYMENT,
     )
-    # Use a tiny capacity so it exhausts immediately.
-    service.guardrail_config.rate_limit_capacity = 1.0
+    await _set_deployment_policy(
+        service,
+        rate_limit_capacity=1.0,
+        rate_limit_refill_rate=0.001,
+    )
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
@@ -59,17 +72,17 @@ async def test_queue_rejection_returns_503_with_retry_after(sqlite_db) -> None:
         agent_graph(graph_id="graph-backpressure"),
         deployment_ref=DEPLOYMENT + "-bp",
     )
-    # Set depth limit to 1 — any run already in the queue triggers backpressure.
-    service.guardrail_config.backpressure_queue_depth = 1
+    await _set_deployment_policy(
+        service,
+        backpressure_queue_depth=1,
+        rate_limit_capacity=1000.0,
+    )
     service.worker = None
 
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
 
     with TestClient(app) as client:
-        # Pause the worker so runs pile up — use a very large rate limit capacity.
-        service.guardrail_config.rate_limit_capacity = 1000.0
-
         # First run is created (queue depth 0 → 1, within limit since limit is 1 not 0).
         r1 = client.post(
             "/runs",
@@ -94,7 +107,11 @@ async def test_quota_rejection_returns_503_with_retry_after(sqlite_db) -> None:
         agent_graph(graph_id="graph-quota"),
         deployment_ref=DEPLOYMENT + "-quota",
     )
-    service.guardrail_config.quota_daily_limit = 1
+    await _set_deployment_policy(
+        service,
+        quota_daily_limit=1,
+        rate_limit_capacity=100,
+    )
 
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service

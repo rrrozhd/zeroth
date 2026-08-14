@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -80,15 +81,28 @@ class GuardrailPolicyRevision(BaseModel):
 
 def effective_guardrails(
     *,
+    baseline: EffectiveGuardrailSettings | None = None,
     tenant: GuardrailPolicyPatch | None = None,
     deployment: GuardrailPolicyPatch | None = None,
 ) -> EffectiveGuardrailSettings:
     """Compose fields in deployment > tenant > product-default order."""
-    values = EffectiveGuardrailSettings().model_dump()
+    values = (baseline or EffectiveGuardrailSettings()).model_dump()
     for patch in (tenant, deployment):
         if patch is not None:
             values.update(patch.supplied_values())
     return EffectiveGuardrailSettings.model_validate(values)
+
+
+def configured_guardrails(config: GuardrailConfig) -> EffectiveGuardrailSettings:
+    """Convert deployment bootstrap configuration into the shared policy baseline."""
+    return EffectiveGuardrailSettings(
+        rate_limit_capacity=config.rate_limit_capacity,
+        rate_limit_refill_rate=config.rate_limit_refill_rate,
+        rate_limit_burst=getattr(config, "rate_limit_burst", 0),
+        quota_daily_limit=config.quota_daily_limit,
+        backpressure_queue_depth=config.backpressure_queue_depth,
+        max_concurrency=getattr(config, "max_concurrency", 8),
+    )
 
 
 @persistence_surface(
@@ -98,26 +112,42 @@ def effective_guardrails(
 class GuardrailPolicyRepository:
     """Append-only policy history structurally bound to one trusted tenant."""
 
-    def __init__(self, database: AsyncDatabase) -> None:
-        self._bind(database, NullWorkspaceScopeContext.for_default_compatibility())
+    def __init__(
+        self,
+        database: AsyncDatabase,
+        *,
+        baseline: EffectiveGuardrailSettings | None = None,
+    ) -> None:
+        self._bind(
+            database,
+            NullWorkspaceScopeContext.for_default_compatibility(),
+            baseline=baseline,
+        )
 
     @classmethod
     def scoped(
         cls,
         database: AsyncDatabase,
         scope_context: NullWorkspaceScopeContext,
+        *,
+        baseline: EffectiveGuardrailSettings | None = None,
     ) -> GuardrailPolicyRepository:
+        """Bind append-only policy history to one trusted tenant-wide scope."""
         if type(scope_context) is not NullWorkspaceScopeContext:
             raise TypeError("scope_context must be a NullWorkspaceScopeContext")
         repository = cls.__new__(cls)
-        repository._bind(database, scope_context)
+        repository._bind(database, scope_context, baseline=baseline)
         return repository
 
     def _bind(
         self,
         database: AsyncDatabase,
         scope_context: NullWorkspaceScopeContext,
+        *,
+        baseline: EffectiveGuardrailSettings | None,
     ) -> None:
+        """Install the scoped table and shared configured composition baseline."""
+        self._baseline = baseline or EffectiveGuardrailSettings()
         self._revisions = ScopedTable(
             database,
             SERVICE_SCOPE_REGISTRY,
@@ -178,15 +208,19 @@ class GuardrailPolicyRepository:
 
     @persistence_operation(ResourceOperation.READ)
     async def effective(self, deployment_ref: str) -> EffectiveGuardrailSettings:
-        """Resolve product defaults with the latest tenant and deployment revisions."""
+        """Fold immutable partial revisions over the configured baseline."""
         if not deployment_ref.strip():
             raise ValueError("deployment_ref must be non-empty")
-        tenant = await self._latest("tenant", "")
-        deployment = await self._latest("deployment", deployment_ref)
-        return effective_guardrails(
-            tenant=None if tenant is None else tenant.policy,
-            deployment=None if deployment is None else deployment.policy,
-        )
+        revisions = await self.history()
+        values = self._baseline.model_dump()
+        for scope in ("tenant", "deployment"):
+            for revision in revisions:
+                if revision.scope != scope:
+                    continue
+                if scope == "deployment" and revision.deployment_ref != deployment_ref:
+                    continue
+                values.update(revision.policy.supplied_values())
+        return EffectiveGuardrailSettings.model_validate(values)
 
     @persistence_operation(ResourceOperation.READ)
     async def current(

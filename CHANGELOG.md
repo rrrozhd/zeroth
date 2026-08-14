@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1] - 2026-08-14
+
+### Fixed
+
+- Require explicit unscoped tenant authority for tenant-wide guardrail policy
+  and history while preserving workspace-bound deployment administration.
+- Compose API admission and worker concurrency from the same configured
+  baseline, retaining every field across sequential partial revisions.
+- Reserve local recovery capacity before claiming orphans, fence expired or
+  reclaimed leases before execution, and keep saturation outcomes per claim.
+- Persist bounded, deduplicated, scope-isolated concurrency saturation evidence
+  with effective utilization, and use a time-based queue retry interval.
+
 ## [0.23.8] - 2026-08-14
 
 ### Added

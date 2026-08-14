@@ -17,7 +17,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from math import ceil
 from typing import Any
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
@@ -106,6 +105,10 @@ _UNSCOPED_WORKSPACE = object()
 
 # A02-12: defensive ceiling for list_runs, independent of any route-level bound.
 _LIST_RUNS_MAX_LIMIT = 1000
+# Queue depth has no completion-rate signal, so it must not translate a count
+# of excess batches into seconds. One second is the explicit control-plane
+# recheck interval; rate and quota decisions retain their state-derived waits.
+_QUEUE_RETRY_INTERVAL_SECONDS = 1
 
 
 class GuardrailAdmissionRejectedError(RuntimeError):
@@ -440,11 +443,9 @@ class _RunThreadStore:
             where={"deployment_ref": run.deployment_ref, "status": RunStatus.PENDING.value}
         )
         if pending >= settings.backpressure_queue_depth:
-            excess = pending - settings.backpressure_queue_depth + 1
-            retry = ceil(excess / settings.max_concurrency)
             raise GuardrailAdmissionRejectedError(
                 "queue",
-                retry_after_seconds=retry,
+                retry_after_seconds=_QUEUE_RETRY_INTERVAL_SECONDS,
                 utilization=pending / settings.backpressure_queue_depth,
             )
         rate = await rate_limiter._decide_bound(  # noqa: SLF001 - shared transaction seam
