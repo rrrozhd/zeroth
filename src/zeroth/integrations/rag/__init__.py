@@ -8,6 +8,7 @@ memory connector for later retrieval.
 from zeroth.integrations.rag.ingestion import (
     IngestionCursor,
     IngestionReport,
+    IngestionRolledBackError,
     PartialIngestionError,
     SourceDocument,
     chunk_text,
@@ -17,6 +18,7 @@ from zeroth.integrations.rag.ingestion import (
 __all__ = [
     "IngestionCursor",
     "IngestionReport",
+    "IngestionRolledBackError",
     "PartialIngestionError",
     "SourceDocument",
     "chunk_text",

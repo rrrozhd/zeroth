@@ -13,13 +13,40 @@ from __future__ import annotations
 import hashlib
 import inspect
 import itertools
-import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from zeroth.contracts.graph import ExecutableUnitNode, Graph, Node, OperationIdentity
+from zeroth.runtime.agents.tooling.tool_calls import (
+    SYNTHETIC_CALL_ID_PREFIX,
+    canonical_json,
+)
 from zeroth.runtime.orchestration.errors import NodeDispatcherError
+
+
+def _key_component(value: str) -> str:
+    """Escape one part of the key material so the joined string cannot be re-cut.
+
+    The operation key is derived from ``#``-joined parts, and two of them are
+    authored elsewhere: a graph's ``manifest_ref`` and a provider's tool-call
+    id. Raw concatenation let either move the boundary. A ref reading
+    ``unit://x#branch:B`` dispatched *outside* a fan-out produced the very
+    string ``unit://x`` produces inside branch ``B`` (``NodeDispatcher`` appends
+    ``#branch:<id>`` to this result), so two unrelated operations shared one
+    durable record -- and the same trick re-cut the ref/call-id boundary.
+
+    Escaping ``%`` before ``#`` keeps the mapping injective. A component
+    containing neither character -- every ordinary ref, id and digest -- is
+    returned unchanged, so this closes the alias without re-keying a single
+    in-flight operation.
+    """
+    return value.replace("%", "%25").replace("#", "%23")
+
+
+def _joined_ref(*parts: str) -> str:
+    """Join key-material parts under an unambiguous separator."""
+    return "#".join(_key_component(part) for part in parts)
 
 
 def _supported_kwargs(parameters: Mapping[str, Any], **candidates: Any) -> dict[str, Any]:
@@ -165,14 +192,27 @@ class RuntimeToolExecutor:
             # which is exactly when suppression is correct. The counter is key
             # material only for executors that pass no id, and it is not
             # consumed otherwise, so mixed streams stay stable.
-            if tool_call_id:
-                args_digest = hashlib.sha256(
-                    json.dumps(payload, sort_keys=True, default=str).encode()
-                ).hexdigest()[:16]
-                keyed_ref = f"{target_ref}#{tool_call_id}#{args_digest}"
+            #
+            # A SYNTHETIC id is not such an id. When the provider names no call,
+            # the extraction site mints a name from the call's own content --
+            # which is stable under replay, and therefore identical for the
+            # agent's second turn requesting the same tool with the same
+            # arguments. Trusting it here read that second, real request as a
+            # replay of the first: the guard returned the first call's stored
+            # output and the effect never ran. A content name cannot carry
+            # occurrence, so it is only pairing material, and the discriminator
+            # falls back to the counter -- which is exactly the right scope,
+            # since ``build`` runs once per node dispatch and a replayed
+            # dispatch re-runs the agent's turns from the first one.
+            provider_issued = bool(tool_call_id) and not tool_call_id.startswith(
+                SYNTHETIC_CALL_ID_PREFIX
+            )
+            if provider_issued:
+                args_digest = hashlib.sha256(canonical_json(payload).encode()).hexdigest()[:16]
+                keyed_ref = _joined_ref(target_ref, str(tool_call_id), args_digest)
                 ordinal = 0
             else:
-                keyed_ref = target_ref
+                keyed_ref = _joined_ref(target_ref)
                 ordinal = next(call_ordinal)
             identity = (
                 None

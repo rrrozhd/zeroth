@@ -8,6 +8,8 @@ Create Date: 2026-08-12
 from __future__ import annotations
 
 import sqlalchemy as sa
+
+from zeroth.econ.plane._migrations.errors import DuplicateOutcomeIdentity
 from alembic import op
 
 revision = "20260812_07"
@@ -20,6 +22,7 @@ _INDEX = "uq_outcome_events_tenant_identity"
 _IDENTITY_COLUMNS = ("tenant_id", "join_key", "outcome_type", "occurred_at")
 _IMPLEMENTATION_COLUMN = "implementation_id"
 _IMPLEMENTATION_EXPRESSION = "coalesce(implementation_id, '')"
+_MAX_REPORTED_COLLISIONS = 20
 
 
 def migration_plan(dialect_name: str) -> dict[str, object]:
@@ -83,11 +86,17 @@ def _preflight_duplicate_identities() -> None:
     ).all()
     if not collisions:
         return
+    # The count is exact; only the listing is capped.  A database that collides
+    # on thousands of identities would otherwise put every one of them into a
+    # single exception message -- and, offline, into the operator's terminal.
+    reported = collisions[:_MAX_REPORTED_COLLISIONS]
     details = ", ".join(
         f"{tenant_id}/{join_key}/{outcome_type} ({row_count} rows)"
-        for tenant_id, join_key, outcome_type, row_count in collisions
+        for tenant_id, join_key, outcome_type, row_count in reported
     )
-    raise RuntimeError(
+    if len(collisions) > len(reported):
+        details += f", ... ({len(collisions) - len(reported)} more)"
+    raise DuplicateOutcomeIdentity(
         "cannot make outcome identity unique: "
         f"{len(collisions)} duplicate outcome identit(ies): {details}"
     )
