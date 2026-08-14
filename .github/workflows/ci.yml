@@ -1,12 +1,27 @@
 name: CI
 
 on:
+  # Branch pushes are covered by the pull_request trigger. Running both meant a
+  # branch with an open PR executed the whole suite twice per push, for one
+  # commit, on two runners -- half of every CI minute spent re-proving the same
+  # thing.
   push:
+    branches: [main]
   pull_request:
 
+# A superseded run has nothing left to prove: the commit it is testing is no
+# longer the head of its ref. Cancelling frees the runner for the push that
+# replaced it, and stops an unresponsive job from holding a slot for GitHub's
+# six-hour default.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  lint:
     runs-on: ubuntu-latest
+    # Nothing here is slow; a bound this loose only catches a hang.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -21,23 +36,88 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          # Dependency resolution, not test execution, is what every job here
+          # spends most of its wall clock on, and sharding multiplies that cost
+          # by the shard count rather than dividing it.
+          enable-cache: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Run repo checks
+      - name: Run lint and docstring coverage
         run: |
           uv sync --all-groups --all-extras
           uv run ruff check src tests
-          uv run pytest -v --no-header -ra
           uv run interrogate src/zeroth
+
+  test:
+    # The shard index is in the job name so a failure names the shard to rerun.
+    name: test (shard ${{ matrix.group }}/4)
+    runs-on: ubuntu-latest
+    # The whole suite ran in ~11 minutes before sharding, so a shard that has
+    # not finished in 30 is not slow, it is stuck -- and a stuck job otherwise
+    # burns GitHub's six-hour default. Twice observed on 2026-08-14: one run on
+    # main and one on a PR each sat in `pytest` for over two hours while the
+    # identical commit passed elsewhere in 17 minutes.
+    timeout-minutes: 30
+
+    strategy:
+      # One shard failing must not cancel the others: the remaining shards are
+      # where the rest of the evidence is, and a flaky or hung shard would
+      # otherwise hide every real failure behind it.
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Same reason as the lint job: tests that reason over git objects read
+          # history, and at depth 1 they skip rather than fail.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # pytest-split partitions the collected tests into disjoint groups whose
+      # union is the whole suite, so the four shards together make exactly the
+      # claim the single job used to make. Sharding is across runners rather
+      # than across processes on one runner deliberately: the suite contains a
+      # latency gate (tests/langgraph_release/test_benchmark.py) asserting p95
+      # overheads under 15ms and a throughput floor, and it fails under the CPU
+      # contention that in-process parallelism creates. Measured with
+      # `pytest -n auto --dist loadfile`: 5m33s against 7m30s serial -- a 26%
+      # gain that also broke that gate. Separate runners cost nothing in
+      # contention and cut wall clock by the shard count.
+      #
+      # --timeout makes a hung test fail with a traceback naming it instead of
+      # freezing the job silently; the `thread` method is required because the
+      # `signal` default cannot interrupt code blocked in a C extension or in
+      # subprocess.run, which is the shape of the slowest tests here. 300s is
+      # ~13x the slowest observed test (22.5s).
+      - name: Run the suite (shard ${{ matrix.group }} of 4)
+        run: |
+          uv sync --all-groups --all-extras
+          uv run pytest -v --no-header -ra \
+            --splits 4 --group ${{ matrix.group }} \
+            --timeout=300 --timeout-method=thread
 
   security-regression:
     name: Security regression — PR-critical
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout

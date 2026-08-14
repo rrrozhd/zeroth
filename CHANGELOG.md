@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9] - 2026-08-14
+
+### Changed
+
+- CI runs the suite as four sharded jobs instead of one. The shards are disjoint and their union is
+  the whole tree, so together they make the same claim the single job did, and wall clock drops to
+  the slowest shard. Sharding is across runners rather than processes on one runner because the
+  suite contains a latency gate whose p95 thresholds fail under the CPU contention that in-process
+  parallelism creates.
+- A branch push no longer runs the whole suite twice. `push` is limited to `main`; branches are
+  covered by the `pull_request` trigger, which was already running everything a second time for the
+  same commit.
+- Superseded CI runs cancel instead of accumulating, via a per-ref concurrency group.
+
+### Fixed
+
+- A hung test now fails with a traceback naming it, instead of holding a job until GitHub's
+  six-hour default. Every CI job carries a `timeout-minutes` bound and the suite runs under
+  `pytest-timeout`. Observed twice on 2026-08-14: one run on `main` and one on a pull request each
+  sat in `pytest` for over two hours, producing no log, while the identical commit passed elsewhere
+  in seventeen minutes.
+
 ## [0.23.8.1] - 2026-08-13
 
 ### Fixed
