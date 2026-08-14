@@ -20,7 +20,9 @@ stands on its own.
 * The one ``InterruptManager`` built in ``src`` (``admin_api``) is per-request
   with the default in-memory store, and is used only for pause/resume/cancel --
   all three delegate to the token lifecycle adapter and never touch
-  ``self.store``. That store is empty for its whole lifetime.
+  ``self.store``. That store is empty for its whole lifetime, and the third pin
+  below keeps it that way: ``admin_api`` is an allowed importer, so a writer
+  appearing *inside* it is the one path the other two pins cannot see.
 * The live human-in-the-loop path is a different subsystem entirely:
   ``zeroth.governance.approvals`` plus the LangGraph ``_approval_lifecycle``.
   Neither imports this module.
@@ -82,9 +84,21 @@ ALLOWED_IMPORTERS = {
 
 STORE_FACTORY = "build_governai_redis_runtime"
 
+MANAGER = "InterruptManager"
+
 
 def _module_paths() -> list[Path]:
     return sorted(ROOT.rglob("*.py"))
+
+
+def _called_name(node: ast.Call) -> str | None:
+    """The bare callable name behind a call, ignoring how it was qualified."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
 
 def _imports_interrupts(tree: ast.AST) -> bool:
@@ -139,17 +153,7 @@ def test_the_redis_interrupt_store_is_never_constructed() -> None:
     for path in _module_paths():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            name = (
-                func.id
-                if isinstance(func, ast.Name)
-                else func.attr
-                if isinstance(func, ast.Attribute)
-                else None
-            )
-            if name == STORE_FACTORY:
+            if isinstance(node, ast.Call) and _called_name(node) == STORE_FACTORY:
                 callers.append(f"{path.relative_to(ROOT)}:{node.lineno}")
 
     assert not callers, (
@@ -157,4 +161,34 @@ def test_the_redis_interrupt_store_is_never_constructed() -> None:
         + ", ".join(callers)
         + " -- a Redis interrupt keyspace now exists, so its expiry sweep needs a "
         "schedule; this module's docstring carries the wiring and the reasoning"
+    )
+
+
+def test_the_interrupt_manager_is_never_given_a_store() -> None:
+    """Every ``src`` ``InterruptManager`` keeps its default in-memory store.
+
+    The other two pins watch for a *new* module reaching the surface. This one
+    watches the module already holding an ``InterruptManager`` -- ``admin_api``,
+    an allowed importer, and so the likeliest place a writer appears without
+    tripping anything else. Passing ``store=`` is what would bind one to durable
+    storage and give the expiry sweep a real keyspace.
+
+    Persisting through the default in-memory store would still not survive the
+    request that created it, so this pin plus the importer pin together cover
+    the ways the surface can start writing something a sweep would need to reap.
+    """
+    bound: list[str] = []
+    for path in _module_paths():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != MANAGER:
+                continue
+            if any(keyword.arg == "store" for keyword in node.keywords):
+                bound.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+
+    assert not bound, (
+        f"{MANAGER} is now constructed with an explicit store: "
+        + ", ".join(bound)
+        + " -- interrupts may now be persisted, so their expiry needs a schedule; "
+        "this module's docstring carries the wiring and the reasoning"
     )

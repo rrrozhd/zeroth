@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1.3] - 2026-08-13
+
+### Changed
+
+- Closed the blind spot in the interrupt dormancy pins: they watched for a new module reaching the
+  surface, but not for a writer appearing inside `admin_api`, which already holds an
+  `InterruptManager` and so tripped nothing. Constructing one with an explicit `store` now fails the
+  pin (ZER-49 follow-up).
+
 ## [0.23.8.1.2] - 2026-08-13
 
 ### Fixed
