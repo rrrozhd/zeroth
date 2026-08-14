@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .evidence import validate_evidence_subject
 from .models import (
     MANDATORY_CHECKS,
     AppDeclaration,
@@ -20,6 +23,8 @@ from .models import (
     EvidenceBinding,
     EvidenceFile,
     SmokeSpec,
+    file_digest,
+    identity_digest,
 )
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -49,16 +54,24 @@ CommitReader = Callable[[Path], str]
 
 
 def execute_command(argv: list[str], cwd: Path) -> CommandResult:
-    """Execute an argv array directly, never through an ambient shell."""
-    completed = subprocess.run(
+    """Execute one certifier-owned argv with a bounded process lifetime."""
+    process = subprocess.Popen(
         argv,
         cwd=cwd,
-        check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         shell=False,
+        start_new_session=True,
     )
-    return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+    try:
+        stdout, stderr = process.communicate(timeout=180)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        stdout, stderr = process.communicate()
+        detail = stderr or "certifier-owned check timed out after 180s"
+        return CommandResult(124, stdout, detail)
+    return CommandResult(process.returncode, stdout, stderr)
 
 
 def read_git_commit(root: Path) -> str:
@@ -101,12 +114,6 @@ def measure_candidate_identity(
     )
 
 
-def identity_digest(identity: CandidateIdentity) -> str:
-    """Return the canonical digest representing a measured candidate."""
-    payload = json.dumps(identity.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
-
-
 def _subset_error(expected: Any, actual: Any, path: str = "$") -> str | None:
     if isinstance(expected, dict):
         if not isinstance(actual, dict):
@@ -141,19 +148,21 @@ class CertificationRunner:
         executor: Executor = execute_command,
         http: HttpBoundary | None = None,
         commit_reader: CommitReader = read_git_commit,
+        declaration_path: Path | None = None,
     ) -> None:
         self.root = root.resolve()
         self.declaration = declaration
         self.executor = executor
         self.http = http
         self.commit_reader = commit_reader
+        self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
 
     def run(self, *, expected_commit: str, image_digest: str) -> CertificationReport:
         identity, identity_error = self._identity(expected_commit, image_digest)
         checks: list[CheckResult] = []
         evidence: dict[str, EvidenceFile] = {}
         for name in MANDATORY_CHECKS:
-            result, record = self._run_check(name, identity_error)
+            result, record = self._run_check(name, identity, identity_error)
             checks.append(result)
             if record is not None:
                 evidence[name] = record
@@ -182,26 +191,35 @@ class CertificationRunner:
         return identity, None
 
     def _run_check(
-        self, name: str, identity_error: str | None
+        self,
+        name: str,
+        identity: CandidateIdentity | None,
+        identity_error: str | None,
     ) -> tuple[CheckResult, EvidenceFile | None]:
-        if name == "dependency-lock":
-            error = self._file_error(self.declaration.lock_path, "dependency lock")
-            if error:
-                return self._failed(name, error), None
-        command = self._command(name)
-        if command.status == "failed":
-            return command, None
         if name in {"packaged-smoke", "ephemeral-smoke"}:
             return self._smoke(name), None
         if name in {"sbom", "provenance"}:
             if identity_error:
                 return self._failed(name, f"candidate identity invalid: {identity_error}"), None
             path = getattr(self.declaration, f"{name}_path")
-            return self._evidence(name, path)
-        return command, None
+            evidence = self._evidence(name, path, identity)
+            if isinstance(evidence, CheckResult):
+                return evidence, None
+            result = CheckResult(name=name, status="passed", detail=f"{name} evidence retained")
+            return result, evidence
+        return self._command(name), None
 
     def _command(self, name: str) -> CheckResult:
-        argv = list(self.declaration.checks[name])
+        argv = [
+            sys.executable,
+            "-m",
+            "release.app_certification.checks",
+            name,
+            "--root",
+            str(self.root),
+            "--declaration",
+            str(self.declaration_path),
+        ]
         try:
             result = self.executor(argv, self.root)
         except Exception as error:  # noqa: BLE001 - command faults are named check failures
@@ -210,7 +228,7 @@ class CertificationRunner:
             return self._failed(name, "argv executor returned no CommandResult")
         if result.returncode:
             return self._failed(name, f"argv exited {result.returncode}: {_output_tail(result)}")
-        return CheckResult(name=name, status="passed", detail=f"{name} argv completed")
+        return CheckResult(name=name, status="passed", detail=f"{name} semantic check completed")
 
     def _smoke(self, name: str) -> CheckResult:
         if self.http is None:
@@ -227,9 +245,7 @@ class CertificationRunner:
                 )
             error = _subset_error(self.declaration.smoke.expected_json, response.json_body)
         except Exception as failure:  # noqa: BLE001 - malformed results must remain reportable
-            return self._failed(
-                name, f"malformed HTTP result: {type(failure).__name__}: {failure}"
-            )
+            return self._failed(name, f"malformed HTTP result: {type(failure).__name__}: {failure}")
         if error:
             return self._failed(name, f"JSON subset mismatch: {error}")
         return CheckResult(name=name, status="passed", detail=f"{name} HTTP assertions passed")
@@ -255,17 +271,23 @@ class CertificationRunner:
             return str(error)
         return None
 
-    def _evidence(self, name: str, relative: str) -> tuple[CheckResult, EvidenceFile | None]:
+    def _evidence(
+        self,
+        name: str,
+        relative: str,
+        identity: CandidateIdentity | None,
+    ) -> EvidenceFile | CheckResult:
         error = self._file_error(relative, name)
         if error:
-            return self._failed(name, error), None
+            return self._failed(name, error)
         try:
-            payload = self._resolve(relative).read_bytes()
-        except OSError as error:
-            return self._failed(name, f"{name} {relative!r} is unreadable: {error}"), None
-        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-        record = EvidenceFile(path=relative, sha256=digest)
-        return CheckResult(name=name, status="passed", detail=f"{name} evidence retained"), record
+            path = self._resolve(relative)
+            if identity is None:
+                raise ValueError("candidate identity is unavailable")
+            validate_evidence_subject(name, path, identity)
+            return EvidenceFile(path=relative, sha256=file_digest(path))
+        except (OSError, ValueError) as error:
+            return self._failed(name, f"{name} evidence is invalid: {error}")
 
     @staticmethod
     def _failed(name: str, detail: str) -> CheckResult:

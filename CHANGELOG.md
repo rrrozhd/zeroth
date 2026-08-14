@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.1] - 2026-08-14
+
+### Security
+
+- Bind app certification to certifier-owned semantic checks and exact retained
+  evidence.
+- Isolate candidate execution from the privileged provenance-attestation job.
+
+### Fixed
+
+- Reject unhealthy readiness payloads and retain canonical reports for
+  pre-certification failures.
+- Add a tested certification scaffold and semantic negative fixtures.
+
 ## [0.23.9] - 2026-08-13
 
 ### Added

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
@@ -31,6 +32,9 @@ _EXACT_VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,4}$")
 _HTTP_HEADER = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _IMAGE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9./:_-]*$")
+_IMPORT_REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_.]*$")
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _relative_path(value: str, field: str) -> str:
@@ -91,12 +95,54 @@ class SmokeSpec(BaseModel):
         return value
 
 
+class CertificationTargets(BaseModel):
+    """Structured app objects inspected by certifier-owned check implementations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    graph_builders: list[str] = Field(min_length=1)
+    contracts: str
+    auth_config: str
+    policy_guard: str
+    frontend_path: str = "frontend"
+
+    @field_validator("graph_builders")
+    @classmethod
+    def _unique_graph_builders(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("graph_builders must be unique")
+        return value
+
+    @field_validator("graph_builders", mode="before")
+    @classmethod
+    def _graph_references(cls, value: Any) -> Any:
+        if not isinstance(value, list) or any(not _valid_import_ref(item) for item in value):
+            raise ValueError("graph_builders must contain safe module:attribute references")
+        return value
+
+    @field_validator("contracts", "auth_config", "policy_guard")
+    @classmethod
+    def _import_reference(cls, value: str) -> str:
+        if not _valid_import_ref(value):
+            raise ValueError("target must be a safe module:attribute reference")
+        return value
+
+    @field_validator("frontend_path")
+    @classmethod
+    def _frontend_path(cls, value: str) -> str:
+        return _relative_path(value, "frontend_path")
+
+
+def _valid_import_ref(value: Any) -> bool:
+    return isinstance(value, str) and _IMPORT_REFERENCE.fullmatch(value) is not None
+
+
 class AppDeclaration(BaseModel):
     """Versioned, fail-closed certification declaration owned by an app."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     app_name: str = Field(min_length=1, max_length=120)
     zeroth_version: str
     lock_path: str
@@ -104,7 +150,7 @@ class AppDeclaration(BaseModel):
     image_reference: str = Field(min_length=1, max_length=255)
     sbom_path: str
     provenance_path: str
-    checks: dict[str, list[str]]
+    targets: CertificationTargets
     smoke: SmokeSpec
 
     @field_validator("app_name")
@@ -133,21 +179,6 @@ class AppDeclaration(BaseModel):
     def _safe_path(cls, value: str, info) -> str:
         return _relative_path(value, info.field_name)
 
-    @field_validator("checks")
-    @classmethod
-    def _mandatory_argv(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
-        if set(value) != set(MANDATORY_CHECKS):
-            missing = sorted(set(MANDATORY_CHECKS) - set(value))
-            unknown = sorted(set(value) - set(MANDATORY_CHECKS))
-            raise ValueError(f"checks must be exact; missing={missing}, unknown={unknown}")
-        for name, argv in value.items():
-            if not argv or any(not isinstance(arg, str) or not arg for arg in argv):
-                raise ValueError(f"check {name!r} must contain a non-empty argv array")
-        commands = [tuple(value[name]) for name in MANDATORY_CHECKS]
-        if len(commands) != len(set(commands)):
-            raise ValueError("checks must not contain duplicate commands")
-        return value
-
 
 class CandidateIdentity(BaseModel):
     """Measured identity to which the report and evidence files are bound."""
@@ -159,6 +190,41 @@ class CandidateIdentity(BaseModel):
     zeroth_version: str
     image_reference: str
     image_digest: str
+
+    @field_validator("app_name")
+    @classmethod
+    def _app_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("app_name must not be blank")
+        return value
+
+    @field_validator("app_commit")
+    @classmethod
+    def _commit(cls, value: str) -> str:
+        if _COMMIT.fullmatch(value) is None:
+            raise ValueError("app_commit must be 40 lowercase hexadecimal characters")
+        return value
+
+    @field_validator("zeroth_version")
+    @classmethod
+    def _version(cls, value: str) -> str:
+        if _EXACT_VERSION.fullmatch(value) is None:
+            raise ValueError("zeroth_version must be an exact numeric version")
+        return value
+
+    @field_validator("image_reference")
+    @classmethod
+    def _image_reference(cls, value: str) -> str:
+        if _IMAGE_REFERENCE.fullmatch(value) is None:
+            raise ValueError("image_reference contains unsafe characters")
+        return value
+
+    @field_validator("image_digest")
+    @classmethod
+    def _image_digest(cls, value: str) -> str:
+        if _DIGEST.fullmatch(value) is None:
+            raise ValueError("image_digest must be immutable sha256:<64 lowercase hex>")
+        return value
 
 
 class CheckResult(BaseModel):
@@ -179,6 +245,18 @@ class EvidenceFile(BaseModel):
     path: str
     sha256: str
 
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        return _relative_path(value, "evidence path")
+
+    @field_validator("sha256")
+    @classmethod
+    def _digest(cls, value: str) -> str:
+        if _DIGEST.fullmatch(value) is None:
+            raise ValueError("evidence sha256 must be sha256:<64 lowercase hex>")
+        return value
+
 
 class EvidenceBinding(BaseModel):
     """Bind retained SBOM and provenance bytes to one candidate identity."""
@@ -188,6 +266,13 @@ class EvidenceBinding(BaseModel):
     candidate_identity_digest: str
     sbom: EvidenceFile
     provenance: EvidenceFile
+
+    @field_validator("candidate_identity_digest")
+    @classmethod
+    def _identity_digest(cls, value: str) -> str:
+        if _DIGEST.fullmatch(value) is None:
+            raise ValueError("candidate_identity_digest must be sha256:<64 lowercase hex>")
+        return value
 
 
 class CertificationReport(BaseModel):
@@ -210,7 +295,53 @@ class CertificationReport(BaseModel):
             raise ValueError("report status must agree with all mandatory checks")
         if passed and (self.candidate is None or self.evidence is None):
             raise ValueError("a passing report requires candidate-bound evidence")
+        if self.candidate is not None and self.evidence is not None:
+            expected = identity_digest(self.candidate)
+            if self.evidence.candidate_identity_digest != expected:
+                raise ValueError("evidence identity digest does not match the candidate")
         return self
+
+    @classmethod
+    def passed(
+        cls,
+        candidate: CandidateIdentity,
+        sbom: Path,
+        provenance: Path,
+        *,
+        root: Path,
+    ) -> CertificationReport:
+        """Build a passing report from already validated evidence files."""
+        records = [
+            EvidenceFile(
+                path=path.resolve().relative_to(root.resolve()).as_posix(),
+                sha256=file_digest(path),
+            )
+            for path in (sbom, provenance)
+        ]
+        return cls(
+            status="passed",
+            candidate=candidate,
+            checks=[
+                CheckResult(name=name, status="passed", detail=f"{name} passed")
+                for name in MANDATORY_CHECKS
+            ],
+            evidence=EvidenceBinding(
+                candidate_identity_digest=identity_digest(candidate),
+                sbom=records[0],
+                provenance=records[1],
+            ),
+        )
+
+
+def identity_digest(identity: CandidateIdentity) -> str:
+    """Return the canonical digest representing a measured candidate."""
+    payload = json.dumps(identity.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
+def file_digest(path: Path) -> str:
+    """Hash one retained evidence file."""
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -224,6 +355,8 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _read_json(path: Path) -> Any:
     try:
+        if path.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError(f"JSON file {path} exceeds the 2 MiB report/declaration limit")
         return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"JSON file {path} is unreadable: {error}") from error
@@ -241,6 +374,11 @@ def write_report(report: CertificationReport, path: Path) -> None:
     path.write_text(rendered, encoding="utf-8")
 
 
-def validate_report(path: Path) -> CertificationReport:
-    """Load and structurally validate a retained certification report."""
-    return CertificationReport.model_validate(_read_json(path))
+def validate_report(path: Path, *, root: Path | None = None) -> CertificationReport:
+    """Load a report and recompute every retained identity/evidence binding."""
+    report = CertificationReport.model_validate(_read_json(path))
+    if report.status == "passed":
+        from .evidence import validate_evidence
+
+        validate_evidence(report, root or path.parent)
+    return report
