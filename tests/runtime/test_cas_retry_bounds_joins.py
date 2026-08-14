@@ -28,6 +28,12 @@ from zeroth.runtime.orchestration.token_join_closure import (
     close_ready_join_with_cas,
     reclaim_abandoned_join_reduction_with_cas,
 )
+from zeroth.runtime.orchestration.token_joins import (
+    close_ready_join_with_cas as facade_close_ready_join_with_cas,
+)
+from zeroth.runtime.orchestration.token_joins import (
+    reclaim_abandoned_join_reduction_with_cas as facade_reclaim_abandoned_join_reduction_with_cas,
+)
 from zeroth.runtime.orchestration.token_join_models import (
     JoinReductionClaim,
     JoinReductionClaimChangedError,
@@ -296,6 +302,61 @@ async def test_join_reduction_reclaim_sleeps_between_attempts_but_not_after_the_
     with pytest.raises(JoinReductionClaimChangedError, match="exhausted CAS attempts"):
         await asyncio.wait_for(
             reclaim_abandoned_join_reduction_with_cas(
+                store,
+                store.snapshot.run_id,
+                store.snapshot.joins[0].join_instance_id,
+                observed_claim=observed,
+                new_owner_id="recovery-worker",
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert store.cas_calls == CAS_MAX_ATTEMPTS
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+# The ``token_joins`` facade re-declares these two signatures rather than
+# re-exporting them, so every parameter it omits is one no caller can reach
+# through it. It omitted ``sleep``, which left the facade the one entry point
+# whose CAS pacing could not be observed without spending real delays -- the
+# tests above all had to bypass it and import the closure module directly.
+# Production was unaffected (the default is the real ``asyncio.sleep``), so
+# these pin the injection seam rather than a behaviour change: both raised
+# ``TypeError: unexpected keyword argument 'sleep'`` before the forwarding
+# landed.
+
+
+async def test_the_facade_forwards_sleep_into_the_closure_path() -> None:
+    ready = _ready_join("run-facade-close-sleep")
+    store = _ContendedStore(ready)
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(TokenSnapshotConcurrencyError) as caught:
+        await asyncio.wait_for(
+            facade_close_ready_join_with_cas(
+                store,
+                ready.run_id,
+                ready.joins[0].join_instance_id,
+                JoinConfig(),
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert caught.value.run_id == ready.run_id
+    assert store.cas_calls == CAS_MAX_ATTEMPTS
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_the_facade_forwards_sleep_into_the_reclaim_path() -> None:
+    store = await _reducing_store("run-facade-reclaim-sleep")
+    observed = JoinReductionClaim.from_join(store.snapshot.joins[0])
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(JoinReductionClaimChangedError, match="exhausted CAS attempts"):
+        await asyncio.wait_for(
+            facade_reclaim_abandoned_join_reduction_with_cas(
                 store,
                 store.snapshot.run_id,
                 store.snapshot.joins[0].join_instance_id,

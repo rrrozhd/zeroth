@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 
 from pydantic import JsonValue
@@ -37,7 +38,7 @@ from zeroth.runtime.orchestration.token_join_models import (
 from zeroth.runtime.orchestration.token_join_reducers import (
     reduce_join_inputs as _reduce_join_inputs,
 )
-from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS, CasSleep
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 
 
@@ -133,6 +134,7 @@ async def close_ready_join_with_cas(
     claim_owner_id: str | None = None,
     claimed_reduction: JoinReductionClaim | None = None,
     max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ) -> TokenEngineSnapshot:
     """Claim a reducer and close a READY join through snapshot CAS."""
     return await _close_ready_join_with_cas(
@@ -145,6 +147,7 @@ async def close_ready_join_with_cas(
         claim_owner_id=claim_owner_id,
         claimed_reduction=claimed_reduction,
         max_attempts=max_attempts,
+        sleep=sleep,
     )
 
 
@@ -156,6 +159,7 @@ async def reclaim_abandoned_join_reduction_with_cas(
     observed_claim: JoinReductionClaim,
     new_owner_id: str,
     max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ) -> JoinReductionClaim:
     """Explicitly replace one observed abandoned reducer claim through CAS."""
     return await _reclaim_abandoned_join_reduction_with_cas(
@@ -165,6 +169,7 @@ async def reclaim_abandoned_join_reduction_with_cas(
         observed_claim=observed_claim,
         new_owner_id=new_owner_id,
         max_attempts=max_attempts,
+        sleep=sleep,
     )
 
 

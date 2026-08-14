@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1.2] - 2026-08-13
+
+### Fixed
+
+- The `token_joins` facade forwards `sleep` into the two CAS entry points that accept it, so the
+  facade's retry pacing can be observed without spending real delays. Production behaviour is
+  unchanged — the default was always the real `asyncio.sleep` — but the facade was previously the
+  one entry point whose pacing tests had to bypass (ZER-49 follow-up).
+
 ## [0.23.8.1.1] - 2026-08-13
 
 ### Changed
