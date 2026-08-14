@@ -203,7 +203,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.2"
+    assert declaration.zeroth_version == "0.23.9.2.1"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -215,10 +215,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.2-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.2.1-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.2-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.2.1-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile
@@ -256,6 +256,7 @@ def test_vendor_dd_seeded_service_reaches_health_readiness(tmp_path: Path) -> No
         "ZEROTH_DATABASE__SQLITE_PATH": str(tmp_path / "vendor-dd.sqlite"),
         "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR": str(tmp_path / "artifacts"),
         "ZEROTH_REGULUS__ENABLED": "true",
+        "ZEROTH_REGULUS__BASE_URL": f"http://127.0.0.1:{port}/regulus/v1",
         "ZEROTH_WEBHOOK__ENABLED": "false",
         "ZEROTH_APPROVAL_SLA__ENABLED": "false",
         "ZEROTH_REDIS__MODE": "disabled",
