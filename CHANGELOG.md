@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1.1] - 2026-08-14
+
+### Fixed
+
+- Preserve distinct durable concurrency-saturation records for null and literal
+  workspace identities using canonical typed scope encoding.
+- Correct the documented quota retry boundary to its rolling 24-hour window,
+  and retain PostgreSQL replica tests for rate and quota capacity enforcement.
+
 ## [0.23.8.1] - 2026-08-14
 
 ### Fixed

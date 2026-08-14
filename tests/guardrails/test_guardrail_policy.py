@@ -221,6 +221,45 @@ async def test_postgres_replicas_share_running_concurrency(postgres_database) ->
     await _assert_distributed_replicas_share_running_concurrency(postgres_database)
 
 
+@requires_docker
+async def test_postgres_replicas_cannot_overspend_token_bucket(postgres_database) -> None:
+    replicas = (
+        TokenBucketRateLimiter(postgres_database),
+        TokenBucketRateLimiter(postgres_database),
+    )
+    decisions = await asyncio.gather(
+        *(
+            replicas[index % len(replicas)].decide(
+                "postgres-shared-bucket",
+                capacity=5,
+                refill_rate=0,
+            )
+            for index in range(20)
+        )
+    )
+
+    assert sum(decision.allowed for decision in decisions) == 5
+    assert (await replicas[0].get("postgres-shared-bucket"))["token_count"] == 0
+
+
+@requires_docker
+async def test_postgres_replicas_cannot_overspend_quota(postgres_database) -> None:
+    replicas = (QuotaEnforcer(postgres_database), QuotaEnforcer(postgres_database))
+    decisions = await asyncio.gather(
+        *(
+            replicas[index % len(replicas)].decide(
+                "postgres-shared-quota",
+                limit=5,
+                window_seconds=86_400,
+            )
+            for index in range(20)
+        )
+    )
+
+    assert sum(decision.allowed for decision in decisions) == 5
+    assert (await replicas[0].get("postgres-shared-quota"))["value"] == 5
+
+
 async def test_clock_drives_burst_exhaustion_and_exact_refill(sqlite_db, monkeypatch) -> None:
     now = [datetime(2026, 8, 14, 12, tzinfo=UTC)]
     monkeypatch.setattr(rate_limit_module, "utc_now", lambda: now[0])

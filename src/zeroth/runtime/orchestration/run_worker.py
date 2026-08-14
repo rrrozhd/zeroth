@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import socket
 from dataclasses import dataclass, field
@@ -44,6 +45,31 @@ logger = logging.getLogger(__name__)
 
 def _new_worker_id() -> str:
     return uuid4().hex
+
+
+def _typed_audit_identity(value: str | int | None) -> list[str | int]:
+    """Encode null and values as distinct canonical identity components."""
+    return ["null"] if value is None else ["value", value]
+
+
+def _concurrency_audit_digest(
+    tenant_id: str,
+    workspace_id: str | None,
+    deployment_ref: str,
+    max_concurrency: int | None,
+) -> str:
+    canonical = json.dumps(
+        [
+            "zeroth.guardrail.concurrency-audit.v1",
+            _typed_audit_identity(tenant_id),
+            _typed_audit_identity(workspace_id),
+            _typed_audit_identity(deployment_ref),
+            _typed_audit_identity(max_concurrency),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()[:24]
 
 
 @dataclass
@@ -151,8 +177,12 @@ class RunWorker:
         from zeroth.governance.audit.errors import DuplicateAuditIdError
 
         tenant_id = self.tenant_id or "default"
-        scope = f"{tenant_id}\0{self.workspace_id}\0{self.deployment_ref}\0{result.max_concurrency}"
-        digest = hashlib.sha256(scope.encode()).hexdigest()[:24]
+        digest = _concurrency_audit_digest(
+            tenant_id,
+            self.workspace_id,
+            self.deployment_ref,
+            result.max_concurrency,
+        )
         try:
             await audit_repository.write(
                 NodeAuditRecord(
