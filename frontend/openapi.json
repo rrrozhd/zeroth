@@ -1948,6 +1948,62 @@
         "title": "DeploymentVersionMetadataResponse",
         "type": "object"
       },
+      "EffectiveGuardrailSettings": {
+        "additionalProperties": false,
+        "description": "Concrete product defaults after tenant and deployment composition.",
+        "properties": {
+          "backpressure_queue_depth": {
+            "default": 100,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Backpressure Queue Depth",
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "default": 8,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Max Concurrency",
+            "type": "integer"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Daily Limit"
+          },
+          "rate_limit_burst": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Rate Limit Burst",
+            "type": "number"
+          },
+          "rate_limit_capacity": {
+            "default": 10,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Capacity",
+            "type": "number"
+          },
+          "rate_limit_refill_rate": {
+            "default": 1,
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Rate Limit Refill Rate",
+            "type": "number"
+          }
+        },
+        "title": "EffectiveGuardrailSettings",
+        "type": "object"
+      },
       "ErasureRequestBody": {
         "additionalProperties": false,
         "description": "Request body for POST /retention/erasure-requests.\n\nExactly one of ``run_id`` (erase one run) or ``tenant_id`` (erase every\nnon-held run for the tenant) must be supplied.",
@@ -2275,6 +2331,179 @@
         ],
         "title": "GovernanceLevel",
         "type": "string"
+      },
+      "GuardrailPolicyPatch": {
+        "additionalProperties": false,
+        "description": "A bounded partial policy; explicitly supplied null quota means unlimited.",
+        "properties": {
+          "backpressure_queue_depth": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backpressure Queue Depth"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Daily Limit"
+          },
+          "rate_limit_burst": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Burst"
+          },
+          "rate_limit_capacity": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Capacity"
+          },
+          "rate_limit_refill_rate": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Refill Rate"
+          }
+        },
+        "title": "GuardrailPolicyPatch",
+        "type": "object"
+      },
+      "GuardrailPolicyResponse": {
+        "additionalProperties": false,
+        "description": "Latest explicit revisions and their composed effective settings.",
+        "properties": {
+          "deployment_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective": {
+            "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tenant_revision",
+          "deployment_revision",
+          "effective"
+        ],
+        "title": "GuardrailPolicyResponse",
+        "type": "object"
+      },
+      "GuardrailPolicyRevision": {
+        "additionalProperties": false,
+        "description": "One immutable operator change in the append-only history.",
+        "properties": {
+          "changed_by": {
+            "title": "Changed By",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Ref"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuardrailPolicyPatch"
+          },
+          "revision_id": {
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "deployment"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "scope",
+          "deployment_ref",
+          "policy",
+          "changed_by",
+          "created_at"
+        ],
+        "title": "GuardrailPolicyRevision",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7590,6 +7819,98 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/guardrails": {
+      "get": {
+        "operationId": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Deployment Guardrails",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "title": "Deployment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Deployment Guardrails",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/input-contract": {
       "get": {
         "operationId": "get_input_contract_v1_deployments__deployment_ref__input_contract_get",
@@ -9119,6 +9440,91 @@
           }
         },
         "summary": "Register Tool Inventory",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails": {
+      "get": {
+        "operationId": "get_tenant_guardrails_v1_guardrails_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Tenant Guardrails",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_tenant_guardrails_v1_guardrails_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Tenant Guardrails",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails/history": {
+      "get": {
+        "operationId": "get_guardrail_history_v1_guardrails_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailPolicyRevision"
+                  },
+                  "title": "Response Get Guardrail History V1 Guardrails History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Guardrail History",
         "tags": [
           "v1"
         ]

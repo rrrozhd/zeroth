@@ -226,6 +226,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -434,6 +448,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -751,6 +786,20 @@
       "path": "/v1/deployments/{deployment_ref}/evidence",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
       ]
     },
     {
@@ -1136,6 +1185,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -1611,6 +1681,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -1819,6 +1903,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -2136,6 +2241,20 @@
       "path": "/v1/deployments/{deployment_ref}/evidence",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
       ]
     },
     {
@@ -2521,6 +2640,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -3021,6 +3161,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -3229,6 +3383,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -3546,6 +3721,20 @@
       "path": "/v1/deployments/{deployment_ref}/evidence",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
       ]
     },
     {
@@ -3931,6 +4120,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -4418,6 +4628,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -4626,6 +4850,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -4943,6 +5188,20 @@
       "path": "/v1/deployments/{deployment_ref}/evidence",
       "methods": [
         "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
       ]
     },
     {
@@ -5328,6 +5587,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -5826,6 +6106,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -6034,6 +6328,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -6814,6 +7129,20 @@
     },
     {
       "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/v1/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -7195,6 +7524,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -7682,6 +8032,20 @@
     },
     {
       "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -7890,6 +8254,27 @@
       "path": "/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {
@@ -8670,6 +9055,20 @@
     },
     {
       "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/deployments/{deployment_ref}/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
       "path": "/v1/deployments/{deployment_ref}/input-contract",
       "methods": [
         "GET"
@@ -9051,6 +9450,27 @@
       "path": "/v1/enforcement/registrations",
       "methods": [
         "POST"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "kind": "http",
+      "path": "/v1/guardrails/history",
+      "methods": [
+        "GET"
       ]
     },
     {

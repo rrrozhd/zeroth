@@ -23,7 +23,7 @@ from zeroth.service.api.run_api import _check_guardrails
 DEPLOYMENT = "guardrail-test"
 
 
-async def test_rate_limit_returns_429_when_bucket_exhausted(sqlite_db) -> None:
+async def test_rate_limit_rejection_returns_429_with_retry_after(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-ratelimit"),
@@ -53,7 +53,7 @@ async def test_rate_limit_returns_429_when_bucket_exhausted(sqlite_db) -> None:
     assert r2.headers.get("Retry-After") is not None
 
 
-async def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
+async def test_queue_rejection_returns_503_with_retry_after(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-backpressure"),
@@ -61,6 +61,7 @@ async def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
     )
     # Set depth limit to 1 — any run already in the queue triggers backpressure.
     service.guardrail_config.backpressure_queue_depth = 1
+    service.worker = None
 
     app = await bootstrap_app(sqlite_db, deployment_ref=service.deployment.deployment_ref)
     app.state.bootstrap = service
@@ -75,16 +76,19 @@ async def test_backpressure_returns_503_when_queue_too_deep(sqlite_db) -> None:
             json={"input_payload": {"value": 1}},
             headers=operator_headers(),
         )
-        # Second run: queue already has one pending → depth >= limit → 503.
-        # But we need to prevent the worker from claiming the first run.
-        # To be safe, directly check that if count_pending >= limit we get 503.
+        r2 = client.post(
+            "/runs",
+            json={"input_payload": {"value": 2}},
+            headers=operator_headers(),
+        )
 
-    # We accept 202 or 503 for the first run, but if the service ever sees
-    # count_pending >= backpressure_queue_depth it must return 503.
-    assert r1.status_code in (202, 503)
+    assert r1.status_code == 202
+    assert r2.status_code == 503
+    assert r2.headers["Retry-After"].isdigit()
+    assert "queue" in r2.json()["detail"].lower()
 
 
-async def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
+async def test_quota_rejection_returns_503_with_retry_after(sqlite_db) -> None:
     service, _ = await deploy_service(
         sqlite_db,
         agent_graph(graph_id="graph-quota"),
@@ -110,6 +114,7 @@ async def test_quota_returns_503_when_daily_limit_exceeded(sqlite_db) -> None:
     assert r1.status_code == 202
     assert r2.status_code == 503
     assert "quota" in r2.json()["detail"].lower()
+    assert r2.headers["Retry-After"].isdigit()
 
 
 def _guardrail_run(tenant_id: str, deployment_ref: str = "same-logical-deployment") -> Run:
@@ -130,7 +135,7 @@ async def test_run_api_token_bucket_key_isolates_same_subject_and_deployment_by_
         guardrail_config=SimpleNamespace(
             backpressure_queue_depth=100,
             rate_limit_capacity=1.0,
-            rate_limit_refill_rate=0.0,
+            rate_limit_refill_rate=0.001,
             quota_daily_limit=None,
         ),
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
@@ -152,7 +157,7 @@ async def test_run_api_quota_key_isolates_same_subject_and_deployment_by_tenant(
         guardrail_config=SimpleNamespace(
             backpressure_queue_depth=100,
             rate_limit_capacity=100.0,
-            rate_limit_refill_rate=0.0,
+            rate_limit_refill_rate=0.001,
             quota_daily_limit=1,
         ),
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
@@ -175,7 +180,7 @@ async def test_run_api_token_bucket_identity_resists_delimiter_collision(sqlite_
         guardrail_config=SimpleNamespace(
             backpressure_queue_depth=100,
             rate_limit_capacity=1.0,
-            rate_limit_refill_rate=0.0,
+            rate_limit_refill_rate=0.001,
             quota_daily_limit=None,
         ),
         run_repository=RunRepository.for_default_compatibility(sqlite_db),
@@ -199,7 +204,7 @@ async def test_run_api_quota_identity_resists_delimiter_collision(sqlite_db) -> 
         guardrail_config=SimpleNamespace(
             backpressure_queue_depth=100,
             rate_limit_capacity=100.0,
-            rate_limit_refill_rate=0.0,
+            rate_limit_refill_rate=0.001,
             quota_daily_limit=1,
         ),
         run_repository=RunRepository.for_default_compatibility(sqlite_db),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -91,6 +93,55 @@ class _BlockingOrchestrator(_FakeOrchestrator):
 class _FakeGraph:
     nodes: list = []
     entry_step: str = "start"
+
+
+async def test_worker_refreshes_shared_concurrency_and_keeps_static_local_ceiling() -> None:
+    policy_repository = SimpleNamespace(
+        current=AsyncMock(return_value=object()),
+        effective=AsyncMock(
+            side_effect=[
+                SimpleNamespace(max_concurrency=2),
+                SimpleNamespace(max_concurrency=5),
+            ]
+        ),
+    )
+    shared_lease_manager = SimpleNamespace(
+        claim_pending=AsyncMock(return_value=None),
+        last_claim_saturated=False,
+    )
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=shared_lease_manager,  # type: ignore[arg-type]
+        max_concurrency=8,
+    )
+    worker.guardrail_policy_repository = policy_repository
+
+    await worker._claim_pending()
+    await worker._claim_pending()
+
+    assert [
+        call.kwargs["max_concurrency"] for call in shared_lease_manager.claim_pending.call_args_list
+    ] == [2, 5]
+    assert worker._semaphore._value == 8
+
+    static_lease_manager = SimpleNamespace(
+        claim_pending=AsyncMock(return_value=None),
+        last_claim_saturated=False,
+    )
+    static_worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=None,  # type: ignore[arg-type]
+        orchestrator=None,
+        graph=_FakeGraph(),
+        lease_manager=static_lease_manager,  # type: ignore[arg-type]
+        max_concurrency=3,
+    )
+    await static_worker._claim_pending()
+    assert static_lease_manager.claim_pending.call_args.kwargs["max_concurrency"] is None
+    assert static_worker._semaphore._value == 3
 
 
 async def _worker_tick(worker: RunWorker) -> None:

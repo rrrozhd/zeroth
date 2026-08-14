@@ -132,6 +132,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "decision_repository",
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
+        "guardrail_policy_repository",
         "inventory_registration_repository",
         "langgraph_enforcement_service",
         "langgraph_gateway_capability_reporter",
@@ -172,9 +173,7 @@ def declared_fields(target: Any) -> set[str]:
         return set(fields)
     if dataclasses.is_dataclass(target):
         return {field.name for field in dataclasses.fields(target)}
-    return {
-        name for name in inspect.signature(target.__init__).parameters if name != "self"
-    }
+    return {name for name in inspect.signature(target.__init__).parameters if name != "self"}
 
 
 def hidden_fields(target: Any) -> set[str]:
@@ -265,9 +264,7 @@ def _assignment_sites(tree: ast.Module, module: str) -> list[tuple[str, str]]:
                     sites.append((f"{module}:{where}:{owner}", owner))
             inner = (
                 (*scope, child.name)
-                if isinstance(
-                    child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
-                )
+                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
                 else scope
             )
             visit(child, inner)
@@ -444,9 +441,7 @@ def test_the_non_class_check_would_reject_a_class_named_in_the_allowlist() -> No
         "governed",
         None,
     )
-    a_real_class = importlib.import_module(
-        "zeroth.governance.policy.models"
-    ).PolicyDefinition
+    a_real_class = importlib.import_module("zeroth.governance.policy.models").PolicyDefinition
 
     assert not inspect.isclass(honest)
     assert inspect.isclass(a_real_class)
@@ -534,6 +529,4 @@ def test_the_allowlist_exempts_a_place_and_not_a_name() -> None:
     assert "zeroth.integrations.langgraph._tool_wrappers:_elsewhere:governed" not in (
         NON_CLASS_SIGNATURE_SITES
     )
-    assert "zeroth.governance.policy.models:_elsewhere:governed" not in (
-        NON_CLASS_SIGNATURE_SITES
-    )
+    assert "zeroth.governance.policy.models:_elsewhere:governed" not in (NON_CLASS_SIGNATURE_SITES)

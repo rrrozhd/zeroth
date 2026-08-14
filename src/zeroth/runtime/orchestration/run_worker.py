@@ -30,6 +30,7 @@ from zeroth.runtime.runs import RunFailureState
 if TYPE_CHECKING:
     from zeroth.contracts.graph import Graph
     from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+    from zeroth.governance.guardrails.policy import GuardrailPolicyRepository
     from zeroth.platform.observability.metrics import MetricsCollector
     from zeroth.runtime.orchestration.orchestrator import RuntimeOrchestrator
 
@@ -70,6 +71,9 @@ class RunWorker:
     worker_id: str = field(default_factory=_new_worker_id)
     dead_letter_manager: DeadLetterManager | None = None
     metrics_collector: MetricsCollector | None = None
+    guardrail_policy_repository: GuardrailPolicyRepository | None = field(
+        default=None, init=False, repr=False
+    )
     shutdown_timeout: float = 30.0
 
     def __post_init__(self) -> None:
@@ -93,6 +97,41 @@ class RunWorker:
             return {}
         return {"tenant_id": self.tenant_id, "workspace_id": self.workspace_id}
 
+    def _uses_shared_concurrency(self) -> bool:
+        return self.guardrail_policy_repository is not None
+
+    async def _effective_max_concurrency(self) -> int:
+        repository = self.guardrail_policy_repository
+        if repository is None:
+            return self.max_concurrency
+        tenant = await repository.current("tenant")
+        deployment = await repository.current("deployment", deployment_ref=self.deployment_ref)
+        if tenant is None and deployment is None:
+            return self.max_concurrency
+        return (await repository.effective(self.deployment_ref)).max_concurrency
+
+    async def _claim_pending(self) -> str | None:
+        limit = await self._effective_max_concurrency()
+        run_id = await self.lease_manager.claim_pending(
+            self.deployment_ref,
+            self.worker_id,
+            max_concurrency=limit if self._uses_shared_concurrency() else None,
+            **self._lease_scope(),
+        )
+        if run_id is None and self.lease_manager.last_claim_saturated:
+            self._record_concurrency_saturation()
+        return run_id
+
+    def _record_concurrency_saturation(self) -> None:
+        if self.metrics_collector is None:
+            return
+        self.metrics_collector.increment(
+            "zeroth_guardrail_rejections_total", labels={"reason": "concurrency"}
+        )
+        self.metrics_collector.gauge_set(
+            "zeroth_guardrail_utilization_ratio", 1, labels={"resource": "concurrency"}
+        )
+
     # ---------------------------------------------------------------------------
     # Public lifecycle
     # ---------------------------------------------------------------------------
@@ -106,21 +145,23 @@ class RunWorker:
             self.deployment_ref,
             self.max_concurrency,
         )
+        effective_limit = await self._effective_max_concurrency()
         orphans = await self.lease_manager.claim_orphaned(
             self.deployment_ref,
             self.worker_id,
+            max_concurrency=effective_limit if self._uses_shared_concurrency() else None,
             **self._lease_scope(),
         )
         # Recovery obeys the same concurrency bound as the poll loop. Creating a
         # task per orphan meant a crash with a large backlog dispatched the whole
         # backlog at once, ignoring max_concurrency entirely.
-        if len(orphans) > self.max_concurrency:
+        if len(orphans) > effective_limit:
             logger.warning(
                 "worker %s recovering %d orphaned runs at concurrency %d; "
                 "the remainder start as slots free",
                 self.worker_id,
                 len(orphans),
-                self.max_concurrency,
+                effective_limit,
             )
         # Named outside the run-/wakeup-/recover- namespace on purpose: this is
         # the recovery *loop*, not a run. _extract_run_id parses any of those
@@ -160,7 +201,7 @@ class RunWorker:
                 for pending_run_id in undispatched:
                     await self._release_to_pending(pending_run_id)
                 break
-            while len(in_flight) >= self.max_concurrency:
+            while len(in_flight) >= await self._effective_max_concurrency():
                 _done, in_flight = await asyncio.wait(
                     in_flight, return_when=asyncio.FIRST_COMPLETED
                 )
@@ -179,11 +220,7 @@ class RunWorker:
             try:
                 await self._semaphore.acquire()
                 slot_reserved = True
-                run_id = await self.lease_manager.claim_pending(
-                    self.deployment_ref,
-                    self.worker_id,
-                    **self._lease_scope(),
-                )
+                run_id = await self._claim_pending()
                 if run_id is not None:
                     task = asyncio.create_task(
                         self._execute_leased_run(
@@ -195,7 +232,8 @@ class RunWorker:
                     )
                     self._track(task)
                 else:
-                    self._semaphore.release()
+                    if slot_reserved:
+                        self._semaphore.release()
                     slot_reserved = False
                     await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
@@ -561,11 +599,7 @@ class RunWorker:
         try:
             await self._semaphore.acquire()
             slot_reserved = True
-            claimed_id = await self.lease_manager.claim_pending(
-                self.deployment_ref,
-                self.worker_id,
-                **self._lease_scope(),
-            )
+            claimed_id = await self._claim_pending()
             if claimed_id is not None:
                 task = asyncio.create_task(
                     self._execute_leased_run(
@@ -577,7 +611,8 @@ class RunWorker:
                 )
                 self._track(task)
             else:
-                self._semaphore.release()
+                if slot_reserved:
+                    self._semaphore.release()
         except Exception:
             if slot_reserved:
                 self._semaphore.release()

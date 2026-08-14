@@ -14,11 +14,11 @@ executing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from zeroth.platform.storage import AsyncDatabase
+from zeroth.platform.storage import AsyncConnection, AsyncDatabase
 
 try:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
@@ -126,6 +126,12 @@ class LeaseManager:
 
     database: AsyncDatabase
     lease_duration_seconds: int = 60
+    _last_concurrency_saturated: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def last_claim_saturated(self) -> bool:
+        """Whether the most recent bounded claim found no shared running slot."""
+        return self._last_concurrency_saturated
 
     # ---------------------------------------------------------------------------
     # Backend detection
@@ -146,6 +152,7 @@ class LeaseManager:
         *,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
     ) -> str | None:
         """Atomically claim one PENDING run for this worker.
 
@@ -161,9 +168,20 @@ class LeaseManager:
             if tenant_id is None and workspace_id is _UNSCOPED_WORKSPACE
             else {"tenant_id": tenant_id, "workspace_id": workspace_id}
         )
+        concurrency = {} if max_concurrency is None else {"max_concurrency": max_concurrency}
         if self._is_postgres():
-            return await self._claim_pending_pg(deployment_ref, worker_id, **scope)
-        return await self._claim_pending_sqlite(deployment_ref, worker_id, **scope)
+            return await self._claim_pending_pg(
+                deployment_ref,
+                worker_id,
+                **scope,
+                **concurrency,
+            )
+        return await self._claim_pending_sqlite(
+            deployment_ref,
+            worker_id,
+            **scope,
+            **concurrency,
+        )
 
     async def _claim_pending_sqlite(
         self,
@@ -172,6 +190,7 @@ class LeaseManager:
         *,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
     ) -> str | None:
         """Claim using a guarded UPDATE ... RETURNING (SQLite).
 
@@ -184,7 +203,19 @@ class LeaseManager:
         now = _utc_now()
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
-        async with self.database.transaction() as conn:
+        async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            if (
+                await self._available_concurrency_slots(
+                    conn,
+                    deployment_ref,
+                    now,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    max_concurrency=max_concurrency,
+                )
+                == 0
+            ):
+                return None
             row = await conn.fetch_one(
                 f"""
                 SELECT run_id FROM runs
@@ -233,6 +264,7 @@ class LeaseManager:
         *,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
     ) -> str | None:
         """Atomic claim using SELECT ... FOR UPDATE SKIP LOCKED (Postgres).
 
@@ -243,6 +275,18 @@ class LeaseManager:
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
+            if (
+                await self._available_concurrency_slots(
+                    conn,
+                    deployment_ref,
+                    now,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    max_concurrency=max_concurrency,
+                )
+                == 0
+            ):
+                return None
             row = await conn.fetch_one(
                 f"""
                 SELECT run_id FROM runs
@@ -272,6 +316,53 @@ class LeaseManager:
             )
         return run_id
 
+    async def _available_concurrency_slots(
+        self,
+        connection: AsyncConnection,
+        deployment_ref: str,
+        now: datetime,
+        *,
+        tenant_id: str | None,
+        workspace_id: str | None | object,
+        max_concurrency: int | None,
+    ) -> int | None:
+        """Serialize active leases and return slots; ``None`` means unbounded."""
+        if max_concurrency is None:
+            self._last_concurrency_saturated = False
+            return None
+        if max_concurrency < 1:
+            raise ValueError("max_concurrency must be positive")
+        if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
+            raise ValueError("distributed concurrency requires an exact tenant/workspace scope")
+        workspace_scope = "null" if workspace_id is None else f"value:{workspace_id}"
+        now_value = now.isoformat()
+        await connection.execute(
+            """INSERT INTO guardrail_admission_state
+               (tenant_id, workspace_id, workspace_scope, deployment_ref, created_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (tenant_id, workspace_scope, deployment_ref) DO NOTHING""",
+            (tenant_id, workspace_id, workspace_scope, deployment_ref, now_value),
+        )
+        lock_suffix = " FOR UPDATE" if self._is_postgres() else ""
+        await connection.fetch_one(
+            """SELECT deployment_ref FROM guardrail_admission_state
+               WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
+            + lock_suffix,
+            (tenant_id, workspace_scope, deployment_ref),
+        )
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
+        row = await connection.fetch_one(
+            f"""SELECT COUNT(*) AS active_count FROM runs
+                WHERE deployment_ref = ? {scope_sql}
+                  AND lease_worker_id IS NOT NULL
+                  AND lease_expires_at >= ?""",
+            (deployment_ref, *scope_params, now_value),
+        )
+        active_count = 0 if row is None else int(row["active_count"])
+        slots = max(0, max_concurrency - active_count)
+        self._last_concurrency_saturated = slots == 0
+        return slots
+
     async def claim_orphaned(
         self,
         deployment_ref: str,
@@ -279,6 +370,7 @@ class LeaseManager:
         *,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
     ) -> list[str]:
         """Claim all RUNNING runs with expired leases for this deployment.
 
@@ -290,7 +382,18 @@ class LeaseManager:
         expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         claimed: list[str] = []
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
-        async with self.database.transaction() as conn:
+        async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            slots = await self._available_concurrency_slots(
+                conn,
+                deployment_ref,
+                now,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                max_concurrency=max_concurrency,
+            )
+            if slots == 0:
+                return []
+            limit_sql = "" if slots is None else f" LIMIT {slots}"
             rows = await conn.fetch_all(
                 f"""
                 SELECT run_id FROM runs
@@ -299,6 +402,7 @@ class LeaseManager:
                   AND status = ?
                   AND lease_worker_id IS NOT NULL
                   AND lease_expires_at < ?
+                ORDER BY started_at ASC{limit_sql}
                 """,
                 (deployment_ref, *scope_params, _STATUS_RUNNING, now.isoformat()),
             )
