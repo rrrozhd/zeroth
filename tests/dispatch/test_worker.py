@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -586,8 +587,15 @@ async def test_graceful_shutdown_stops_token_snapshot_before_releasing_run(
     await asyncio.wait_for(orchestrator.started.wait(), timeout=1)
     await worker.graceful_shutdown()
     poll_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
+    # Racy as an assertion, and it was already flaking: the loop parks on the
+    # semaphore, the permit is freed by the drive the shutdown cancels, and
+    # whether it gets scheduled before this cancel is a coin flip. It now exits
+    # at its stopping check on that wake-up instead of claiming one more run, so
+    # "still cancellable here" would be pinning a scheduling coincidence — and
+    # the worse behaviour behind it. What must hold is that it is finished.
+    with contextlib.suppress(asyncio.CancelledError):
         await poll_task
+    assert poll_task.done()
 
     stopped = await run_repo.get_token_snapshot(run.run_id)
     final = await run_repo.get(run.run_id)

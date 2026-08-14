@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 
 from zeroth.econ.plane.auth.deps import (
     get_current_scoped_db,
@@ -24,6 +25,23 @@ from zeroth.econ.plane.instrumentation.service import (
 from zeroth.econ.plane.scoped_session import ScopedSession
 
 router = APIRouter(tags=["instrumentation", "outcomes"])
+
+#: Last resort for an identity conflict the service could not resolve into a
+#: reported duplicate -- a concurrent writer that took the identity and then
+#: rolled back, or a batch that lost the race twice running.  It is deliberately
+#: not a 422: the payload is not what is wrong, and telling a caller its request
+#: was invalid when the server lost a race sends it to fix the wrong thing.  A
+#: 409 says what happened and that retrying is the remedy.
+_IDENTITY_CONFLICT = "outcome identity conflicted with a concurrent write; retry the request"
+
+#: The same last resort for an execution identity: a concurrent writer that took
+#: ``(tenant_id, execution_id)`` and then rolled back, so the service's re-query
+#: found nothing to report as a duplicate.  Kept as its own message because the
+#: two endpoints conflict on different identities and a caller reading the detail
+#: should not have to guess which.
+_EXECUTION_IDENTITY_CONFLICT = (
+    "execution identity conflicted with a concurrent write; retry the request"
+)
 
 
 def _outcome_out(row: object) -> OutcomeQueryResponse:
@@ -64,7 +82,11 @@ def post_execution(
     try:
         status, row = ingest_execution(db, payload)
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=_EXECUTION_IDENTITY_CONFLICT) from exc
     return IngestResult(status=status, execution_id=row.execution_id)
 
 
@@ -82,6 +104,9 @@ def post_outcome(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
     return IngestResult(status=status, execution_id=row.execution_id)
 
 
@@ -104,6 +129,9 @@ def ingest_outcome_batch(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=_IDENTITY_CONFLICT) from exc
     return [
         IngestResult(status=status, execution_id=row.execution_id) for status, row in results
     ]

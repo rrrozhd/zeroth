@@ -552,30 +552,48 @@ class _RunThreadStore:
         rejection total — a displaced worker used to overwrite durable
         checkpoint state before the fence raised (ZER-26/AUD-004) — and
         unfenced it makes any mid-path failure total too (ZER-49/A07-16).
+
+        ZER-49/F-03: the thread row is read, merged and written back here and
+        nowhere else — collapsing the path removed the compensating second
+        read-modify-write that used to follow the checkpoint write. One
+        transaction therefore has to carry isolation as well as atomicity, or
+        two puts of one thread read the same snapshot, each append their own
+        checkpoint to it, and the later write drops the earlier reference: the
+        checkpoint stays durable in ``run_checkpoints`` while every
+        thread-level reader (``_checkpoint_ids``, ``get_latest_checkpoint``,
+        ``_next_checkpoint_order``) stops seeing it, and a restore resumes from
+        a stale checkpoint. The locking below is ``create_run``'s, statement for
+        statement — a write-locked transaction, the thread row seeded before it
+        is read so ``for_update`` has a row to lock, and the read taken with
+        that lock held.
         """
         self.validate_owner(run.tenant_id, run.workspace_id)
         checkpoint_id = run.checkpoint_id or _new_checkpoint_id()
         run.checkpoint_id = checkpoint_id
         run.touch()
         snapshot = run.model_dump(mode="json")
-        async with self.runs.transaction() as runs:
+        async with self.runs.transaction(write_lock=True) as runs:
             threads = runs.bind(self.threads)
-            row = await threads.select_one(where={"thread_id": run.thread_id})
-            thread = (
-                Thread(
-                    thread_id=run.thread_id,
-                    graph_version_ref=run.graph_version_ref,
-                    deployment_ref=run.deployment_ref,
-                    tenant_id=run.tenant_id,
-                    workspace_id=run.workspace_id,
-                    status=ThreadStatus.ACTIVE,
-                )
-                if row is None
-                else row_to_thread(row)
+            seed = Thread(
+                thread_id=run.thread_id,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+                status=ThreadStatus.ACTIVE,
             )
-            if row is not None and (
-                thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id
-            ):
+            await threads.insert_if_absent(
+                _thread_values(seed),
+                conflict_columns=("tenant_id", "workspace_scope", "thread_id"),
+            )
+            row = await threads.select_one(
+                where={"thread_id": run.thread_id},
+                for_update=True,
+            )
+            if row is None:  # pragma: no cover - insert/read transaction contract
+                raise RuntimeError("thread row unavailable after scoped insert")
+            thread = row_to_thread(row)
+            if thread.tenant_id != run.tenant_id or thread.workspace_id != run.workspace_id:
                 raise ValueError("thread identity mismatch")
             thread.run_ids = _merge(thread.run_ids, [run.run_id])
             thread.last_run_id = run.run_id

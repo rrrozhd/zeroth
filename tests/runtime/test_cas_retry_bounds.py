@@ -22,11 +22,21 @@ from zeroth.runtime.orchestration.token_lifecycle import (
     TokenLifecycleAdapter,
     pause_snapshot,
 )
-from zeroth.runtime.orchestration.token_loop_claims import close_ready_loop_with_cas
+from zeroth.runtime.orchestration.token_loop_claims import (
+    close_ready_loop_with_cas,
+    reclaim_abandoned_loop_reduction_with_cas,
+)
+from zeroth.runtime.orchestration.token_loop_models import (
+    LoopReductionClaim,
+    LoopReductionClaimChangedError,
+    LoopReductionRecoveryError,
+    LoopReductionReleaseError,
+)
 from zeroth.runtime.orchestration.token_loops import enter_loop, settle_loop_member
 from zeroth.runtime.orchestration.token_runtime import TokenRuntimeCoordinator
 from zeroth.runtime.orchestration.token_scheduler import (
     FanOutBranch,
+    apply_token_transition,
     claim_next_token,
     fan_out_dispatch,
     initialize_token_snapshot,
@@ -344,6 +354,191 @@ async def test_operator_pause_sleeps_between_attempts_but_not_after_the_last() -
 
     assert store.cas_calls == CAS_MAX_ATTEMPTS
     assert len(sleeper.delays) == CAS_MAX_ATTEMPTS - 1
+
+
+# --------------------------------------------------------------------------
+# F-08 / R24-CAS -- capped-but-immediate loops are still unpaced retries.
+#
+# These six loops already had an attempt cap, so the termination tests above
+# pass against them.  They retried with *zero* delay, which under contention
+# burns the whole budget in microseconds and raises without ever giving the
+# retry a chance to win.  Each test below asserts the exact sleep count --
+# ``max_attempts - 1``, i.e. between attempts and never after the last one --
+# so a revert fails cleanly instead of hanging, and re-asserts the exhaustion
+# error type so pacing cannot quietly change what callers see.
+# --------------------------------------------------------------------------
+
+
+def _assert_paced(sleeper: _RecordingSleep, attempts: int) -> None:
+    """Assert one sleep between every pair of attempts, bounded and jittered."""
+    assert len(sleeper.delays) == attempts - 1
+    ceilings = _ceilings(attempts - 1)
+    pairs = list(zip(sleeper.delays, ceilings, strict=True))
+    assert all(0.0 <= delay <= ceiling for delay, ceiling in pairs)
+    # Full jitter draws uniformly below the ceiling, so a fixed-delay or
+    # ceiling-only implementation cannot produce a strictly smaller sample.
+    assert any(delay < ceiling for delay, ceiling in pairs), "backoff is not jittered"
+    assert len(set(sleeper.delays)) > 1
+
+
+def _crashing_reducer(_config, _inputs):
+    raise RuntimeError("reducer failed")
+
+
+async def test_loop_finalization_sleeps_between_attempts_but_not_after_the_last() -> None:
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+
+    snapshot = _loop_with_single_back_edge("run-loop-final-sleep")
+    store = _ContendedStore(snapshot)
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(TokenSnapshotConcurrencyError) as caught:
+        await asyncio.wait_for(
+            close_ready_loop_with_cas(
+                store,
+                snapshot.run_id,
+                snapshot.loops[0].loop_instance_id,
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert caught.value.run_id == snapshot.run_id
+    assert store.cas_calls == CAS_MAX_ATTEMPTS
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_loop_closure_sleeps_between_attempts_but_not_after_the_last() -> None:
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+
+    snapshot = _loop_with_two_back_edges("run-loop-closure-sleep")
+    # The single allowed commit lands the reduction claim on its first attempt,
+    # so every recorded delay belongs to the closure loop that follows it.
+    store = _ContendedStore(snapshot, allow_commits=1)
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(TokenSnapshotConcurrencyError) as caught:
+        await asyncio.wait_for(
+            close_ready_loop_with_cas(
+                store,
+                snapshot.run_id,
+                snapshot.loops[0].loop_instance_id,
+                continuation_config=JoinConfig(),
+                claim_owner_id="worker-a",
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert caught.value.run_id == snapshot.run_id
+    assert store.cas_calls == CAS_MAX_ATTEMPTS + 1
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_loop_reduction_claim_sleeps_between_attempts_but_not_after_the_last() -> None:
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+
+    snapshot = _loop_with_two_back_edges("run-loop-claim-sleep")
+    store = _ContendedStore(snapshot)
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(LoopReductionRecoveryError, match="exhausted CAS attempts"):
+        await asyncio.wait_for(
+            close_ready_loop_with_cas(
+                store,
+                snapshot.run_id,
+                snapshot.loops[0].loop_instance_id,
+                continuation_config=JoinConfig(),
+                claim_owner_id="worker-a",
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert store.cas_calls == CAS_MAX_ATTEMPTS
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_loop_claim_release_sleeps_between_attempts_but_not_after_the_last() -> None:
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+
+    snapshot = _loop_with_two_back_edges("run-loop-release-sleep")
+    store = _ContendedStore(snapshot, allow_commits=1)
+    sleeper = _RecordingSleep()
+
+    # The claim wins on its first attempt, the reducer then fails, and every
+    # recorded delay belongs to the release loop that cannot give the claim back.
+    with pytest.raises(LoopReductionReleaseError, match="atomically released"):
+        await asyncio.wait_for(
+            close_ready_loop_with_cas(
+                store,
+                snapshot.run_id,
+                snapshot.loops[0].loop_instance_id,
+                continuation_config=JoinConfig(),
+                reducer=_crashing_reducer,
+                claim_owner_id="worker-a",
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert store.cas_calls == CAS_MAX_ATTEMPTS + 1
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_loop_reduction_reclaim_sleeps_between_attempts_but_not_after_the_last() -> None:
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+    from zeroth.runtime.orchestration.token_loop_claims import _claim_loop_with_cas
+
+    snapshot = _loop_with_single_back_edge("run-loop-reclaim-sleep")
+    store = _ContendedStore(snapshot, allow_commits=1)
+    # A claimed snapshot is observable when a closer crashes after winning it.
+    await _claim_loop_with_cas(
+        store,
+        snapshot.run_id,
+        snapshot.loops[0].loop_instance_id,
+        JoinConfig(),
+        owner_id="dead-worker",
+        max_attempts=1,
+    )
+    observed = LoopReductionClaim.from_loop(store.snapshot.loops[0])
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(LoopReductionClaimChangedError, match="exhausted CAS attempts"):
+        await asyncio.wait_for(
+            reclaim_abandoned_loop_reduction_with_cas(
+                store,
+                snapshot.run_id,
+                snapshot.loops[0].loop_instance_id,
+                observed_claim=observed,
+                new_owner_id="recovery-worker",
+                sleep=sleeper,
+            ),
+            TEST_TIMEOUT,
+        )
+
+    assert store.cas_calls == CAS_MAX_ATTEMPTS + 1
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
+
+
+async def test_scheduler_transition_sleeps_between_attempts_but_not_after_the_last() -> None:
+    # ``apply_token_transition`` spends the same budget the lifecycle adapter
+    # does; F-08 is that it spent it without any pacing between attempts.
+    from zeroth.runtime.orchestration.token_lifecycle import CAS_MAX_ATTEMPTS
+
+    snapshot = _claimed("run-scheduler-sleep")
+    store = _ContendedStore(snapshot)
+    sleeper = _RecordingSleep()
+
+    with pytest.raises(TokenSnapshotConcurrencyError) as caught:
+        await asyncio.wait_for(
+            apply_token_transition(store, snapshot.run_id, pause_snapshot, sleep=sleeper),
+            TEST_TIMEOUT,
+        )
+
+    assert caught.value.run_id == snapshot.run_id
+    assert store.cas_calls == CAS_MAX_ATTEMPTS
+    _assert_paced(sleeper, CAS_MAX_ATTEMPTS)
 
 
 async def test_non_positive_attempt_budget_is_rejected() -> None:

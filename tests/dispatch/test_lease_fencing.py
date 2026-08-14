@@ -10,6 +10,7 @@ one passing does not imply the other.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -654,8 +655,15 @@ async def test_graceful_shutdown_stops_the_drive_before_releasing(dual_database)
     await asyncio.wait_for(orchestrator.started.wait(), timeout=5)
     await worker.graceful_shutdown()
     poll_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
+    # The loop may already have returned on its own: graceful_shutdown sets the
+    # stopping flag, and the permit freed by the cancelled drive now wakes the
+    # loop into that check rather than into one more claim. Requiring it to be
+    # still-cancellable here would pin the *worse* shutdown behaviour — that a
+    # leaving worker takes a run back out of PENDING and drives it with nothing
+    # left to await it. What must hold is that the loop is finished.
+    with contextlib.suppress(asyncio.CancelledError):
         await poll_task
+    assert poll_task.done()
 
     assert drive_states_at_release, "shutdown must reach the voluntary release"
     assert all(drive_states_at_release), (

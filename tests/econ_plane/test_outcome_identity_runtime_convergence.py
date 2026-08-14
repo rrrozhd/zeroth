@@ -10,17 +10,18 @@ is offline Postgres tooling that is never invoked at runtime
 outcomes -- a SQLite database that predates the key -- was the one population
 the key never reached.
 
-These tests drive the two runtime doors that *are* invoked
-(``database.get_db`` and ``common.bootstrap``) against a pre-existing table and
-assert the index both exists and actually rejects a duplicate.  The index is
-read from ``sqlite_master`` rather than from ``inspect().get_indexes()``:
-SQLAlchemy skips expression-based indexes when reflecting SQLite, so a
-reflection-based assertion would pass vacuously.
+These tests drive the one runtime door that *is* invoked -- ``common.bootstrap``,
+once per process start -- against a pre-existing table and assert the index both
+exists and actually rejects a duplicate.  The index is read from
+``sqlite_master`` rather than from ``inspect().get_indexes()``: SQLAlchemy skips
+expression-based indexes when reflecting SQLite, so a reflection-based assertion
+would pass vacuously.
 """
 
 from __future__ import annotations
 
 import logging
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -185,7 +186,7 @@ def test_convergence_makes_a_pre_existing_database_reject_a_duplicate_outcome(
 @pytest.mark.parametrize("door", sorted(_DOORS))
 @pytest.mark.parametrize("shape", sorted(_PRE_EXISTING_TABLES))
 def test_convergence_is_idempotent(tmp_path: Path, monkeypatch, door: str, shape: str) -> None:
-    """Both doors run on every startup/request, so re-running must be inert.
+    """The door runs at every process start, so re-running must be inert.
 
     Re-running also must not *destroy* the identity: revision 20260811_05's
     SQLite batch ALTER rebuilds the table from a reflection that silently omits
@@ -262,9 +263,11 @@ def test_a_database_that_already_holds_duplicates_stays_usable_and_keeps_its_row
     A unique index cannot be built over rows that already violate it, and the
     only automatic way through is deleting one -- which an erasure-audited econ
     table must never do behind the operator's back (revision 20260812_07 refuses
-    for exactly this reason).  But these doors run per request and at startup, so
-    propagating that refusal would take the whole plane down over a data
-    condition.  Skip the index, keep every other convergence step, and say so.
+    for exactly this reason).  The door runs once per process start, not per
+    request, so cost is not the reason to contain the refusal; what is at stake
+    is: the index is a backstop behind an identity check ingest already
+    performs, so a database without it is degraded rather than broken.  Skip the
+    index, keep every other convergence step, and say so.
     """
     engine = _pre_existing_database(
         tmp_path,
@@ -293,5 +296,80 @@ def test_a_database_that_already_holds_duplicates_stays_usable_and_keeps_its_row
         # collisions by join_key, which is the key erasure deletes by; emitting
         # it here, on every request, would outlive the erasure receipt.
         assert not any("case-1" in message for message in warnings)
+    finally:
+        engine.dispose()
+
+
+def _identity_upgrade_raising(monkeypatch, error: Exception):
+    """Make revision 20260812_07's upgrade fail with ``error`` at the runtime door."""
+    real_loader = database_module._load_compat_migration
+
+    def loader(conn, filename):
+        module = real_loader(conn, filename)
+        if filename.startswith("20260812_07"):
+
+            def upgrade() -> None:
+                raise error
+
+            module.upgrade = upgrade
+        return module
+
+    monkeypatch.setattr(database_module, "_load_compat_migration", loader)
+
+
+def test_only_a_duplicate_identity_is_contained_at_the_runtime_door(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """``except RuntimeError`` attributed every failure of the revision to collisions.
+
+    ``op.create_index`` can fail for reasons that have nothing to do with the
+    data -- a lost connection, a lock timeout -- and the swallow reported each of
+    them to the operator as "rows collide", a different problem with a different
+    remedy.  The refusal now has its own type, so only it is contained.
+    """
+    engine = _pre_existing_database(
+        tmp_path, shape="strict-ownership", rows=[_outcome(1, "case-1", None)]
+    )
+    try:
+        _identity_upgrade_raising(monkeypatch, RuntimeError("connection lost during CREATE INDEX"))
+        with caplog.at_level(logging.WARNING), pytest.raises(
+            RuntimeError, match="connection lost during CREATE INDEX"
+        ):
+            _converge_through_startup(engine, monkeypatch)
+        assert not any(
+            "outcome identity index not converged" in record.getMessage()
+            for record in caplog.records
+        )
+    finally:
+        engine.dispose()
+
+
+def test_the_purpose_built_refusal_is_still_contained(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """...and narrowing the catch must not un-contain the condition it was for."""
+    engine = _pre_existing_database(
+        tmp_path, shape="strict-ownership", rows=[_outcome(1, "case-1", None)]
+    )
+    identity = importlib.util.spec_from_file_location(
+        "identity_revision",
+        Path(__file__).parents[2]
+        / "src/zeroth/econ/plane/_migrations/versions/20260812_07_outcome_event_identity.py",
+    )
+    assert identity is not None and identity.loader is not None
+    module = importlib.util.module_from_spec(identity)
+    identity.loader.exec_module(module)
+    try:
+        _identity_upgrade_raising(
+            monkeypatch, module.DuplicateOutcomeIdentity("cannot make outcome identity unique: 1")
+        )
+        with caplog.at_level(logging.WARNING):
+            _converge_through_startup(engine, monkeypatch)
+
+        assert any(
+            "outcome identity index not converged" in record.getMessage()
+            for record in caplog.records
+        )
+        assert _columns(engine) >= {"provenance", "ingested_at", "outcome_payload_json"}
     finally:
         engine.dispose()

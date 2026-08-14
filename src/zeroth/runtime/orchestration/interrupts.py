@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshot
     from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 
@@ -77,7 +79,13 @@ class InterruptStore(ABC):
 
     @abstractmethod
     async def sweep_expired(self) -> int:
-        """Remove all expired interrupt requests across all runs. Returns count removed."""
+        """Remove all expired interrupt requests across all runs. Returns count removed.
+
+        A backend that keeps an index of ids alongside the requests themselves
+        must maintain it here: the component that owns expiry owns the index it
+        invalidates. Offloading that onto readers is what forced a *read* path to
+        mutate shared state (ZER-49 F-10).
+        """
 
 
 class InMemoryInterruptStore(InterruptStore):
@@ -181,12 +189,91 @@ class RedisInterruptStore(InterruptStore):
         """Build redis list key for interrupt ids in insertion order."""
         return f"{self.prefix}:run:{run_id}:requests"
 
-    async def _rewrite_list(self, key: str, values: list[str]) -> None:
-        """Rewrite one redis list key from scratch."""
+    def _run_id_from_index_key(self, key: str) -> str | None:
+        """Recover a run id from its index key, or ``None`` when the key is ambiguous.
+
+        The index glob ``{prefix}:run:*:requests`` also matches the *payload* key
+        of an interrupt whose id is literally ``requests``
+        (``{prefix}:run:{run_id}:request:requests``), because redis ``*`` spans
+        colons. Treating that string as a list would raise ``WRONGTYPE`` and
+        abort the whole sweep, so the ambiguous shape is skipped here; the
+        payload reap still expires it. A run id that genuinely ends in
+        ``:request`` pays for this by not being reconciled -- readers already
+        tolerate a stale id, and no id is ever wrongly dropped.
+        """
+        prefix = f"{self.prefix}:run:"
+        suffix = ":requests"
+        if not key.startswith(prefix) or not key.endswith(suffix):
+            return None
+        run_id = key[len(prefix) : -len(suffix)]
+        if not run_id or run_id.endswith(":request"):
+            return None
+        return run_id
+
+    async def _index_ids(self, index_key: str) -> list[str]:
+        """Read one run's interrupt-id index as text, in insertion order."""
         client = await self._client()
-        await client.delete(key)
-        for value in values:
-            await client.rpush(key, value)
+        raw_ids = await client.lrange(index_key, 0, -1)
+        return [
+            current
+            for current in (self._decode_text(value) for value in raw_ids)
+            if current is not None
+        ]
+
+    async def _scan_keys(self, pattern: str) -> AsyncIterator[str]:
+        """Yield every key matching ``pattern``, one SCAN page at a time."""
+        client = await self._client()
+        cursor = 0
+        while True:
+            cursor, keys = await client.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                text = self._decode_text(key)
+                if text is not None:
+                    yield text
+            if cursor == 0:
+                break
+
+    async def _rewrite_list(self, key: str, values: list[str]) -> None:
+        """Rewrite one redis list key from scratch, in a single MULTI/EXEC.
+
+        ZER-49 F-09: this is the sibling of ``RedisRunStore._rewrite_list``, and
+        it carried the same defect after that one was fixed -- ``DELETE`` and a
+        *loop* of ``RPUSH`` as separate round-trips, so any concurrent reader
+        between them saw an empty or half-rebuilt interrupt index.
+
+        MULTI/EXEC closes that torn read and nothing more. It does NOT close the
+        lost-append race against ``save_request``: ``values`` is a snapshot the
+        CALLER computed from an earlier LRANGE, so an interrupt id appended in
+        between is still overwritten here.
+
+        **This method has no callers, and that is the point.** Both it once had
+        were removed rather than repaired, because the defect is the
+        read-modify-write, not the write. ZER-49 F-10 took ``list_requests`` off
+        it -- healing the index on a *read* could drop a live pending interrupt a
+        concurrent ``save_request`` had just appended -- and F-11 took
+        ``delete_request`` off it, onto a single ``LREM`` that removes one id
+        without reading the list. Expiry (``sweep_expired``) owns index
+        maintenance now.
+
+        It is kept as the audited primitive for a future whole-index write, with
+        its two non-obvious properties pinned in
+        ``tests/runtime/orchestration/test_interrupt_store_rewrite_atomicity.py``.
+        Before routing a path through it, check that path cannot race an append:
+        if it can, it needs a WATCH established before its own read -- as
+        ``RedisRunStore.put`` does -- or a targeted command, not this.
+
+        Unlike the run-store version this applies no redis TTL: this store has
+        no ``ttl_seconds`` and expires requests at the application layer
+        (``InterruptRequest.expires_at`` plus ``sweep_expired``). Expiring the
+        index alone would drop live interrupts out of ``list_pending`` while
+        their payload keys survived.
+        """
+        client = await self._client()
+        async with client.pipeline(transaction=True) as pipe:
+            pipe.delete(key)
+            if values:
+                pipe.rpush(key, *values)
+            await pipe.execute()
 
     async def get_epoch(self, run_id: str) -> int:
         """Return the persisted epoch for a run."""
@@ -202,19 +289,19 @@ class RedisInterruptStore(InterruptStore):
         await client.set(self._epoch_key(run_id), str(int(epoch)))
 
     async def save_request(self, request: InterruptRequest) -> None:
-        """Persist one interrupt request."""
+        """Persist one interrupt request.
+
+        The payload is written *before* the id is indexed, and that order is load
+        bearing: ``sweep_expired`` treats an indexed id with no payload as
+        garbage to reconcile away, so indexing first would let a sweep delete an
+        id whose payload was still in flight.
+        """
         client = await self._client()
         await client.set(
             self._request_key(request.run_id, request.interrupt_id), json.dumps(asdict(request))
         )
         index_key = self._request_index_key(request.run_id)
-        existing = [value for value in await client.lrange(index_key, 0, -1)]
-        normalized = [
-            current
-            for current in (self._decode_text(value) for value in existing)
-            if current is not None
-        ]
-        if request.interrupt_id not in normalized:
+        if request.interrupt_id not in await self._index_ids(index_key):
             await client.rpush(index_key, request.interrupt_id)
 
     async def get_request(self, run_id: str, interrupt_id: str) -> InterruptRequest | None:
@@ -226,58 +313,138 @@ class RedisInterruptStore(InterruptStore):
         return InterruptRequest(**json.loads(payload))
 
     async def list_requests(self, run_id: str) -> list[InterruptRequest]:
-        """List all stored interrupt requests for a run."""
-        client = await self._client()
-        raw_ids = await client.lrange(self._request_index_key(run_id), 0, -1)
-        normalized = [
-            current
-            for current in (self._decode_text(value) for value in raw_ids)
-            if current is not None
-        ]
-        valid_ids: list[str] = []
+        """List all stored interrupt requests for a run.
+
+        ZER-49 F-10: this is a pure read. It filters out ids whose payload is
+        gone rather than rewriting the index to match, because that rewrite was a
+        read-modify-write on shared state: an id appended by a concurrent
+        ``save_request`` between the LRANGE and the rewrite was overwritten, so a
+        *live pending* interrupt disappeared from ``list_pending`` and
+        ``get_latest_pending`` while its payload key survived -- an approval a
+        human was waiting on that nobody would ever be asked for.
+
+        Skipping such an id is enough for a correct listing; removing it is
+        expiry's job, and ``sweep_expired`` now does it.
+        """
         out: list[InterruptRequest] = []
-        for interrupt_id in normalized:
+        for interrupt_id in await self._index_ids(self._request_index_key(run_id)):
             request = await self.get_request(run_id, interrupt_id)
-            if request is None:
-                continue
-            valid_ids.append(interrupt_id)
-            out.append(request)
-        if valid_ids != normalized:
-            await self._rewrite_list(self._request_index_key(run_id), valid_ids)
+            if request is not None:
+                out.append(request)
         return out
 
     async def delete_request(self, run_id: str, interrupt_id: str) -> None:
-        """Delete one stored interrupt request."""
+        """Delete one stored interrupt request, payload and index entry together.
+
+        ZER-49 F-11: this was the last lost-append site in the store. It used to
+        ``LRANGE`` the index, compute the remainder and write it back through
+        ``_rewrite_list``; a ``save_request`` that appended between the read and
+        the write was overwritten, leaving a *live pending* interrupt whose
+        payload key survived but whose id no longer appeared in ``list_pending``
+        or ``get_latest_pending``. Nobody is ever asked for that approval.
+
+        ``LREM`` removes exactly the id being deleted, in one command against the
+        live list, so an append it never read cannot be clobbered. The count is
+        ``0`` -- every occurrence -- because that is what the filter it replaces
+        already did; ``count=1`` would be a behaviour change smuggled in by a bug
+        fix, leaving a duplicate id pointing at a payload just deleted. It also
+        makes the removal idempotent by identity, which matters because
+        ``save_request`` decides whether to append by reading the index first and
+        so can double-index one id under concurrency.
+
+        Nothing is lost by dropping the rewrite: it normalized nothing. Its input
+        was the whole index minus this id, written back verbatim -- it deduped
+        nothing, dropped no stale entry, and never checked whether the remaining
+        ids still had payloads. Reconciling ids whose payload is gone belongs to
+        ``sweep_expired``, which now does it explicitly.
+
+        Payload and index update share one ``MULTI``/``EXEC`` so there is no
+        window between them at all. That is not merely a saved round-trip: the
+        de-index-first order strands a payload key, and a payload with
+        ``expires_at <= 0`` is one ``sweep_expired`` never reaps -- an unbounded
+        leak, since payload keys carry no redis TTL. Pipelining makes the
+        ordering question moot rather than answering it.
+        """
         client = await self._client()
-        await client.delete(self._request_key(run_id, interrupt_id))
-        raw_ids = await client.lrange(self._request_index_key(run_id), 0, -1)
-        normalized = [
-            current
-            for current in (self._decode_text(value) for value in raw_ids)
-            if current is not None
-        ]
-        filtered = [current for current in normalized if current != interrupt_id]
-        await self._rewrite_list(self._request_index_key(run_id), filtered)
+        async with client.pipeline(transaction=True) as pipe:
+            pipe.delete(self._request_key(run_id, interrupt_id))
+            pipe.lrem(self._request_index_key(run_id), 0, interrupt_id)
+            await pipe.execute()
+
+    @staticmethod
+    def _expired_request(payload: str, now_ts: int) -> dict[str, Any] | None:
+        """Decode one stored request, returning it only when it has expired.
+
+        Returns ``None`` for anything this sweep must not act on: a key the
+        payload glob matched but that does not hold a serialized request, and a
+        request that is still live. One unparsable key must not abort the sweep.
+        """
+        try:
+            data = json.loads(payload)
+        except ValueError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        expires_at = data.get("expires_at", 0)
+        if not isinstance(expires_at, int | float) or expires_at <= 0:
+            return None
+        return data if expires_at <= now_ts else None
 
     async def sweep_expired(self) -> int:
-        """Remove all expired interrupt requests across all runs. Returns count removed."""
+        """Remove all expired interrupt requests across all runs. Returns count removed.
+
+        ZER-49 F-10. This used to SCAN ``{prefix}:run:*:request:*`` and delete
+        the matching payload keys -- and nothing else. The index key is
+        ``{prefix}:run:{run_id}:requests``, with no colon after ``request``, so
+        the glob never matched it and the ids of everything this reaped stayed in
+        the index. Every reader inherited that dirt, which is why ``list_requests``
+        used to heal the index on a read path. Fixing the *glob* would not have
+        helped: a matching index key would be fed to GET and json.loads as if it
+        were a request. The defect was the missing index maintenance.
+
+        Two passes, each with one job:
+
+        1. **Reap.** SCAN the payload keys, delete the expired ones, and LREM
+           each id from its run's index. Run and interrupt id come from the
+           payload, not from parsing the key, so ids containing colons de-index
+           correctly. LREM is a single atomic command against the live list --
+           unlike a rewrite it cannot lose a concurrent append.
+        2. **Reconcile.** SCAN the index keys and LREM any id with no payload:
+           entries stranded by an interrupted delete, an evicted payload, or the
+           reap above. ``save_request`` writes the payload before indexing the
+           id, so an id that is merely mid-save is never mistaken for garbage.
+
+        The payload SCAN stays because the index is not authoritative over the
+        payloads: an id can be missing from the index while its payload key
+        lives on, and payload keys carry no redis TTL, so an index-driven sweep
+        would leak them forever.
+
+        The count is expired *requests* reaped. De-indexing an orphan id is
+        hygiene, not an expiry, and is not counted.
+        """
         client = await self._client()
         now_ts = int(time.time())
         removed = 0
-        cursor = 0
-        pattern = f"{self.prefix}:run:*:request:*"
-        while True:
-            cursor, keys = await client.scan(cursor, match=pattern, count=100)
-            for key in keys:
-                payload = await client.get(key)
-                if payload is None:
-                    continue
-                data = json.loads(payload)
-                if data.get("expires_at", 0) > 0 and data["expires_at"] <= now_ts:
-                    await client.delete(key)
-                    removed += 1
-            if cursor == 0:
-                break
+        async for key in self._scan_keys(f"{self.prefix}:run:*:request:*"):
+            payload = self._decode_text(await client.get(key))
+            if payload is None:
+                continue
+            data = self._expired_request(payload, now_ts)
+            if data is None:
+                continue
+            await client.delete(key)
+            removed += 1
+            run_id = data.get("run_id")
+            interrupt_id = data.get("interrupt_id")
+            if isinstance(run_id, str) and isinstance(interrupt_id, str):
+                await client.lrem(self._request_index_key(run_id), 0, interrupt_id)
+        async for index_key in self._scan_keys(f"{self.prefix}:run:*:requests"):
+            run_id = self._run_id_from_index_key(index_key)
+            if run_id is None:
+                continue
+            for interrupt_id in await self._index_ids(index_key):
+                if await client.get(self._request_key(run_id, interrupt_id)) is None:
+                    await client.lrem(index_key, 0, interrupt_id)
         return removed
 
     async def close(self) -> None:
