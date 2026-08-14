@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.2.1] - 2026-08-14
+
+### Fixed
+
+- Isolate the vendor-dd readiness regression from collection-time Regulus URL
+  defaults.
+
 ## [0.23.9.2] - 2026-08-14
 
 ### Security
