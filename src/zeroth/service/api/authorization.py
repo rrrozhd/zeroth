@@ -17,6 +17,7 @@ class Permission(StrEnum):
 
     DEPLOYMENT_READ = "deployment:read"
     DEPLOYMENT_ADMIN = "deployment:admin"
+    GUARDRAIL_TENANT_ADMIN = "guardrail:tenant-admin"
     RUN_CREATE = "run:create"
     RUN_READ = "run:read"
     APPROVAL_READ = "approval:read"

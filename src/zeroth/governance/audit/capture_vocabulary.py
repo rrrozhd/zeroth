@@ -97,6 +97,7 @@ class MetadataKind(StrEnum):
 # is ever retained verbatim; each is replaced by a stable digest, which still
 # correlates two records that shared one while carrying none of the text.
 METADATA_KINDS: Mapping[str, MetadataKind] = {
+    "active_count": MetadataKind.NUMBER,
     "admission_digest": MetadataKind.DIGEST,
     # ZER-26 side-effect operations. Flat, not nested: the projection retains
     # only allowlisted top-level keys, so a nested block is dropped before it is
@@ -130,6 +131,7 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "disposition": MetadataKind.VOCABULARY,
     "duration_ms": MetadataKind.NUMBER,
     "enforcement_applied": MetadataKind.BOOLEAN,
+    "effective_limit": MetadataKind.NUMBER,
     "governance_level": MetadataKind.VOCABULARY,
     "input_sha256": MetadataKind.DIGEST,
     "input_size_bytes": MetadataKind.NUMBER,
@@ -153,6 +155,7 @@ METADATA_KINDS: Mapping[str, MetadataKind] = {
     "sandbox_strictness_mode": MetadataKind.VOCABULARY,
     "status": MetadataKind.OPAQUE,
     "upstream_status_code": MetadataKind.NUMBER,
+    "utilization": MetadataKind.NUMBER,
     "worker_id": MetadataKind.IDENTIFIER,
 }
 
@@ -346,6 +349,7 @@ _DENIAL_REASON_CODES: frozenset[str] = frozenset(
         "capability_denied",
         "classifier_unavailable",
         "command_not_allowed",
+        "concurrency",
         "no_trusted_digest_registered",
         "enforcement_unavailable",
         "policy_denied",

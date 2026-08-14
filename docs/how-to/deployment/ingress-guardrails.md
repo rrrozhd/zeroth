@@ -12,6 +12,12 @@ Each effective field is selected independently in this order:
 2. tenant override;
 3. product default.
 
+A deployment-level `GuardrailConfig` supplied at bootstrap replaces the product
+defaults as the baseline for all three consumers: ingress admission, the
+management API, and worker lease claims. Partial policy revisions are folded
+over that baseline in order, so a later one-field edit does not erase earlier
+fields.
+
 | Field | Product default | Accepted values |
 |---|---:|---:|
 | `rate_limit_capacity` | `10` | `1`–`1,000,000` |
@@ -28,8 +34,8 @@ rate buckets or quota counters.
 
 ## Inspect and change policy
 
-Readers with deployment-read permission can inspect effective settings and
-history. Deployment administrators can append changes:
+Deployment readers can inspect deployment-effective settings, and deployment
+administrators can append deployment overrides:
 
 ```console
 curl -H "X-API-Key: $ZEROTH_API_KEY" \
@@ -42,8 +48,11 @@ curl -X PUT -H "X-API-Key: $ZEROTH_ADMIN_API_KEY" \
 ```
 
 Use `/v1/guardrails` for tenant defaults and
-`/v1/guardrails/history` for the tenant's immutable revision history. A
-cross-tenant deployment reference is returned as not found.
+`/v1/guardrails/history` for the tenant's immutable revision history. Those
+tenant-wide routes require the explicit `guardrail:tenant-admin` permission on
+a tenant-scoped principal with no workspace. A workspace administrator cannot
+read or mutate tenant-wide policy, including another workspace in the same
+tenant. A cross-tenant deployment reference is returned as not found.
 
 The Deployments console provides the same six controls. A blank value means
 inherit; `unlimited` explicitly disables the daily quota. Validation and save
@@ -62,8 +71,11 @@ creation. Replicas also coordinate their shared running limit at lease claim.
 | Daily quota exhausted | `503 Service Unavailable` | Wait for `Retry-After` or change the quota. |
 | Shared concurrency saturated | Work remains queued | Wait for a running lease to finish or raise concurrency. |
 
-Every HTTP rejection includes an integer `Retry-After` header derived from the
-governing state. Do not retry before that interval.
+Every HTTP rejection includes an integer `Retry-After` header. Rate waits come
+from token refill time and quota waits from the UTC-day boundary. Queue depth
+has no completion-rate signal, so queue rejection uses a fixed one-second
+control-plane recheck interval instead of mislabeling excess batches as
+seconds. Treat it as the earliest useful recheck, not a completion estimate.
 
 ## Observe and remediate saturation
 
@@ -80,3 +92,17 @@ Rejected ingress decisions append scoped audit records under
 utilization together before raising a limit: a sustained full queue usually
 means worker capacity or downstream latency is the bottleneck, while repeated
 rate rejection with an empty queue means the token policy is the constraint.
+Concurrency saturation uses one deduplicated record per deployment scope and
+effective limit, retaining the active count, limit, and utilization without
+growing the audit trail on every worker poll.
+
+## Roll back migration 027 safely
+
+Downgrading from schema revision `027` to `026` drops both
+`guardrail_policy_revisions` and `guardrail_admission_state`. Export policy
+history before the downgrade: every tenant/deployment override and its actor
+history is irreversibly lost, and re-upgrading creates empty tables. Admission
+coordination rows are also discarded and rebuilt on demand. Rate-bucket and
+daily-quota counters live in separate tables and are not dropped, but without
+the policy revisions the service composes limits from its bootstrap baseline
+until operators reapply the exported overrides.

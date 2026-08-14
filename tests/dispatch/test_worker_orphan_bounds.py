@@ -50,13 +50,47 @@ def _worker(orphans: list[str], *, max_concurrency: int) -> RunWorker:
     worker._stopping = False
 
     class _Leases:
+        def __init__(self) -> None:
+            self.remaining = list(orphans)
+            self.claimed: list[str] = []
+            self.claim_limits: list[object] = []
+            self.available_slots: list[int] = []
+
         async def claim_orphaned(self, deployment_ref: str, worker_id: str, **scope: object):
-            del deployment_ref, worker_id, scope
-            return list(orphans)
+            del deployment_ref, worker_id
+            self.claim_limits.append(scope.get("claim_limit"))
+            self.available_slots.append(worker._semaphore._value)
+            limit = scope.pop("claim_limit", None)
+            count = len(self.remaining) if limit is None else int(limit)
+            claimed = self.remaining[:count]
+            del self.remaining[:count]
+            self.claimed.extend(claimed)
+            return claimed
 
     worker.lease_manager = _Leases()  # type: ignore[assignment]
     worker._lease_scope = lambda: {}  # type: ignore[method-assign]
     return worker
+
+
+@pytest.mark.asyncio
+async def test_orphans_are_claimed_only_after_reserving_a_local_slot() -> None:
+    worker = _worker(["run-1", "run-2"], max_concurrency=1)
+    recorder = _Recorder()
+    recorder.worker = worker  # type: ignore[attr-defined]
+    worker._execute_leased_run = recorder.drive  # type: ignore[method-assign]
+
+    await worker.start()
+    for _ in range(20):
+        if worker.lease_manager.claim_limits and recorder.started:  # type: ignore[attr-defined]
+            break
+        await asyncio.sleep(0)
+
+    assert worker.lease_manager.claim_limits[0] == 1  # type: ignore[attr-defined]
+    assert worker.lease_manager.available_slots[0] == 0  # type: ignore[attr-defined]
+    assert recorder.started == ["run-1"]
+
+    recorder.release.set()
+    await asyncio.gather(*list(worker._active_tasks), return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -224,24 +258,20 @@ async def test_shutdown_during_recovery_releases_only_real_orphans() -> None:
 
 @pytest.mark.asyncio
 async def test_a_stop_mid_recovery_strands_no_claimed_orphan() -> None:
-    """Hand back orphans that were claimed but never dispatched.
-
-    They are claimed up front and dispatched behind the concurrency gate, so an
-    undispatched one has no task at all. ``graceful_shutdown``'s ``for task in
-    pending`` therefore cannot see it, and it sat RUNNING against an exiting
-    worker until the lease TTL expired.
-    """
+    """Stopping recovery neither strands nor double-releases a claimed orphan."""
     orphans = [f"run-{index}" for index in range(5)]
     worker = _worker(orphans, max_concurrency=1)
     started: list[str] = []
     released: list[str] = []
 
     async def _drive(run_id: str, *, is_recovery: bool, slot_reserved: bool = False) -> None:
-        del is_recovery, slot_reserved
+        del is_recovery
         started.append(run_id)
         # Observed by the loop only at its next iteration, which is exactly the
         # mid-loop stop this covers.
         worker._stopping = True
+        if slot_reserved:
+            worker._semaphore.release()
 
     async def _release(run_id: str) -> None:
         released.append(run_id)
@@ -257,7 +287,8 @@ async def test_a_stop_mid_recovery_strands_no_claimed_orphan() -> None:
         await asyncio.gather(*pending, return_exceptions=True)
 
     assert started, "nothing was dispatched, so the mid-loop stop was never exercised"
-    stranded = sorted(set(orphans) - set(started) - set(released))
+    claimed = set(worker.lease_manager.claimed)  # type: ignore[attr-defined]
+    stranded = sorted(claimed - set(started) - set(released))
     assert not stranded, (
         f"orphans claimed by this worker were neither started nor released: {stranded}"
     )

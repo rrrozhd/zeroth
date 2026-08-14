@@ -184,6 +184,82 @@ class _FakeGraph:
     entry_step: str = "start"
 
 
+class _RecordingOrchestrator:
+    def __init__(self) -> None:
+        self.driven: list[str] = []
+
+    async def _drive(self, graph, run):
+        del graph
+        self.driven.append(run.run_id)
+        return run
+
+    async def resume_graph(self, graph, run_id: str):
+        del graph
+        self.driven.append(run_id)
+        return None
+
+    @property
+    def approval_service(self):
+        return None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_expired_recovery_lease_is_not_executed_after_replica_takeover(
+    dual_database,
+) -> None:
+    repo = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=1)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await repo.transition(run_id, RunStatus.RUNNING)
+    await _expire_lease(dual_database, run_id)
+    assert await manager.claim_orphaned(DEPLOYMENT, worker.worker_id) == [run_id]
+
+    await asyncio.sleep(1.1)
+    assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
+    await worker._execute_leased_run(run_id, is_recovery=True)
+
+    assert orchestrator.driven == []
+    assert await manager.current_holder(run_id) == WORKER_B
+    assert await manager.current_generation(run_id) == 3
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_execute_when_fence_install_loses_race(sqlite_db) -> None:
+    repo = RunRepository.for_default_compatibility(sqlite_db)
+    manager = LeaseManager(sqlite_db)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(sqlite_db)
+    assert await manager.claim_pending(DEPLOYMENT, worker.worker_id) == run_id
+
+    async def _ownership_moved_before_fence(claimed_run_id: str, generation: int | None) -> bool:
+        del claimed_run_id, generation
+        return False
+
+    worker._install_write_fence = _ownership_moved_before_fence  # type: ignore[method-assign]
+    await worker._execute_leased_run(run_id, is_recovery=True)
+
+    assert orchestrator.driven == []
+
+
 @requires_docker
 @pytest.mark.asyncio
 async def test_lease_loss_cancels_the_running_execution(dual_database) -> None:

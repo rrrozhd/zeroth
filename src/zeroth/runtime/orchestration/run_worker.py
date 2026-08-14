@@ -13,16 +13,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import socket
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from zeroth.contracts.governed import RunStatus
+from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.persistence.runs import RunRepository
-from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError, LeaseManager
+from zeroth.platform.dispatch.lease import (
+    FencedRunWriteRejectedError,
+    LeaseClaimResult,
+    LeaseManager,
+)
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
 from zeroth.runtime.runs import RunFailureState
@@ -101,36 +106,76 @@ class RunWorker:
         return self.guardrail_policy_repository is not None
 
     async def _effective_max_concurrency(self) -> int:
+        """Resolve the shared live limit with the static worker ceiling fallback."""
         repository = self.guardrail_policy_repository
         if repository is None:
-            return self.max_concurrency
-        tenant = await repository.current("tenant")
-        deployment = await repository.current("deployment", deployment_ref=self.deployment_ref)
-        if tenant is None and deployment is None:
             return self.max_concurrency
         return (await repository.effective(self.deployment_ref)).max_concurrency
 
     async def _claim_pending(self) -> str | None:
+        """Claim once and attribute saturation from that same atomic result."""
         limit = await self._effective_max_concurrency()
-        run_id = await self.lease_manager.claim_pending(
+        result = await self.lease_manager.claim_pending_result(
             self.deployment_ref,
             self.worker_id,
             max_concurrency=limit if self._uses_shared_concurrency() else None,
             **self._lease_scope(),
         )
-        if run_id is None and self.lease_manager.last_claim_saturated:
-            self._record_concurrency_saturation()
-        return run_id
+        if result.concurrency_saturated:
+            await self._record_concurrency_saturation(result)
+        return result.run_id
 
-    def _record_concurrency_saturation(self) -> None:
-        if self.metrics_collector is None:
+    async def _record_concurrency_saturation(self, result: LeaseClaimResult) -> None:
+        """Record process telemetry and bounded durable evidence for saturation."""
+        if self.metrics_collector is not None:
+            self.metrics_collector.increment(
+                "zeroth_guardrail_rejections_total", labels={"reason": "concurrency"}
+            )
+            self.metrics_collector.gauge_set(
+                "zeroth_guardrail_utilization_ratio",
+                result.utilization,
+                labels={"resource": "concurrency"},
+            )
+        audit_repository = getattr(self.orchestrator, "audit_repository", None)
+        if audit_repository is None:
             return
-        self.metrics_collector.increment(
-            "zeroth_guardrail_rejections_total", labels={"reason": "concurrency"}
-        )
-        self.metrics_collector.gauge_set(
-            "zeroth_guardrail_utilization_ratio", 1, labels={"resource": "concurrency"}
-        )
+        await self._write_concurrency_audit(audit_repository, result)
+
+    async def _write_concurrency_audit(
+        self,
+        audit_repository: AuditRepository,
+        result: LeaseClaimResult,
+    ) -> None:
+        """Persist one deduplicated saturation record per scoped effective limit."""
+        from zeroth.governance.audit import NodeAuditRecord
+        from zeroth.governance.audit.errors import DuplicateAuditIdError
+
+        tenant_id = self.tenant_id or "default"
+        scope = f"{tenant_id}\0{self.workspace_id}\0{self.deployment_ref}\0{result.max_concurrency}"
+        digest = hashlib.sha256(scope.encode()).hexdigest()[:24]
+        try:
+            await audit_repository.write(
+                NodeAuditRecord(
+                    audit_id=f"guardrail-concurrency:{digest}",
+                    run_id=f"guardrail-concurrency:{digest}",
+                    tenant_id=tenant_id,
+                    workspace_id=self.workspace_id,
+                    node_id="service.guardrail.concurrency",
+                    graph_version_ref=f"guardrail:{self.deployment_ref}",
+                    deployment_ref=self.deployment_ref,
+                    status="rejected",
+                    execution_metadata={
+                        "active_count": result.active_count,
+                        "effective_limit": result.max_concurrency,
+                        "reason_code": "concurrency",
+                        "utilization": result.utilization,
+                    },
+                )
+            )
+        except DuplicateAuditIdError:
+            return
+        except Exception:
+            logger.exception("worker %s failed to persist concurrency saturation", self.worker_id)
 
     # ---------------------------------------------------------------------------
     # Public lifecycle
@@ -145,73 +190,51 @@ class RunWorker:
             self.deployment_ref,
             self.max_concurrency,
         )
-        effective_limit = await self._effective_max_concurrency()
-        orphans = await self.lease_manager.claim_orphaned(
-            self.deployment_ref,
-            self.worker_id,
-            max_concurrency=effective_limit if self._uses_shared_concurrency() else None,
-            **self._lease_scope(),
-        )
-        # Recovery obeys the same concurrency bound as the poll loop. Creating a
-        # task per orphan meant a crash with a large backlog dispatched the whole
-        # backlog at once, ignoring max_concurrency entirely.
-        if len(orphans) > effective_limit:
-            logger.warning(
-                "worker %s recovering %d orphaned runs at concurrency %d; "
-                "the remainder start as slots free",
-                self.worker_id,
-                len(orphans),
-                effective_limit,
-            )
         # Named outside the run-/wakeup-/recover- namespace on purpose: this is
         # the recovery *loop*, not a run. _extract_run_id parses any of those
         # prefixes as a run id, so a "recover-orphans-w1" task made
         # graceful_shutdown drive clear_fence and release_lease against a
         # fabricated run called "orphans-w1".
         task = asyncio.create_task(
-            self._recover_orphans(orphans),
+            self._recover_orphans(),
             name=f"orphan-recovery-loop-{self.worker_id}",
         )
         self._track(task)
 
-    async def _recover_orphans(self, orphans: Sequence[str]) -> None:
-        """Re-execute *orphans*, never more than ``max_concurrency`` in flight.
-
-        The gate is a local count of live recovery tasks, deliberately not the
-        worker's slot semaphore. ``_execute_leased_run`` acquires and releases
-        that semaphore itself, and it does so around a window with unguarded
-        awaits: acquiring here as well would either double-release or, if one of
-        those awaits raised, drain the semaphore and wedge this loop forever.
-        Slot ownership stays entirely with the callee.
-        """
-        in_flight: set[asyncio.Task[None]] = set()
-        for index, run_id in enumerate(orphans):
-            if self._stopping:
-                # These were CLAIMED by this worker, so they are leased to a
-                # process that is leaving. They have no task, so
-                # graceful_shutdown's "for task in pending" cannot see them, and
-                # without this they would sit RUNNING until the lease TTL
-                # expired. Hand them back explicitly instead.
-                undispatched = list(orphans[index:])
-                logger.info(
-                    "worker %s stopping; releasing %d claimed but undispatched orphaned runs",
+    async def _recover_orphans(self) -> None:
+        """Reserve one local permit before each bounded orphan claim."""
+        while not self._stopping:
+            slot_reserved = False
+            try:
+                await self._semaphore.acquire()
+                slot_reserved = True
+                if self._stopping:
+                    return
+                limit = await self._effective_max_concurrency()
+                orphans = await self.lease_manager.claim_orphaned(
+                    self.deployment_ref,
                     self.worker_id,
-                    len(undispatched),
+                    max_concurrency=limit if self._uses_shared_concurrency() else None,
+                    claim_limit=1,
+                    **self._lease_scope(),
                 )
-                for pending_run_id in undispatched:
-                    await self._release_to_pending(pending_run_id)
-                break
-            while len(in_flight) >= await self._effective_max_concurrency():
-                _done, in_flight = await asyncio.wait(
-                    in_flight, return_when=asyncio.FIRST_COMPLETED
+                if not orphans:
+                    return
+                run_id = orphans[0]
+                logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
+                task = asyncio.create_task(
+                    self._execute_leased_run(
+                        run_id,
+                        is_recovery=True,
+                        slot_reserved=True,
+                    ),
+                    name=f"recover-{run_id}",
                 )
-            logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
-            task = asyncio.create_task(
-                self._execute_leased_run(run_id, is_recovery=True),
-                name=f"recover-{run_id}",
-            )
-            in_flight.add(task)
-            self._track(task)
+                self._track(task)
+                slot_reserved = False
+            finally:
+                if slot_reserved:
+                    self._semaphore.release()
 
     async def poll_loop(self) -> None:
         """Continuously claim and dispatch PENDING runs until cancelled."""
@@ -260,8 +283,6 @@ class RunWorker:
         """Drive one run to completion or failure under the semaphore."""
         import time
 
-        if self.metrics_collector is not None:
-            self.metrics_collector.increment("zeroth_runs_started_total")
         started_at = time.perf_counter()
         acquired_here = False
         # A06-2: everything the finally has to undo is declared BEFORE the
@@ -283,7 +304,23 @@ class RunWorker:
             # worker id ends up holding it again.
             generation = await self.lease_manager.current_generation(run_id)
             self._lease_generations[run_id] = generation
+            if not await self._lease_allows_execution(run_id, generation):
+                logger.info(
+                    "worker %s refused stale lease execution for run %s",
+                    self.worker_id,
+                    run_id,
+                )
+                return
             fence_installed = await self._install_write_fence(run_id, generation)
+            if generation not in (None, 0) and not fence_installed:
+                logger.info(
+                    "worker %s refused unfenced lease execution for run %s",
+                    self.worker_id,
+                    run_id,
+                )
+                return
+            if self.metrics_collector is not None:
+                self.metrics_collector.increment("zeroth_runs_started_total")
             drive_task = asyncio.create_task(
                 self._drive_run(run_id, is_recovery=is_recovery),
                 name=f"drive-{run_id}",
@@ -334,6 +371,21 @@ class RunWorker:
             await self.lease_manager.release_lease(run_id, self.worker_id)
             if slot_reserved or acquired_here:
                 self._semaphore.release()
+
+    async def _lease_allows_execution(self, run_id: str, generation: int | None) -> bool:
+        """Refuse expired or reclaimed leases before user code can start."""
+        if generation is None:
+            return False
+        holder = await self.lease_manager.current_holder(run_id)
+        if holder is None:
+            return generation == 0
+        if holder != self.worker_id:
+            return False
+        return await self.lease_manager.renew_lease(
+            run_id,
+            self.worker_id,
+            generation=generation,
+        )
 
     async def _await_drive_outcome(
         self, run_id: str, drive_task: asyncio.Task, started_at: float

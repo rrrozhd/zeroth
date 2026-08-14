@@ -32,7 +32,10 @@ from zeroth.governance.decisions.resolvers import (
 from zeroth.governance.decisions.service import ToolDecisionService
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.dead_letter import DeadLetterManager
-from zeroth.governance.guardrails.policy import GuardrailPolicyRepository
+from zeroth.governance.guardrails.policy import (
+    GuardrailPolicyRepository,
+    configured_guardrails,
+)
 from zeroth.governance.guardrails.rate_limit import (
     QuotaEnforcer,
     TokenBucketRateLimiter,
@@ -232,7 +235,11 @@ async def bootstrap_scoped_service(
     )
     rate_limiter = TokenBucketRateLimiter.scoped(database, guardrail_scope)
     quota_enforcer = QuotaEnforcer.scoped(database, guardrail_scope)
-    guardrail_policy_repository = GuardrailPolicyRepository.scoped(database, guardrail_scope)
+    guardrail_policy_repository = GuardrailPolicyRepository.scoped(
+        database,
+        guardrail_scope,
+        baseline=configured_guardrails(resolved_guardrail_config),
+    )
     queue_gauge = QueueDepthGauge(
         run_repository=run_repository,
         deployment_ref=deployment.deployment_ref,

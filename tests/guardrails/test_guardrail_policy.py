@@ -163,6 +163,28 @@ async def test_concurrent_replicas_cannot_overspend_queue_capacity(sqlite_db) ->
     )
 
 
+async def test_queue_retry_after_is_a_time_interval_not_a_batch_count(sqlite_db) -> None:
+    repository = RunRepository.for_default_compatibility(sqlite_db)
+    for index in range(3):
+        await repository.create(_queued_run(index))
+    settings = EffectiveGuardrailSettings(
+        rate_limit_capacity=100,
+        backpressure_queue_depth=1,
+        max_concurrency=1,
+    )
+
+    with pytest.raises(GuardrailAdmissionRejectedError) as rejected:
+        await repository.create_guarded(
+            _queued_run(4),
+            settings=settings,
+            rate_limiter=TokenBucketRateLimiter(sqlite_db),
+            quota_enforcer=QuotaEnforcer(sqlite_db),
+        )
+
+    assert rejected.value.reason == "queue"
+    assert rejected.value.retry_after_seconds == 1
+
+
 async def _assert_distributed_replicas_share_running_concurrency(database) -> None:
     repository = RunRepository.for_default_compatibility(database)
     await repository.create(_queued_run(1))
