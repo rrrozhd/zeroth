@@ -72,10 +72,11 @@ creation. Replicas also coordinate their shared running limit at lease claim.
 | Shared concurrency saturated | Work remains queued | Wait for a running lease to finish or raise concurrency. |
 
 Every HTTP rejection includes an integer `Retry-After` header. Rate waits come
-from token refill time and quota waits from the UTC-day boundary. Queue depth
-has no completion-rate signal, so queue rejection uses a fixed one-second
-control-plane recheck interval instead of mislabeling excess batches as
-seconds. Treat it as the earliest useful recheck, not a completion estimate.
+from token refill time and quota waits from the end of the rolling 24-hour
+window that starts with the first counter event. Queue depth has no
+completion-rate signal, so queue rejection uses a fixed one-second control-plane
+recheck interval instead of mislabeling excess batches as seconds. Treat it as
+the earliest useful recheck, not a completion estimate.
 
 ## Observe and remediate saturation
 

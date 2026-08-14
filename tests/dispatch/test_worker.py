@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
+from zeroth.governance.audit import AuditRepository
 from zeroth.platform.observability.metrics import MetricsCollector
 from zeroth.platform.dispatch.lease import LeaseClaimResult, LeaseManager
 from zeroth.runtime.orchestration.token_scheduler import initialize_token_snapshot
@@ -17,7 +18,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.runtime.runs import RunStatus
 from zeroth.runtime.runs import Run
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
-from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage import NullWorkspaceScopeContext, ScopeContext
 
 DEPLOYMENT = "worker-test-deployment"
 
@@ -209,6 +210,43 @@ async def test_interleaved_poll_and_wakeup_keep_saturation_per_claim() -> None:
         metrics.snapshot()["counters"]['zeroth_guardrail_rejections_total{reason="concurrency"}']
         == 1
     )
+
+
+async def test_concurrency_audit_identity_distinguishes_null_and_literal_workspace(
+    sqlite_db,
+) -> None:
+    result = LeaseClaimResult(
+        run_id=None,
+        concurrency_saturated=True,
+        active_count=2,
+        max_concurrency=2,
+    )
+    scopes = (
+        (None, NullWorkspaceScopeContext(tenant_id="tenant-collision")),
+        ("None", ScopeContext(tenant_id="tenant-collision", workspace_id="None")),
+    )
+
+    for workspace_id, scope in scopes:
+        audit_repository = AuditRepository.scoped(sqlite_db, scope)
+        worker = RunWorker(
+            deployment_ref=DEPLOYMENT,
+            run_repository=None,  # type: ignore[arg-type]
+            orchestrator=SimpleNamespace(audit_repository=audit_repository),
+            graph=_FakeGraph(),
+            lease_manager=None,  # type: ignore[arg-type]
+            tenant_id="tenant-collision",
+            workspace_id=workspace_id,
+        )
+        await worker._record_concurrency_saturation(result)
+
+    audit_ids = set()
+    for _, scope in scopes:
+        records = await AuditRepository.scoped(sqlite_db, scope).list_by_node(
+            "service.guardrail.concurrency"
+        )
+        assert len(records) == 1
+        audit_ids.add(records[0].audit_id)
+    assert len(audit_ids) == 2
 
 
 async def _worker_tick(worker: RunWorker) -> None:
