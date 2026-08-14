@@ -1,5 +1,4 @@
 name: Certify Zeroth application
-
 on:
   workflow_call:
     inputs:
@@ -21,35 +20,32 @@ on:
         description: App-relative certification declaration
         required: true
         type: string
-
 permissions:
   contents: read
-  attestations: write
-  id-token: write
-
 jobs:
   certify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout application candidate
+        id: app-checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           path: app
           persist-credentials: false
-
       - name: Checkout pinned Zeroth certifier
+        id: certifier-checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: rrrozhd/zeroth
           ref: ${{ inputs.zeroth_ref }}
           path: zeroth
           persist-credentials: false
-
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-
-      - name: Validate pins and build Zeroth wheel
+      - name: Validate pins and prepare isolated app environment
         id: prepare
         shell: bash
         env:
@@ -80,55 +76,44 @@ jobs:
             echo "reserved certification paths already exist in the app checkout" >&2
             exit 1
           }
-
-          cd zeroth
-          uv sync --frozen --all-extras
-          mkdir -p ../app/.zeroth-certifier ../app/.app-certification
-          uv build --wheel --out-dir ../app/.zeroth-certifier
-          cp requirements-image.txt ../app/.zeroth-certifier/requirements-image.txt
-          cd ..
+          uv sync --directory zeroth --frozen --all-extras
+          uv sync --directory app --frozen --all-extras
+          mkdir -p app/.zeroth-certifier app/.app-certification
+          uv build --directory zeroth --wheel --out-dir app/.zeroth-certifier
+          cp zeroth/requirements-image.txt app/.zeroth-certifier/requirements-image.txt
           npm ci --prefix app/frontend
-
-          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
-          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth"
+          APP_PYTHON="$GITHUB_WORKSPACE/app/.venv/bin/python"
+          [[ -x "$APP_PYTHON" ]] || {
+            echo "app uv environment has no Python interpreter" >&2
+            exit 1
+          }
+          export PYTHONPATH="$GITHUB_WORKSPACE/zeroth:$GITHUB_WORKSPACE/app"
           cp "$DECLARATION_FILE" app/.app-certification/declaration.json
-          "$PYTHON" -m release.app_certification validate-declaration \
+          "$APP_PYTHON" -m release.app_certification validate-declaration \
             --declaration "$DECLARATION_FILE"
-          DECLARED_VERSION=$("$PYTHON" -c \
+          DECLARED_VERSION=$("$APP_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["zeroth_version"])' \
             "$DECLARATION_FILE")
-          CERTIFIER_VERSION=$("$PYTHON" -c \
+          CERTIFIER_VERSION=$("$APP_PYTHON" -c \
             'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' \
             zeroth/pyproject.toml)
           [[ "$DECLARED_VERSION" == "$CERTIFIER_VERSION" ]] || {
             echo "declaration Zeroth pin does not match checked-out certifier" >&2
             exit 1
           }
-
           APP_COMMIT=$(git -C app rev-parse HEAD)
-          DOCKERFILE=$("$PYTHON" -c \
+          DOCKERFILE=$("$APP_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
             "$DECLARATION_FILE")
-          IMAGE_REFERENCE=$("$PYTHON" -c \
+          IMAGE_REFERENCE=$("$APP_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
-            "$DECLARATION_FILE")
-          SBOM_PATH=$("$PYTHON" -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["sbom_path"])' \
-            "$DECLARATION_FILE")
-          PROVENANCE_PATH=$("$PYTHON" -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["provenance_path"])' \
             "$DECLARATION_FILE")
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
-          echo "sbom_path=$SBOM_PATH" >> "$GITHUB_OUTPUT"
-          echo "provenance_path=$PROVENANCE_PATH" >> "$GITHUB_OUTPUT"
-          echo "$GITHUB_WORKSPACE/zeroth/.venv/bin" >> "$GITHUB_PATH"
-
-          APP_CERTIFICATION_API_KEY=$("$PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
+          APP_CERTIFICATION_API_KEY=$("$APP_PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
           echo "::add-mask::$APP_CERTIFICATION_API_KEY"
           echo "APP_CERTIFICATION_API_KEY=$APP_CERTIFICATION_API_KEY" >> "$GITHUB_ENV"
-
       - name: Build and measure application image
         id: image
         shell: bash
@@ -145,7 +130,6 @@ jobs:
           }
           docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
-
       - name: Generate SPDX image SBOM
         id: sbom
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -154,41 +138,22 @@ jobs:
           format: spdx-json
           output-file: app/.app-certification/image.spdx.json
           upload-artifact: "false"
-
-      - name: Attest measured image provenance
-        id: provenance
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-name: ${{ steps.prepare.outputs.image_reference }}
-          subject-digest: ${{ steps.image.outputs.digest }}
-
-      - name: Copy evidence to declaration paths
-        id: retain-evidence
+      - name: Bind SBOM and provenance predicate to measured candidate
+        id: evidence
         shell: bash
         env:
-          SBOM_REL: ${{ steps.prepare.outputs.sbom_path }}
-          PROVENANCE_REL: ${{ steps.prepare.outputs.provenance_path }}
-          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          PYTHONPATH: ${{ github.workspace }}/zeroth:${{ github.workspace }}/app
+          DECLARATION_PATH: ${{ inputs.declaration_path }}
+          APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          safe_destination() {
-            python -c \
-              'from pathlib import Path; import sys; root=Path("app").resolve(); target=(root/sys.argv[1]).resolve(); target.relative_to(root); print(target)' \
-              "$1"
-          }
-          SBOM_DEST=$(safe_destination "$SBOM_REL")
-          PROVENANCE_DEST=$(safe_destination "$PROVENANCE_REL")
-          mkdir -p "$(dirname "$SBOM_DEST")" "$(dirname "$PROVENANCE_DEST")"
-          cp app/.app-certification/image.spdx.json "$SBOM_DEST"
-          cp "$PROVENANCE_BUNDLE" \
-            app/.app-certification/provenance.bundle.json
-          cp app/.app-certification/provenance.bundle.json "$PROVENANCE_DEST"
-          mkdir -p \
-            "app/.app-certification/root/$(dirname "$SBOM_REL")" \
-            "app/.app-certification/root/$(dirname "$PROVENANCE_REL")"
-          cp "$SBOM_DEST" "app/.app-certification/root/$SBOM_REL"
-          cp "$PROVENANCE_DEST" "app/.app-certification/root/$PROVENANCE_REL"
-
+          app/.venv/bin/python -m release.app_certification prepare-evidence \
+            --declaration "app/$DECLARATION_PATH" \
+            --root app \
+            --app-commit "$APP_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --raw-sbom app/.app-certification/image.spdx.json
       - name: Start isolated packaged and ephemeral containers
         id: containers
         shell: bash
@@ -211,10 +176,11 @@ jobs:
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
             "$IMAGE_ID"
-
-      - name: Require both containers healthy
+      - name: Require healthy container state and readiness payload
         id: health
         shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
         run: |
           set -euo pipefail
           wait_healthy() {
@@ -231,18 +197,21 @@ jobs:
           }
           wait_healthy app-cert-packaged
           wait_healthy app-cert-ephemeral
-
+          app/.venv/bin/python -m release.app_certification probe-readiness \
+            --url http://127.0.0.1:18080/health/ready
+          app/.venv/bin/python -m release.app_certification probe-readiness \
+            --url http://127.0.0.1:18081/health/ready
       - name: Run fail-closed certification
         id: certify
         shell: bash
         env:
-          PYTHONPATH: ${{ github.workspace }}/zeroth
+          PYTHONPATH: ${{ github.workspace }}/zeroth:${{ github.workspace }}/app
           DECLARATION_PATH: ${{ inputs.declaration_path }}
           APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          python -m release.app_certification run \
+          app/.venv/bin/python -m release.app_certification run \
             --declaration "app/$DECLARATION_PATH" \
             --root app \
             --app-commit "$APP_COMMIT" \
@@ -250,7 +219,66 @@ jobs:
             --packaged-url http://127.0.0.1:18080 \
             --ephemeral-url http://127.0.0.1:18081 \
             --report app/.app-certification/report.json
-
+      - name: Finalize canonical report and stage diagnostics
+        id: finalizer
+        if: ${{ always() }}
+        shell: bash
+        env:
+          APP_CHECKOUT: ${{ steps.app-checkout.outcome }}
+          CERTIFIER_CHECKOUT: ${{ steps.certifier-checkout.outcome }}
+          PREPARE: ${{ steps.prepare.outcome }}
+          IMAGE: ${{ steps.image.outcome }}
+          SBOM: ${{ steps.sbom.outcome }}
+          EVIDENCE: ${{ steps.evidence.outcome }}
+          CONTAINERS: ${{ steps.containers.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          CERTIFY: ${{ steps.certify.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/.app-certification
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          stages = {name.lower(): os.environ[name] for name in (
+              "APP_CHECKOUT", "CERTIFIER_CHECKOUT", "PREPARE", "IMAGE", "SBOM",
+              "EVIDENCE", "CONTAINERS", "HEALTH", "CERTIFY",
+          )}
+          root = Path("app/.app-certification")
+          (root / "workflow-stages.json").write_text(
+              json.dumps(stages, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          report = root / "report.json"
+          if report.exists():
+              raise SystemExit(0)
+          checks = (
+              "graph", "service-config", "contracts", "dependency-lock",
+              "optional-extras", "migrations", "container-startup", "health",
+              "policies", "frontend-api", "packaged-smoke", "ephemeral-smoke",
+              "sbom", "provenance",
+          )
+          stage = {
+              "container-startup": "containers", "health": "health",
+              "packaged-smoke": "certify", "ephemeral-smoke": "certify",
+              "sbom": "sbom", "provenance": "evidence",
+          }
+          payload = {
+              "schema_version": 1,
+              "status": "failed",
+              "candidate": None,
+              "checks": [
+                  {
+                      "name": name,
+                      "status": "failed",
+                      "detail": f"{name}: workflow stage {stage.get(name, 'prepare')} "
+                      f"outcome={stages[stage.get(name, 'prepare')]}",
+                  }
+                  for name in checks
+              ],
+              "evidence": None,
+          }
+          report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
       - name: Capture container diagnostics
         id: logs
         if: ${{ always() }}
@@ -258,13 +286,10 @@ jobs:
         run: |
           set +e
           mkdir -p app/.app-certification/logs
-          docker logs app-cert-packaged \
-            > app/.app-certification/logs/packaged.log 2>&1
-          docker logs app-cert-ephemeral \
-            > app/.app-certification/logs/ephemeral.log 2>&1
+          docker logs app-cert-packaged > app/.app-certification/logs/packaged.log 2>&1
+          docker logs app-cert-ephemeral > app/.app-certification/logs/ephemeral.log 2>&1
           docker inspect app-cert-packaged app-cert-ephemeral \
             > app/.app-certification/logs/container-inspect.json 2>&1
-
       - name: Stop and remove certification containers
         id: cleanup
         if: ${{ always() }}
@@ -275,13 +300,100 @@ jobs:
           docker rm app-cert-packaged app-cert-ephemeral
           docker network rm app-cert-packaged-net app-cert-ephemeral-net
           docker volume rm app-cert-packaged-data
-
-      - name: Upload certification diagnostics
+      - name: Upload unprivileged certification handoff
         id: diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-certification-${{ github.run_id }}
+          name: app-certification-handoff-${{ github.run_id }}
           path: app/.app-certification
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 14
+  attest:
+    needs: certify
+    if: ${{ needs.certify.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout pinned Zeroth verifier only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rrrozhd/zeroth
+          ref: ${{ inputs.zeroth_ref }}
+          path: zeroth
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Download immutable unprivileged handoff
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: app-certification-handoff-${{ github.run_id }}
+          path: evidence
+      - name: Validate handoff without executing candidate code
+        id: validate
+        shell: bash
+        env:
+          APP_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          uv sync --directory zeroth --frozen
+          PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
+          VERSION=$("$PYTHON" -c \
+            'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
+          PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
+            validate-handoff \
+            --report evidence/report.json \
+            --root evidence/root \
+            --image-archive evidence/image.tar \
+            --app-commit "$APP_COMMIT" \
+            --zeroth-version "$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Extract validated custom predicate
+        shell: bash
+        env:
+          PROVENANCE_PATH: ${{ steps.validate.outputs.provenance_path }}
+        run: |
+          set -euo pipefail
+          zeroth/.venv/bin/python -c \
+            'import json,pathlib,sys; source=json.load(open(sys.argv[1])); pathlib.Path(sys.argv[2]).write_text(json.dumps(source["predicate"],indent=2,sort_keys=True)+"\n")' \
+            "evidence/root/$PROVENANCE_PATH" evidence/attestation-predicate.json
+      - name: Attest validated immutable candidate
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.validate.outputs.image_reference }}
+          subject-digest: ${{ steps.validate.outputs.image_digest }}
+          predicate-type: https://zeroth.dev/app-certification/provenance/v1
+          predicate-path: evidence/attestation-predicate.json
+      - name: Bind signed provenance into final report
+        id: finalize-attestation
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/zeroth
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
+            --bundle "$BUNDLE" \
+            --report evidence/report.json \
+            --root evidence/root
+      - name: Record attestation stage outcome
+        if: ${{ always() }}
+        shell: bash
+        env:
+          VALIDATE: ${{ steps.validate.outcome }}
+          PROVENANCE: ${{ steps.provenance.outcome }}
+          FINALIZE: ${{ steps.finalize-attestation.outcome }}
+        run: |
+          python3 -c 'import json,os,pathlib; pathlib.Path("evidence/attestation-stage.json").write_text(json.dumps({"validate":os.environ["VALIDATE"],"provenance":os.environ["PROVENANCE"],"finalize":os.environ["FINALIZE"]},indent=2,sort_keys=True)+"\n")'
+      - name: Upload final signed certification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-certification-final-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: error
           retention-days: 14

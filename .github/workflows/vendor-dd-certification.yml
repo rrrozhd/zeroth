@@ -5,11 +5,14 @@ on:
 
 permissions:
   contents: read
-  attestations: write
-  id-token: write
 
 jobs:
   certify-vendor-dd:
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
     uses: ./.github/workflows/app-certification.yml
     with:
       zeroth_ref: ${{ github.sha }}

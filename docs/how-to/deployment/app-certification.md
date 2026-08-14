@@ -1,79 +1,72 @@
 # Certify a generated application
 
-Use the reusable workflow to prove that one app commit and one locally built
-image pass every declared boundary. The workflow does not push an image,
-publish to a registry, or deploy the candidate.
+Use the certification scaffold to add the declaration, reusable-workflow
+caller, fail-closed readiness probe, and certification Dockerfile together.
+The workflow builds and measures a candidate but does not push or deploy it.
 
-## Call the workflow
+## Generate the assets
 
-Pin both the reusable workflow and its certifier checkout to the same full
-Zeroth commit SHA. Branches and tags are rejected for `zeroth_ref`.
+Run the pinned Zeroth checkout's scaffold command from the generated app root:
 
-```yaml
-permissions:
-  contents: read
-  attestations: write
-  id-token: write
-
-jobs:
-  certify:
-    uses: rrrozhd/zeroth/.github/workflows/app-certification.yml@<FULL_ZEROTH_COMMIT_SHA>
-    with:
-      zeroth_ref: <FULL_ZEROTH_COMMIT_SHA>
-      declaration_path: path/to/certification.json
+```bash
+PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
+  --root . \
+  --app-name my-app \
+  --module my_app \
+  --zeroth-version 0.23.9.1 \
+  --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
-The reusable workflow also declares the same three least-privilege permissions;
-GitHub requires them on both sides of a reusable attestation workflow.
+The command refuses to overwrite existing files and emits:
 
-## What the workflow measures
+- `.github/workflows/app-certification.yml`;
+- `certification.json`;
+- `Dockerfile.certification`;
+- `<module>/certification_healthcheck.py`.
 
-The app commit comes from `git rev-parse HEAD` in the app checkout. The image
-digest comes from `docker image inspect` after the declared Dockerfile is built.
-The SBOM is evidence about that image, never the source of either identity.
+The generated module must expose `graphs.build_graph`, `contracts.CONTRACTS`,
+`entrypoint.build_auth_config`, `entrypoint.build_policy_guard`, and
+`entrypoint.main`. Adjust only the structured `targets` references if the app
+uses different names. The declaration cannot provide commands or shell text.
 
-Two containers start from the exact measured image:
+## What is checked
 
-- a packaged boundary with its own Docker volume and network;
-- an ephemeral boundary with a tmpfs data directory and separate network.
+Certifier-owned implementations load the structured targets through the app's
+synced `.venv` and apply the same semantic boundaries used for publication:
 
-Both must report healthy before the same deterministic smoke request is sent to
-their distinct URLs. Any failed argv check, identity mismatch, unhealthy
-container, HTTP mismatch, missing lock, SBOM, or provenance bundle makes the
-report fail.
+- register every Pydantic contract in a migrated temporary database;
+- validate every graph and resolve every referenced contract;
+- resolve policy and capability bindings and require allowed decisions;
+- validate service authentication, the frozen lock, installed extras,
+  migrations, container state, readiness JSON, and frontend/API drift;
+- send the same deterministic smoke request to packaged and tmpfs-backed
+  candidate containers.
 
-## Declaration rules
+Each host-side check runs in a bounded subprocess without an ambient shell.
+Container readiness requires a parsed JSON body with `status: ok`; HTTP 200 by
+itself is not sufficient.
 
-Start from
-[`apps/vendor_dd/certification.json`](https://github.com/rrrozhd/zeroth/blob/main/apps/vendor_dd/certification.json).
-A declaration must provide exactly the 14 mandatory checks as non-empty,
-unique argv arrays. Commands run directly without an ambient shell. It must
-also pin an exact numeric Zeroth version and name safe relative paths for its
-lock, Dockerfile, SBOM, and provenance bundle.
+## Identity, evidence, and privileges
 
-Authenticated smoke requests map HTTP header names to environment variable
-names:
+The unprivileged `certify` job runs all app and container code with only
+`contents: read`. It measures the exact app commit and local image digest,
+generates an SPDX SBOM, and writes a canonical report even when preparation,
+build, startup, or health fails.
 
-```json
-"headers_from_env": {
-  "X-API-Key": "APP_CERTIFICATION_API_KEY"
-}
-```
+Only after that job succeeds does the separate `attest` job receive
+`id-token: write`, `attestations: write`, and `artifact-metadata: write`. It
+downloads the immutable handoff, executes only the pinned Zeroth verifier,
+recomputes the report and evidence hashes, proves the Docker archive config
+digest, and then signs the exact image subject. Candidate code is never checked
+out or executed in the privileged job.
 
-Never put a token in the declaration. The workflow generates and masks
-`APP_CERTIFICATION_API_KEY`, passes it to both containers, and resolves it only
-when building the HTTP request. A missing or empty mapped variable fails before
-any smoke request is attempted.
+The final report cross-binds the app commit, exact Zeroth version, image name
+and digest, SPDX subject, signed provenance predicate, and hashes of both
+retained evidence files. A hand-written or tampered passing report is rejected.
 
 ## Retained diagnostics
 
-The workflow always attempts to upload the declaration, certification report,
-SPDX JSON, provenance bundle, container inspection, and logs. It then stops and
-removes both containers, their isolated networks, and the packaged data volume,
-including after a failed certification step.
-
-The in-repository `vendor-dd` caller is manual:
-
-```text
-Actions -> Certify vendor-dd -> Run workflow
-```
+The workflow retains the canonical JSON report, stage outcomes, declaration,
+image archive, SPDX JSON, signed provenance bundle, container inspection, and
+container logs for 14 days. The in-repository `vendor-dd` reference can be run
+from **Actions → Certify vendor-dd → Run workflow**.

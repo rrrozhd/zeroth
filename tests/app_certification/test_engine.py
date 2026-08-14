@@ -1,23 +1,24 @@
 from __future__ import annotations
-
 import json
 from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
-
 from release.app_certification import (
     MANDATORY_CHECKS,
     AppDeclaration,
+    CandidateIdentity,
     CertificationReport,
     CertificationRunner,
     CommandResult,
     HttpResult,
+    bind_sbom,
     execute_command,
     load_declaration,
     validate_report,
     write_report,
+    write_provenance,
 )
+from release.app_certification.checks import run_owned_check
 from release.app_certification.cli import main as certification_main
 from release.app_certification.cli import resolve_smoke_headers
 
@@ -27,15 +28,21 @@ DIGEST = "sha256:" + "b" * 64
 
 def declaration_data() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.8",
+        "zeroth_version": "0.23.9.1",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
         "sbom_path": "evidence/app.spdx.json",
         "provenance_path": "evidence/provenance.json",
-        "checks": {name: ["certify", name] for name in MANDATORY_CHECKS},
+        "targets": {
+            "graph_builders": ["apps.vendor_dd.graphs:build_main_graph"],
+            "contracts": "apps.vendor_dd.contracts:CONTRACTS",
+            "auth_config": "apps.vendor_dd.entrypoint:build_auth_config",
+            "policy_guard": "apps.vendor_dd.entrypoint:build_policy_guard",
+            "frontend_path": "frontend",
+        },
         "smoke": {
             "method": "POST",
             "path": "/v1/runs",
@@ -50,8 +57,18 @@ def write_inputs(root: Path) -> None:
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     evidence = root / "evidence"
     evidence.mkdir()
-    (evidence / "app.spdx.json").write_text('{"spdxVersion":"SPDX-2.3"}\n')
-    (evidence / "provenance.json").write_text('{"predicateType":"slsa"}\n')
+    sbom = evidence / "app.spdx.json"
+    provenance = evidence / "provenance.json"
+    sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n')
+    candidate = CandidateIdentity(
+        app_name="reference-app",
+        app_commit=COMMIT,
+        zeroth_version="0.23.9.1",
+        image_reference="reference-app:certification",
+        image_digest=DIGEST,
+    )
+    bind_sbom(sbom, candidate)
+    write_provenance(provenance, candidate)
 
 
 def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
@@ -87,21 +104,18 @@ def run_certification(
 def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: Path) -> None:
     write_inputs(tmp_path)
     declaration = AppDeclaration.model_validate(declaration_data())
-
     report = run_certification(tmp_path, declaration)
-
     assert report.status == "passed"
     assert [check.name for check in report.checks] == list(MANDATORY_CHECKS)
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.8"
+    assert report.candidate.zeroth_version == "0.23.9.1"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")
     assert report.evidence.sbom.sha256.startswith("sha256:")
     assert report.evidence.provenance.sha256.startswith("sha256:")
-
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
     write_report(report, first)
@@ -110,21 +124,32 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert validate_report(first).status == "passed"
 
 
-@pytest.mark.parametrize("failed_check", MANDATORY_CHECKS)
-def test_failure_injection_rejects_each_mandatory_check(
-    tmp_path: Path, failed_check: str
-) -> None:
+@pytest.mark.parametrize(
+    "failed_check",
+    [
+        "graph",
+        "service-config",
+        "contracts",
+        "dependency-lock",
+        "optional-extras",
+        "migrations",
+        "container-startup",
+        "health",
+        "policies",
+        "frontend-api",
+    ],
+)
+def test_failure_injection_rejects_each_mandatory_check(tmp_path: Path, failed_check: str) -> None:
     write_inputs(tmp_path)
     declaration = AppDeclaration.model_validate(declaration_data())
 
     def executor(argv: list[str], cwd: Path) -> CommandResult:
-        if argv[-1] == failed_check:
+        if argv[3] == failed_check:
             return CommandResult(returncode=23, stdout="", stderr="deliberate failure")
         return passing_executor(argv, cwd)
 
     report = run_certification(tmp_path, declaration, executor=executor)
     failed = [check for check in report.checks if check.status == "failed"]
-
     assert report.status == "failed"
     assert [check.name for check in failed] == [failed_check]
     assert failed_check in failed[0].detail
@@ -134,22 +159,25 @@ def test_failure_injection_rejects_each_mandatory_check(
 def test_argv_executor_never_uses_an_ambient_shell(tmp_path: Path, monkeypatch) -> None:
     observed: dict = {}
 
-    def fake_run(argv, **kwargs):
+    class Process:
+        returncode = 0
+        pid = 123
+
+        def communicate(self, timeout):
+            observed["timeout"] = timeout
+            return "out", ""
+
+    def fake_popen(argv, **kwargs):
         observed.update(argv=argv, kwargs=kwargs)
+        return Process()
 
-        class Completed:
-            returncode = 0
-            stdout = "out"
-            stderr = ""
-
-        return Completed()
-
-    monkeypatch.setattr("release.app_certification.runner.subprocess.run", fake_run)
+    monkeypatch.setattr("release.app_certification.runner.subprocess.Popen", fake_popen)
     result = execute_command(["python", "-c", "print('safe')"], tmp_path)
-
     assert result.returncode == 0
     assert observed["argv"] == ["python", "-c", "print('safe')"]
     assert observed["kwargs"]["shell"] is False
+    assert observed["kwargs"]["start_new_session"] is True
+    assert observed["timeout"] == 180
 
 
 @pytest.mark.parametrize(
@@ -171,7 +199,6 @@ def test_failed_smoke_subset_assertion_is_actionable(
 
     report = run_certification(tmp_path, declaration, http=http)
     failure = next(check for check in report.checks if check.name == check_name)
-
     assert report.status == "failed"
     assert failure.status == "failed"
     assert "JSON subset mismatch" in failure.detail
@@ -189,26 +216,15 @@ def test_malformed_http_result_does_not_hide_the_report(tmp_path: Path) -> None:
 
     report = run_certification(tmp_path, declaration, http=http)
     failure = next(check for check in report.checks if check.name == "packaged-smoke")
-
     assert report.status == "failed"
     assert failure.status == "failed"
     assert "malformed HTTP result" in failure.detail
 
 
 def test_missing_lock_fails_dependency_lock_without_hiding_report(tmp_path: Path) -> None:
-    evidence = tmp_path / "evidence"
-    evidence.mkdir()
-    (evidence / "app.spdx.json").write_text("sbom")
-    (evidence / "provenance.json").write_text("provenance")
     declaration = AppDeclaration.model_validate(declaration_data())
-
-    report = run_certification(tmp_path, declaration)
-    failure = next(check for check in report.checks if check.name == "dependency-lock")
-
-    assert report.status == "failed"
-    assert failure.status == "failed"
-    assert "uv.lock" in failure.detail
-    assert "missing" in failure.detail
+    with pytest.raises(ValueError, match="dependency lock.*missing"):
+        run_owned_check("dependency-lock", tmp_path, declaration)
 
 
 @pytest.mark.parametrize("lock_path", ["", "/tmp/uv.lock", "../uv.lock", "bad\npath", r"bad\path"])
@@ -223,7 +239,6 @@ def test_invalid_lock_path_is_rejected(lock_path: str) -> None:
 def test_unsafe_image_reference_is_rejected(reference: str) -> None:
     data = declaration_data()
     data["image_reference"] = reference
-
     with pytest.raises(ValidationError, match="image_reference"):
         AppDeclaration.model_validate(data)
 
@@ -240,9 +255,7 @@ def test_non_exact_zeroth_pin_is_rejected(pin: str) -> None:
 def test_invalid_daemon_digest_fails_closed_with_a_report(tmp_path: Path, digest: str) -> None:
     write_inputs(tmp_path)
     declaration = AppDeclaration.model_validate(declaration_data())
-
     report = run_certification(tmp_path, declaration, digest=digest)
-
     assert report.status == "failed"
     for name in ("sbom", "provenance"):
         failure = next(check for check in report.checks if check.name == name)
@@ -261,10 +274,8 @@ def test_missing_or_empty_evidence_fails_its_named_check(
     path.unlink()
     if contents is not None:
         path.write_bytes(contents)
-
     report = run_certification(tmp_path, declaration)
     failure = next(check for check in report.checks if check.name == kind)
-
     assert report.status == "failed"
     assert failure.status == "failed"
     assert kind in failure.detail
@@ -274,9 +285,7 @@ def test_missing_or_empty_evidence_fails_its_named_check(
 def test_commit_mismatch_fails_identity_bound_evidence_checks(tmp_path: Path) -> None:
     write_inputs(tmp_path)
     declaration = AppDeclaration.model_validate(declaration_data())
-
     report = run_certification(tmp_path, declaration, measured_commit="c" * 40)
-
     assert report.status == "failed"
     assert report.candidate is None
     for name in ("sbom", "provenance"):
@@ -284,38 +293,32 @@ def test_commit_mismatch_fails_identity_bound_evidence_checks(tmp_path: Path) ->
         assert "commit mismatch" in failure.detail
 
 
-@pytest.mark.parametrize("mutation", ["missing", "extra"])
-def test_declaration_requires_exact_mandatory_check_set(mutation: str) -> None:
+def test_declaration_rejects_candidate_authored_checks() -> None:
     data = declaration_data()
-    if mutation == "missing":
-        data["checks"].pop("policies")
-    else:
-        data["checks"]["custom"] = ["certify", "custom"]
+    data["checks"] = {name: ["true"] for name in MANDATORY_CHECKS}
     with pytest.raises(ValidationError, match="checks"):
         AppDeclaration.model_validate(data)
 
 
-def test_unknown_fields_and_empty_command_are_rejected() -> None:
+def test_unknown_fields_and_invalid_target_are_rejected() -> None:
     data = declaration_data()
     data["future_option"] = True
     with pytest.raises(ValidationError, match="future_option"):
         AppDeclaration.model_validate(data)
-
     data = declaration_data()
-    data["checks"]["graph"] = []
-    with pytest.raises(ValidationError, match="graph"):
+    data["targets"]["graph_builders"] = []
+    with pytest.raises(ValidationError, match="graph_builders"):
         AppDeclaration.model_validate(data)
 
 
-def test_json_loader_rejects_duplicate_check_names(tmp_path: Path) -> None:
+def test_json_loader_rejects_duplicate_target_names(tmp_path: Path) -> None:
     data = declaration_data()
-    checks = json.dumps(data["checks"])[1:-1]
-    raw = json.dumps({key: value for key, value in data.items() if key != "checks"})
-    raw = raw[:-1] + f',"checks":{{{checks},"graph":["second"]}}}}'
+    targets = json.dumps(data["targets"])[1:-1]
+    raw = json.dumps({key: value for key, value in data.items() if key != "targets"})
+    raw = raw[:-1] + f',"targets":{{{targets},"contracts":"second:value"}}}}'
     path = tmp_path / "certification.json"
     path.write_text(raw, encoding="utf-8")
-
-    with pytest.raises(ValueError, match="duplicate JSON key 'graph'"):
+    with pytest.raises(ValueError, match="duplicate JSON key 'contracts'"):
         load_declaration(path)
 
 
@@ -330,7 +333,6 @@ def test_json_loader_rejects_duplicate_check_names(tmp_path: Path) -> None:
 def test_unsafe_smoke_header_environment_mapping_is_rejected(headers: dict[str, str]) -> None:
     data = declaration_data()
     data["smoke"]["headers_from_env"] = headers
-
     with pytest.raises(ValidationError, match="smoke"):
         AppDeclaration.model_validate(data)
 
@@ -344,7 +346,6 @@ def test_cli_fails_closed_when_smoke_header_environment_is_missing(
     declaration.write_text(json.dumps(data), encoding="utf-8")
     monkeypatch.delenv("MISSING_CERTIFICATION_KEY", raising=False)
     report = tmp_path / "report.json"
-
     result = certification_main(
         [
             "run",
@@ -364,7 +365,6 @@ def test_cli_fails_closed_when_smoke_header_environment_is_missing(
             str(report),
         ]
     )
-
     assert result == 2
     assert "MISSING_CERTIFICATION_KEY" in capsys.readouterr().err
     assert not report.exists()
@@ -374,7 +374,6 @@ def test_smoke_headers_resolve_only_from_the_named_environment() -> None:
     data = declaration_data()
     data["smoke"]["headers_from_env"] = {"X-API-Key": "CERTIFICATION_KEY"}
     smoke = AppDeclaration.model_validate(data).smoke
-
     assert resolve_smoke_headers(smoke, {"CERTIFICATION_KEY": "opaque-value"}) == {
         "X-API-Key": "opaque-value"
     }
