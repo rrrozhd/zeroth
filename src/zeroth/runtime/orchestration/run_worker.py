@@ -17,6 +17,7 @@ import logging
 import socket
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -24,7 +25,10 @@ from zeroth.contracts.governed import RunStatus
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError, LeaseManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
-from zeroth.runtime.orchestration.token_snapshot_store import TokenSnapshotStore
+from zeroth.runtime.orchestration.token_snapshot_store import (
+    TokenSnapshotConcurrencyError,
+    TokenSnapshotStore,
+)
 from zeroth.runtime.runs import RunFailureState
 
 if TYPE_CHECKING:
@@ -38,6 +42,26 @@ logger = logging.getLogger(__name__)
 
 def _new_worker_id() -> str:
     return uuid4().hex
+
+
+class _FenceOutcome(Enum):
+    """Why this drive did or did not get a write fence.
+
+    A single ``False`` used to carry two incompatible meanings: "there is
+    nothing here to fence against" and "somebody else owns this run now". The
+    caller could not tell them apart and so treated both as *proceed unfenced* —
+    which, in the second case, drove a run this worker no longer held and let
+    the failure handler stamp a terminal status on it with no fence to refuse
+    the write.
+    """
+
+    #: We hold the lease; every save now carries the lease predicate.
+    INSTALLED = "installed"
+    #: Nothing to fence against (no fencing store, or an unclaimed run). Tests
+    #: and legacy direct drives land here and keep their unfenced behaviour.
+    UNFENCED = "unfenced"
+    #: Another worker holds the lease. The run is theirs; do not drive it.
+    DISPLACED = "displaced"
 
 
 @dataclass
@@ -179,6 +203,17 @@ class RunWorker:
             try:
                 await self._semaphore.acquire()
                 slot_reserved = True
+                if self._stopping:
+                    # The flag can be set while this call is parked on a busy
+                    # semaphore, and the permit that frees it typically comes
+                    # from a drive the shutdown just cancelled — whose run is
+                    # handed back to PENDING and is therefore claimable again.
+                    # Claiming it here would pull it straight back out and
+                    # dispatch it into a worker that is leaving, after
+                    # graceful_shutdown's wait has already passed, so nothing
+                    # would await the new task.
+                    self._semaphore.release()
+                    return
                 run_id = await self.lease_manager.claim_pending(
                     self.deployment_ref,
                     self.worker_id,
@@ -236,6 +271,20 @@ class RunWorker:
         fence_installed = False
         drive_task: asyncio.Task | None = None
         renewal_task: asyncio.Task | None = None
+        # F-02: stays False until this run's disposition has actually been
+        # decided — the drive's outcome was processed, or the run was
+        # deliberately abandoned to the worker that now owns it. A setup throw
+        # leaves it False, and so does the one drive outcome that is explicitly
+        # *undecided* (F-10c: a spent token-snapshot CAS budget, which
+        # _await_drive_outcome reports by returning False). The cleanup then
+        # hands the run BACK TO PENDING rather than merely dropping the lease.
+        # Dropping the lease alone is right on the poll path (claim_pending
+        # leaves the run PENDING, so the next poll re-claims it) and strands
+        # the run on the RECOVERY path: claim_orphaned needs status=RUNNING
+        # with a non-NULL lease and release_lease NULLs it, claim_pending needs
+        # status=PENDING — the run then matched no claim path and no sweeper at
+        # all.
+        disposition_settled = False
         if not slot_reserved:
             await self._semaphore.acquire()
             acquired_here = True
@@ -245,7 +294,12 @@ class RunWorker:
             # worker id ends up holding it again.
             generation = await self.lease_manager.current_generation(run_id)
             self._lease_generations[run_id] = generation
-            fence_installed = await self._install_write_fence(run_id, generation)
+            fence = await self._install_write_fence(run_id, generation)
+            if fence is _FenceOutcome.DISPLACED:
+                await self._abandon_displaced_run(run_id)
+                disposition_settled = True
+                return
+            fence_installed = fence is _FenceOutcome.INSTALLED
             drive_task = asyncio.create_task(
                 self._drive_run(run_id, is_recovery=is_recovery),
                 name=f"drive-{run_id}",
@@ -262,44 +316,84 @@ class RunWorker:
             # that terminal write unfenced, which is exactly what ZER-26/AUD-004
             # forbids. Setup throws propagate untouched; only the cleanup below
             # is now guaranteed.
-            await self._await_drive_outcome(run_id, drive_task, started_at)
+            disposition_settled = await self._await_drive_outcome(run_id, drive_task, started_at)
         finally:
-            # Stop the drive BEFORE the fence comes down and the lease goes
-            # back — the same ordering graceful_shutdown relies on. On the
-            # normal path the task is already done and this is a no-op; it only
-            # bites when the setup threw after the spawn.
-            if drive_task is not None and not drive_task.done():
-                drive_task.cancel()
-                with contextlib.suppress(Exception, asyncio.CancelledError):
-                    await drive_task
-            if fence_installed:
-                self.run_repository.clear_fence(run_id)
-            # Suppress ANY outcome of the renewal task (audit B4). The normal path
-            # raises CancelledError (a BaseException, so it is listed explicitly —
-            # `suppress(Exception)` alone would let it through). But if
-            # _renewal_loop already finished by RAISING (e.g. its lease-renewal DB
-            # transaction hit "database is locked"), cancel() is a no-op on the
-            # done task and `await` re-raises that non-CancelledError — which would
-            # escape this finally BEFORE release_lease + semaphore.release() run,
-            # permanently leaking the concurrency slot. We cancelled it and don't
-            # care about its result either way. It is None when the setup threw
-            # before the spawn.
-            if renewal_task is not None:
-                renewal_task.cancel()
-                with contextlib.suppress(Exception, asyncio.CancelledError):
-                    await renewal_task
-            self._active_drives.pop(run_id, None)
-            self._lost_leases.discard(run_id)
-            self._lease_generations.pop(run_id, None)
-            # release_lease is owner-qualified, so a displaced worker calling it
-            # cannot clear the new owner's lease.
-            await self.lease_manager.release_lease(run_id, self.worker_id)
-            if slot_reserved or acquired_here:
-                self._semaphore.release()
+            try:
+                await self._cleanup_after_drive(
+                    run_id,
+                    drive_task=drive_task,
+                    renewal_task=renewal_task,
+                    fence_installed=fence_installed,
+                    hand_back=not disposition_settled,
+                )
+            finally:
+                # A06-2, the half that was still open: the permit release sits
+                # where NO preceding cleanup step can skip it. It used to follow
+                # an unguarded ``release_lease`` — a transaction and an UPDATE —
+                # so "database is locked" there leaked the slot permanently,
+                # which is the very outcome the renewal-task suppression a few
+                # lines up exists to prevent.
+                if slot_reserved or acquired_here:
+                    self._semaphore.release()
+
+    async def _cleanup_after_drive(
+        self,
+        run_id: str,
+        *,
+        drive_task: asyncio.Task | None,
+        renewal_task: asyncio.Task | None,
+        fence_installed: bool,
+        hand_back: bool,
+    ) -> None:
+        """Undo everything the setup installed and give the run back.
+
+        Extracted from ``_execute_leased_run``'s ``finally`` so the permit
+        release can sit in an enclosing ``finally`` of its own, and to keep the
+        caller under the mccabe ceiling the commit gate ratchets.
+        """
+        # Stop the drive BEFORE the fence comes down and the lease goes
+        # back — the same ordering graceful_shutdown relies on. On the
+        # normal path the task is already done and this is a no-op; it only
+        # bites when the setup threw after the spawn.
+        if drive_task is not None and not drive_task.done():
+            drive_task.cancel()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await drive_task
+        if fence_installed:
+            self.run_repository.clear_fence(run_id)
+        # Suppress ANY outcome of the renewal task (audit B4). The normal path
+        # raises CancelledError (a BaseException, so it is listed explicitly —
+        # `suppress(Exception)` alone would let it through). But if
+        # _renewal_loop already finished by RAISING (e.g. its lease-renewal DB
+        # transaction hit "database is locked"), cancel() is a no-op on the
+        # done task and `await` re-raises that non-CancelledError — which would
+        # escape this cleanup BEFORE the lease goes back. We cancelled it and
+        # don't care about its result either way. It is None when the setup
+        # threw before the spawn.
+        if renewal_task is not None:
+            renewal_task.cancel()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await renewal_task
+        self._active_drives.pop(run_id, None)
+        self._lost_leases.discard(run_id)
+        self._lease_generations.pop(run_id, None)
+        # F-02: an abnormal exit leaves the run with no decided disposition, so
+        # it is handed back to PENDING — the same treatment _recover_orphans
+        # gives an orphan it claimed but never dispatched. Qualified on still
+        # owning the lease: if the setup threw *after* we were displaced, that
+        # hand-back would be an unfenced write flipping the new owner's RUNNING
+        # run to PENDING. A throw from current_holder itself leaves the lease
+        # untouched, so the run stays recoverable by expiry rather than lost.
+        if hand_back and await self.lease_manager.current_holder(run_id) == self.worker_id:
+            await self._release_to_pending(run_id)
+            return
+        # release_lease is owner-qualified, so a displaced worker calling it
+        # cannot clear the new owner's lease.
+        await self.lease_manager.release_lease(run_id, self.worker_id)
 
     async def _await_drive_outcome(
         self, run_id: str, drive_task: asyncio.Task, started_at: float
-    ) -> None:
+    ) -> bool:
         """Await the drive and convert ONLY the drive's own outcome.
 
         Sits outside ``_execute_leased_run`` to keep that function under the
@@ -312,6 +406,14 @@ class RunWorker:
         install itself threw, issue that terminal write unfenced
         (ZER-26/AUD-004). Cleanup stays with the caller's ``finally``, and the
         bare ``raise`` below still re-raises the cancellation into it.
+
+        Returns:
+            Whether this run's disposition is now decided. Every branch decides
+            it — completion, a lost lease, a fencing rejection, a failure — and
+            returns ``True``. Only the F-10c contention branch returns
+            ``False``, which is what routes the run through the caller's
+            existing hand-back to PENDING (ownership-qualified, fence already
+            down) instead of leaving it where the drive stopped.
         """
         import time
 
@@ -328,25 +430,92 @@ class RunWorker:
             await self._record_worker_audit(run_id, reason_code="lease_lost")
         except FencedRunWriteRejectedError:
             await self._handle_fencing_rejection(run_id)
+        except TokenSnapshotConcurrencyError:
+            await self._handle_snapshot_contention(run_id)
+            return False
         except Exception:
             await self._handle_run_exception(run_id)
+        return True
 
-    async def _install_write_fence(self, run_id: str, generation: int | None) -> bool:
+    async def _handle_snapshot_contention(self, run_id: str) -> None:
+        """F-10c: a spent CAS budget is a retry signal, not a verdict on the run.
+
+        The bounded retry the token runtime grew is correct — the unbounded
+        spin it replaced was worse — but it created an exception boundary
+        nothing handled. ``_claim``/``_recover``/``_transition`` now raise
+        ``TokenSnapshotConcurrencyError`` out of the drive, and it landed in
+        ``except Exception`` → ``_handle_run_exception`` → ``_mark_failed``: a
+        run declared permanently FAILED after eight full-jitter attempts under
+        a 250 ms ceiling, i.e. **well under one second** of contention. That is
+        a strictly worse availability posture than the spin.
+
+        So the exhaustion is classified as *retryable at the worker boundary*.
+        The caller hands the run back to PENDING and a later claim re-drives it
+        from its persisted snapshot. Raising the budget instead was the other
+        option on the table and it only moves the cliff: sustained contention
+        still ends in the same terminal write, only later and while holding a
+        concurrency slot the whole time. It is also not reachable from here —
+        the drive-path budget lives in the token runtime/scheduler, not in the
+        adapter this worker owns.
+
+        The accepted cost is churn: under *permanent* contention the run cycles
+        PENDING → RUNNING → PENDING instead of settling. That is deliberate.
+        Routing it through ``dead_letter_manager`` or bumping ``failure_count``
+        would count platform contention as run failure and re-derive the same
+        terminal verdict a few cycles later. Only the metric and the append-only
+        audit record grow, which is what makes the churn visible to operators.
+        """
+        logger.warning(
+            "worker %s: run %s exhausted its token-snapshot CAS budget; "
+            "handing it back to PENDING for a later claim",
+            self.worker_id,
+            run_id,
+        )
+        if self.metrics_collector is not None:
+            self.metrics_collector.increment("zeroth_run_snapshot_contention_total")
+        await self._record_worker_audit(run_id, reason_code="token_snapshot_contention")
+
+    async def _install_write_fence(self, run_id: str, generation: int | None) -> _FenceOutcome:
         """ZER-26/AUD-004: fence this drive's run-state saves on the lease.
 
         Every save during the drive — the worker's own transitions and the
         orchestrator's, which share this repository — then carries the lease
         predicate, so a displaced worker's write is refused in the statement
-        itself rather than by the (asynchronous) cancellation. Only installed
-        when this worker actually holds the lease: a drive of an unclaimed run
-        (tests, legacy paths) keeps its unfenced behaviour.
+        itself rather than by the (asynchronous) cancellation.
+
+        The caller must distinguish the two reasons no fence gets installed, so
+        this reports which one applies:
+
+        * no fencing store, or **no lease holder at all** — an unclaimed run,
+          which is how tests and legacy direct drives arrive here. There is
+          nothing to be displaced by, and a fence keyed on a lease nobody holds
+          would refuse every save, so the drive stays unfenced (``UNFENCED``).
+        * **another worker holds the lease** — we have already been displaced
+          (``DISPLACED``). Driving on would run the whole execution unfenced
+          against somebody else's run.
         """
         if generation is None or not hasattr(self.run_repository, "install_fence"):
-            return False
-        if await self.lease_manager.current_holder(run_id) != self.worker_id:
-            return False
+            return _FenceOutcome.UNFENCED
+        holder = await self.lease_manager.current_holder(run_id)
+        if holder is None:
+            return _FenceOutcome.UNFENCED
+        if holder != self.worker_id:
+            return _FenceOutcome.DISPLACED
         self.run_repository.install_fence(run_id, self.worker_id, generation)
-        return True
+        return _FenceOutcome.INSTALLED
+
+    async def _abandon_displaced_run(self, run_id: str) -> None:
+        """F-07: ownership moved before the drive started — leave the run alone.
+
+        This is the same event as a fencing rejection, observed one step
+        earlier: the run belongs to another worker. Driving it would be an
+        unfenced execution on somebody else's run, ending in a ``_mark_failed``
+        that writes a terminal status the fence exists to refuse. As with
+        ``_handle_fencing_rejection``, the only things written are the
+        append-only evidence and the metric — never run state.
+        """
+        self._record_lease_loss(run_id)
+        await self._record_worker_audit(run_id, reason_code="lease_lost_before_start")
 
     async def _handle_fencing_rejection(self, run_id: str) -> None:
         """Handle a fence that fired before the renewal loop noticed ownership moved.
@@ -654,13 +823,29 @@ class RunWorker:
             )
 
     async def _stop_token_snapshot(self, run_id: str) -> None:
-        """Best-effort durable stop; legacy runs have no token snapshot."""
+        """Best-effort durable stop; legacy runs have no token snapshot.
+
+        Guarded exactly as ``_release_to_pending`` above guards itself, and for
+        the same reason: both run inside ``graceful_shutdown``'s release loop,
+        one right after the other. ``stop`` re-raises
+        ``TokenSnapshotConcurrencyError`` once its bounded CAS retry budget is
+        exhausted, and unguarded that skipped the ``_release_to_pending`` for
+        this run *and every run after it in the batch* — one contended snapshot
+        left the remainder RUNNING against a worker that was leaving.
+        """
         if self._token_lifecycle is None:
             return
-        snapshot = await self._token_lifecycle.store.get_token_snapshot(run_id)
-        if snapshot is None:
-            return
-        await self._token_lifecycle.stop(run_id)
+        try:
+            snapshot = await self._token_lifecycle.store.get_token_snapshot(run_id)
+            if snapshot is None:
+                return
+            await self._token_lifecycle.stop(run_id)
+        except Exception:
+            logger.exception(
+                "worker %s: failed to stop the token snapshot for run %s on shutdown",
+                self.worker_id,
+                run_id,
+            )
 
     async def _resume_stopped_snapshot(self, run_id: str) -> None:
         """Turn a replayable worker stop back into ordinary schedulable work."""

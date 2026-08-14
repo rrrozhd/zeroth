@@ -46,6 +46,11 @@ from zeroth.runtime.orchestration.token_join_reducers import (
     _json_value,
     reduce_join_inputs,
 )
+from zeroth.runtime.orchestration.token_lifecycle import (
+    CAS_MAX_ATTEMPTS,
+    CasSleep,
+    cas_backoff,
+)
 from zeroth.runtime.orchestration.token_scheduler import (
     TokenSchedulerTransitionError,
     _model_data,
@@ -60,6 +65,26 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotStore,
 )
+
+
+async def _pace_retry(attempt: int, max_attempts: int, sleep: CasSleep) -> None:
+    """Wait before the next join CAS attempt, and never after the last one.
+
+    Every retry in this module contends for the same :class:`TokenSnapshotStore`
+    revision the loop-side and lifecycle CAS loops do, so it has to pace itself
+    the same way: an attempt cap alone only converts a livelock into a fast
+    failure, because a retry issued with zero delay re-collides with whatever
+    just beat it. The backoff and jitter math is not duplicated here -- it stays
+    in :func:`cas_backoff`; this only decides whether the caller still has an
+    attempt left worth pacing.
+
+    Args:
+        attempt: 1-based number of the attempt that just lost.
+        max_attempts: The loop's total retry budget.
+        sleep: Injected so tests can observe the delay instead of spending it.
+    """
+    if attempt < max_attempts:
+        await cas_backoff(attempt, sleep=sleep)
 
 
 def _claim_matches(join: JoinInstance, claim: JoinReductionClaim) -> bool:
@@ -347,7 +372,8 @@ async def close_ready_join_with_cas(
     failure_mode: FailureMode | None = None,
     claim_owner_id: str | None = None,
     claimed_reduction: JoinReductionClaim | None = None,
-    max_attempts: int = 8,
+    max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ) -> TokenEngineSnapshot:
     """Claim reduction through CAS, then evaluate one deterministic reducer.
 
@@ -369,7 +395,7 @@ async def close_ready_join_with_cas(
     fingerprint = _config_fingerprint(config)
     claimed: TokenEngineSnapshot | None = None
     last_error: TokenSnapshotConcurrencyError | None = None
-    for _ in range(max_attempts):
+    for cas_attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise TokenJoinTransitionError(f"run {run_id!r} has no token snapshot")
@@ -405,7 +431,11 @@ async def close_ready_join_with_cas(
             if join.reduction_claim_id == claim_id:
                 claimed = current
                 break
-            await asyncio.sleep(0)
+            # Another live closer holds the claim. Reloading immediately just
+            # re-reads the same REDUCING join, so this poll is paced like a lost
+            # CAS; exhausting it still means "claimed by another live closer",
+            # never a concurrency error, because ``last_error`` stays unset.
+            await _pace_retry(cas_attempt, max_attempts, sleep)
             continue
         if claimed_reduction is not None:
             raise JoinReductionClaimChangedError("observed reduction claim is no longer active")
@@ -439,6 +469,7 @@ async def close_ready_join_with_cas(
             )
         except TokenSnapshotConcurrencyError as exc:
             last_error = exc
+            await _pace_retry(cas_attempt, max_attempts, sleep)
             continue
         break
     if claimed is None:
@@ -458,6 +489,7 @@ async def close_ready_join_with_cas(
                 join_instance_id,
                 active_claim,
                 max_attempts=max_attempts,
+                sleep=sleep,
             )
         except Exception as release_exc:
             raise JoinReductionReleaseError(
@@ -480,6 +512,7 @@ async def close_ready_join_with_cas(
             claimed_reduction=active_claim,
         ),
         max_attempts=max_attempts,
+        sleep=sleep,
     )
 
 
@@ -490,8 +523,9 @@ async def _release_reduction_claim_with_cas(
     observed_claim: JoinReductionClaim,
     *,
     max_attempts: int,
+    sleep: CasSleep = asyncio.sleep,
 ) -> TokenEngineSnapshot:
-    for _ in range(max_attempts):
+    for cas_attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise JoinReductionReleaseError(f"run {run_id!r} has no token snapshot")
@@ -525,6 +559,7 @@ async def _release_reduction_claim_with_cas(
                 snapshot=proposed,
             )
         except TokenSnapshotConcurrencyError:
+            await _pace_retry(cas_attempt, max_attempts, sleep)
             continue
     raise JoinReductionReleaseError("failed reducer claim release exhausted CAS attempts")
 
@@ -536,13 +571,14 @@ async def reclaim_abandoned_join_reduction_with_cas(
     *,
     observed_claim: JoinReductionClaim,
     new_owner_id: str,
-    max_attempts: int = 8,
+    max_attempts: int = CAS_MAX_ATTEMPTS,
+    sleep: CasSleep = asyncio.sleep,
 ) -> JoinReductionClaim:
     """Replace exactly one explicitly observed abandoned claim through CAS."""
     if not new_owner_id:
         raise JoinReductionRecoveryError("recovery owner cannot be empty")
     replacement_id = uuid.uuid4().hex
-    for _ in range(max_attempts):
+    for cas_attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         if current is None:
             raise JoinReductionRecoveryError(f"run {run_id!r} has no token snapshot")
@@ -583,6 +619,7 @@ async def reclaim_abandoned_join_reduction_with_cas(
                 snapshot=proposed,
             )
         except TokenSnapshotConcurrencyError:
+            await _pace_retry(cas_attempt, max_attempts, sleep)
             continue
         return replacement
     raise JoinReductionClaimChangedError("reduction recovery exhausted CAS attempts")

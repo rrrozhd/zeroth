@@ -57,6 +57,13 @@ class _GenerationReadFails(LeaseManager):
         raise RuntimeError("lease store read failed")
 
 
+class _ReleaseLeaseFails(LeaseManager):
+    """The lease hand-back at the very end of the cleanup throws."""
+
+    async def release_lease(self, run_id: str, worker_id: str) -> None:
+        raise RuntimeError("database is locked")
+
+
 def _worker(run_repo: RunRepository, lease_manager: LeaseManager, orchestrator) -> RunWorker:
     return RunWorker(
         deployment_ref=DEPLOYMENT,
@@ -141,6 +148,31 @@ async def test_a_failed_renewal_spawn_releases_the_permit_and_stops_the_drive(
     final = await run_repo.get(run.run_id)
     assert final is not None
     assert final.status is RunStatus.PENDING
+
+
+async def test_a_failing_release_lease_still_releases_the_permit(sqlite_db) -> None:
+    """A06-2 is not closed while the cleanup's own DB write is unguarded.
+
+    ``release_lease`` opens a transaction and executes an UPDATE. A raise there
+    — "database is locked", a dropped connection — lands between the cleanup and
+    ``self._semaphore.release()`` and leaks the permit **permanently**: exactly
+    the failure mode the comment a few lines above it reasons about when it
+    justifies suppressing the renewal task's outcome, left open on the actual
+    write. The permit release belongs where no preceding cleanup step can skip
+    it.
+    """
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    lease_manager = _ReleaseLeaseFails(sqlite_db)
+    orchestrator = _RecordingOrchestrator(run_repo)
+    worker = _worker(run_repo, lease_manager, orchestrator)
+    run = await _claim_one(run_repo, worker)
+
+    with pytest.raises(RuntimeError, match="database is locked"):
+        await worker._execute_leased_run(run.run_id, is_recovery=False)
+
+    assert worker._semaphore._value == 1
+    # The run itself ran to completion; only the cleanup write failed.
+    assert orchestrator.driven == [run.run_id]
 
 
 async def test_the_normal_path_still_completes_and_releases(sqlite_db) -> None:

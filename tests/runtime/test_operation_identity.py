@@ -1123,3 +1123,376 @@ def test_an_id_less_provider_replay_derives_the_same_operation_key() -> None:
         return runner.calls[0]["operation_identity"].operation_key
 
     assert _key_for_a_fresh_extraction() == _key_for_a_fresh_extraction()
+
+
+# ---------------------------------------------------------------------------
+# ZER-49 F-01 -- a content name is not an occurrence name
+# ---------------------------------------------------------------------------
+
+
+def _send_email_node(manifest_ref: str = "unit://send-email"):
+    from zeroth.contracts.graph import ExecutableUnitNode, ExecutableUnitNodeData
+
+    return ExecutableUnitNode(
+        node_id="tool-1",
+        graph_version_ref="g:v1",
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        executable_unit=ExecutableUnitNodeData(
+            manifest_ref=manifest_ref,
+            execution_mode="wrapped_command",
+        ),
+    )
+
+
+def _tool_binding():
+    class _Binding:
+        alias = "send_email"
+        executable_unit_ref = "node://tool-1"
+
+    return _Binding()
+
+
+def _one_dispatch_factory(target_ref: str, ordinal: int):
+    """The factory a dispatch installs: everything but the ordinal is fixed.
+
+    ``idempotency_key`` is staged once per node dispatch and does not move
+    between the agent's turns, which is why it cannot discriminate them.
+    """
+    return operation_identity(
+        run_id="run_1",
+        dispatch_id="dsp_abc",
+        idempotency_key="idem_abc",
+        attempt=0,
+        target_ref=target_ref,
+        call_ordinal=ordinal,
+    )
+
+
+def _keys_for_one_dispatch(turns: list[tuple[dict, ...]]) -> list[str]:
+    """Drive ONE node dispatch through several provider turns.
+
+    The executor is built once, the way ``_dispatch_agent`` builds it, and each
+    turn is normalised through ``extract_tool_calls`` the way an id-less
+    provider adapter normalises it.
+    """
+    import asyncio
+
+    from zeroth.runtime.agents.tooling.tool_calls import extract_tool_calls
+
+    runner = _RecordingRunner()
+    execute = _executor(runner).build(
+        _GraphOf(_send_email_node()), {}, operation_identity_factory=_one_dispatch_factory
+    )
+
+    async def _drive() -> None:
+        for turn in turns:
+            for call in extract_tool_calls(_ai_message(*turn)):
+                await execute(_tool_binding(), call["args"], call["id"])
+
+    asyncio.run(_drive())
+    return [call["operation_identity"].operation_key for call in runner.calls]
+
+
+def test_two_provider_turns_in_one_dispatch_are_distinct_operations() -> None:
+    """F-01: the agent's second turn is a second effect, not a replay of the first.
+
+    The synthetic id is derived from the call's content, so a second turn
+    requesting the same tool with the same arguments re-derives the first
+    turn's id -- and nothing else in the material moves, because the ordinal
+    restarts inside every ``extract_tool_calls`` and the dispatch's
+    ``idempotency_key`` is staged once for the whole tool loop. The executor
+    then read the second, real request as a repeat: the guard returned the
+    stored output and the call never executed, so the model was fed the first
+    call's result as though its new request had run.
+    """
+    turn = ({"name": "send", "args": {"to": "a@b.c"}},)
+
+    keys = _keys_for_one_dispatch([turn, turn])
+
+    assert len(keys) == 2
+    assert keys[0] != keys[1], "the second turn was suppressed as a replay of the first"
+
+
+def test_a_replayed_dispatch_reproduces_each_turn_its_own_identity() -> None:
+    """The other half: distinctness must not be bought with fresh randomness.
+
+    A uuid4 per extraction also makes turns distinct -- and destroys the reason
+    the key exists, because a recovering worker then re-derives new keys, claims
+    them as first executions and re-applies every effect. Recovery re-runs the
+    node dispatch from its first turn, so replaying the same turn sequence must
+    reproduce the same key sequence, position by position.
+    """
+    first = ({"name": "send", "args": {"to": "a@b.c"}},)
+    second = ({"name": "send", "args": {"to": "a@b.c"}},)
+
+    before_crash = _keys_for_one_dispatch([first, second])
+    after_recovery = _keys_for_one_dispatch([first, second])
+
+    assert after_recovery == before_crash
+    assert len(set(before_crash)) == 2
+
+
+def test_a_provider_issued_id_still_bypasses_the_dispatch_counter() -> None:
+    """The bound: only the ids this runtime mints lose the id-keyed treatment.
+
+    A real Anthropic/OpenAI call id names an occurrence, so it must keep keying
+    the operation on its own -- that is what lets the same call replay at a
+    different position and still be recognised. Distinguishing the two cases by
+    the synthetic prefix is what keeps this path untouched.
+    """
+    import asyncio
+
+    runner = _RecordingRunner()
+    execute = _executor(runner).build(
+        _GraphOf(_send_email_node()), {}, operation_identity_factory=_one_dispatch_factory
+    )
+
+    async def _drive() -> None:
+        await execute(_tool_binding(), {"to": "a@b.c"}, "toolu_01xyz")
+        await execute(_tool_binding(), {"to": "a@b.c"}, "toolu_01xyz")
+
+    asyncio.run(_drive())
+
+    keys = [call["operation_identity"].operation_key for call in runner.calls]
+    assert keys[0] == keys[1], "a repeated provider call id is a retry and must still merge"
+
+
+# ---------------------------------------------------------------------------
+# ZER-49 F-14.1 -- the key material must be a function of the call
+# ---------------------------------------------------------------------------
+
+
+_PROCESS_STABILITY_PROBE = """
+import asyncio
+
+from zeroth.contracts.graph import (
+    ExecutableUnitNode,
+    ExecutableUnitNodeData,
+    operation_identity,
+)
+from zeroth.runtime.agents.tooling.tool_calls import _synthetic_call_id
+from zeroth.runtime.orchestration.tool_executor import RuntimeToolExecutor
+
+ARGS = {"labels": {"a", "b", "c", "d", "e", "f", "g", "h"}}
+
+
+class _Result:
+    output_data = {"ok": True}
+    audit_record = {}
+
+
+class _Runner:
+    def __init__(self):
+        self.identities = []
+
+    async def run(self, manifest_ref, input_payload, *, enforcement_context=None,
+                  operation_identity=None):
+        self.identities.append(operation_identity)
+        return _Result()
+
+
+class _GraphOf:
+    def __init__(self, *nodes):
+        self.nodes = list(nodes)
+        self.edges = []
+
+
+class _Binding:
+    alias = "tag"
+    executable_unit_ref = "node://tool-1"
+
+
+node = ExecutableUnitNode(
+    node_id="tool-1",
+    graph_version_ref="g:v1",
+    input_contract_ref="contract://input",
+    output_contract_ref="contract://output",
+    executable_unit=ExecutableUnitNodeData(
+        manifest_ref="unit://tag", execution_mode="wrapped_command",
+    ),
+)
+
+
+def factory(target_ref, ordinal):
+    return operation_identity(
+        run_id="run_1", dispatch_id="d", idempotency_key="idem",
+        attempt=0, target_ref=target_ref, call_ordinal=ordinal,
+    )
+
+
+runner = _Runner()
+execute = RuntimeToolExecutor(executable_unit_runner=runner).build(
+    _GraphOf(node), {}, operation_identity_factory=factory
+)
+asyncio.run(execute(_Binding(), ARGS, "toolu_provider_1"))
+print(_synthetic_call_id(0, "tag", ARGS))
+print(runner.identities[0].operation_key)
+"""
+
+
+def _under_hash_seed(seed: str) -> tuple[str, str]:
+    """Derive the two digests in a fresh interpreter with a given hash seed."""
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", _PROCESS_STABILITY_PROBE],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONHASHSEED": seed},
+    )
+    assert result.returncode == 0, result.stderr
+    call_id, operation_key = result.stdout.split()
+    return call_id, operation_key
+
+
+def test_unordered_arguments_digest_the_same_in_every_process() -> None:
+    """F-14.1: a digest that moves between processes is not an identity.
+
+    The material was built with ``default=str``, so a ``set`` argument
+    contributed the iteration order of that particular interpreter -- which
+    ``PYTHONHASHSEED`` randomises by default. A recovered worker therefore
+    derived a different operation key for the same call and claimed it as a
+    first execution, re-applying the effect. Reachable through the callable
+    adapter, which is the same adapter that needs the determinism.
+    """
+    derived = {_under_hash_seed(seed) for seed in ("1", "2", "3", "4")}
+
+    assert len(derived) == 1, f"the digests moved with the hash seed: {derived}"
+
+
+def test_mixed_type_argument_keys_do_not_abort_the_turn() -> None:
+    """F-14.1: ``sort_keys=True`` raised ``TypeError`` on ``{1: .., "b": ..}``.
+
+    Naming a call is not allowed to fail -- an exception here propagates out of
+    normalisation and ends the agent turn, so a payload shape decided one layer
+    above the runtime could kill a run. The digest must also still discriminate,
+    or totality would have been bought by returning a constant.
+    """
+    from zeroth.runtime.agents.tooling.tool_calls import _synthetic_call_id
+
+    first = _synthetic_call_id(0, "tag", {"rows": {1: "a", "b": 2}})
+    other = _synthetic_call_id(0, "tag", {"rows": {1: "a", "b": 3}})
+
+    assert first.startswith("zcall_")
+    assert first != other
+
+
+def test_the_executor_digests_unserializable_arguments_without_raising() -> None:
+    """The same material is hashed again in the executor, so it fails the same way.
+
+    ``args_digest`` is key material for every provider-issued call id, so a
+    ``TypeError`` here aborts the tool call rather than merely mis-naming it.
+    """
+    import asyncio
+
+    runner = _RecordingRunner()
+    execute = _executor(runner).build(
+        _GraphOf(_send_email_node()), {}, operation_identity_factory=_one_dispatch_factory
+    )
+
+    asyncio.run(execute(_tool_binding(), {"rows": {1: "a", "b": 2}}, "toolu_01xyz"))
+
+    assert runner.calls[0]["operation_identity"].operation_key
+
+
+def test_an_ordinary_payload_keeps_the_material_it_already_had() -> None:
+    """The migration bound: JSON-safe arguments must not be re-keyed.
+
+    Every real payload takes the plain-serialization branch, so hardening the
+    fallback cannot orphan an in-flight operation record.
+    """
+    import json
+
+    from zeroth.runtime.agents.tooling.tool_calls import canonical_json
+
+    payload = {"to": "a@b.c", "cc": ["x", "y"], "n": 3, "ok": True, "z": None}
+
+    assert canonical_json(payload) == json.dumps(payload, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# ZER-49 F-14.2 -- concatenated key material must not be re-cuttable
+# ---------------------------------------------------------------------------
+
+
+def _key_through_the_dispatcher(
+    manifest_ref: str,
+    *,
+    branch_id: str | None = None,
+    call_id: str | None = None,
+) -> str:
+    """Derive an agent tool call's key through the real dispatcher composition.
+
+    ``_operation_identity_for`` is where ``#branch:<id>`` is appended, so the
+    alias only shows up when both halves of the concatenation are measured
+    together.
+    """
+    import asyncio
+
+    from zeroth.runtime.orchestration.dispatcher import NodeDispatcher
+    from zeroth.runtime.runs import Run
+
+    runner = _RecordingRunner()
+    dispatcher = NodeDispatcher(
+        agent_runners={},
+        executable_unit_runner=runner,
+        tool_executor=_executor(runner),
+    )
+    run = Run(run_id="run_1", graph_version_ref="g:v1", deployment_ref="d")
+    execute = _executor(runner).build(
+        _GraphOf(_send_email_node(manifest_ref)),
+        {},
+        operation_identity_factory=lambda target_ref, ordinal: dispatcher._operation_identity_for(
+            run, target_ref, call_ordinal=ordinal, branch_id=branch_id
+        ),
+    )
+    asyncio.run(execute(_tool_binding(), {}, call_id))
+    return runner.calls[0]["operation_identity"].operation_key
+
+
+def test_a_manifest_ref_cannot_forge_a_branch_discriminator() -> None:
+    """F-14.2: the branch suffix was appended to unescaped material.
+
+    A ref that already reads ``...#branch:<id>`` produced, outside any fan-out,
+    the exact string a plain ref produces inside that branch -- so two unrelated
+    operations shared one durable record, and one of them would be suppressed
+    holding the other's receipt. It takes an adversarial ``manifest_ref``, but
+    the material gates side effects, so the absence of escaping is the defect.
+    """
+    smuggled = _key_through_the_dispatcher("unit://x#branch:run_1:branch:0")
+    genuine = _key_through_the_dispatcher("unit://x", branch_id="run_1:branch:0")
+
+    assert smuggled != genuine
+
+
+def test_a_manifest_ref_cannot_re_cut_the_call_id_boundary() -> None:
+    """The same absence, one separator earlier.
+
+    ``ref#call_id#digest`` does not say where the ref ends, so a ref carrying a
+    ``#`` and a call id carrying one describe the same joined string from two
+    different (ref, id) pairs.
+    """
+    left = _key_through_the_dispatcher("unit://x#toolu_a", call_id="toolu_b")
+    right = _key_through_the_dispatcher("unit://x", call_id="toolu_a#toolu_b")
+
+    assert left != right
+
+
+def test_an_ordinary_ref_is_not_re_keyed_by_the_escaping() -> None:
+    """Escaping is only allowed to move the keys it has to move.
+
+    A ref containing neither ``#`` nor ``%`` -- every ref in practice -- must
+    hash exactly as it did before, or the fix would orphan every in-flight
+    operation record at deploy for a defect that needs an adversarial ref.
+    """
+    key = _key_through_the_dispatcher("unit://send-email")
+
+    assert key == derive_operation_key(
+        run_id="run_1",
+        idempotency_key="run_1",
+        target_ref="unit://send-email",
+        call_ordinal=0,
+    )

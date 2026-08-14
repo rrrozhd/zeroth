@@ -8,10 +8,12 @@ boundary and depends solely on the runtime-owned store protocol.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
@@ -41,6 +43,12 @@ from zeroth.runtime.orchestration.token_snapshot_store import (
     TokenSnapshotConcurrencyError,
     TokenSnapshotStore,
 )
+
+if TYPE_CHECKING:
+    # ``token_lifecycle`` imports ``TokenSchedulerTransitionError`` from this
+    # module, so the runtime import of its CAS backoff helper has to be deferred
+    # into ``apply_token_transition``. The alias is still single-sourced there.
+    from zeroth.runtime.orchestration.token_lifecycle import CasSleep
 
 
 class TokenSchedulerTransitionError(ValueError):
@@ -732,18 +740,32 @@ async def apply_token_transition(
     transition: TokenTransition,
     *,
     after_commit: PostCommitEffect | None = None,
+    # ``CAS_MAX_ATTEMPTS`` in ``token_lifecycle`` is this literal: that module
+    # imports from this one, so the constant cannot be imported back here.
     max_attempts: int = 8,
+    sleep: CasSleep = asyncio.sleep,
 ) -> TokenEngineSnapshot:
     """Reload and reapply a pure transition until its snapshot CAS succeeds.
 
     ``after_commit`` is deliberately outside the retry loop's mutation step and
     runs only once, after this coordinator wins CAS.  Callers can therefore use
     it to start external dispatch work without replaying that work on contention.
+
+    The attempt budget alone is not enough: retrying a lost CAS immediately is
+    what turns contention into a livelock, and a capped loop that retries with
+    no delay just spends the whole budget in microseconds without ever giving
+    the retry a chance to win.  So each lost attempt but the last waits the same
+    bounded, full-jitter delay the lifecycle adapter uses against this store.
     """
     if max_attempts < 1:
         raise ValueError("max_attempts must be positive")
+    # Deferred, not top-level: ``token_lifecycle`` imports this module, so a
+    # module-level import would be a cycle.  Duplicating the backoff would be
+    # worse -- there must be exactly one CAS pacing policy.
+    from zeroth.runtime.orchestration.token_lifecycle import cas_backoff
+
     last_error: TokenSnapshotConcurrencyError | None = None
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         current = await store.get_token_snapshot(run_id)
         proposed = transition(current)
         if current is not None and proposed == current:
@@ -757,6 +779,8 @@ async def apply_token_transition(
             )
         except TokenSnapshotConcurrencyError as exc:
             last_error = exc
+            if attempt < max_attempts:
+                await cas_backoff(attempt, sleep=sleep)
             continue
         if after_commit is not None:
             try:

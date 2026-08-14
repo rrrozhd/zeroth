@@ -5,18 +5,29 @@ from types import ModuleType
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import Connection, Numeric, create_engine, text
+from sqlalchemy import Connection, Numeric, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from zeroth.econ.plane.config import settings
 from zeroth.econ.plane.scoped_session import ScopedSession
+from zeroth.platform.storage.schema_revision import read_schema_revision
 from zeroth.platform.storage.scoping import ScopeContext
 
 logger = logging.getLogger(__name__)
 
+_MIGRATIONS_PACKAGE = "zeroth.econ.plane._migrations"
+
 
 class Base(DeclarativeBase):
     pass
+
+
+class EconSchemaNotConverged(RuntimeError):
+    """Raised at startup when a non-SQLite econ database is behind the chain.
+
+    Distinct from a configuration error: the URL is right and the database is
+    reachable: it is the schema in it that cannot serve the mappers.
+    """
 
 
 engine = create_engine(settings.database_url, future=True)
@@ -38,6 +49,88 @@ def get_scoped_db(context: ScopeContext) -> Generator[ScopedSession, None, None]
         yield ScopedSession(db, context)
     finally:
         db.close()
+
+
+#: Columns the offline Alembic chain adds to tables the runtime maps, each with
+#: the revision that adds it.  Deliberately *not* an ORM-versus-database diff:
+#: most of what ``_ensure_sqlite_compat`` patches below (``capabilities.type``,
+#: ``implementations.provider``, the ``value_estimates`` and
+#: ``performance_snapshots`` columns) is added by no revision at all, so
+#: reporting it under a "run alembic upgrade head" remedy would name a remedy
+#: that does not work.  Every entry here is one ``alembic upgrade head`` fixes --
+#: which ``test_econ_schema_convergence`` pins against a live database rather
+#: than against this comment.
+_CHAIN_OWNED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("users", "tenant_id", "20260811_04"),
+    ("users", "workspace_id", "20260811_04"),
+    ("connector_delivery_log", "tenant_id", "20260811_05"),
+    ("execution_events", "cost_measurement", "20260812_04"),
+    ("execution_events", "usage_measurement", "20260812_04"),
+    ("policy_actions", "enforcement_action_id", "20260812_06"),
+)
+
+
+def _missing_chain_owned_columns(conn: Connection) -> tuple[tuple[str, str, str], ...]:
+    """Return the chain-owned columns a table in this database is missing.
+
+    A table that is absent entirely is not drift: ``create_all`` runs before
+    this and builds an absent table from the model, columns and all.  Drift is a
+    table that already existed and that ``create_all``, being create-if-absent,
+    skipped wholesale.
+    """
+    inspector = inspect(conn)
+    present = set(inspector.get_table_names())
+    columns: dict[str, set[str]] = {}
+    missing = []
+    for table, column, revision in _CHAIN_OWNED_COLUMNS:
+        if table not in present:
+            continue
+        if table not in columns:
+            columns[table] = {found["name"] for found in inspector.get_columns(table)}
+        if column not in columns[table]:
+            missing.append((table, column, revision))
+    return tuple(missing)
+
+
+def _require_converged_schema(conn: Connection) -> None:
+    """Refuse to start on a non-SQLite database the Alembic chain has not reached.
+
+    ``_migrations/`` is offline tooling that runtime never invokes
+    (``PROVENANCE.md``), and ``create_all`` is create-if-absent and never alters
+    an existing table -- so on PostgreSQL a column added by a revision reaches an
+    existing database through ``alembic upgrade head`` and nothing else.  Until
+    it does, a mapper names a column the table does not have and every read
+    through it fails with ``UndefinedColumn``.
+
+    Converging here instead -- issuing the ALTER from application code, the way
+    the SQLite branch below does -- was the alternative, and it is the wrong one
+    for a managed deployment: it takes DDL locks from every replica that starts,
+    needs a DDL grant the application role often does not have, and leaves
+    ``alembic_version`` untouched, so ``read_schema_revision`` would report
+    "behind" on a schema that had been silently patched.  That evidence is on the
+    health path; falsifying it to avoid an error message is a bad trade.  SQLite
+    keeps converging: it ships no migration step at all, and one process owns
+    the file.
+
+    Failing here is loud by design.  ``econ/plane/main.py``'s startup event calls
+    ``bootstrap()`` bare, and the bundled mount
+    (``service/bootstrap/lifecycle.py``) catches only ``ImportError`` around it --
+    it already raises ``RuntimeError`` from that same block for an econ
+    misconfiguration -- so this stops the process rather than degrading the plane.
+    """
+    missing = _missing_chain_owned_columns(conn)
+    if not missing:
+        return
+    revision = read_schema_revision(engine, _MIGRATIONS_PACKAGE)
+    detail = ", ".join(
+        f"{table}.{column} (revision {added_by})" for table, column, added_by in missing
+    )
+    raise EconSchemaNotConverged(
+        f"econ database schema is behind the shipped migrations on {conn.dialect.name}: "
+        f"{detail}. Applied revision {revision.applied!r}, shipped head "
+        f"{revision.head!r} ({revision.state}). Run 'alembic upgrade head' against "
+        "ECP_DATABASE_URL before starting the econ plane."
+    )
 
 
 def _load_compat_migration(conn: Connection, filename: str) -> ModuleType:
@@ -70,6 +163,7 @@ def _load_compat_migration(conn: Connection, filename: str) -> ModuleType:
 def _ensure_sqlite_compat() -> None:
     with engine.begin() as conn:
         if conn.dialect.name != "sqlite":
+            _require_converged_schema(conn)
             return
 
         def has_column(table: str, column: str) -> bool:
@@ -185,14 +279,27 @@ def _ensure_sqlite_compat() -> None:
 
         # Base.metadata.create_all is create-if-absent and never alters an existing
         # table, so a pre-existing database only reaches the policy/enforcement link
-        # column through this ALTER.  Nullable with no default and no backfill: NULL
-        # means "unlinked", which the enforcement service refuses to resolve by
-        # recency (A01-11).
-        ensure_col(
-            "policy_actions",
-            "enforcement_action_id",
-            "enforcement_action_id INTEGER REFERENCES enforcement_actions(id)",
-        )
+        # through this call.  Executing revision 20260812_06 rather than restating
+        # its DDL here is what stops the surfaces from drifting: a hand-written
+        # ALTER did drift -- it carried the foreign key the revision omitted, and
+        # neither carried the unique index the ORM now declares.  The revision owns
+        # the column, the reference and the index; every surface gets what it says.
+        link = _load_compat_migration(conn, "20260812_06_policy_action_link.py")
+        try:
+            link.upgrade()
+        except link.DuplicatePolicyActionLink:
+            # Same containment, and the same reasoning, as the identity refusal
+            # below: the column is what the service reads, and it is already in
+            # place by the time this raises; only the index is skipped.  Letting
+            # the refusal escape engine.begin() would roll back every ALTER above
+            # it.  The enforcement action is undecidable either way while the
+            # duplicate stands -- the index would have prevented it, and cannot
+            # repair it -- so this is reported, not converted into an outage.
+            logger.warning(
+                "econ policy-action link is not unique: more than one policy action "
+                "is linked to a single enforcement action, so that action cannot be "
+                "decided. Run revision 20260812_06 offline to see and reconcile them."
+            )
 
         # Converge pre-Alembic/create_all compatibility databases on the same
         # ownership constraints as revision 20260811_05.
@@ -211,14 +318,27 @@ def _ensure_sqlite_compat() -> None:
         identity = _load_compat_migration(conn, "20260812_07_outcome_event_identity.py")
         try:
             identity.upgrade()
-        except RuntimeError:
+        except identity.DuplicateOutcomeIdentity:
             # The revision refuses rather than deleting a row out of an
             # erasure-audited table, which is right for an operator running it
-            # offline.  Here it runs per request and at startup, so propagating
-            # would turn a data condition into a total outage of the plane.
-            # Contain it inside this transaction -- letting it escape
-            # engine.begin() would roll back every compatibility ALTER above --
-            # and skip only the index; ingest still pre-checks the identity.
+            # offline.  Here it runs once per process start -- bootstrap() is
+            # called from econ/plane/main.py's startup event and from
+            # service/bootstrap/lifecycle.py for the bundled mount, and from
+            # nowhere else; get_db/get_scoped_db are plain session factories
+            # (pinned by tests/econ_plane/test_bootstrap_invariants.py).  So the
+            # duplicate scan below is not a per-request cost.  It is still a full
+            # scan of outcome_events at every start of a database that has not
+            # converged, which is the price of knowing whether a unique index can
+            # be built at all; it stops once one is.
+            #
+            # Propagating is what is refused, not because the cost is per
+            # request but because of what is at stake: the index is a backstop
+            # behind an identity check ingest already performs, so a database
+            # without it is degraded, not broken -- unlike a missing *column*,
+            # which no read survives and which _require_converged_schema
+            # therefore does refuse to start on.  Contain it inside this
+            # transaction -- letting it escape engine.begin() would roll back
+            # every compatibility ALTER above -- and skip only the index.
             #
             # The refusal names the colliding rows by join_key, which is the
             # erasure subject key (SqlAlchemyEconEventEraser deletes by it).

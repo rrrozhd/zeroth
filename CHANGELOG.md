@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1] - 2026-08-13
+
+### Fixed
+
+- An operator command against a run whose row was deleted mid-flight answers 404 instead of 500,
+  distinct from the 409 a vanished token snapshot gets: erasure keeps the run row so that retry
+  converges, while a deleted row never will (ZER-49 follow-up).
+- Deleting an interrupt no longer overwrites a request saved concurrently — the last window in that
+  store where a live pending approval could be dropped, leaving a human never asked (ZER-49
+  follow-up).
+- Both instrumentation ingest endpoints report a duplicate or a named conflict instead of a 500 when
+  the identity index is absent and duplicate rows already exist — the state the identity migration
+  deliberately leaves rather than deleting rows from an erasure-audited table (ZER-49 follow-up).
+
+## [0.23.8] - 2026-08-13
+
+### Fixed
+
+- A tool call from a provider that supplies no call id no longer collides with the same call in a
+  later turn of one dispatch. The synthetic id names the call's *content*, so it is stable across a
+  replay by design; treating it as an *occurrence* meant the second real call was suppressed as a
+  replay and the model was handed the first call's output. The occurrence discriminator is now the
+  per-dispatch call ordinal, and the id is derived without consulting memory addresses or hash
+  ordering, so two processes handed equal arguments agree (ZER-49 follow-up).
+- A run whose setup fails during orphan recovery is handed back to PENDING instead of having its
+  lease cleared while it stays RUNNING, which left it matching no claim path and recoverable only by
+  hand. A worker also no longer leaks its concurrency permit when releasing the lease raises, and a
+  worker that has already been displaced abandons the drive rather than running it unfenced
+  (ZER-49 follow-up).
+- `put_run` no longer loses a concurrent sibling's checkpoint reference. Consolidating its writes
+  into one transaction removed a compensating re-read, so a checkpoint could exist while being
+  invisible to its thread — the stale-restore class the consolidation was meant to close
+  (ZER-49 follow-up).
+- A document ingest that fails deletes the chunks it had written, so it leaves nothing partially
+  indexed; when that cleanup itself fails the orphaned keys are named for reconciliation rather than
+  swallowed (ZER-49 follow-up, A07-23).
+- Every compare-and-set retry loop against the token snapshot store now paces its retries. Loops
+  that were capped but retried immediately still turned contention into a stampede, and one such
+  loop is reachable from operator commands (ZER-49 follow-up).
+- Operator pause, cancel and interrupt answer 409 rather than 500 when the run's token state is
+  contended or has been erased, with each condition carrying a distinct detail; permanent snapshot
+  errors are deliberately not dressed as conflicts. A contended drive hands the run back for a later
+  claim instead of marking it terminally failed after under a second of contention
+  (ZER-49 follow-up).
+- Concurrent identical outcome and execution ingests report a duplicate instead of a 500, and a
+  partially applied batch is no longer destroyed by the loser's rollback. An execution whose stored
+  row differs in an immutable field reports that conflict rather than claiming the caller's payload
+  was stored (ZER-49 follow-up).
+- Interrupt expiry now removes ids from the run index it deletes payloads for, so listing interrupts
+  no longer repairs the index as a side effect of reading it — which could erase an interrupt a
+  concurrent request had just saved, leaving a human waiting on an approval that was never asked
+  (ZER-49 follow-up).
+- A pre-existing PostgreSQL econ database reports its schema state rather than failing at read time
+  on a column only the migration chain adds (ZER-49 follow-up, A01-11).
+
+
 ## [0.23.7] - 2026-08-13
 
 ### Added
