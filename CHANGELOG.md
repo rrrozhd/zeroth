@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.1.1] - 2026-08-13
+
+### Changed
+
+- Recorded why the interrupt expiry sweep is deliberately not scheduled, and pinned the dormancy
+  that makes it so: nothing in `src` constructs a Redis interrupt store or creates an interrupt
+  request, so a scheduled sweep would SCAN the whole keyspace twice a tick to find nothing. The pins
+  fail the day a writer is wired, so the scheduling question is answered against a real arrangement
+  (ZER-49 follow-up).
+
 ## [0.23.8.1] - 2026-08-13
 
 ### Fixed
