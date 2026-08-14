@@ -16,6 +16,7 @@ permissions:
 jobs:
   verify-extras:
     name: "extra=${{ matrix.extra }}"
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -88,6 +89,7 @@ jobs:
   # --find-links against the locally built wheels.
   verify-console-extra:
     name: "extra=console (local dists)"
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

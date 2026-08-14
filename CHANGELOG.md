@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.1] - 2026-08-14
+
+### Fixed
+
+- Every job on the pull-request path now carries a `timeout-minutes` bound, so a hang anywhere in
+  that path fails in minutes instead of holding a runner for GitHub's six-hour default. The release
+  and deployed-acceptance workflows remain unbounded and are tracked separately.
+- The LangGraph compatibility workflow no longer runs twice for one commit: its `push` trigger is
+  scoped to `main`, matching what docs, examples and verify-extras already did, and superseded runs
+  now cancel via a per-ref concurrency group.
+
 ## [0.23.9] - 2026-08-14
 
 ### Changed

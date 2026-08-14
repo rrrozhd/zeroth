@@ -1,17 +1,26 @@
 name: LangGraph compatibility
 
 on:
+  # Branches are covered by pull_request; the unrestricted push trigger ran this
+  # a second time for the same commit. docs, examples and verify-extras already
+  # scope push to main -- this and ci.yml were the two that did not.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   conformance:
     name: >-
       LangChain ${{ matrix.langchain }} / LangGraph ${{ matrix.langgraph }} /
       Agent Server ${{ matrix.langgraph_api }}
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
       matrix:

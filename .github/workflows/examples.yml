@@ -8,6 +8,7 @@ on:
 
 jobs:
   run-examples:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     env:
       # Scripts SKIP cleanly when this is unset, so forked-PR runs
