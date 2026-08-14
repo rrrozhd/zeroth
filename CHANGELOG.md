@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.2] - 2026-08-14
+
+### Security
+
+- Isolate candidate setup and semantic imports from pinned certifier and handoff
+  files, then digest-bind a fresh unprivileged verifier verdict before OIDC.
+- Validate classic Docker config/layer bytes and OCI descriptor/config/layer
+  bytes; reject unsafe or ambiguous archive members.
+
+### Fixed
+
+- Bootstrap the `vendor-dd` certification service in its seeded tenant scope.
+- Register semantic failure fixtures and the reviewed certification persistence
+  binding in the requirement and architecture gates.
+
 ## [0.23.9.1] - 2026-08-14
 
 ### Security

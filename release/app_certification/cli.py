@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from collections.abc import Mapping
@@ -18,8 +19,22 @@ from .evidence import (
     validate_image_archive,
     write_provenance,
 )
-from .models import SmokeSpec, load_declaration, validate_report, write_report
-from .runner import CertificationRunner, HttpResult, measure_candidate_identity
+from .models import (
+    MANDATORY_CHECKS,
+    SmokeSpec,
+    file_digest,
+    identity_digest,
+    load_declaration,
+    validate_report,
+    write_report,
+)
+from .runner import (
+    CertificationRunner,
+    Executor,
+    HttpResult,
+    execute_command,
+    measure_candidate_identity,
+)
 from .scaffold import scaffold_checkout
 
 
@@ -53,6 +68,25 @@ class UrlHttpBoundary:
             return HttpResult(error.code, json.load(error))
 
 
+def _untrusted_executor(user: str) -> Executor:
+    if re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) is None:
+        raise ValueError("untrusted user must be a simple local account name")
+    clean_environment = (
+        "env",
+        "-i",
+        f"HOME=/home/{user}",
+        "LANG=C.UTF-8",
+        f"PATH={os.environ.get('PATH', '')}",
+        f"PYTHONPATH={os.environ.get('PYTHONPATH', '')}",
+    )
+    prefix = ("sudo", "--non-interactive", "--user", user, "--", *clean_environment)
+
+    def run(argv: list[str], cwd: Path):
+        return execute_command([*prefix, *argv], cwd)
+
+    return run
+
+
 def resolve_smoke_headers(
     smoke: SmokeSpec,
     environ: Mapping[str, str] = os.environ,
@@ -80,6 +114,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--packaged-url", required=True)
     run.add_argument("--ephemeral-url", required=True)
     run.add_argument("--report", type=Path, required=True)
+    run.add_argument("--check-python", type=Path)
+    run.add_argument("--untrusted-user")
     report = commands.add_parser("validate-report")
     report.add_argument("--report", type=Path, required=True)
     report.add_argument("--root", type=Path)
@@ -95,12 +131,16 @@ def _parser() -> argparse.ArgumentParser:
     handoff.add_argument("--image-archive", type=Path, required=True)
     handoff.add_argument("--app-commit", required=True)
     handoff.add_argument("--zeroth-version", required=True)
+    handoff.add_argument("--zeroth-commit", required=True)
+    handoff.add_argument("--verdict", type=Path, required=True)
     attestation = commands.add_parser("finalize-attestation")
     attestation.add_argument("--bundle", type=Path, required=True)
     attestation.add_argument("--report", type=Path, required=True)
     attestation.add_argument("--root", type=Path, required=True)
     probe = commands.add_parser("probe-readiness")
     probe.add_argument("--url", required=True)
+    finalizer = commands.add_parser("finalize-workflow")
+    finalizer.add_argument("--root", type=Path, required=True)
     scaffold = commands.add_parser("scaffold")
     scaffold.add_argument("--root", type=Path, required=True)
     scaffold.add_argument("--app-name", required=True)
@@ -117,8 +157,12 @@ def _run(args: argparse.Namespace) -> int:
     report = CertificationRunner(
         args.root,
         declaration,
+        executor=_untrusted_executor(args.untrusted_user)
+        if args.untrusted_user
+        else execute_command,
         http=http,
         declaration_path=args.declaration,
+        check_python=args.check_python,
     ).run(
         expected_commit=args.app_commit,
         image_digest=args.image_digest,
@@ -176,10 +220,74 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         raise ValueError("handoff app commit does not match the workflow candidate")
     if candidate.zeroth_version != args.zeroth_version:
         raise ValueError("handoff Zeroth version does not match the trusted certifier")
+    if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
+        raise ValueError("trusted certifier commit must be a full commit SHA")
     validate_image_archive(args.image_archive, candidate)
+    verdict = {
+        "schema_version": 1,
+        "app_commit": candidate.app_commit,
+        "zeroth_commit": args.zeroth_commit,
+        "zeroth_version": candidate.zeroth_version,
+        "image_reference": candidate.image_reference,
+        "image_digest": candidate.image_digest,
+        "candidate_identity_digest": identity_digest(candidate),
+        "report_sha256": file_digest(args.report),
+        "image_archive_sha256": file_digest(args.image_archive),
+        "provenance_path": report.evidence.provenance.path,
+    }
+    args.verdict.write_text(
+        json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"image_reference={candidate.image_reference}")
     print(f"image_digest={candidate.image_digest}")
     print(f"provenance_path={report.evidence.provenance.path}")
+    print(f"verdict_sha256={file_digest(args.verdict)}")
+    return 0
+
+
+def _finalize_workflow(root: Path) -> int:
+    stages = {
+        name.lower(): os.environ.get(name, "skipped")
+        for name in (
+            "APP_CHECKOUT",
+            "CERTIFIER_CHECKOUT",
+            "PREPARE",
+            "IMAGE",
+            "SBOM",
+            "EVIDENCE",
+            "CONTAINERS",
+            "HEALTH",
+            "CERTIFY",
+        )
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "workflow-stages.json").write_text(
+        json.dumps(stages, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if (root / "report.json").exists():
+        return 0
+    stage = {
+        "container-startup": "containers",
+        "health": "health",
+        "packaged-smoke": "certify",
+        "ephemeral-smoke": "certify",
+        "sbom": "sbom",
+        "provenance": "evidence",
+    }
+    checks = [
+        {
+            "name": name,
+            "status": "failed",
+            "detail": f"{name}: workflow stage {stage.get(name, 'prepare')} "
+            f"outcome={stages[stage.get(name, 'prepare')]}",
+        }
+        for name in MANDATORY_CHECKS
+    ]
+    payload = {"schema_version": 1, "status": "failed", "candidate": None, "checks": checks}
+    payload["evidence"] = None
+    (root / "report.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return 0
 
 
@@ -214,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "probe-readiness":
             return _probe_readiness(args.url)
+        if args.command == "finalize-workflow":
+            return _finalize_workflow(args.root)
         scaffold_checkout(
             args.root,
             app_name=args.app_name,

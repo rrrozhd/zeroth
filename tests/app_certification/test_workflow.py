@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
+from urllib.request import urlopen
 
+import pytest
 import yaml
 
 from release.app_certification import load_declaration
@@ -44,17 +52,20 @@ def _step(step_id: str, job: str = "certify") -> dict:
     return next(step for step in _steps(job) if step.get("id") == step_id)
 
 
-def test_reusable_workflow_has_unprivileged_candidate_and_privileged_attestation_jobs() -> None:
+def test_reusable_workflow_has_candidate_verifier_and_privileged_finalizer() -> None:
     workflow = _load()
     candidate = workflow["jobs"]["certify"]
+    verifier = workflow["jobs"]["verify"]
     attestation = workflow["jobs"]["attest"]
 
     assert set(workflow["on"]) == {"workflow_call", "workflow_dispatch"}
     assert workflow["permissions"] == {"contents": "read"}
     assert candidate["permissions"] == {"contents": "read"}
+    assert verifier["permissions"] == {"contents": "read"}
+    assert verifier["needs"] == "certify"
     assert attestation["permissions"] == PRIVILEGED
-    assert attestation["needs"] == "certify"
-    assert attestation["if"] == "${{ needs.certify.result == 'success' }}"
+    assert attestation["needs"] == "verify"
+    assert attestation["if"] == "${{ needs.verify.result == 'success' }}"
 
 
 def test_caller_grants_privilege_only_to_the_reusable_job_contract() -> None:
@@ -78,10 +89,24 @@ def test_candidate_job_uses_the_app_environment_and_no_privileged_action() -> No
     assert "uv sync --directory app --frozen --all-extras" in prepare
     assert "app/.venv/bin/python" in prepare
     assert "uv build --directory zeroth --wheel" in prepare
-    assert "npm ci --prefix app/frontend" in prepare
-    assert "app/.venv/bin/python -m release.app_certification run" in _step("certify")["run"]
+    assert "npm ci --prefix /home/app-cert-candidate/frontend" in prepare
+    assert "--check-python app/.venv/bin/python" in _step("certify")["run"]
+    assert "--untrusted-user app-cert-candidate" in _step("certify")["run"]
     assert not any(action.startswith("actions/attest@") for action in actions)
     assert "docker push" not in scripts and "kubectl" not in scripts
+
+
+def test_candidate_execution_cannot_write_certifier_or_handoff() -> None:
+    prepare = _step("prepare")["run"]
+    certify = _step("certify")["run"]
+
+    assert "useradd" in prepare and "app-cert-candidate" in prepare
+    assert prepare.index("uv sync --directory zeroth") < prepare.index("app-cert-candidate")
+    assert "sudo -H -u app-cert-candidate" in prepare
+    assert "sudo chown -R \"$USER\":\"$USER\" app/.venv" in prepare
+    assert "chmod -R go-w zeroth app" in prepare
+    assert "mkdir -m 700 app/.app-certification" in prepare
+    assert "zeroth/.venv/bin/python -m release.app_certification run" in certify
 
 
 def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
@@ -99,35 +124,63 @@ def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
     assert health.count("wait_healthy") >= 3
 
 
-def test_every_pre_certification_failure_gets_a_canonical_report() -> None:
-    finalizer = _step("finalizer")
+def test_every_pre_certification_failure_gets_a_canonical_report(tmp_path: Path) -> None:
+    finalizer = next(
+        step for step in _steps() if step["name"].startswith("Finalize canonical report")
+    )
     script = finalizer["run"]
 
     assert finalizer["if"] == "${{ always() }}"
-    assert "workflow-stages.json" in script
-    assert '"status": "failed"' in script
-    assert '"candidate": None' in script and '"evidence": None' in script
+    assert "finalize-workflow" in script
+    assert "workflow finalizer fallback" in script
+    assert "workflow stage " in script and " outcome=" in script
+    assert "--root app/.app-certification" in script
     for name in ("prepare", "image", "containers", "health", "certify"):
-        assert name in script.lower()
-    for name in ("graph", "contracts", "migrations", "frontend-api", "provenance"):
-        assert name in script
+        assert name.upper() in finalizer["env"]
+    fallback = script.split("|| ", 1)[1]
+    result = subprocess.run(
+        shlex.split(fallback),
+        cwd=tmp_path,
+        env={**os.environ, "APP_CHECKOUT": "success", "CERTIFIER_CHECKOUT": "failure"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads((tmp_path / "app/.app-certification/report.json").read_text())
+    assert all(
+        "certifier_checkout outcome=failure" in check["detail"]
+        for check in report["checks"]
+    )
 
 
-def test_privileged_job_validates_immutable_handoff_before_attesting() -> None:
+def test_fresh_unprivileged_verifier_authenticates_handoff() -> None:
+    steps = _steps("verify")
+    actions = [step["uses"] for step in steps if "uses" in step]
+    checkout = steps[0]
+    validate = _step("validate", "verify")["run"]
+
+    assert checkout["uses"] == CHECKOUT
+    assert checkout["with"]["repository"] == "rrrozhd/zeroth"
+    assert "validate-handoff" in validate and "--image-archive evidence/image.tar" in validate
+    assert "--verdict evidence/verdict.json" in validate
+    assert "$GITHUB_OUTPUT" in validate
+    assert "npm ci" not in "\n".join(step.get("run", "") for step in steps)
+    assert any(action.startswith("actions/download-artifact@") for action in actions)
+    assert any(action.startswith("actions/upload-artifact@") for action in actions)
+
+
+def test_privileged_job_uses_only_authenticated_verifier_outputs() -> None:
     steps = _steps("attest")
     actions = [step["uses"] for step in steps if "uses" in step]
     checkout = steps[0]
-    validate = _step("validate", "attest")["run"]
+    authenticate = _step("authenticate", "attest")["run"]
     attest = _step("provenance", "attest")
 
     assert checkout["uses"] == CHECKOUT
     assert checkout["with"]["repository"] == "rrrozhd/zeroth"
-    assert all(
-        "app" not in step.get("name", "").lower() or "handoff" in step.get("name", "").lower()
-        for step in steps
-    )
-    assert "validate-handoff" in validate and "--image-archive evidence/image.tar" in validate
-    assert attest["with"]["subject-digest"] == "${{ steps.validate.outputs.image_digest }}"
+    assert "sha256sum" in authenticate and "needs.verify.outputs.verdict_sha256" in authenticate
+    assert attest["with"]["subject-name"] == "${{ needs.verify.outputs.image_reference }}"
+    assert attest["with"]["subject-digest"] == "${{ needs.verify.outputs.image_digest }}"
     assert attest["with"]["predicate-path"] == "evidence/attestation-predicate.json"
     assert any(action.startswith("actions/download-artifact@") for action in actions)
     assert any(action.startswith("actions/attest@") for action in actions)
@@ -135,7 +188,10 @@ def test_privileged_job_validates_immutable_handoff_before_attesting() -> None:
 
 def test_all_external_actions_are_commit_pinned() -> None:
     references = [
-        step["uses"] for job in ("certify", "attest") for step in _steps(job) if "uses" in step
+        step["uses"]
+        for job in ("certify", "verify", "attest")
+        for step in _steps(job)
+        if "uses" in step
     ]
     for action, pin in ACTION_PINS.items():
         matches = [reference for reference in references if reference.startswith(f"{action}@")]
@@ -147,7 +203,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.1"
+    assert declaration.zeroth_version == "0.23.9.2"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -159,11 +215,74 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.1-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.2-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.1-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.2-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile
+    assert "ZEROTH_REGULUS__ENABLED=true" in dockerfile
+    assert "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR=/data/artifacts" in dockerfile
+    assert "ECP_DATABASE_URL=sqlite:////data/vendor_dd_econ.sqlite" in dockerfile
     assert 'CMD ["python", "-m", "apps.vendor_dd.certification_entrypoint"]' in dockerfile
+
+
+def _free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+def _wait_for_readiness(process: subprocess.Popen[str], port: int) -> bool:
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline and process.poll() is None:
+        try:
+            with urlopen(f"http://127.0.0.1:{port}/health/ready", timeout=1) as response:
+                if json.load(response).get("status") == "ok":
+                    return True
+        except OSError:
+            time.sleep(0.2)
+    return False
+
+
+def test_vendor_dd_seeded_service_reaches_health_readiness(tmp_path: Path) -> None:
+    port = _free_port()
+    env = {
+        **os.environ,
+        "HOST": "127.0.0.1",
+        "PORT": str(port),
+        "ZEROTH_DATABASE__BACKEND": "sqlite",
+        "ZEROTH_DATABASE__SQLITE_PATH": str(tmp_path / "vendor-dd.sqlite"),
+        "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR": str(tmp_path / "artifacts"),
+        "ZEROTH_REGULUS__ENABLED": "true",
+        "ZEROTH_WEBHOOK__ENABLED": "false",
+        "ZEROTH_APPROVAL_SLA__ENABLED": "false",
+        "ZEROTH_REDIS__MODE": "disabled",
+        "ECP_DATABASE_URL": f"sqlite:///{tmp_path / 'econ.sqlite'}",
+        "ECP_CONNECTOR_SPOOL_ROOT": str(tmp_path / "connector-spool"),
+    }
+    seeded = subprocess.run(
+        [sys.executable, "-m", "apps.vendor_dd.seed"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert seeded.returncode == 0, seeded.stderr[-1000:]
+    process = subprocess.Popen(
+        [sys.executable, "-m", "apps.vendor_dd.entrypoint"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        ready = _wait_for_readiness(process, port)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        stdout, stderr = process.communicate(timeout=10)
+    assert ready, f"vendor-dd readiness failed: {stdout[-1000:]} {stderr[-1000:]}"
+    for runner in ("chat-analyst", "dim-analyst", "report", "screen"):
+        assert runner in stdout

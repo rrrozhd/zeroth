@@ -7,7 +7,7 @@ import hashlib
 import json
 import shutil
 import tarfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .models import (
@@ -23,6 +23,8 @@ from .models import (
 _ANNOTATOR = "Tool: Zeroth app-certification"
 _COMMENT_PREFIX = "zeroth-candidate:"
 _PREDICATE_TYPE = "https://zeroth.dev/app-certification/provenance/v1"
+_JSON_LIMIT = 16 * 1024 * 1024
+_CONFIG_LIMIT = 4 * 1024 * 1024
 
 
 def _json_object(path: Path) -> dict[str, Any]:
@@ -192,34 +194,203 @@ def finalize_attestation(bundle: Path, report_path: Path, root: Path) -> Certifi
     return validate_report(report_path, root=root)
 
 
+def _archive_members(archive: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
+    members: dict[str, tarfile.TarInfo] = {}
+    for member in archive.getmembers():
+        name = member.name
+        path = PurePosixPath(name)
+        if not name or "\\" in name or path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"image archive has unsafe archive member {name!r}")
+        if not (member.isfile() or member.isdir()):
+            raise ValueError(f"image archive has unsafe archive member type for {name!r}")
+        if name in members:
+            raise ValueError(f"image archive has duplicate member {name!r}")
+        members[name] = member
+    return members
+
+
+def _member_bytes(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    name: str,
+    limit: int,
+) -> bytes:
+    member = members.get(name)
+    if member is None or not member.isfile():
+        raise ValueError(f"image archive member {name!r} is missing")
+    if member.size > limit:
+        raise ValueError(f"image archive member {name!r} exceeds its validation limit")
+    stream = archive.extractfile(member)
+    if stream is None:
+        raise ValueError(f"image archive member {name!r} is unreadable")
+    return stream.read()
+
+
+def _sha256(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _member_sha256(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    name: str,
+) -> str:
+    member = members.get(name)
+    if member is None or not member.isfile():
+        raise ValueError(f"image archive member {name!r} is missing")
+    stream = archive.extractfile(member)
+    if stream is None:
+        raise ValueError(f"image archive member {name!r} is unreadable")
+    hasher = hashlib.sha256()
+    while chunk := stream.read(1024 * 1024):
+        hasher.update(chunk)
+    return "sha256:" + hasher.hexdigest()
+
+
+def _descriptor_digest(descriptor: Any) -> str:
+    if not isinstance(descriptor, dict):
+        raise ValueError("image archive descriptor must be a JSON object")
+    digest = descriptor.get("digest")
+    if (
+        not isinstance(digest, str)
+        or not digest.startswith("sha256:")
+        or len(digest) != 71
+        or any(char not in "0123456789abcdef" for char in digest[7:])
+    ):
+        raise ValueError("image archive descriptor has an invalid sha256 digest")
+    return digest
+
+
+def _validate_blob(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    descriptor: Any,
+    limit: int | None,
+) -> bytes | None:
+    digest = _descriptor_digest(descriptor)
+    name = f"blobs/sha256/{digest[7:]}"
+    member = members.get(name)
+    if member is None or not member.isfile():
+        raise ValueError(f"image archive member {name!r} is missing")
+    if descriptor.get("size") != member.size:
+        raise ValueError("image archive descriptor size does not match its blob")
+    if limit is not None and member.size > limit:
+        raise ValueError(f"image archive member {name!r} exceeds its validation limit")
+    stream = archive.extractfile(member)
+    if stream is None:
+        raise ValueError(f"image archive member {name!r} is unreadable")
+    hasher = hashlib.sha256()
+    chunks: list[bytes] | None = [] if limit is not None else None
+    while chunk := stream.read(1024 * 1024):
+        hasher.update(chunk)
+        if chunks is not None:
+            chunks.append(chunk)
+    if "sha256:" + hasher.hexdigest() != digest:
+        raise ValueError("image archive descriptor digest does not match its blob")
+    return b"".join(chunks) if chunks is not None else None
+
+
+def _validate_descriptor(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    descriptor: Any,
+    seen: set[str],
+) -> None:
+    digest = _descriptor_digest(descriptor)
+    if digest in seen:
+        raise ValueError("image archive descriptor graph contains a cycle")
+    data = _validate_blob(archive, members, descriptor, _JSON_LIMIT)
+    assert data is not None
+    try:
+        document = json.loads(data)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("image archive descriptor blob is not JSON") from error
+    if not isinstance(document, dict):
+        raise ValueError("image archive descriptor blob must contain a JSON object")
+    seen.add(digest)
+    if isinstance(document.get("manifests"), list) and document["manifests"]:
+        for child in document["manifests"]:
+            _validate_descriptor(archive, members, child, seen)
+    elif "config" in document:
+        _validate_blob(archive, members, document["config"], _CONFIG_LIMIT)
+        layers = document.get("layers", [])
+        if not isinstance(layers, list):
+            raise ValueError("image archive manifest layers must be a list")
+        for layer in layers:
+            _validate_blob(archive, members, layer, None)
+    else:
+        raise ValueError("image archive descriptor is neither an index nor an image manifest")
+    seen.remove(digest)
+
+
+def _validate_oci_archive(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    candidate: CandidateIdentity,
+) -> None:
+    try:
+        index = json.loads(_member_bytes(archive, members, "index.json", _JSON_LIMIT))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("image archive index.json is not readable JSON") from error
+    manifests = index.get("manifests") if isinstance(index, dict) else None
+    if not isinstance(manifests, list) or len(manifests) != 1:
+        raise ValueError("image archive index must name exactly one candidate descriptor")
+    if _descriptor_digest(manifests[0]) != candidate.image_digest:
+        raise ValueError("image archive descriptor digest does not match the candidate")
+    _validate_descriptor(archive, members, manifests[0], set())
+
+
+def _classic_diff_ids(config: bytes) -> list[Any]:
+    try:
+        document = json.loads(config)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("image archive config is not readable JSON") from error
+    rootfs = document.get("rootfs") if isinstance(document, dict) else None
+    diff_ids = rootfs.get("diff_ids") if isinstance(rootfs, dict) else None
+    if not isinstance(diff_ids, list):
+        raise ValueError("image archive config must bind its saved layers")
+    return diff_ids
+
+
+def _validate_classic_archive(
+    archive: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    candidate: CandidateIdentity,
+) -> None:
+    try:
+        manifest = json.loads(_member_bytes(archive, members, "manifest.json", 1024 * 1024))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("image archive manifest.json is not readable JSON") from error
+    if not isinstance(manifest, list) or len(manifest) != 1 or not isinstance(manifest[0], dict):
+        raise ValueError("image archive must contain exactly one image")
+    config_name = manifest[0].get("Config")
+    if not isinstance(config_name, str):
+        raise ValueError("image archive config path is missing")
+    config = _member_bytes(archive, members, config_name, _CONFIG_LIMIT)
+    if _sha256(config) != candidate.image_digest:
+        raise ValueError("image archive config digest does not match the candidate")
+    diff_ids = _classic_diff_ids(config)
+    layers = manifest[0].get("Layers")
+    if not isinstance(layers, list):
+        raise ValueError("image archive config must bind its saved layers")
+    if len(diff_ids) != len(layers):
+        raise ValueError("image archive layer count does not match config rootfs")
+    for layer_name, diff_id in zip(layers, diff_ids, strict=True):
+        if not isinstance(layer_name, str):
+            raise ValueError("image archive layer path is invalid")
+        expected = _descriptor_digest({"digest": diff_id})
+        if _member_sha256(archive, members, layer_name) != expected:
+            raise ValueError("image archive layer digest does not match config rootfs")
+
+
 def validate_image_archive(path: Path, candidate: CandidateIdentity) -> None:
-    """Prove a Docker save archive contains the config named by the image digest."""
+    """Bind a classic Docker config or OCI root descriptor to the candidate digest."""
     try:
         with tarfile.open(path, mode="r:") as archive:
-            manifest_member = archive.getmember("manifest.json")
-            if manifest_member.size > 1024 * 1024:
-                raise ValueError("image archive manifest exceeds 1 MiB")
-            manifest_file = archive.extractfile(manifest_member)
-            if manifest_file is None:
-                raise ValueError("image archive has no manifest.json")
-            manifest = json.load(manifest_file)
-            if (
-                not isinstance(manifest, list)
-                or len(manifest) != 1
-                or not isinstance(manifest[0], dict)
-            ):
-                raise ValueError("image archive must contain exactly one image")
-            config_name = manifest[0].get("Config")
-            if not isinstance(config_name, str) or Path(config_name).name != config_name:
-                raise ValueError("image archive has an unsafe config path")
-            config_member = archive.getmember(config_name)
-            if config_member.size > 4 * 1024 * 1024:
-                raise ValueError("image archive config exceeds 4 MiB")
-            config_file = archive.extractfile(config_member)
-            if config_file is None:
-                raise ValueError("image archive config is missing")
-            digest = "sha256:" + hashlib.sha256(config_file.read()).hexdigest()
-    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError) as error:
+            members = _archive_members(archive)
+            if "index.json" in members:
+                _validate_oci_archive(archive, members, candidate)
+            else:
+                _validate_classic_archive(archive, members, candidate)
+    except (OSError, tarfile.TarError) as error:
         raise ValueError(f"image archive is unreadable: {error}") from error
-    if digest != candidate.image_digest:
-        raise ValueError("image archive config digest does not match the candidate")
