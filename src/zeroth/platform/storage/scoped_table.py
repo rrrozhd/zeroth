@@ -6,9 +6,10 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Self
 
-from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase, database_now
 from zeroth.platform.storage.scoping import (
     CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
@@ -671,6 +672,11 @@ class BoundStructuredTable:
         if not table._accepts_transaction_scope_from(self.__table):
             raise ValueError("bound tables must use the same structural scope")
         return BoundStructuredTable(table, self.__connection)
+
+    async def _database_now(self) -> datetime:
+        """Return authoritative statement-time from this bound transaction."""
+        database = self.__table._StructuredTable__database  # noqa: SLF001
+        return await database_now(self.__connection, database.backend)
 
     def _definition(self, operation: ResourceOperation) -> ResourceScopeDefinition:
         """Resolve definition for structurally scoped persistence."""

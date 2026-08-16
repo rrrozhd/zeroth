@@ -6,13 +6,14 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import zeroth.governance.guardrails.rate_limit as rate_limit
+from tests.conftest import requires_docker
 from zeroth.governance.guardrails.rate_limit import (
     QuotaEnforcer,
     TokenBucketRateLimiter,
     guardrail_identity_key,
 )
-from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 
 BUCKET = "tenant:default:deployment:test"
 
@@ -58,9 +59,13 @@ def test_guardrail_identity_is_canonical_opaque_and_null_unicode_safe() -> None:
     assert all(value not in absent for value in base.values())
 
 
-async def test_rate_limit_consumes_platform_clock(sqlite_db, monkeypatch) -> None:
+async def test_rate_limit_consumes_database_clock(sqlite_db, monkeypatch) -> None:
     fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(rate_limit, "utc_now", lambda: fixed)
+
+    async def fixed_database_now(_table) -> datetime:
+        return fixed
+
+    monkeypatch.setattr(BoundStructuredTable, "_database_now", fixed_database_now)
 
     await TokenBucketRateLimiter(sqlite_db).check_and_consume("clock-bucket")
     await QuotaEnforcer(sqlite_db).check_and_increment("clock-quota", limit=5)
@@ -117,26 +122,82 @@ async def test_token_bucket_different_keys_are_independent(sqlite_db) -> None:
     assert allowed is True
 
 
-async def test_backward_clock_replica_cannot_refill_the_same_interval_twice(
+async def test_process_clock_skew_cannot_refill_or_rewind_database_time(
     sqlite_db,
     monkeypatch,
 ) -> None:
-    now = [datetime(2026, 8, 16, 12, tzinfo=UTC)]
-    monkeypatch.setattr(rate_limit, "utc_now", lambda: now[0])
+    process_now = datetime.now(UTC)
+    monkeypatch.setattr(rate_limit, "utc_now", lambda: process_now, raising=False)
     fast_replica = TokenBucketRateLimiter(sqlite_db)
     slow_replica = TokenBucketRateLimiter(sqlite_db)
 
-    assert await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
-    now[0] += timedelta(seconds=10)
-    assert await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
-    fast_time = now[0]
+    assert await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=0.001)
+    first_refill = datetime.fromisoformat(
+        str((await fast_replica.get("clock-skew"))["last_refill_at"])
+    )
+    monkeypatch.setattr(
+        rate_limit,
+        "utc_now",
+        lambda: process_now + timedelta(days=1),
+        raising=False,
+    )
+    assert not await slow_replica.check_and_consume("clock-skew", capacity=1, refill_rate=0.001)
+    second_refill = datetime.fromisoformat(
+        str((await slow_replica.get("clock-skew"))["last_refill_at"])
+    )
 
-    now[0] -= timedelta(seconds=5)
-    assert not await slow_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
-    assert (await slow_replica.get("clock-skew"))["last_refill_at"] == fast_time.isoformat()
+    monkeypatch.setattr(
+        rate_limit,
+        "utc_now",
+        lambda: process_now - timedelta(days=1),
+        raising=False,
+    )
+    assert not await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=0.001)
+    final_refill = datetime.fromisoformat(
+        str((await fast_replica.get("clock-skew"))["last_refill_at"])
+    )
+    assert first_refill <= second_refill <= final_refill
+    assert final_refill < process_now + timedelta(hours=1)
 
-    now[0] = fast_time
-    assert not await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
+
+@requires_docker
+async def test_forward_process_clock_cannot_refill_distributed_bucket(
+    dual_database,
+    monkeypatch,
+) -> None:
+    process_now = datetime.now(UTC)
+    replicas = (TokenBucketRateLimiter(dual_database), TokenBucketRateLimiter(dual_database))
+    monkeypatch.setattr(rate_limit, "utc_now", lambda: process_now, raising=False)
+
+    assert await replicas[0].check_and_consume("forward-skew", capacity=1, refill_rate=0.001)
+    monkeypatch.setattr(
+        rate_limit,
+        "utc_now",
+        lambda: process_now + timedelta(days=1),
+        raising=False,
+    )
+
+    assert not await replicas[1].check_and_consume("forward-skew", capacity=1, refill_rate=0.001)
+
+
+@requires_docker
+async def test_forward_process_clock_cannot_roll_over_distributed_quota(
+    dual_database,
+    monkeypatch,
+) -> None:
+    process_now = datetime.now(UTC)
+    replicas = (QuotaEnforcer(dual_database), QuotaEnforcer(dual_database))
+    monkeypatch.setattr(rate_limit, "utc_now", lambda: process_now, raising=False)
+
+    assert await replicas[0].check_and_increment("forward-skew", limit=1, window_seconds=3600)
+    monkeypatch.setattr(
+        rate_limit,
+        "utc_now",
+        lambda: process_now + timedelta(days=1),
+        raising=False,
+    )
+
+    assert not await replicas[1].check_and_increment("forward-skew", limit=1, window_seconds=3600)
 
 
 async def test_quota_enforcer_allows_within_limit(sqlite_db) -> None:
@@ -162,6 +223,12 @@ async def test_quota_enforcer_rejects_after_limit(sqlite_db) -> None:
 async def test_quota_enforcer_resets_after_window(sqlite_db, monkeypatch) -> None:
     enforcer = QuotaEnforcer(sqlite_db)
     key = "tenant:default:short-window"
+    now = [datetime(2026, 8, 17, 12, tzinfo=UTC)]
+
+    async def database_now(_table) -> datetime:
+        return now[0]
+
+    monkeypatch.setattr(BoundStructuredTable, "_database_now", database_now)
 
     # Exhaust a 1-second window.
     for _ in range(2):
@@ -170,22 +237,14 @@ async def test_quota_enforcer_resets_after_window(sqlite_db, monkeypatch) -> Non
     rejected = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert rejected is False
 
-    # Advance the enforcer's clock past the window instead of sleeping through it.
-    # A real 1.1s sleep against a 1s window leaves a 100ms margin for the whole
-    # rest of the call to land in, and buys nothing: what is under test is that a
-    # window boundary is *observed*, not that the process can wait.
-    expired = utc_now() + timedelta(seconds=2)
-    monkeypatch.setattr("zeroth.governance.guardrails.rate_limit.utc_now", lambda: expired)
+    now[0] += timedelta(seconds=2)
 
     allowed = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert allowed is True
 
     # ...and the reset opened a real window rather than an unconditional allow:
     # the second use inside it still lands, the third is refused.
-    monkeypatch.setattr(
-        "zeroth.governance.guardrails.rate_limit.utc_now",
-        lambda: expired + timedelta(milliseconds=1),
-    )
+    now[0] += timedelta(milliseconds=1)
     assert await enforcer.check_and_increment(key, limit=2, window_seconds=1) is True
     assert await enforcer.check_and_increment(key, limit=2, window_seconds=1) is False
 

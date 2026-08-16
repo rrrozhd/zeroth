@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 
 DEFAULT_COORDINATION_TIMEOUT_SECONDS = 5.0
@@ -48,3 +49,19 @@ class AsyncDatabase(Protocol):
     async def transaction(self, *, write_lock: bool = False) -> AsyncIterator[AsyncConnection]: ...
 
     async def close(self) -> None: ...
+
+
+async def database_now(
+    connection: AsyncConnection,
+    backend: Literal["sqlite", "postgres"],
+) -> datetime:
+    """Return normalized statement-time from the current transaction."""
+    expression = "clock_timestamp()" if backend == "postgres" else "CURRENT_TIMESTAMP"
+    row = await connection.fetch_one(f"SELECT {expression} AS current_time")
+    assert row is not None
+    current_time = row["current_time"]
+    if not isinstance(current_time, datetime):
+        current_time = datetime.fromisoformat(str(current_time).replace(" ", "T"))
+    if current_time.tzinfo is None:
+        return current_time.replace(tzinfo=UTC)
+    return current_time.astimezone(UTC)

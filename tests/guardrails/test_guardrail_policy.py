@@ -18,12 +18,12 @@ from zeroth.governance.guardrails.policy import (
     GuardrailPolicyRepository,
     effective_guardrails,
 )
-from zeroth.governance.guardrails import rate_limit as rate_limit_module
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.run_repository import GuardrailAdmissionRejectedError
 from zeroth.platform.dispatch import LeaseManager
 from zeroth.platform.storage import NullWorkspaceScopeContext
+from zeroth.platform.storage.scoped_table import BoundStructuredTable
 from zeroth.runtime.runs import Run
 from zeroth.service.bootstrap import bootstrap_app
 
@@ -367,7 +367,11 @@ async def test_postgres_replicas_cannot_overspend_quota(postgres_database) -> No
 
 async def test_clock_drives_burst_exhaustion_and_exact_refill(sqlite_db, monkeypatch) -> None:
     now = [datetime(2026, 8, 14, 12, tzinfo=UTC)]
-    monkeypatch.setattr(rate_limit_module, "utc_now", lambda: now[0])
+
+    async def database_now(_table) -> datetime:
+        return now[0]
+
+    monkeypatch.setattr(BoundStructuredTable, "_database_now", database_now)
     limiter = TokenBucketRateLimiter(sqlite_db)
 
     decisions = [await limiter.decide("clock-burst", capacity=3, refill_rate=0.5) for _ in range(4)]

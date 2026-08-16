@@ -15,10 +15,11 @@ executing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
+from zeroth.platform.storage.database import CoordinationTimeoutError, database_now
 
 try:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
@@ -71,15 +72,8 @@ _FENCEABLE_COLUMNS = frozenset(
 )
 
 
-async def _database_now(connection: AsyncConnection) -> datetime:
-    clock = await connection.fetch_one("SELECT CURRENT_TIMESTAMP AS current_time")
-    assert clock is not None
-    current_time = clock["current_time"]
-    if not isinstance(current_time, datetime):
-        current_time = datetime.fromisoformat(str(current_time).replace(" ", "T"))
-    if current_time.tzinfo is None:
-        return current_time.replace(tzinfo=UTC)
-    return current_time.astimezone(UTC)
+async def _database_now(connection: AsyncConnection, *, postgres: bool) -> datetime:
+    return await database_now(connection, "postgres" if postgres else "sqlite")
 
 
 def _new_worker_id() -> str:
@@ -285,7 +279,14 @@ class LeaseManager:
         """
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
-            now = await _database_now(conn)
+            if max_concurrency is not None:
+                await self._lock_admission_scope(
+                    conn,
+                    deployment_ref,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                )
+            now = await _database_now(conn, postgres=self._is_postgres())
             expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
@@ -373,8 +374,15 @@ class LeaseManager:
         No verify step needed -- the lock is acquired at SELECT time.
         """
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
-        async with self.database.transaction() as conn:
-            now = await _database_now(conn)
+        async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            if max_concurrency is not None:
+                await self._lock_admission_scope(
+                    conn,
+                    deployment_ref,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                )
+            now = await _database_now(conn, postgres=True)
             expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
@@ -425,29 +433,15 @@ class LeaseManager:
         workspace_id: str | None | object,
         max_concurrency: int | None,
     ) -> _ConcurrencyAvailability:
-        """Serialize active leases and return same-transaction utilization."""
+        """Return same-transaction utilization under the admission lock."""
         if max_concurrency is None:
             return _ConcurrencyAvailability(None, 0, None)
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
         if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
             raise ValueError("distributed concurrency requires an exact tenant/workspace scope")
-        workspace_scope = "null" if workspace_id is None else f"value:{workspace_id}"
         now_value = now.isoformat()
-        await connection.execute(
-            """INSERT INTO guardrail_admission_state
-               (tenant_id, workspace_id, workspace_scope, deployment_ref, created_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT (tenant_id, workspace_scope, deployment_ref) DO NOTHING""",
-            (tenant_id, workspace_id, workspace_scope, deployment_ref, now_value),
-        )
-        lock_suffix = " FOR UPDATE" if self._is_postgres() else ""
-        await connection.fetch_one(
-            """SELECT deployment_ref FROM guardrail_admission_state
-               WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
-            + lock_suffix,
-            (tenant_id, workspace_scope, deployment_ref),
-        )
+
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         row = await connection.fetch_one(
             f"""SELECT COUNT(*) AS active_count FROM runs
@@ -459,6 +453,37 @@ class LeaseManager:
         active_count = 0 if row is None else int(row["active_count"])
         slots = max(0, max_concurrency - active_count)
         return _ConcurrencyAvailability(slots, active_count, max_concurrency)
+
+    async def _lock_admission_scope(
+        self,
+        connection: AsyncConnection,
+        deployment_ref: str,
+        *,
+        tenant_id: str | None,
+        workspace_id: str | None | object,
+    ) -> None:
+        """Acquire the deployment admission lock before sampling decision time."""
+        if tenant_id is None or workspace_id is _UNSCOPED_WORKSPACE:
+            raise ValueError("distributed concurrency requires an exact tenant/workspace scope")
+        workspace_scope = "null" if workspace_id is None else f"value:{workspace_id}"
+        created_at = (
+            "CAST(clock_timestamp() AS TEXT)" if self._is_postgres() else "CURRENT_TIMESTAMP"
+        )
+        await connection.execute(
+            f"""INSERT INTO guardrail_admission_state
+               (tenant_id, workspace_id, workspace_scope, deployment_ref, created_at)
+               VALUES (?, ?, ?, ?, {created_at})
+               ON CONFLICT (tenant_id, workspace_scope, deployment_ref) DO NOTHING""",
+            (tenant_id, workspace_id, workspace_scope, deployment_ref),
+        )
+        lock_suffix = " FOR UPDATE" if self._is_postgres() else ""
+        locked = await connection.fetch_one(
+            """SELECT deployment_ref FROM guardrail_admission_state
+               WHERE tenant_id = ? AND workspace_scope = ? AND deployment_ref = ?"""
+            + lock_suffix,
+            (tenant_id, workspace_scope, deployment_ref),
+        )
+        assert locked is not None
 
     async def claim_orphaned(
         self,
@@ -479,7 +504,14 @@ class LeaseManager:
         claimed: list[str] = []
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
-            now = await _database_now(conn)
+            if max_concurrency is not None:
+                await self._lock_admission_scope(
+                    conn,
+                    deployment_ref,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                )
+            now = await _database_now(conn, postgres=self._is_postgres())
             expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
@@ -575,29 +607,45 @@ class LeaseManager:
         where the lease was released and re-acquired, and is what the caller
         must then present to :meth:`commit_fenced`.
         """
-        async with self.database.transaction() as conn:
-            current_time = await _database_now(conn)
-            generation_sql = "" if generation is None else "AND lease_generation = ?"
-            params: tuple[object, ...] = (
-                (current_time + timedelta(seconds=self.lease_duration_seconds)).isoformat(),
-                run_id,
-                worker_id,
-                current_time.isoformat(),
-            )
-            if generation is not None:
-                params += (generation,)
-            renewed = await conn.fetch_one(
-                f"""
-                UPDATE runs
-                SET lease_expires_at = ?
-                WHERE run_id = ?
-                  AND lease_worker_id = ?
-                  AND lease_expires_at >= ?
-                  {generation_sql}
-                RETURNING run_id
-                """,
-                params,
-            )
+        try:
+            async with self.database.transaction(write_lock=True) as conn:
+                identity = await conn.fetch_one(
+                    """SELECT tenant_id, workspace_id, deployment_ref
+                       FROM runs WHERE run_id = ?""",
+                    (run_id,),
+                )
+                if identity is None:
+                    return False
+                await self._lock_admission_scope(
+                    conn,
+                    str(identity["deployment_ref"]),
+                    tenant_id=str(identity["tenant_id"]),
+                    workspace_id=identity["workspace_id"],
+                )
+                current_time = await _database_now(conn, postgres=self._is_postgres())
+                generation_sql = "" if generation is None else "AND lease_generation = ?"
+                params: tuple[object, ...] = (
+                    (current_time + timedelta(seconds=self.lease_duration_seconds)).isoformat(),
+                    run_id,
+                    worker_id,
+                    current_time.isoformat(),
+                )
+                if generation is not None:
+                    params += (generation,)
+                renewed = await conn.fetch_one(
+                    f"""
+                    UPDATE runs
+                    SET lease_expires_at = ?
+                    WHERE run_id = ?
+                      AND lease_worker_id = ?
+                      AND lease_expires_at >= ?
+                      {generation_sql}
+                    RETURNING run_id
+                    """,
+                    params,
+                )
+        except CoordinationTimeoutError:
+            return False
         return renewed is not None
 
     async def current_generation(self, run_id: str) -> int | None:
