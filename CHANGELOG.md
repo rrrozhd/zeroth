@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.2] - 2026-08-17
+
+### Fixed
+
+- Serialize lease renewal with capacity reallocation and use database statement time for
+  distributed token refill and quota rollover decisions.
+
 ## [0.23.9.1] - 2026-08-16
 
 ### Fixed

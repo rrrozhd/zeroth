@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
 
-from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
@@ -155,8 +154,7 @@ class TokenBucketRateLimiter:
         refill_rate: float,
     ) -> RateLimitDecision:
         """Apply a token decision inside an existing coordinated transaction."""
-        now = utc_now()
-        row = await _locked_bucket(buckets, bucket_key, capacity, refill_rate, now)
+        row, now = await _locked_bucket(buckets, bucket_key, capacity, refill_rate)
         last_refill = datetime.fromisoformat(str(row["last_refill_at"]))
         refill_at = max(now, last_refill)
         elapsed = (refill_at - last_refill).total_seconds()
@@ -281,8 +279,7 @@ class QuotaEnforcer:
         window_seconds: int,
     ) -> QuotaDecision:
         """Apply a quota decision inside an existing coordinated transaction."""
-        now = utc_now()
-        row = await _locked_quota(counters, counter_key, window_seconds, now)
+        row, now = await _locked_quota(counters, counter_key, window_seconds)
         window_start = datetime.fromisoformat(str(row["window_start"]))
         elapsed = max(0.0, (now - window_start).total_seconds())
         if elapsed >= int(row["window_seconds"]):
@@ -315,11 +312,11 @@ async def _locked_bucket(
     bucket_key: str,
     capacity: float,
     refill_rate: float,
-    now: datetime,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], datetime]:
     row = await buckets.select_one(where={"bucket_key": bucket_key}, for_update=True)
     if row is None:
-        await buckets.insert_if_absent(
+        now = await buckets._database_now()  # noqa: SLF001 - bound transaction clock
+        inserted = await buckets.insert_if_absent(
             {
                 "bucket_key": bucket_key,
                 "token_count": capacity,
@@ -329,20 +326,25 @@ async def _locked_bucket(
             },
             conflict_columns=("tenant_id", "bucket_key"),
         )
+        if inserted:
+            return {
+                "token_count": capacity,
+                "last_refill_at": now.isoformat(),
+            }, now
         row = await buckets.select_one(where={"bucket_key": bucket_key}, for_update=True)
     assert row is not None
-    return row
+    return row, await buckets._database_now()  # noqa: SLF001 - bound transaction clock
 
 
 async def _locked_quota(
     counters: BoundStructuredTable,
     counter_key: str,
     window_seconds: int,
-    now: datetime,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], datetime]:
     row = await counters.select_one(where={"counter_key": counter_key}, for_update=True)
     if row is None:
-        await counters.insert_if_absent(
+        now = await counters._database_now()  # noqa: SLF001 - bound transaction clock
+        inserted = await counters.insert_if_absent(
             {
                 "counter_key": counter_key,
                 "value": 0,
@@ -351,9 +353,15 @@ async def _locked_quota(
             },
             conflict_columns=("tenant_id", "counter_key"),
         )
+        if inserted:
+            return {
+                "value": 0,
+                "window_start": now.isoformat(),
+                "window_seconds": window_seconds,
+            }, now
         row = await counters.select_one(where={"counter_key": counter_key}, for_update=True)
     assert row is not None
-    return row
+    return row, await counters._database_now()  # noqa: SLF001 - bound transaction clock
 
 
 # These two constructors predate postponed annotations and their immutable public
