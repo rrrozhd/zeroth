@@ -157,8 +157,8 @@ def _fixture_app() -> FastAPI:
                     "status": "ok",
                     "checks": {"database": {"status": "ok"}},
                     "schema_revision": {
-                        "applied": "027",
-                        "head": "027",
+                        "applied": "028",
+                        "head": "028",
                         "state": "current",
                     },
                 }

@@ -170,7 +170,7 @@ def test_alembic_upgrades_a_scratch_database_to_head(tmp_path: Path) -> None:
             for row in connection.execute("select name from sqlite_master where type='table'")
         }
 
-    assert applied == ["027"]
+    assert applied == ["028"]
     assert "runs" in tables
     assert "side_effect_operations" in tables
 

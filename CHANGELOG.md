@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9] - 2026-08-16
+
+### Fixed
+
+- Keep deployment guardrail reads and writes inside the app tenant, even when a foreign
+  principal owns the referenced deployment.
+- Refuse expired lease renewal from database time after shared concurrency reallocates the slot.
+- Preserve monotonic token-bucket refill timestamps across clock-skewed replicas.
+- Order append-only guardrail revisions by database-generated precedence so later resets remain
+  effective regardless of replica clock skew.
+
 ## [0.23.8.2] - 2026-08-16
 
 ### Fixed

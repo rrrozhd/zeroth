@@ -155,7 +155,7 @@ async def _require_deployment(bootstrap, deployment_ref: str, principal) -> None
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
     )
-    if deployment is None:
+    if deployment is None or deployment.tenant_id != bootstrap.deployment.tenant_id:
         raise HTTPException(status_code=404, detail="deployment not found")
 
 

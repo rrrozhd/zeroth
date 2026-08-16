@@ -158,14 +158,15 @@ class TokenBucketRateLimiter:
         now = utc_now()
         row = await _locked_bucket(buckets, bucket_key, capacity, refill_rate, now)
         last_refill = datetime.fromisoformat(str(row["last_refill_at"]))
-        elapsed = max(0.0, (now - last_refill).total_seconds())
+        refill_at = max(now, last_refill)
+        elapsed = (refill_at - last_refill).total_seconds()
         refilled = min(capacity, float(row["token_count"]) + elapsed * refill_rate)
         allowed = refilled >= 1
         remaining = refilled - 1 if allowed else refilled
         await buckets.update(
             {
                 "token_count": remaining,
-                "last_refill_at": now.isoformat(),
+                "last_refill_at": refill_at.isoformat(),
                 "capacity": capacity,
                 "refill_rate": refill_rate,
             },

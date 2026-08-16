@@ -568,38 +568,38 @@ class LeaseManager:
         where the lease was released and re-acquired, and is what the caller
         must then present to :meth:`commit_fenced`.
         """
-        now = _utc_now()
-        new_expires = now + timedelta(seconds=self.lease_duration_seconds)
         async with self.database.transaction() as conn:
-            if generation is None:
-                await conn.execute(
-                    """
-                    UPDATE runs
-                    SET lease_expires_at = ?
-                    WHERE run_id = ? AND lease_worker_id = ?
-                    """,
-                    (new_expires.isoformat(), run_id, worker_id),
-                )
+            clock = await conn.fetch_one("SELECT CURRENT_TIMESTAMP AS current_time")
+            assert clock is not None
+            current_time = clock["current_time"]
+            if not isinstance(current_time, datetime):
+                current_time = datetime.fromisoformat(str(current_time).replace(" ", "T"))
+            if current_time.tzinfo is None:
+                current_time = current_time.replace(tzinfo=UTC)
             else:
-                await conn.execute(
-                    """
-                    UPDATE runs
-                    SET lease_expires_at = ?
-                    WHERE run_id = ?
-                      AND lease_worker_id = ?
-                      AND lease_generation = ?
-                    """,
-                    (new_expires.isoformat(), run_id, worker_id, generation),
-                )
-            row = await conn.fetch_one(
-                "SELECT lease_worker_id, lease_generation FROM runs WHERE run_id = ?",
-                (run_id,),
+                current_time = current_time.astimezone(UTC)
+            generation_sql = "" if generation is None else "AND lease_generation = ?"
+            params: tuple[object, ...] = (
+                (current_time + timedelta(seconds=self.lease_duration_seconds)).isoformat(),
+                run_id,
+                worker_id,
+                current_time.isoformat(),
             )
-        if row is None:
-            return False
-        if row["lease_worker_id"] != worker_id:
-            return False
-        return generation is None or int(row["lease_generation"]) == generation
+            if generation is not None:
+                params += (generation,)
+            renewed = await conn.fetch_one(
+                f"""
+                UPDATE runs
+                SET lease_expires_at = ?
+                WHERE run_id = ?
+                  AND lease_worker_id = ?
+                  AND lease_expires_at >= ?
+                  {generation_sql}
+                RETURNING run_id
+                """,
+                params,
+            )
+        return renewed is not None
 
     async def current_generation(self, run_id: str) -> int | None:
         """The run's current lease generation, or None if the run is unknown."""

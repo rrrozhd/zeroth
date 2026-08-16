@@ -236,7 +236,7 @@ class GuardrailPolicyRepository:
         async with self._revisions.transaction() as revisions:
             rows = await revisions.select(
                 where=where,
-                order_by=("created_at", "revision_id"),
+                order_by=("revision_order",),
             )
         return [_row_to_revision(row) for row in rows]
 
@@ -288,7 +288,7 @@ class GuardrailPolicyRepository:
         async with self._revisions.transaction() as revisions:
             row = await revisions.select_one(
                 where={"scope_type": scope, "deployment_ref": deployment_ref},
-                order_by_desc=("created_at", "revision_id"),
+                order_by_desc=("revision_order",),
             )
         return None if row is None else _row_to_revision(row)
 

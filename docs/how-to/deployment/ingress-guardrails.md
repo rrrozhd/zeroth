@@ -15,10 +15,11 @@ Each effective field is selected independently in this order:
 A deployment-level `GuardrailConfig` supplied at bootstrap replaces the product
 defaults as the baseline for all three consumers: ingress admission, the
 management API, and worker lease claims. Partial policy revisions are folded
-over that baseline in order, so a later one-field edit does not erase earlier
-fields. A field named in `reset_fields` removes only that exact scope's active
-override, exposing the tenant or configured baseline beneath it while preserving
-sibling overrides.
+over that baseline in database-assigned revision order, so replica clock skew
+cannot move a later edit or reset behind an earlier revision. A later one-field
+edit does not erase earlier fields. A field named in `reset_fields` removes only
+that exact scope's active override, exposing the tenant or configured baseline
+beneath it while preserving sibling overrides.
 
 | Field | Product default | Accepted values |
 |---|---:|---:|
@@ -66,7 +67,8 @@ Use `/v1/guardrails` for tenant defaults and
 tenant-wide routes require the explicit `guardrail:tenant-admin` permission on
 a tenant-scoped principal with no workspace. A workspace administrator cannot
 read or mutate tenant-wide policy, including another workspace in the same
-tenant. A cross-tenant deployment reference is returned as not found.
+tenant. A cross-tenant deployment reference is returned as not found, including a
+deployment the caller owns when it is addressed through another tenant's app.
 
 The Deployments console provides the same six controls and shows each composed
 active deployment override. A blank value preserves it, `inherit` appends a
@@ -112,7 +114,11 @@ Concurrency saturation uses one deduplicated record per deployment scope and
 effective limit, retaining the active count, limit, and utilization without
 growing the audit trail on every worker poll.
 
-## Roll back migration 027 safely
+## Roll back guardrail migrations safely
+
+Downgrading from schema revision `028` to `027` preserves every immutable policy
+row but removes database-assigned revision precedence. Revision folding then
+falls back to the older timestamp and revision-ID order until `028` is reapplied.
 
 Downgrading from schema revision `027` to `026` drops both
 `guardrail_policy_revisions` and `guardrail_admission_state`. Export policy

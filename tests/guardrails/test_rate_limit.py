@@ -117,6 +117,28 @@ async def test_token_bucket_different_keys_are_independent(sqlite_db) -> None:
     assert allowed is True
 
 
+async def test_backward_clock_replica_cannot_refill_the_same_interval_twice(
+    sqlite_db,
+    monkeypatch,
+) -> None:
+    now = [datetime(2026, 8, 16, 12, tzinfo=UTC)]
+    monkeypatch.setattr(rate_limit, "utc_now", lambda: now[0])
+    fast_replica = TokenBucketRateLimiter(sqlite_db)
+    slow_replica = TokenBucketRateLimiter(sqlite_db)
+
+    assert await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
+    now[0] += timedelta(seconds=10)
+    assert await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
+    fast_time = now[0]
+
+    now[0] -= timedelta(seconds=5)
+    assert not await slow_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
+    assert (await slow_replica.get("clock-skew"))["last_refill_at"] == fast_time.isoformat()
+
+    now[0] = fast_time
+    assert not await fast_replica.check_and_consume("clock-skew", capacity=1, refill_rate=1)
+
+
 async def test_quota_enforcer_allows_within_limit(sqlite_db) -> None:
     enforcer = QuotaEnforcer(sqlite_db)
     key = "tenant:default:daily"
@@ -153,9 +175,7 @@ async def test_quota_enforcer_resets_after_window(sqlite_db, monkeypatch) -> Non
     # rest of the call to land in, and buys nothing: what is under test is that a
     # window boundary is *observed*, not that the process can wait.
     expired = utc_now() + timedelta(seconds=2)
-    monkeypatch.setattr(
-        "zeroth.governance.guardrails.rate_limit.utc_now", lambda: expired
-    )
+    monkeypatch.setattr("zeroth.governance.guardrails.rate_limit.utc_now", lambda: expired)
 
     allowed = await enforcer.check_and_increment(key, limit=2, window_seconds=1)
     assert allowed is True
