@@ -424,7 +424,12 @@ async def test_claim_pending_pg_returns_run_id_on_success() -> None:
     mock_conn.fetch_one = AsyncMock(
         side_effect=[
             {"current_time": datetime(2026, 8, 16, tzinfo=UTC)},
-            {"run_id": "test-123"},
+            {
+                "run_id": "test-123",
+                "tenant_id": "default",
+                "workspace_id": None,
+                "workspace_scope": "null",
+            },
         ]
     )
     mock_conn.execute = AsyncMock()

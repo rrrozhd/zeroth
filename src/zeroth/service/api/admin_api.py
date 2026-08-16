@@ -108,7 +108,11 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
         # Clear lease so any worker won't resume it.
         lease_manager = getattr(bootstrap, "lease_manager", None)
         if lease_manager is not None:
-            await lease_manager.clear_lease(run_id)
+            await lease_manager.clear_lease(
+                run_id,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+            )
         return _serialize_run(run)
 
     @app.post("/admin/runs/{run_id}/replay", response_model=RunStatusResponse)

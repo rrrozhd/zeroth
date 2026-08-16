@@ -123,10 +123,11 @@ class RunWorker:
         )
 
     def _lease_scope(self) -> dict[str, object]:
-        """Return the trusted deployment scope when this worker has one."""
-        if self.tenant_id is None:
-            return {}
-        return {"tenant_id": self.tenant_id, "workspace_id": self.workspace_id}
+        """Return the exact deployment scope, including native default compatibility."""
+        return {
+            "tenant_id": self.tenant_id or "default",
+            "workspace_id": self.workspace_id,
+        }
 
     def _uses_shared_concurrency(self) -> bool:
         return self.guardrail_policy_repository is not None
@@ -332,7 +333,7 @@ class RunWorker:
             # Captured right after the claim: the renewal loop presents it back so a
             # lease that was released and re-acquired is detected even when the same
             # worker id ends up holding it again.
-            generation = await self.lease_manager.current_generation(run_id)
+            generation = await self.lease_manager.current_generation(run_id, **self._lease_scope())
             self._lease_generations[run_id] = generation
             if not await self._lease_allows_execution(run_id, generation):
                 logger.info(
@@ -398,7 +399,7 @@ class RunWorker:
             self._lease_generations.pop(run_id, None)
             # release_lease is owner-qualified, so a displaced worker calling it
             # cannot clear the new owner's lease.
-            await self.lease_manager.release_lease(run_id, self.worker_id)
+            await self.lease_manager.release_lease(run_id, self.worker_id, **self._lease_scope())
             if slot_reserved or acquired_here:
                 self._semaphore.release()
 
@@ -406,7 +407,7 @@ class RunWorker:
         """Refuse expired or reclaimed leases before user code can start."""
         if generation is None:
             return False
-        holder = await self.lease_manager.current_holder(run_id)
+        holder = await self.lease_manager.current_holder(run_id, **self._lease_scope())
         if holder is None:
             return generation == 0
         if holder != self.worker_id:
@@ -415,6 +416,7 @@ class RunWorker:
             run_id,
             self.worker_id,
             generation=generation,
+            **self._lease_scope(),
         )
 
     async def _await_drive_outcome(
@@ -463,7 +465,7 @@ class RunWorker:
         """
         if generation is None or not hasattr(self.run_repository, "install_fence"):
             return False
-        if await self.lease_manager.current_holder(run_id) != self.worker_id:
+        if await self.lease_manager.current_holder(run_id, **self._lease_scope()) != self.worker_id:
             return False
         self.run_repository.install_fence(run_id, self.worker_id, generation)
         return True
@@ -574,7 +576,9 @@ class RunWorker:
             return
 
         if is_recovery:
-            recovery_cp_id = await self.lease_manager.get_recovery_checkpoint_id(run_id)
+            recovery_cp_id = await self.lease_manager.get_recovery_checkpoint_id(
+                run_id, **self._lease_scope()
+            )
             if recovery_cp_id:
                 logger.info(
                     "worker %s resuming run %s from checkpoint %s",
@@ -658,7 +662,10 @@ class RunWorker:
             await asyncio.sleep(interval)
             generation = self._lease_generations.get(run_id)
             if not await self.lease_manager.renew_lease(
-                run_id, self.worker_id, generation=generation
+                run_id,
+                self.worker_id,
+                generation=generation,
+                **self._lease_scope(),
             ):
                 logger.warning("worker %s lost lease on run %s", self.worker_id, run_id)
                 self._lost_leases.add(run_id)
@@ -752,7 +759,7 @@ class RunWorker:
             # PENDING hand-back below fences *ourselves* out.
             if hasattr(self.run_repository, "clear_fence"):
                 self.run_repository.clear_fence(run_id)
-            await self.lease_manager.release_lease(run_id, self.worker_id)
+            await self.lease_manager.release_lease(run_id, self.worker_id, **self._lease_scope())
             run = await self.run_repository.get(run_id)
             if run is not None and run.status == RunStatus.RUNNING:
                 run.status = RunStatus.PENDING
