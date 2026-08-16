@@ -64,7 +64,7 @@ def _candidate_evidence(
     wheel = tmp_path / "zeroth-core.whl"
     requirements = tmp_path / "requirements-image.txt"
     wheel.write_bytes(b"trusted wheel")
-    requirements.write_text("zeroth-core==0.23.9.8\n", encoding="utf-8")
+    requirements.write_text("zeroth-core==0.23.9.8.1\n", encoding="utf-8")
     sbom.parent.mkdir(parents=True)
     sbom.write_text(
         json.dumps(

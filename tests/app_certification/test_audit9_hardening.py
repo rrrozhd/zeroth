@@ -206,6 +206,7 @@ def test_workflow_bounds_jobs_containers_and_logs() -> None:
     containers = next(step["run"] for step in steps if step.get("id") == "containers")
     for flag in ("--cpus", "--memory", "--pids-limit"):
         assert containers.count(flag) == 2
+    assert containers.count("--log-opt max-file=3") == 2
     diagnostics = next(
         step["run"] for step in steps if step["name"] == "Capture container diagnostics"
     )

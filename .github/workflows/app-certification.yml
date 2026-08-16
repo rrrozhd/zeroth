@@ -199,7 +199,7 @@ jobs:
           docker volume create app-cert-packaged-data
           docker run --detach --name app-cert-packaged \
             --cpus 2 --memory 2g --pids-limit 256 \
-            --log-driver local --log-opt max-size=10m --log-opt max-file=1 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
             --network app-cert-packaged-net \
             --mount type=volume,source=app-cert-packaged-data,target=/data \
             --publish 127.0.0.1:18080:8000 \
@@ -207,7 +207,7 @@ jobs:
             "$IMAGE_ID"
           docker run --detach --name app-cert-ephemeral \
             --cpus 2 --memory 2g --pids-limit 256 \
-            --log-driver local --log-opt max-size=10m --log-opt max-file=1 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
             --network app-cert-ephemeral-net \
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
