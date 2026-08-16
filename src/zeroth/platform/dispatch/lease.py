@@ -84,18 +84,18 @@ def _scope_sql(
     tenant_id: str | None,
     workspace_id: str | None | object,
 ) -> tuple[str, tuple[object, ...]]:
-    predicates: list[str] = []
-    params: list[object] = []
-    if tenant_id is not None:
-        predicates.append("AND tenant_id = ?")
-        params.append(tenant_id)
-    if workspace_id is not _UNSCOPED_WORKSPACE:
-        if workspace_id is None:
-            predicates.append("AND workspace_id IS NULL")
-        else:
-            predicates.append("AND workspace_id = ?")
-            params.append(workspace_id)
-    return " ".join(predicates), tuple(params)
+    """Return one exact scope; omissions preserve only default/null compatibility."""
+    if tenant_id is None:
+        if workspace_id is not _UNSCOPED_WORKSPACE and workspace_id is not None:
+            return "AND 1 = 0", ()
+        tenant_id = "default"
+    if workspace_id is _UNSCOPED_WORKSPACE:
+        workspace_id = None
+    workspace_scope = "null" if workspace_id is None else f"value:{workspace_id}"
+    return (
+        "AND tenant_id = ? AND workspace_scope = ?",
+        (tenant_id, workspace_scope),
+    )
 
 
 class FencedRunWriteRejectedError(RuntimeError):
@@ -300,7 +300,7 @@ class LeaseManager:
                 return availability.result(None)
             row = await conn.fetch_one(
                 f"""
-                SELECT run_id FROM runs
+                SELECT run_id, tenant_id, workspace_id, workspace_scope FROM runs
                 WHERE deployment_ref = ?
                   {scope_sql}
                   AND status = ?
@@ -312,6 +312,9 @@ class LeaseManager:
             )
             if row is None:
                 return availability.result(None)
+            exact_scope_sql, exact_scope_params = _scope_sql(
+                str(row["tenant_id"]), row["workspace_id"]
+            )
             # The generation advances with the claim so a displaced worker's
             # writes can be told apart from the new owner's.
             won = await conn.fetch_one(
@@ -322,7 +325,7 @@ class LeaseManager:
                     lease_expires_at = ?,
                     lease_generation = lease_generation + 1
                 WHERE run_id = ?
-                  {scope_sql}
+                  {exact_scope_sql}
                   AND status = ?
                   AND (lease_worker_id IS NULL OR lease_expires_at < ?)
                 RETURNING run_id
@@ -332,7 +335,7 @@ class LeaseManager:
                     now.isoformat(),
                     expires_at.isoformat(),
                     row["run_id"],
-                    *scope_params,
+                    *exact_scope_params,
                     _STATUS_PENDING,
                     now.isoformat(),
                 ),
@@ -396,7 +399,7 @@ class LeaseManager:
                 return availability.result(None)
             row = await conn.fetch_one(
                 f"""
-                SELECT run_id FROM runs
+                SELECT run_id, tenant_id, workspace_id, workspace_scope FROM runs
                 WHERE deployment_ref = ?
                   {scope_sql}
                   AND status = ?
@@ -410,16 +413,26 @@ class LeaseManager:
             if row is None:
                 return availability.result(None)
             run_id = row["run_id"]
+            exact_scope_sql, exact_scope_params = _scope_sql(
+                str(row["tenant_id"]), row["workspace_id"]
+            )
             await conn.execute(
-                """
+                f"""
                 UPDATE runs
                 SET lease_worker_id = ?,
                     lease_acquired_at = ?,
                     lease_expires_at = ?,
                     lease_generation = lease_generation + 1
                 WHERE run_id = ?
+                  {exact_scope_sql}
                 """,
-                (worker_id, now.isoformat(), expires_at.isoformat(), run_id),
+                (
+                    worker_id,
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                    run_id,
+                    *exact_scope_params,
+                ),
             )
         return availability.result(str(run_id))
 
@@ -532,7 +545,7 @@ class LeaseManager:
             limit_sql = "" if limit is None else f" LIMIT {limit}"
             rows = await conn.fetch_all(
                 f"""
-                SELECT run_id FROM runs
+                SELECT run_id, tenant_id, workspace_id, workspace_scope FROM runs
                 WHERE deployment_ref = ?
                   {scope_sql}
                   AND status = ?
@@ -544,22 +557,26 @@ class LeaseManager:
             )
             for row in rows:
                 run_id = row["run_id"]
+                exact_scope_sql, exact_scope_params = _scope_sql(
+                    str(row["tenant_id"]), row["workspace_id"]
+                )
                 # Find the latest checkpoint for this run.
                 cp_row = await conn.fetch_one(
-                    """
+                    f"""
                     SELECT checkpoint_id FROM run_checkpoints
                     WHERE run_id = ?
+                      {exact_scope_sql}
                     ORDER BY checkpoint_order DESC
                     LIMIT 1
                     """,
-                    (run_id,),
+                    (run_id, *exact_scope_params),
                 )
                 recovery_checkpoint_id = cp_row["checkpoint_id"] if cp_row else None
                 # Guarded on the row still being expired: the SELECT above is
                 # not a lock, so another worker can reclaim between the two
                 # statements and both would otherwise report the same run.
                 won = await conn.fetch_one(
-                    """
+                    f"""
                     UPDATE runs
                     SET lease_worker_id = ?,
                         lease_acquired_at = ?,
@@ -567,6 +584,7 @@ class LeaseManager:
                         recovery_checkpoint_id = ?,
                         lease_generation = lease_generation + 1
                     WHERE run_id = ?
+                      {exact_scope_sql}
                       AND status = ?
                       AND lease_expires_at < ?
                     RETURNING run_id
@@ -577,6 +595,7 @@ class LeaseManager:
                         expires_at.isoformat(),
                         recovery_checkpoint_id,
                         run_id,
+                        *exact_scope_params,
                         _STATUS_RUNNING,
                         now.isoformat(),
                     ),
@@ -595,6 +614,8 @@ class LeaseManager:
         worker_id: str,
         *,
         generation: int | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
     ) -> bool:
         """Extend the lease expiry for an active run.
 
@@ -607,26 +628,31 @@ class LeaseManager:
         where the lease was released and re-acquired, and is what the caller
         must then present to :meth:`commit_fenced`.
         """
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         try:
             async with self.database.transaction(write_lock=True) as conn:
-                identity = await conn.fetch_one(
-                    """SELECT tenant_id, workspace_id, deployment_ref
-                       FROM runs WHERE run_id = ?""",
-                    (run_id,),
+                row = await conn.fetch_one(
+                    f"""SELECT tenant_id, workspace_id, deployment_ref
+                         FROM runs WHERE run_id = ? {scope_sql}""",
+                    (run_id, *scope_params),
                 )
-                if identity is None:
+                if row is None:
                     return False
+                exact_scope_sql, exact_scope_params = _scope_sql(
+                    str(row["tenant_id"]), row["workspace_id"]
+                )
                 await self._lock_admission_scope(
                     conn,
-                    str(identity["deployment_ref"]),
-                    tenant_id=str(identity["tenant_id"]),
-                    workspace_id=identity["workspace_id"],
+                    str(row["deployment_ref"]),
+                    tenant_id=str(row["tenant_id"]),
+                    workspace_id=row["workspace_id"],
                 )
                 current_time = await _database_now(conn, postgres=self._is_postgres())
                 generation_sql = "" if generation is None else "AND lease_generation = ?"
                 params: tuple[object, ...] = (
                     (current_time + timedelta(seconds=self.lease_duration_seconds)).isoformat(),
                     run_id,
+                    *exact_scope_params,
                     worker_id,
                     current_time.isoformat(),
                 )
@@ -637,6 +663,7 @@ class LeaseManager:
                     UPDATE runs
                     SET lease_expires_at = ?
                     WHERE run_id = ?
+                      {exact_scope_sql}
                       AND lease_worker_id = ?
                       AND lease_expires_at >= ?
                       {generation_sql}
@@ -648,23 +675,39 @@ class LeaseManager:
             return False
         return renewed is not None
 
-    async def current_generation(self, run_id: str) -> int | None:
+    async def current_generation(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> int | None:
         """The run's current lease generation, or None if the run is unknown."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
-                "SELECT lease_generation FROM runs WHERE run_id = ?", (run_id,)
+                f"SELECT lease_generation FROM runs WHERE run_id = ? {scope_sql}",
+                (run_id, *scope_params),
             )
         return None if row is None else int(row["lease_generation"])
 
-    async def current_holder(self, run_id: str) -> str | None:
+    async def current_holder(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """The worker id currently holding the run's lease, or None.
 
         A write fence is only meaningful for the worker that actually holds the
         lease; installing one without ownership would reject every save.
         """
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
-                "SELECT lease_worker_id FROM runs WHERE run_id = ?", (run_id,)
+                f"SELECT lease_worker_id FROM runs WHERE run_id = ? {scope_sql}",
+                (run_id, *scope_params),
             )
         return None if row is None else row["lease_worker_id"]
 
@@ -674,6 +717,8 @@ class LeaseManager:
         worker_id: str,
         *,
         generation: int,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
         metrics_collector: object | None = None,
         **columns: object,
     ) -> bool:
@@ -707,72 +752,91 @@ class LeaseManager:
         # security boundary, and quoting keeps a name that merely *looks*
         # like SQL from ever being read as SQL if that list is widened.
         assignments = ", ".join(f'"{name}" = ?' for name in columns)
-        params = (
-            *columns.values(),
-            run_id,
-            worker_id,
-            generation,
-        )
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
-            await conn.execute(
+            written = await conn.fetch_one(
                 f"""
                 UPDATE runs
                 SET {assignments}
                 WHERE run_id = ?
+                  {scope_sql}
                   AND lease_worker_id = ?
                   AND lease_generation = ?
+                RETURNING run_id
                 """,
-                params,
+                (
+                    *columns.values(),
+                    run_id,
+                    *scope_params,
+                    worker_id,
+                    generation,
+                ),
             )
-            row = await conn.fetch_one(
-                "SELECT lease_worker_id, lease_generation FROM runs WHERE run_id = ?",
-                (run_id,),
-            )
-        if row is None:
-            applied = False
-        else:
-            applied = (
-                row["lease_worker_id"] == worker_id and int(row["lease_generation"]) == generation
-            )
+        applied = written is not None
         if not applied and metrics_collector is not None:
             metrics_collector.increment("zeroth_lease_fencing_rejected_total")
         return applied
 
-    async def release_lease(self, run_id: str, worker_id: str) -> None:
+    async def release_lease(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
         """Clear the lease columns after a run finishes (success or failure)."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             await conn.execute(
-                """
-                UPDATE runs
-                SET lease_worker_id = NULL,
-                    lease_acquired_at = NULL,
-                    lease_expires_at = NULL,
-                    recovery_checkpoint_id = NULL
-                WHERE run_id = ? AND lease_worker_id = ?
-                """,
-                (run_id, worker_id),
-            )
-
-    async def clear_lease(self, run_id: str) -> None:
-        """Clear the lease columns regardless of the current lease owner."""
-        async with self.database.transaction() as conn:
-            await conn.execute(
-                """
+                f"""
                 UPDATE runs
                 SET lease_worker_id = NULL,
                     lease_acquired_at = NULL,
                     lease_expires_at = NULL,
                     recovery_checkpoint_id = NULL
                 WHERE run_id = ?
+                  {scope_sql}
+                  AND lease_worker_id = ?
                 """,
-                (run_id,),
+                (run_id, *scope_params, worker_id),
             )
 
-    async def get_recovery_checkpoint_id(self, run_id: str) -> str | None:
+    async def clear_lease(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> None:
+        """Clear the lease columns regardless of the current lease owner."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
+        async with self.database.transaction() as conn:
+            await conn.execute(
+                f"""
+                UPDATE runs
+                SET lease_worker_id = NULL,
+                    lease_acquired_at = NULL,
+                    lease_expires_at = NULL,
+                    recovery_checkpoint_id = NULL
+                WHERE run_id = ?
+                  {scope_sql}
+                """,
+                (run_id, *scope_params),
+            )
+
+    async def get_recovery_checkpoint_id(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> str | None:
         """Return the recovery_checkpoint_id stored on the run, if any."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
             row = await conn.fetch_one(
-                "SELECT recovery_checkpoint_id FROM runs WHERE run_id = ?",
-                (run_id,),
+                f"SELECT recovery_checkpoint_id FROM runs WHERE run_id = ? {scope_sql}",
+                (run_id, *scope_params),
             )
         return row["recovery_checkpoint_id"] if row else None

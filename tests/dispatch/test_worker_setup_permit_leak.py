@@ -53,7 +53,7 @@ class _FakeGraph:
 class _GenerationReadFails(LeaseManager):
     """The lease-store read at the top of the setup window throws."""
 
-    async def current_generation(self, run_id: str) -> int | None:
+    async def current_generation(self, run_id: str, **_scope: object) -> int | None:
         raise RuntimeError("lease store read failed")
 
 

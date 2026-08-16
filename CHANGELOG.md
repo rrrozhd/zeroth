@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.3] - 2026-08-17
+
+### Fixed
+
+- Keep lease claims, recovery checkpoints, lifecycle writes, worker maintenance, and admin
+  cancellation inside the run's composite tenant and workspace identity.
+
 ## [0.23.9.2] - 2026-08-17
 
 ### Fixed
