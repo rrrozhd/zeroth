@@ -138,6 +138,21 @@ describe("deployment guardrail controls", () => {
     expect(input("Concurrency override").value).toBe("3");
   });
 
+  it("rejects refill rates slower than one token per day", async () => {
+    await act(async () => root.render(<GuardrailsPanel refId="support-prod" />));
+    await waitFor(() => expect(container.textContent).toContain("Effective settings"));
+    await act(async () => {
+      setInput("Refill override", "5e-324");
+    });
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save overrides",
+    );
+    await act(async () => save?.click());
+
+    await waitFor(() => expect(container.textContent).toContain("at least 1 token/day"));
+    expect(api.updateDeploymentGuardrails).not.toHaveBeenCalled();
+  });
+
   it("shows composed overrides and distinguishes preserve, inherit, and explicit values", async () => {
     api.getDeploymentGuardrails.mockResolvedValue({
       tenant_revision: null,

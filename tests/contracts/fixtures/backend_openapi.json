@@ -1690,8 +1690,8 @@
           },
           "rate_limit_refill_rate": {
             "default": 1,
-            "exclusiveMinimum": 0.0,
             "maximum": 100000.0,
+            "minimum": 1.1574074074074073e-05,
             "type": "number"
           }
         },
@@ -2036,8 +2036,8 @@
           "rate_limit_refill_rate": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0.0,
                 "maximum": 100000.0,
+                "minimum": 1.1574074074074073e-05,
                 "type": "number"
               },
               {

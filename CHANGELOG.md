@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.6] - 2026-08-17
+
+### Fixed
+
+- Reject unsafe refill rates and cap rate-limit retry guidance at one day.
+- Return guardrail revision metadata, active overrides, and effective settings from one
+  transactionally consistent snapshot.
+
 ## [0.23.9.5] - 2026-08-17
 
 ### Fixed

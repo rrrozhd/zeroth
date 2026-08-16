@@ -80,6 +80,7 @@ zeroth.governance.guardrails.policy|GuardrailPolicyRepository|append|C
 zeroth.governance.guardrails.policy|GuardrailPolicyRepository|current|R
 zeroth.governance.guardrails.policy|GuardrailPolicyRepository|effective|R
 zeroth.governance.guardrails.policy|GuardrailPolicyRepository|history|N
+zeroth.governance.guardrails.policy|GuardrailPolicyRepository|inspection_snapshot|R
 zeroth.governance.guardrails.policy|GuardrailPolicyRepository|latest|R
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|check_and_increment|CRU
 zeroth.governance.guardrails.rate_limit|QuotaEnforcer|decide|CRU
@@ -279,7 +280,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 193
+    assert len(METHOD_METADATA_ORACLE) == 194
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

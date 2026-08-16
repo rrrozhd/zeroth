@@ -23,6 +23,8 @@ const EMPTY_OVERRIDES: OverrideValues = {
   max_concurrency: "",
 };
 
+const MIN_REFILL_RATE = 1 / 86_400;
+
 const FIELDS: Array<{
   key: GuardrailKey;
   label: string;
@@ -44,8 +46,8 @@ const FIELDS: Array<{
     key: "rate_limit_refill_rate",
     label: "Refill rate",
     aria: "Refill override",
-    hint: ">0–100,000 requests/second",
-    min: Number.MIN_VALUE,
+    hint: "at least 1 token/day, up to 100,000 requests/second",
+    min: MIN_REFILL_RATE,
     max: 100_000,
   },
   {
