@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.8] - 2026-08-17
+
+### Security
+
+- Require candidate-owned migration targets and complete runtime graph
+  validation, including contract and custom-reducer resolution.
+- Refuse redirected smoke exchanges and frontend symlink escapes, then bind
+  signed provenance to the exact image name, SBOM inventory, certifier commit,
+  and retained build materials.
+- Bound certification jobs, containers, candidate descendants, archives, and
+  retained logs while replacing early-failure reports atomically.
+
 ## [0.23.9.7] - 2026-08-16
 
 ### Security

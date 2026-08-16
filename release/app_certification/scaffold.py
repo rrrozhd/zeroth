@@ -81,6 +81,16 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '''
 
+_MIGRATIONS = '''"""Apply the generated application's database migrations."""
+
+from zeroth.service.bootstrap import run_migrations
+
+
+def migrate(database_url: str) -> None:
+    """Upgrade a fresh application database to the current schema."""
+    run_migrations(database_url)
+'''
+
 
 def _declaration(app_name: str, module: str, version: str) -> dict:
     return {
@@ -97,6 +107,7 @@ def _declaration(app_name: str, module: str, version: str) -> dict:
             "contracts": f"{module}.contracts:CONTRACTS",
             "auth_config": f"{module}.entrypoint:build_auth_config",
             "policy_guard": f"{module}.entrypoint:build_policy_guard",
+            "migration_runner": f"{module}.migrations:migrate",
             "frontend_path": "frontend",
         },
         "smoke": {
@@ -132,6 +143,7 @@ def scaffold_checkout(
         root / "Dockerfile.certification": _dockerfile(module, zeroth_version),
         root / ".github/workflows/app-certification.yml": _caller(zeroth_ref),
         root / module.replace(".", "/") / "certification_healthcheck.py": _HEALTHCHECK,
+        root / module.replace(".", "/") / "migrations.py": _MIGRATIONS,
     }
     existing = [path for path in files if path.exists() or path.is_symlink()]
     if existing:

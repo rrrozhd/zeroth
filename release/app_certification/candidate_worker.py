@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from zeroth.contracts.graph import Graph
-from zeroth.contracts.graph.validation import ContractValidator
-from zeroth.contracts.graph.validation_errors import GraphValidationReport
 from zeroth.contracts.registry.schema_model import check_json_schema
 from zeroth.governance.policy import (
     Capability,
@@ -19,7 +19,6 @@ from zeroth.governance.policy import (
     PolicyGuard,
     PolicyRegistry,
 )
-from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
@@ -27,8 +26,9 @@ from .candidate_process import run_importer
 from .models import AppDeclaration
 
 CANDIDATE_CHECKS = frozenset(
-    {"graph", "service-config", "contracts", "optional-extras", "policies"}
+    {"graph", "service-config", "contracts", "optional-extras", "policies", "migrations"}
 )
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMPORT_BOOTSTRAP = (
     "import pathlib,runpy,sys;"
     "certifier=pathlib.Path(sys.argv.pop(1));"
@@ -62,23 +62,13 @@ def _trusted_graphs(raw: Any, expected: int) -> list[Graph]:
 def _validate_static_graphs(
     graphs: list[Graph], schemas: dict[str, dict[str, Any]], reducers: Any
 ) -> None:
-    validator = ContractValidator(capability_checks=GraphValidator())
+    asyncio.run(checks.validate_serialized_graphs(schemas, graphs))
     expected_reducers: set[str] = set()
     for graph in graphs:
-        issues = []
-        validator.validate(graph, issues)
-        GraphValidationReport(graph_id=graph.graph_id, issues=issues).raise_for_errors()
         for node in graph.nodes:
-            for reference in (node.input_contract_ref, node.output_contract_ref):
-                if reference and reference not in schemas:
-                    raise ValueError(f"graph references unregistered contract {reference!r}")
             config = getattr(node, "parallel_config", None)
             if config is not None and config.reducer_ref is not None:
                 expected_reducers.add(config.reducer_ref)
-            if config is not None and config.merge_strategy == "merge":
-                schema = schemas.get(node.output_contract_ref or "", {})
-                if schema.get("type") != "object":
-                    raise ValueError("merge output contract must have top-level object type")
     if reducers != sorted(expected_reducers):
         raise ValueError("candidate reducer evidence does not match the graphs")
 
@@ -107,6 +97,7 @@ def _finalize_optional_extras(evidence: dict[str, Any], declaration: AppDeclarat
         declaration.targets.contracts,
         declaration.targets.auth_config,
         declaration.targets.policy_guard,
+        declaration.targets.migration_runner,
     ]
     if evidence.get("targets") != expected:
         raise ValueError("candidate imported-target evidence does not match the declaration")
@@ -146,10 +137,23 @@ def _finalize_policies(evidence: dict[str, Any], declaration: AppDeclaration) ->
         raise ValueError("trusted policy finalization found no policy bindings")
 
 
-def finalize_candidate_evidence(
+def _finalize_migrations(evidence: dict[str, Any], declaration: AppDeclaration) -> None:
+    if set(evidence) != {"database_sha256", "database_size", "runner"}:
+        raise ValueError("candidate migration evidence is malformed")
+    if evidence.get("runner") != declaration.targets.migration_runner:
+        raise ValueError("candidate migration runner does not match the declaration")
+    if not isinstance(evidence.get("database_size"), int) or evidence["database_size"] <= 0:
+        raise ValueError("candidate migration database is empty")
+    if (
+        not isinstance(evidence.get("database_sha256"), str)
+        or _DIGEST.fullmatch(evidence["database_sha256"]) is None
+    ):
+        raise ValueError("candidate migration database digest is invalid")
+
+
+def _trusted_evidence(
     name: str, payload: Any, declaration: AppDeclaration, root: Path
-) -> None:
-    """Independently validate untrusted evidence in the trusted supervisor."""
+) -> dict[str, Any]:
     expected_keys = {"check", "evidence", "schema_version", "target_sources"}
     if not isinstance(payload, dict) or set(payload) != expected_keys:
         raise ValueError("candidate evidence has no trusted finalization payload")
@@ -160,6 +164,14 @@ def finalize_candidate_evidence(
         raise ValueError("candidate semantic evidence is malformed")
     if payload["target_sources"] != checks.target_source_digests(name, root, declaration):
         raise ValueError("candidate evidence does not match the declared target sources")
+    return evidence
+
+
+def finalize_candidate_evidence(
+    name: str, payload: Any, declaration: AppDeclaration, root: Path
+) -> None:
+    """Independently validate untrusted evidence in the trusted supervisor."""
+    evidence = _trusted_evidence(name, payload, declaration, root)
     if name == "graph":
         _finalize_graph(evidence, declaration)
     elif name == "contracts":
@@ -170,6 +182,8 @@ def finalize_candidate_evidence(
         _finalize_optional_extras(evidence, declaration)
     elif name == "policies":
         _finalize_policies(evidence, declaration)
+    elif name == "migrations":
+        _finalize_migrations(evidence, declaration)
     else:
         raise ValueError(f"no candidate semantic check named {name!r}")
 

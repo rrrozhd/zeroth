@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -23,15 +26,10 @@ def _head_size(status: int, reason: str, headers: Any) -> int:
     return len(start) + fields + 2
 
 
-class _BoundedRedirects(HTTPRedirectHandler):
-    def __init__(self) -> None:
-        self.bytes_used = 0
-
+class _NoRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        self.bytes_used += _head_size(code, msg, headers)
-        if self.bytes_used > _RESPONSE_LIMIT:
-            raise ValueError("HTTP response exceeded 1 MiB limit")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        del req, fp, code, msg, headers, newurl
+        raise ValueError("HTTP redirect responses are not allowed")
 
 
 def _read_json(response: Any, budget: int) -> Any:
@@ -45,10 +43,10 @@ def _read_json(response: Any, budget: int) -> Any:
             raise ValueError("HTTP response exceeded 1 MiB limit")
 
 
-def _response_result(response: Any, redirects: _BoundedRedirects) -> dict[str, Any]:
-    used = redirects.bytes_used + _head_size(
-        response.status, response.reason or "", response.headers
-    )
+def _response_result(response: Any) -> dict[str, Any]:
+    if 300 <= response.status < 400:
+        raise ValueError("HTTP redirect responses are not allowed")
+    used = _head_size(response.status, response.reason or "", response.headers)
     if used > _RESPONSE_LIMIT:
         raise ValueError("HTTP response exceeded 1 MiB limit")
     return {
@@ -69,14 +67,13 @@ def _worker() -> int:
         method=request_data["method"],
         headers=request_data["headers"],
     )
-    redirects = _BoundedRedirects()
-    opener = build_opener(redirects)
+    opener = build_opener(_NoRedirects())
     try:
         with opener.open(request, timeout=request_data["timeout"]) as response:  # noqa: S310
-            result = _response_result(response, redirects)
+            result = _response_result(response)
     except HTTPError as error:
         with error:
-            result = _response_result(error, redirects)
+            result = _response_result(error)
     output = json.dumps(result, sort_keys=True, separators=(",", ":"))
     if len(output.encode()) > _RESPONSE_LIMIT:
         raise ValueError("HTTP response exceeded 1 MiB limit")
@@ -107,7 +104,8 @@ def run_http_exchange(
     try:
         stdout, stderr = process.communicate(payload, timeout=timeout)
     except subprocess.TimeoutExpired as error:
-        process.kill()
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
         raise TimeoutError("HTTP exchange exceeded total deadline") from error
     if process.returncode:
