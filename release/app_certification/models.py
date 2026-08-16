@@ -349,7 +349,11 @@ def identity_digest(identity: CandidateIdentity) -> str:
 
 def file_digest(path: Path) -> str:
     """Hash one retained evidence file."""
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
