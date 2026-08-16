@@ -164,6 +164,7 @@ zeroth.integrations.persistence.runs.run_repository|RunRepository|record_conditi
 zeroth.integrations.persistence.runs.run_repository|RunRepository|record_history|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|redact_run_in_transaction|RU
+zeroth.integrations.persistence.runs.run_repository|RunRepository|replay_failed|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|set_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|tenant_id_for_run_in_transaction|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|transition|RU
@@ -278,7 +279,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 192
+    assert len(METHOD_METADATA_ORACLE) == 193
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

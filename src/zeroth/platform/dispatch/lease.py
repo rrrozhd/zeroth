@@ -841,6 +841,41 @@ class LeaseManager:
                 (run_id, *scope_params, worker_id),
             )
 
+    async def expire_recovery_lease(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        generation: int,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> bool:
+        """Make owned recovery work immediately reclaimable without losing its checkpoint."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
+        async with self.database.transaction() as conn:
+            now = await _database_now(conn, postgres=self._is_postgres())
+            written = await conn.fetch_one(
+                f"""
+                UPDATE runs
+                SET lease_expires_at = ?
+                WHERE run_id = ?
+                  {scope_sql}
+                  AND status = ?
+                  AND lease_worker_id = ?
+                  AND lease_generation = ?
+                RETURNING run_id
+                """,
+                (
+                    (now - timedelta(microseconds=1)).isoformat(),
+                    run_id,
+                    *scope_params,
+                    _STATUS_RUNNING,
+                    worker_id,
+                    generation,
+                ),
+            )
+        return written is not None
+
     async def clear_lease(
         self,
         run_id: str,

@@ -14,7 +14,7 @@ from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.platform.storage.scoping import ScopeContext
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 from zeroth.service.api import admin_api
 
 DEPLOYMENT = "scope-isolation-deployment"
@@ -62,7 +62,8 @@ async def _row(database, tenant_id: str, workspace_id: str) -> dict[str, object]
     async with database.transaction() as connection:
         row = await connection.fetch_one(
             """SELECT status, current_step, lease_worker_id, lease_generation,
-                      lease_expires_at, recovery_checkpoint_id
+                      lease_expires_at, recovery_checkpoint_id, failure_state,
+                      failure_count
                FROM runs
                WHERE tenant_id = ? AND workspace_scope = ? AND run_id = ?""",
             (tenant_id, f"value:{workspace_id}", RUN_ID),
@@ -381,4 +382,64 @@ async def test_duplicate_run_id_admin_cancel_clears_only_its_scope(
     foreign = await _row(dual_database, foreign_tenant, foreign_workspace)
     assert owner["lease_worker_id"] is None
     assert foreign["status"] == RunStatus.PENDING.value
+    assert foreign["lease_worker_id"] == WORKER_A
+
+
+@requires_docker
+@pytest.mark.security_rc
+async def test_duplicate_run_id_admin_replay_requeues_only_its_scope(
+    dual_database,
+    monkeypatch,
+    foreign_scope: tuple[str, str],
+) -> None:
+    foreign_tenant, foreign_workspace = foreign_scope
+    owner_repository, foreign_repository = await _create_colliding_runs(
+        dual_database, foreign_tenant, foreign_workspace
+    )
+    for repository in (owner_repository, foreign_repository):
+        await repository.transition(
+            RUN_ID,
+            RunStatus.FAILED,
+            failure_state=RunFailureState(reason="dead_letter", message="boom"),
+        )
+    await _lease_both(dual_database, checkpoint=True)
+    async with dual_database.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET failure_count = 3 WHERE run_id = ?",
+            (RUN_ID,),
+        )
+
+    deployment = SimpleNamespace(
+        deployment_ref=DEPLOYMENT,
+        tenant_id=TENANT_A,
+        workspace_id=WORKSPACE_A,
+    )
+    app = FastAPI()
+    app.state.bootstrap = SimpleNamespace(
+        deployment=deployment,
+        run_repository=owner_repository,
+    )
+    monkeypatch.setattr(admin_api, "require_permission", AsyncMock())
+    monkeypatch.setattr(admin_api, "require_deployment_scope", AsyncMock())
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": f"/admin/runs/{RUN_ID}/replay",
+            "headers": [],
+            "app": app,
+        }
+    )
+
+    response = await admin_api._replay_failed_run(request, RUN_ID)
+
+    assert response.status.value == "queued"
+    owner = await _row(dual_database, TENANT_A, WORKSPACE_A)
+    foreign = await _row(dual_database, foreign_tenant, foreign_workspace)
+    assert owner["failure_state"] is None
+    assert owner["failure_count"] == 0
+    assert owner["lease_worker_id"] is None
+    assert foreign["status"] == RunStatus.FAILED.value
+    assert foreign["failure_state"] is not None
+    assert foreign["failure_count"] == 3
     assert foreign["lease_worker_id"] == WORKER_A

@@ -331,6 +331,8 @@ class RunWorker:
         fence_installed = False
         drive_task: asyncio.Task | None = None
         renewal_task: asyncio.Task | None = None
+        generation: int | None = None
+        setup_complete = False
         if not slot_reserved:
             await self._semaphore.acquire()
             acquired_here = True
@@ -366,6 +368,7 @@ class RunWorker:
                 self._renewal_loop(run_id),
                 name=f"renew-{run_id}",
             )
+            setup_complete = True
             # The drive's OWN outcome is handled by _await_drive_outcome and
             # nowhere else. A setup failure above is not a run failure:
             # converting it would mark a run FAILED over a transient lease-store
@@ -402,11 +405,40 @@ class RunWorker:
             self._active_drives.pop(run_id, None)
             self._lost_leases.discard(run_id)
             self._lease_generations.pop(run_id, None)
-            # release_lease is owner-qualified, so a displaced worker calling it
-            # cannot clear the new owner's lease.
-            await self.lease_manager.release_lease(run_id, self.worker_id, **self._lease_scope())
+            if is_recovery and not setup_complete:
+                await self._hand_back_failed_recovery_setup(run_id, generation)
+            else:
+                # release_lease is owner-qualified, so a displaced worker calling it
+                # cannot clear the new owner's lease.
+                await self.lease_manager.release_lease(
+                    run_id,
+                    self.worker_id,
+                    **self._lease_scope(),
+                )
             if slot_reserved or acquired_here:
                 self._semaphore.release()
+
+    async def _hand_back_failed_recovery_setup(
+        self,
+        run_id: str,
+        generation: int | None,
+    ) -> None:
+        """Expire owned recovery work, or retain natural expiry without a generation."""
+        if generation is None:
+            return
+        try:
+            await self.lease_manager.expire_recovery_lease(
+                run_id,
+                self.worker_id,
+                generation=generation,
+                **self._lease_scope(),
+            )
+        except Exception:
+            logger.exception(
+                "worker %s retained recovery lease after setup failure for run %s",
+                self.worker_id,
+                run_id,
+            )
 
     async def _lease_allows_execution(self, run_id: str, generation: int | None) -> bool:
         """Refuse expired or reclaimed leases before user code can start."""

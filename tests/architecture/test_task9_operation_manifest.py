@@ -48,6 +48,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "record_history": frozenset({O.READ, O.UPDATE}),
             "record_condition_result": frozenset({O.READ, O.UPDATE}),
             "increment_failure_count": frozenset({O.UPDATE}),
+            "replay_failed": frozenset({O.UPDATE}),
             "delete": frozenset({O.DELETE}),
             "count_pending": frozenset({O.ENUMERATE}),
             "redact_run": frozenset({O.READ, O.UPDATE}),
