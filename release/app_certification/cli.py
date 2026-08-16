@@ -10,10 +10,6 @@ import shutil
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from time import monotonic
-from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
 from .evidence import (
     bind_sbom,
@@ -22,6 +18,7 @@ from .evidence import (
     validate_source_archive,
     write_provenance,
 )
+from .http_process import run_http_exchange
 from .models import (
     MANDATORY_CHECKS,
     SmokeSpec,
@@ -40,37 +37,8 @@ from .runner import (
 )
 from .scaffold import scaffold_checkout
 
-_HTTP_RESPONSE_LIMIT = 1 << 20
 _HTTP_TIMEOUT_SECONDS = 30.0
-_HTTP_READ_CHUNK = 64 * 1024
-
-
-def _set_response_timeout(response: Any, timeout: float) -> None:
-    stream = getattr(response, "fp", None)
-    stream = getattr(stream, "fp", stream)
-    sock = getattr(getattr(stream, "raw", None), "_sock", None)
-    if sock is not None:
-        sock.settimeout(max(timeout, 0.001))
-
-
-def _read_json_response(response: Any, deadline: float) -> Any:
-    body = bytearray()
-    source = getattr(response, "fp", None)
-    reader = getattr(response, "read1", None) or getattr(source, "read1", None)
-    reader = reader or response.read
-    while True:
-        remaining = deadline - monotonic()
-        if remaining <= 0:
-            raise TimeoutError("HTTP response read deadline exceeded")
-        _set_response_timeout(response, remaining)
-        chunk = reader(min(_HTTP_READ_CHUNK, _HTTP_RESPONSE_LIMIT + 1 - len(body)))
-        if monotonic() > deadline:
-            raise TimeoutError("HTTP response read deadline exceeded")
-        if not chunk:
-            return json.loads(body)
-        body.extend(chunk)
-        if len(body) > _HTTP_RESPONSE_LIMIT:
-            raise ValueError("HTTP response exceeded 1 MiB limit")
+_READINESS_TIMEOUT_SECONDS = 5.0
 
 
 class UrlHttpBoundary:
@@ -89,22 +57,14 @@ class UrlHttpBoundary:
         self.headers = {"Content-Type": "application/json", **headers}
 
     def __call__(self, check: str, smoke: SmokeSpec) -> HttpResult:
-        body = json.dumps(smoke.request_json, sort_keys=True, separators=(",", ":")).encode()
-        request = Request(
+        status, body = run_http_exchange(
             self.urls[check] + smoke.path,
-            data=body,
             method=smoke.method,
             headers=self.headers,
+            body=smoke.request_json,
+            timeout=_HTTP_TIMEOUT_SECONDS,
         )
-        deadline = monotonic() + _HTTP_TIMEOUT_SECONDS
-        try:
-            with urlopen(  # noqa: S310 - explicit caller URL
-                request, timeout=_HTTP_TIMEOUT_SECONDS
-            ) as response:
-                return HttpResult(response.status, _read_json_response(response, deadline))
-        except HTTPError as error:
-            with error:
-                return HttpResult(error.code, _read_json_response(error, deadline))
+        return HttpResult(status, body)
 
 
 def _untrusted_executor(user: str) -> Executor:
@@ -341,8 +301,15 @@ def _finalize_workflow(root: Path) -> int:
 
 
 def _probe_readiness(url: str) -> int:
-    with urlopen(url, timeout=5) as response:  # noqa: S310 - fixed workflow URL
-        payload = json.load(response)
+    status, payload = run_http_exchange(
+        url,
+        method="GET",
+        headers={"Accept": "application/json"},
+        body=None,
+        timeout=_READINESS_TIMEOUT_SECONDS,
+    )
+    if status != 200:
+        raise ValueError(f"readiness expected HTTP 200, received {status}")
     if not isinstance(payload, dict) or payload.get("status") != "ok":
         raise ValueError(f"readiness status must be 'ok', received {payload!r}")
     return 0

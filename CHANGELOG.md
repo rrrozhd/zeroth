@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.7] - 2026-08-16
+
+### Security
+
+- Separate candidate serialization from trusted finalization, execute frontend
+  drift tooling only from the pinned certifier, and terminate the complete HTTP
+  exchange at one wall-clock and response-size boundary.
+
 ## [0.23.9.6] - 2026-08-16
 
 ### Security

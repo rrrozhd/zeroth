@@ -95,7 +95,7 @@ def test_candidate_job_uses_the_app_environment_and_no_privileged_action() -> No
     assert "uv sync --directory app --frozen --all-extras" in prepare
     assert "app/.venv/bin/python" in prepare
     assert "uv build --directory zeroth --wheel" in prepare
-    assert "npm ci --prefix /home/app-cert-candidate/frontend" in prepare
+    assert "npm ci --prefix zeroth/frontend" in prepare
     assert "--check-python app/.venv/bin/python" in _step("certify")["run"]
     assert "--untrusted-user app-cert-candidate" in _step("certify")["run"]
     assert not any(action.startswith("actions/attest@") for action in actions)
@@ -151,19 +151,15 @@ def test_container_checks_are_trusted_while_candidate_imports_stay_unprivileged(
     assert "usermod" not in prepare and "gpasswd" not in prepare
 
 
-def test_frontend_checker_uses_locked_isolated_npm_tool_tree() -> None:
+def test_frontend_checker_uses_pinned_certifier_tool_tree() -> None:
     prepare = _step("prepare")["run"]
-    install = "npm ci --prefix /home/app-cert-candidate/frontend"
-    copy = (
-        "sudo cp -R /home/app-cert-candidate/frontend/node_modules "
-        '"app/$FRONTEND_PATH/node_modules"'
-    )
+    install = "npm ci --prefix zeroth/frontend"
 
-    assert "load_declaration" in prepare and ".targets.frontend_path" in prepare
-    assert "app/frontend" not in prepare
-    assert prepare.index(install) < prepare.index(copy)
-    assert 'chown -R "$USER":"$USER" app/.venv "app/$FRONTEND_PATH/node_modules"' in prepare
-    assert prepare.index(copy) < prepare.rindex("chmod -R go-w zeroth app")
+    assert install in prepare
+    assert "/home/app-cert-candidate/frontend" not in prepare
+    assert '"app/$FRONTEND_PATH/node_modules"' not in prepare
+    assert 'chown -R "$USER":"$USER" app/.venv' in prepare
+    assert prepare.index(install) < prepare.index("chmod -R go-w zeroth app")
 
 
 def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
@@ -298,7 +294,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.6"
+    assert declaration.zeroth_version == "0.23.9.7"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -310,10 +306,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.6-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.7-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.6-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.7-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile
