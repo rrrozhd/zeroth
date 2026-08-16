@@ -2413,6 +2413,21 @@
               }
             ],
             "title": "Rate Limit Refill Rate"
+          },
+          "reset_fields": {
+            "items": {
+              "enum": [
+                "rate_limit_capacity",
+                "rate_limit_refill_rate",
+                "rate_limit_burst",
+                "quota_daily_limit",
+                "backpressure_queue_depth",
+                "max_concurrency"
+              ],
+              "type": "string"
+            },
+            "title": "Reset Fields",
+            "type": "array"
           }
         },
         "title": "GuardrailPolicyPatch",
@@ -2422,6 +2437,18 @@
         "additionalProperties": false,
         "description": "Latest explicit revisions and their composed effective settings.",
         "properties": {
+          "deployment_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return the deployment scope's composed active overrides.",
+            "readOnly": true
+          },
           "deployment_revision": {
             "anyOf": [
               {
@@ -2434,6 +2461,18 @@
           },
           "effective": {
             "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return the tenant scope's composed active overrides.",
+            "readOnly": true
           },
           "tenant_revision": {
             "anyOf": [
@@ -2449,7 +2488,9 @@
         "required": [
           "tenant_revision",
           "deployment_revision",
-          "effective"
+          "effective",
+          "tenant_overrides",
+          "deployment_overrides"
         ],
         "title": "GuardrailPolicyResponse",
         "type": "object"

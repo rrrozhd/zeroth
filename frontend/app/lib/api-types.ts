@@ -3418,14 +3418,20 @@ export interface components {
             rate_limit_capacity?: number | null;
             /** Rate Limit Refill Rate */
             rate_limit_refill_rate?: number | null;
+            /** Reset Fields */
+            reset_fields?: ("rate_limit_capacity" | "rate_limit_refill_rate" | "rate_limit_burst" | "quota_daily_limit" | "backpressure_queue_depth" | "max_concurrency")[];
         };
         /**
          * GuardrailPolicyResponse
          * @description Latest explicit revisions and their composed effective settings.
          */
         GuardrailPolicyResponse: {
+            /** @description Return the deployment scope's composed active overrides. */
+            readonly deployment_overrides: components["schemas"]["GuardrailPolicyPatch"] | null;
             deployment_revision: components["schemas"]["GuardrailPolicyRevision"] | null;
             effective: components["schemas"]["EffectiveGuardrailSettings"];
+            /** @description Return the tenant scope's composed active overrides. */
+            readonly tenant_overrides: components["schemas"]["GuardrailPolicyPatch"] | null;
             tenant_revision: components["schemas"]["GuardrailPolicyRevision"] | null;
         };
         /**

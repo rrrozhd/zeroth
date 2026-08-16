@@ -40,6 +40,18 @@ def test_policy_bounds_fail_closed() -> None:
         GuardrailPolicyPatch(backpressure_queue_depth=0)
     with pytest.raises(ValidationError):
         GuardrailPolicyPatch(quota_daily_limit=0)
+    with pytest.raises(ValidationError):
+        GuardrailPolicyPatch(max_concurrency=2, reset_fields=("max_concurrency",))
+
+
+def test_quota_unlimited_is_distinct_from_reset() -> None:
+    unlimited = GuardrailPolicyPatch(quota_daily_limit=None)
+    reset = GuardrailPolicyPatch(reset_fields=("quota_daily_limit",))
+
+    assert unlimited.supplied_values() == {"quota_daily_limit": None}
+    assert unlimited.reset_fields == ()
+    assert reset.supplied_values() == {}
+    assert reset.reset_fields == ("quota_daily_limit",)
 
 
 def test_effective_policy_uses_field_wise_deployment_tenant_default_precedence() -> None:
@@ -90,17 +102,77 @@ async def test_append_only_history_is_scoped_and_preserves_live_counters(sqlite_
         policy=GuardrailPolicyPatch(rate_limit_burst=3, max_concurrency=2),
         changed_by="operator-two",
     )
+    third = await owner.append(
+        scope="deployment",
+        deployment_ref="deployment-a",
+        policy=GuardrailPolicyPatch(reset_fields=("max_concurrency",)),
+        changed_by="operator-three",
+    )
 
     history = await owner.history()
     effective = await owner.effective("deployment-a")
-    assert [row.revision_id for row in history] == [first.revision_id, second.revision_id]
-    assert [row.changed_by for row in history] == ["operator-one", "operator-two"]
+    assert [row.revision_id for row in history] == [
+        first.revision_id,
+        second.revision_id,
+        third.revision_id,
+    ]
+    assert [row.changed_by for row in history] == [
+        "operator-one",
+        "operator-two",
+        "operator-three",
+    ]
     assert effective.rate_limit_capacity == 12
     assert effective.rate_limit_burst == 3
-    assert effective.max_concurrency == 2
+    assert effective.max_concurrency == 4
     assert await foreign.history() == []
     assert await limiter.get("preserved") == bucket_before
     assert await quota.get("preserved") == quota_before
+
+
+async def test_current_overrides_compose_deltas_and_reset_one_field(sqlite_db) -> None:
+    repository = GuardrailPolicyRepository.scoped(
+        sqlite_db,
+        NullWorkspaceScopeContext(tenant_id="tenant-reset"),
+        baseline=EffectiveGuardrailSettings(max_concurrency=6),
+    )
+    await repository.append(
+        scope="tenant",
+        policy=GuardrailPolicyPatch(max_concurrency=5),
+        changed_by="tenant-admin",
+    )
+    await repository.append(
+        scope="deployment",
+        deployment_ref="deployment-reset",
+        policy=GuardrailPolicyPatch(max_concurrency=2),
+        changed_by="deployment-admin",
+    )
+    await repository.append(
+        scope="deployment",
+        deployment_ref="deployment-reset",
+        policy=GuardrailPolicyPatch(backpressure_queue_depth=9),
+        changed_by="deployment-admin",
+    )
+
+    current = await repository.current("deployment", deployment_ref="deployment-reset")
+    assert current is not None
+    assert current.supplied_values() == {
+        "backpressure_queue_depth": 9,
+        "max_concurrency": 2,
+    }
+
+    reset = await repository.append(
+        scope="deployment",
+        deployment_ref="deployment-reset",
+        policy=GuardrailPolicyPatch(reset_fields=("max_concurrency",)),
+        changed_by="deployment-admin",
+    )
+
+    current = await repository.current("deployment", deployment_ref="deployment-reset")
+    assert current is not None
+    assert current.supplied_values() == {"backpressure_queue_depth": 9}
+    assert (await repository.effective("deployment-reset")).max_concurrency == 5
+    assert reset.policy.reset_fields == ("max_concurrency",)
+    assert (await repository.history())[-1] == reset
 
 
 async def test_concurrent_policy_writers_append_distinct_revisions(sqlite_db) -> None:

@@ -2044,6 +2044,20 @@
                 "type": "null"
               }
             ]
+          },
+          "reset_fields": {
+            "items": {
+              "enum": [
+                "rate_limit_capacity",
+                "rate_limit_refill_rate",
+                "rate_limit_burst",
+                "quota_daily_limit",
+                "backpressure_queue_depth",
+                "max_concurrency"
+              ],
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -2051,6 +2065,17 @@
       "GuardrailPolicyResponse": {
         "additionalProperties": false,
         "properties": {
+          "deployment_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
+          },
           "deployment_revision": {
             "anyOf": [
               {
@@ -2063,6 +2088,17 @@
           },
           "effective": {
             "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
           },
           "tenant_revision": {
             "anyOf": [
@@ -2078,7 +2114,9 @@
         "required": [
           "tenant_revision",
           "deployment_revision",
-          "effective"
+          "effective",
+          "tenant_overrides",
+          "deployment_overrides"
         ],
         "type": "object"
       },

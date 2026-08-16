@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field
 
 from zeroth.governance.guardrails.policy import (
     EffectiveGuardrailSettings,
@@ -25,18 +25,40 @@ class GuardrailPolicyResponse(BaseModel):
     tenant_revision: GuardrailPolicyRevision | None
     deployment_revision: GuardrailPolicyRevision | None
     effective: EffectiveGuardrailSettings
+    _tenant_overrides: GuardrailPolicyPatch | None = PrivateAttr(default=None)
+    _deployment_overrides: GuardrailPolicyPatch | None = PrivateAttr(default=None)
+
+    @computed_field
+    @property
+    def tenant_overrides(self) -> GuardrailPolicyPatch | None:
+        """Return the tenant scope's composed active overrides."""
+        return self._tenant_overrides
+
+    @computed_field
+    @property
+    def deployment_overrides(self) -> GuardrailPolicyPatch | None:
+        """Return the deployment scope's composed active overrides."""
+        return self._deployment_overrides
 
 
 def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
     """Register tenant and deployment guardrail management routes."""
 
-    @app.get("/guardrails", response_model=GuardrailPolicyResponse)
+    @app.get(
+        "/guardrails",
+        response_model=GuardrailPolicyResponse,
+        response_model_exclude_unset=True,
+    )
     async def get_tenant_guardrails(request: Request) -> GuardrailPolicyResponse:
         await _require_tenant_authority(request)
         bootstrap = request.app.state.bootstrap
         return await _response(bootstrap, bootstrap.deployment.deployment_ref)
 
-    @app.put("/guardrails", response_model=GuardrailPolicyResponse)
+    @app.put(
+        "/guardrails",
+        response_model=GuardrailPolicyResponse,
+        response_model_exclude_unset=True,
+    )
     async def put_tenant_guardrails(
         request: Request,
         body: GuardrailPolicyPatch,
@@ -46,7 +68,11 @@ def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
         await _append(bootstrap, "tenant", body, principal.subject)
         return await _response(bootstrap, bootstrap.deployment.deployment_ref)
 
-    @app.get("/guardrails/history", response_model=list[GuardrailPolicyRevision])
+    @app.get(
+        "/guardrails/history",
+        response_model=list[GuardrailPolicyRevision],
+        response_model_exclude_unset=True,
+    )
     async def get_guardrail_history(request: Request) -> list[GuardrailPolicyRevision]:
         await _require_tenant_authority(request)
         return await _repository(request).history()
@@ -54,6 +80,7 @@ def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
     @app.get(
         "/deployments/{deployment_ref}/guardrails",
         response_model=GuardrailPolicyResponse,
+        response_model_exclude_unset=True,
     )
     async def get_deployment_guardrails(
         request: Request,
@@ -71,6 +98,7 @@ def register_guardrail_routes(app: FastAPI | APIRouter) -> None:
     @app.put(
         "/deployments/{deployment_ref}/guardrails",
         response_model=GuardrailPolicyResponse,
+        response_model_exclude_unset=True,
     )
     async def put_deployment_guardrails(
         request: Request,
@@ -138,7 +166,7 @@ async def _append(
     changed_by: str,
     deployment_ref: str | None = None,
 ) -> None:
-    if not policy.model_fields_set:
+    if not policy.has_changes():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="policy must change at least one field",
@@ -157,8 +185,13 @@ async def _append(
 
 async def _response(bootstrap, deployment_ref: str) -> GuardrailPolicyResponse:
     repository = bootstrap.guardrail_policy_repository
-    return GuardrailPolicyResponse(
-        tenant_revision=await repository.current("tenant"),
-        deployment_revision=await repository.current("deployment", deployment_ref=deployment_ref),
+    response = GuardrailPolicyResponse(
+        tenant_revision=await repository.latest("tenant"),
+        deployment_revision=await repository.latest("deployment", deployment_ref=deployment_ref),
         effective=await repository.effective(deployment_ref),
     )
+    response._tenant_overrides = await repository.current("tenant")
+    response._deployment_overrides = await repository.current(
+        "deployment", deployment_ref=deployment_ref
+    )
+    return response

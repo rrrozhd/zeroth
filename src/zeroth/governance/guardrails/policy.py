@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.platform.primitives import utc_now
@@ -22,6 +22,14 @@ from zeroth.platform.storage import (
 from zeroth.platform.storage.scoping import named_isolation_probe, persistence_surface
 
 PolicyScope = Literal["tenant", "deployment"]
+GuardrailField = Literal[
+    "rate_limit_capacity",
+    "rate_limit_refill_rate",
+    "rate_limit_burst",
+    "quota_daily_limit",
+    "backpressure_queue_depth",
+    "max_concurrency",
+]
 
 
 class GuardrailPolicyPatch(BaseModel):
@@ -35,17 +43,43 @@ class GuardrailPolicyPatch(BaseModel):
     quota_daily_limit: int | None = Field(default=None, ge=1, le=1_000_000_000_000)
     backpressure_queue_depth: int | None = Field(default=None, ge=1, le=1_000_000)
     max_concurrency: int | None = Field(default=None, ge=1, le=10_000)
+    reset_fields: tuple[GuardrailField, ...] = Field(default_factory=tuple)
+
+    @field_validator("reset_fields")
+    @classmethod
+    def _canonicalize_reset_fields(
+        cls, reset_fields: tuple[GuardrailField, ...]
+    ) -> tuple[GuardrailField, ...]:
+        """Reject duplicate tombstones and keep stored JSON deterministic."""
+        if len(reset_fields) != len(set(reset_fields)):
+            raise ValueError("reset_fields cannot contain duplicates")
+        return tuple(sorted(reset_fields))
 
     @model_validator(mode="after")
     def _reject_null_for_bounded_controls(self) -> GuardrailPolicyPatch:
-        for field_name in self.model_fields_set - {"quota_daily_limit"}:
+        supplied_fields = self.model_fields_set - {"reset_fields"}
+        overlap = supplied_fields.intersection(self.reset_fields)
+        if overlap:
+            raise ValueError(f"fields cannot be both set and reset: {', '.join(sorted(overlap))}")
+        for field_name in supplied_fields - {"quota_daily_limit"}:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null; omit it to inherit")
         return self
 
     def supplied_values(self) -> dict[str, float | int | None]:
         """Return only explicitly supplied fields, retaining explicit nulls."""
-        return self.model_dump(mode="json", exclude_unset=True)
+        return self.model_dump(mode="json", exclude_unset=True, exclude={"reset_fields"})
+
+    def revision_values(self) -> dict[str, object]:
+        """Return the immutable JSON payload, including explicit reset tombstones."""
+        values: dict[str, object] = self.supplied_values()
+        if self.reset_fields:
+            values["reset_fields"] = list(self.reset_fields)
+        return values
+
+    def has_changes(self) -> bool:
+        """Return whether this patch sets or resets at least one field."""
+        return bool(self.supplied_values() or self.reset_fields)
 
 
 class EffectiveGuardrailSettings(BaseModel):
@@ -169,14 +203,14 @@ class GuardrailPolicyRepository:
         actor = changed_by.strip()
         if not actor:
             raise ValueError("changed_by must be non-empty")
-        if not policy.model_fields_set:
+        if not policy.has_changes():
             raise ValueError("policy must change at least one field")
         values = {
             "revision_id": uuid4().hex,
             "scope_type": scope,
             "deployment_ref": normalized_ref,
             "policy_json": json.dumps(
-                policy.supplied_values(), sort_keys=True, separators=(",", ":")
+                policy.revision_values(), sort_keys=True, separators=(",", ":")
             ),
             "changed_by": actor,
             "created_at": utc_now().isoformat(),
@@ -212,15 +246,19 @@ class GuardrailPolicyRepository:
         if not deployment_ref.strip():
             raise ValueError("deployment_ref must be non-empty")
         revisions = await self.history()
-        values = self._baseline.model_dump()
-        for scope in ("tenant", "deployment"):
-            for revision in revisions:
-                if revision.scope != scope:
-                    continue
-                if scope == "deployment" and revision.deployment_ref != deployment_ref:
-                    continue
-                values.update(revision.policy.supplied_values())
-        return EffectiveGuardrailSettings.model_validate(values)
+        return effective_guardrails(
+            baseline=self._baseline,
+            tenant=_fold_revisions(
+                [revision for revision in revisions if revision.scope == "tenant"]
+            ),
+            deployment=_fold_revisions(
+                [
+                    revision
+                    for revision in revisions
+                    if revision.scope == "deployment" and revision.deployment_ref == deployment_ref
+                ]
+            ),
+        )
 
     @persistence_operation(ResourceOperation.READ)
     async def current(
@@ -228,8 +266,18 @@ class GuardrailPolicyRepository:
         scope: PolicyScope,
         *,
         deployment_ref: str | None = None,
+    ) -> GuardrailPolicyPatch | None:
+        """Return composed active overrides for one exact scope."""
+        return _fold_revisions(await self.history(scope=scope, deployment_ref=deployment_ref))
+
+    @persistence_operation(ResourceOperation.READ)
+    async def latest(
+        self,
+        scope: PolicyScope,
+        *,
+        deployment_ref: str | None = None,
     ) -> GuardrailPolicyRevision | None:
-        """Return the latest revision for one exact scope."""
+        """Return immutable metadata for the latest revision in one exact scope."""
         return await self._latest(scope, _validate_scope(scope, deployment_ref))
 
     async def _latest(
@@ -255,6 +303,16 @@ def _validate_scope(scope: PolicyScope, deployment_ref: str | None) -> str:
     if deployment_ref is None or not deployment_ref.strip():
         raise ValueError("deployment policy requires deployment_ref")
     return deployment_ref
+
+
+def _fold_revisions(revisions: list[GuardrailPolicyRevision]) -> GuardrailPolicyPatch | None:
+    """Compose active same-scope overrides while applying reset tombstones."""
+    values: dict[str, float | int | None] = {}
+    for revision in revisions:
+        for field_name in revision.policy.reset_fields:
+            values.pop(field_name, None)
+        values.update(revision.policy.supplied_values())
+    return GuardrailPolicyPatch.model_validate(values) if values else None
 
 
 def _row_to_revision(row: dict[str, object]) -> GuardrailPolicyRevision:

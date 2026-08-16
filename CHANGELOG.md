@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8.2] - 2026-08-16
+
+### Fixed
+
+- Compose active append-only guardrail overrides across partial revisions and support explicit
+  per-field inheritance resets without changing live admission counters.
+
 ## [0.23.8.1.1] - 2026-08-14
 
 ### Fixed
