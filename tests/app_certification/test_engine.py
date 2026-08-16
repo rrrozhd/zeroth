@@ -48,7 +48,7 @@ def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.8.1",
+        "zeroth_version": "0.23.9.9",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -81,7 +81,7 @@ def write_inputs(root: Path) -> None:
     candidate = CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.8.1",
+        zeroth_version="0.23.9.9",
         image_reference="reference-app:certification",
         image_digest=DIGEST,
         source_digest=SOURCE_DIGEST,
@@ -105,7 +105,9 @@ def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
     check = argv[argv.index("--root") - 1]
     structured: dict = {"check": check, "schema_version": 1, "status": "passed"}
     if "--declaration-json" in argv:
-        declaration = AppDeclaration.model_validate_json(argv[-1])
+        declaration = AppDeclaration.model_validate_json(
+            argv[argv.index("--declaration-json") + 1]
+        )
         evidence = collect_candidate_evidence(
             check, cwd, declaration, installed_version=declaration.zeroth_version
         )
@@ -146,7 +148,7 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.9.8.1"
+    assert report.candidate.zeroth_version == "0.23.9.9"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")

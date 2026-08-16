@@ -35,7 +35,6 @@ _CHECK_BOOTSTRAP = (
     "venv=pathlib.Path(sys.argv.pop(1));"
     "site_packages=venv/'lib'/f'python{sys.version_info.major}.{sys.version_info.minor}'/"
     "'site-packages';"
-    "sys.prefix=sys.exec_prefix=str(venv);"
     "sys.path[:0]=[str(certifier),str(certifier/'src'),str(site_packages)];"
     "runpy.run_module('release.app_certification.checks',run_name='__main__')"
 )
@@ -261,7 +260,7 @@ class CertificationRunner:
             "-c",
             _CHECK_BOOTSTRAP,
             str(Path(__file__).parents[2].resolve()),
-            str(self.check_python.parent.parent),
+            str(Path(sys.executable).parent.parent.resolve()),
             name,
             "--root",
             str(self.root),
@@ -290,12 +289,14 @@ class CertificationRunner:
             "-c",
             _CANDIDATE_BOOTSTRAP,
             str(Path(__file__).parents[2].resolve()),
-            str(self.check_python.parent.parent),
+            str(Path(sys.executable).parent.parent.resolve()),
             name,
             "--root",
             str(self.root),
             "--declaration-json",
             self.declaration.model_dump_json(),
+            "--candidate-venv",
+            str(self.check_python.parent.parent),
         ]
         result = self._command_result(name, argv, self.candidate_executor)
         if isinstance(result, CheckResult):

@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.8.1 \
+  --zeroth-version 0.23.9.9 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -79,11 +79,13 @@ post-certification job.
 
 The final report cross-binds the app commit, source archive digest, exact Zeroth
 version and commit, image name and digest, SPDX package inventory and subject,
-certifier wheel, locked image requirements, signed provenance predicate, and
-hashes of all retained evidence. The finalizer cryptographically verifies the
-bundle against the expected GitHub OIDC issuer, repositories, workflow, and
-commits before replacing the unsigned predicate. A hand-written or tampered
-passing report is rejected.
+certifier wheel, a byte-for-byte inventory of that wheel as installed in the
+image, locked image requirements, signed provenance predicate, and hashes of
+all retained evidence. The installation inventory is measured from a stopped
+container without executing candidate code. The finalizer cryptographically
+verifies the bundle against the expected GitHub OIDC issuer, repositories,
+workflow, and commits before replacing the unsigned predicate. A hand-written
+or tampered passing report is rejected.
 
 ## Retained diagnostics
 
@@ -91,3 +93,5 @@ The workflow retains the canonical JSON report, stage outcomes, declaration,
 source and image archives, SPDX JSON, signed provenance bundle, container
 inspection, and container logs for 14 days. The in-repository `vendor-dd`
 reference can be run from **Actions → Certify vendor-dd → Run workflow**.
+When certification runs and fails, its validated per-check diagnostics are
+retained instead of being replaced by generic workflow-stage failures.

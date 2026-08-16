@@ -188,7 +188,9 @@ def finalize_candidate_evidence(
         raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _importer_argv(name: str, root: Path, declaration: AppDeclaration) -> list[str]:
+def _importer_argv(
+    name: str, root: Path, declaration: AppDeclaration, candidate_venv: Path
+) -> list[str]:
     return [
         str(Path(sys.executable).absolute()),
         "-I",
@@ -196,7 +198,7 @@ def _importer_argv(name: str, root: Path, declaration: AppDeclaration) -> list[s
         "-c",
         _IMPORT_BOOTSTRAP,
         str(Path(__file__).parents[2].resolve()),
-        str(Path(sys.prefix).resolve()),
+        str(candidate_venv.resolve()),
         name,
         "--root",
         str(root),
@@ -205,8 +207,12 @@ def _importer_argv(name: str, root: Path, declaration: AppDeclaration) -> list[s
     ]
 
 
-def _supervise_candidate(name: str, root: Path, declaration: AppDeclaration) -> int:
-    returncode, raw, diagnostics = run_importer(_importer_argv(name, root, declaration))
+def _supervise_candidate(
+    name: str, root: Path, declaration: AppDeclaration, candidate_venv: Path
+) -> int:
+    returncode, raw, diagnostics = run_importer(
+        _importer_argv(name, root, declaration, candidate_venv)
+    )
     if returncode:
         detail = diagnostics.strip() or raw.strip() or "candidate importer failed"
         print(f"{name}: trusted finalization unavailable: {detail}", file=sys.stderr)
@@ -228,10 +234,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("name", choices=sorted(CANDIDATE_CHECKS))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--declaration-json", required=True)
+    parser.add_argument("--candidate-venv", type=Path, required=True)
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
     root = args.root.resolve()
-    return _supervise_candidate(args.name, root, declaration)
+    return _supervise_candidate(args.name, root, declaration, args.candidate_venv)
 
 
 if __name__ == "__main__":

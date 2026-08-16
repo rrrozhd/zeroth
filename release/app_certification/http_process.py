@@ -15,6 +15,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 _RESPONSE_LIMIT = 1 << 20
 _READ_CHUNK = 64 * 1024
+_READINESS_TIMEOUT_SECONDS = 5.0
 
 
 def _head_size(status: int, reason: str, headers: Any) -> int:
@@ -121,6 +122,22 @@ def run_http_exchange(
     if not isinstance(status, int):
         raise ValueError("HTTP worker returned malformed status")
     return status, result["json_body"]
+
+
+def probe_readiness(url: str) -> int:
+    """Require one bounded readiness response with the declared JSON status."""
+    status, payload = run_http_exchange(
+        url,
+        method="GET",
+        headers={"Accept": "application/json"},
+        body=None,
+        timeout=_READINESS_TIMEOUT_SECONDS,
+    )
+    if status != 200:
+        raise ValueError(f"readiness expected HTTP 200, received {status}")
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        raise ValueError(f"readiness status must be 'ok', received {payload!r}")
+    return 0
 
 
 if __name__ == "__main__":

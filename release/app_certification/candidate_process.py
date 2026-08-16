@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph
 from zeroth.platform.config import get_settings
+from zeroth.service.api.authentication import ServiceAuthConfig
 
 from .models import AppDeclaration, file_digest
 
@@ -85,8 +86,11 @@ def _contracts_evidence(declaration: AppDeclaration) -> dict[str, Any]:
 
 
 def _service_config_evidence(declaration: AppDeclaration) -> dict[str, Any]:
+    config = _load_target(declaration.targets.auth_config)()
+    if not isinstance(config, ServiceAuthConfig):
+        raise ValueError("auth_config target must return ServiceAuthConfig")
     return {
-        "auth_config": _load_target(declaration.targets.auth_config)().model_dump(mode="json"),
+        "auth_config": config.model_dump(mode="json"),
         "database_backend": get_settings().database.backend,
     }
 

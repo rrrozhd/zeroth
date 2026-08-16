@@ -19,6 +19,7 @@ _STAGE_NAMES = (
     "CERTIFIER_CHECKOUT",
     "PREPARE",
     "IMAGE",
+    "WHEEL",
     "SBOM",
     "EVIDENCE",
     "CONTAINERS",
@@ -41,13 +42,15 @@ def _workflow_stages() -> dict[str, str]:
 
 
 def _existing_report_is_valid(report_path: Path, root: Path, stages: dict[str, str]) -> bool:
-    if not report_path.exists() or any(stages[name] != "success" for name in _REQUIRED_STAGES):
+    if not report_path.exists() or stages["certify"] == "skipped":
         return False
     try:
-        validate_report(report_path, root=root / "root")
+        report = validate_report(report_path, root=root / "root")
     except ValueError:
         return False
-    return True
+    if report.status == "failed":
+        return True
+    return all(stages[name] == "success" for name in _REQUIRED_STAGES)
 
 
 def _failed_checks(stages: dict[str, str]) -> list[CheckResult]:
