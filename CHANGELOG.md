@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.4] - 2026-08-16
+
+### Security
+
+- Separate low-privilege candidate imports and their diagnostic output from
+  supervisor-owned semantic finalization and the authoritative report.
+- Keep Docker inspection in the trusted runner and expose the isolated locked
+  frontend tool tree at the deterministic checker path.
+
 ## [0.23.9.3] - 2026-08-16
 
 ### Security

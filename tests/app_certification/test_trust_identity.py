@@ -81,10 +81,67 @@ def test_structured_result_must_match_the_requested_check(tmp_path: Path) -> Non
         ),
     )
 
-    result = runner._command("graph")
+    result = runner._command("migrations")
 
     assert result.status == "failed"
     assert "structured result" in result.detail
+
+
+def test_candidate_target_cannot_forge_trusted_pass_with_stdout_and_exit(
+    tmp_path: Path,
+) -> None:
+    attack = '{"check":"contracts","schema_version":1,"status":"passed"}'
+    (tmp_path / "candidate_attack.py").write_text(
+        "import os\n"
+        f"print({attack!r}, flush=True)\n"
+        "os._exit(0)\n"
+        "CONTRACTS = {}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    declaration_path = tmp_path / "certification.json"
+    declaration_path.write_text(json.dumps(data), encoding="utf-8")
+    runner = CertificationRunner(
+        tmp_path,
+        AppDeclaration.model_validate(data),
+        declaration_path=declaration_path,
+        check_python=Path(sys.executable),
+    )
+
+    result = runner._command("contracts")
+
+    assert result.status == "failed"
+    assert "trusted finalization" in result.detail
+
+
+def test_candidate_target_cannot_forge_provisional_evidence_on_stdout(
+    tmp_path: Path,
+) -> None:
+    forged = json.dumps(
+        {
+            "check": "contracts",
+            "evidence": {
+                "contracts": {"Fake": {"type": "object", "properties": {}}},
+            },
+            "schema_version": 1,
+        }
+    )
+    (tmp_path / "candidate_attack.py").write_text(
+        "import os\n"
+        f"print({forged!r}, flush=True)\n"
+        "os._exit(0)\n"
+        "CONTRACTS = {}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    runner = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+
+    result = runner._command("contracts")
+
+    assert result.status == "failed"
+    assert "trusted finalization" in result.detail
 
 
 def test_source_identity_is_bound_into_provenance(tmp_path: Path) -> None:
