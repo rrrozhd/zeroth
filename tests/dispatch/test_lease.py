@@ -305,6 +305,29 @@ async def test_claim_orphaned_finds_running_runs_with_expired_leases(
     assert run_id in orphans
 
 
+@requires_docker
+async def test_orphan_scan_is_exhausted_when_capacity_is_full_without_an_orphan(
+    dual_database,
+) -> None:
+    manager = LeaseManager(dual_database)
+    run_repo = RunRepository.for_default_compatibility(dual_database)
+    run_id = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A, **scope) == run_id
+    await run_repo.transition(run_id, RunStatus.RUNNING)
+
+    result = await manager.claim_orphaned_result(
+        DEPLOYMENT,
+        WORKER_B,
+        claim_limit=1,
+        **scope,
+    )
+
+    assert result.run_ids == ()
+    assert result.concurrency_saturated is False
+
+
 @pytest.mark.asyncio
 async def test_get_recovery_checkpoint_id_returns_none_when_no_checkpoint(
     sqlite_db: AsyncSQLiteDatabase,
