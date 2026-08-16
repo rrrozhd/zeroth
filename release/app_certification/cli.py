@@ -101,6 +101,17 @@ def resolve_smoke_headers(
     return headers
 
 
+def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--report", type=Path, required=True)
+    command.add_argument("--root", type=Path, required=True)
+    command.add_argument("--image-archive", type=Path, required=True)
+    command.add_argument("--source-archive", type=Path, required=True)
+    command.add_argument("--app-commit", required=True)
+    command.add_argument("--zeroth-version", required=True)
+    command.add_argument("--zeroth-commit", required=True)
+    command.add_argument("--verdict", type=Path, required=True)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app-certification")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -128,18 +139,10 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--source-digest", required=True)
     evidence.add_argument("--raw-sbom", type=Path, required=True)
     handoff = commands.add_parser("validate-handoff")
-    handoff.add_argument("--report", type=Path, required=True)
-    handoff.add_argument("--root", type=Path, required=True)
-    handoff.add_argument("--image-archive", type=Path, required=True)
-    handoff.add_argument("--source-archive", type=Path, required=True)
-    handoff.add_argument("--app-commit", required=True)
-    handoff.add_argument("--zeroth-version", required=True)
-    handoff.add_argument("--zeroth-commit", required=True)
-    handoff.add_argument("--verdict", type=Path, required=True)
+    _add_handoff_arguments(handoff)
     attestation = commands.add_parser("finalize-attestation")
     attestation.add_argument("--bundle", type=Path, required=True)
-    attestation.add_argument("--report", type=Path, required=True)
-    attestation.add_argument("--root", type=Path, required=True)
+    _add_handoff_arguments(attestation)
     probe = commands.add_parser("probe-readiness")
     probe.add_argument("--url", required=True)
     finalizer = commands.add_parser("finalize-workflow")
@@ -327,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
             return _validate_handoff(args)
         if args.command == "finalize-attestation":
             finalize_attestation(args.bundle, args.report, args.root)
-            return 0
+            return _validate_handoff(args)
         if args.command == "probe-readiness":
             return _probe_readiness(args.url)
         if args.command == "finalize-workflow":

@@ -109,7 +109,7 @@ def test_candidate_execution_cannot_write_certifier_or_handoff() -> None:
     assert "useradd" in prepare and "app-cert-candidate" in prepare
     assert prepare.index("uv sync --directory zeroth") < prepare.index("app-cert-candidate")
     assert "sudo -H -u app-cert-candidate" in prepare
-    assert "sudo chown -R \"$USER\":\"$USER\" app/.venv" in prepare
+    assert 'sudo chown -R "$USER":"$USER" app/.venv' in prepare
     assert "chmod -R go-w zeroth app" in prepare
     assert "mkdir -m 700 app/.app-certification" in prepare
     assert "zeroth/.venv/bin/python -m release.app_certification run" in certify
@@ -156,11 +156,13 @@ def test_frontend_checker_uses_locked_isolated_npm_tool_tree() -> None:
     install = "npm ci --prefix /home/app-cert-candidate/frontend"
     copy = (
         "sudo cp -R /home/app-cert-candidate/frontend/node_modules "
-        "app/frontend/node_modules"
+        '"app/$FRONTEND_PATH/node_modules"'
     )
 
+    assert "load_declaration" in prepare and ".targets.frontend_path" in prepare
+    assert "app/frontend" not in prepare
     assert prepare.index(install) < prepare.index(copy)
-    assert 'chown -R "$USER":"$USER" app/.venv app/frontend/node_modules' in prepare
+    assert 'chown -R "$USER":"$USER" app/.venv "app/$FRONTEND_PATH/node_modules"' in prepare
     assert prepare.index(copy) < prepare.rindex("chmod -R go-w zeroth app")
 
 
@@ -225,8 +227,7 @@ def test_every_pre_certification_failure_gets_a_canonical_report(tmp_path: Path)
     assert result.returncode == 0, result.stderr
     report = json.loads((tmp_path / "app/.app-certification/report.json").read_text())
     assert all(
-        "certifier_checkout outcome=failure" in check["detail"]
-        for check in report["checks"]
+        "certifier_checkout outcome=failure" in check["detail"] for check in report["checks"]
     )
 
 
@@ -246,6 +247,15 @@ def test_fresh_unprivileged_verifier_authenticates_handoff() -> None:
     assert any(action.startswith("actions/upload-artifact@") for action in actions)
 
 
+def test_hidden_unprivileged_handoff_is_included_in_artifact() -> None:
+    upload = next(
+        step for step in _steps() if step["name"] == "Upload unprivileged certification handoff"
+    )
+
+    assert upload["with"]["path"] == "app/.app-certification"
+    assert upload["with"]["include-hidden-files"] is True
+
+
 def test_privileged_job_uses_only_authenticated_verifier_outputs() -> None:
     steps = _steps("attest")
     actions = [step["uses"] for step in steps if "uses" in step]
@@ -261,6 +271,14 @@ def test_privileged_job_uses_only_authenticated_verifier_outputs() -> None:
     assert attest["with"]["predicate-path"] == "evidence/attestation-predicate.json"
     assert any(action.startswith("actions/download-artifact@") for action in actions)
     assert any(action.startswith("actions/attest@") for action in actions)
+
+
+def test_finalizer_reissues_verdict_for_the_signed_report() -> None:
+    finalize = _step("finalize-attestation", "attest")["run"]
+
+    assert "--image-archive evidence/image.tar" in finalize
+    assert "--source-archive evidence/source.tar" in finalize
+    assert "--verdict evidence/verdict.json" in finalize
 
 
 def test_all_external_actions_are_commit_pinned() -> None:
@@ -280,7 +298,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.4"
+    assert declaration.zeroth_version == "0.23.9.5"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -292,10 +310,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.4-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.5-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.4-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.5-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile

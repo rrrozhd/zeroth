@@ -76,6 +76,7 @@ jobs:
             exit 1
           }
           uv sync --directory zeroth --frozen --all-extras
+          FRONTEND_PATH=$(PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python -c 'from pathlib import Path; import sys; from release.app_certification.models import load_declaration; print(load_declaration(Path(sys.argv[1])).targets.frontend_path)' "$DECLARATION_FILE")
           mkdir trusted-certifier
           uv build --directory zeroth --wheel --out-dir trusted-certifier
           cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
@@ -84,7 +85,7 @@ jobs:
           chmod -R go-w zeroth app
           mkdir app/.venv
           sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
-          sudo cp -R app/frontend /home/app-cert-candidate/frontend
+          sudo cp -R "app/$FRONTEND_PATH" /home/app-cert-candidate/frontend
           sudo chown -R app-cert-candidate:app-cert-candidate /home/app-cert-candidate/frontend
           sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
@@ -93,8 +94,8 @@ jobs:
           sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
             npm ci --prefix /home/app-cert-candidate/frontend
-          sudo cp -R /home/app-cert-candidate/frontend/node_modules app/frontend/node_modules
-          sudo chown -R "$USER":"$USER" app/.venv app/frontend/node_modules
+          sudo cp -R /home/app-cert-candidate/frontend/node_modules "app/$FRONTEND_PATH/node_modules"
+          sudo chown -R "$USER":"$USER" app/.venv "app/$FRONTEND_PATH/node_modules"
           chmod -R go-w zeroth app
           git -C app diff --exit-code
           git -C app diff --cached --exit-code
@@ -288,6 +289,7 @@ jobs:
         with:
           name: app-certification-handoff-${{ github.run_id }}
           path: app/.app-certification
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
   verify:
@@ -396,10 +398,8 @@ jobs:
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
-            --bundle "$BUNDLE" \
-            --report evidence/report.json \
-            --root evidence/root
+          VERSION=$(zeroth/.venv/bin/python -c 'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
+          zeroth/.venv/bin/python -m release.app_certification finalize-attestation --bundle "$BUNDLE" --report evidence/report.json --root evidence/root --image-archive evidence/image.tar --source-archive evidence/source.tar --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" --zeroth-commit '${{ inputs.zeroth_ref }}' --verdict evidence/verdict.json
       - name: Upload final signed certification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

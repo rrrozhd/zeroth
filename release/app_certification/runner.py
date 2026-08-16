@@ -302,7 +302,7 @@ class CertificationRunner:
             return result
         try:
             payload = json.loads(result.stdout.splitlines()[-1])
-            finalize_candidate_evidence(name, payload, self.declaration)
+            finalize_candidate_evidence(name, payload, self.declaration, self.root)
         except Exception as error:  # noqa: BLE001 - untrusted evidence must fail closed
             return self._failed(name, f"trusted finalization rejected candidate evidence: {error}")
         return CheckResult(name=name, status="passed", detail=f"{name} semantic check finalized")

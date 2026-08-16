@@ -7,10 +7,7 @@ import asyncio
 import importlib.metadata
 import json
 import os
-import signal
-import subprocess
 import sys
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -32,6 +29,7 @@ from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
+from .candidate_process import run_importer
 from .models import AppDeclaration
 
 CANDIDATE_CHECKS = frozenset(
@@ -272,16 +270,19 @@ def _finalize_policies(evidence: dict[str, Any], declaration: AppDeclaration) ->
 
 
 def finalize_candidate_evidence(
-    name: str, payload: Any, declaration: AppDeclaration
+    name: str, payload: Any, declaration: AppDeclaration, root: Path
 ) -> None:
     """Independently validate untrusted evidence in the trusted supervisor."""
-    if not isinstance(payload, dict) or set(payload) != {"check", "evidence", "schema_version"}:
+    expected_keys = {"check", "evidence", "schema_version", "target_sources"}
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
         raise ValueError("candidate evidence has no trusted finalization payload")
     if payload.get("check") != name or payload.get("schema_version") != 1:
         raise ValueError("candidate evidence does not match the requested check")
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict):
         raise ValueError("candidate semantic evidence is malformed")
+    if payload["target_sources"] != checks.target_source_digests(name, root, declaration):
+        raise ValueError("candidate evidence does not match the declared target sources")
     if name == "graph":
         _finalize_graph(evidence, declaration)
     elif name == "contracts":
@@ -296,31 +297,46 @@ def finalize_candidate_evidence(
         raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _payload(name: str, evidence: dict[str, Any]) -> dict[str, Any]:
-    return {"check": name, "evidence": evidence, "schema_version": 1}
+def _payload(
+    name: str, evidence: dict[str, Any], root: Path, declaration: AppDeclaration
+) -> dict[str, Any]:
+    return {
+        "check": name,
+        "evidence": evidence,
+        "schema_version": 1,
+        "target_sources": checks.target_source_digests(name, root, declaration),
+    }
 
 
-def _import_candidate(
-    name: str, root: Path, declaration: AppDeclaration, result_fd: int
-) -> int:
+def _import_candidate(name: str, root: Path, declaration: AppDeclaration) -> int:
     sys.path.insert(0, str(root))
+    saved_stdout, saved_stderr = os.dup(1), os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
     try:
         evidence = collect_candidate_evidence(name, root, declaration)
-        encoded = json.dumps(_payload(name, evidence)).encode()
-        with os.fdopen(os.dup(result_fd), "wb") as result:
-            result.write(encoded)
     except Exception as error:  # noqa: BLE001 - importer returns one captured diagnostic
-        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
-        return 1
+        outcome: tuple[int, Any] = (1, error)
+    else:
+        outcome = (0, _payload(name, evidence, root, declaration))
     finally:
+        os.dup2(saved_stdout, 1)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stdout)
+        os.close(saved_stderr)
+        os.close(devnull)
         if sys.path[0] == str(root):
             sys.path.pop(0)
+    if outcome[0]:
+        error = outcome[1]
+        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(outcome[1], sort_keys=True, separators=(",", ":")))
     return 0
 
 
-def _importer_argv(
-    name: str, root: Path, declaration: AppDeclaration, result_fd: int
-) -> list[str]:
+def _importer_argv(name: str, root: Path, declaration: AppDeclaration) -> list[str]:
     return [
         str(Path(sys.executable).absolute()),
         "-I",
@@ -334,38 +350,18 @@ def _importer_argv(
         str(root),
         "--declaration-json",
         declaration.model_dump_json(),
-        "--result-fd",
-        str(result_fd),
     ]
 
 
 def _supervise_candidate(name: str, root: Path, declaration: AppDeclaration) -> int:
-    with tempfile.TemporaryFile() as provisional:
-        process = subprocess.Popen(
-            _importer_argv(name, root, declaration, provisional.fileno()),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            pass_fds=(provisional.fileno(),),
-            start_new_session=True,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=150)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
-            detail = stderr.strip() or stdout.strip() or "candidate importer timed out"
-            print(f"{name}: trusted finalization unavailable: {detail}", file=sys.stderr)
-            return 1
-        provisional.seek(0)
-        raw = provisional.read()
-    if process.returncode:
-        detail = stderr.strip() or stdout.strip() or "candidate importer failed"
+    returncode, raw, diagnostics = run_importer(_importer_argv(name, root, declaration))
+    if returncode:
+        detail = diagnostics.strip() or raw.strip() or "candidate importer failed"
         print(f"{name}: trusted finalization unavailable: {detail}", file=sys.stderr)
         return 1
     try:
         payload = json.loads(raw)
-        finalize_candidate_evidence(name, payload, declaration)
+        finalize_candidate_evidence(name, payload, declaration, root)
     except Exception as error:  # noqa: BLE001 - provisional evidence is untrusted
         detail = f"{name}: trusted finalization rejected provisional evidence: {error}"
         print(detail, file=sys.stderr)
@@ -380,12 +376,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("name", choices=sorted(CANDIDATE_CHECKS))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--declaration-json", required=True)
-    parser.add_argument("--result-fd", type=int)
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
     root = args.root.resolve()
-    if args.result_fd is not None:
-        return _import_candidate(args.name, root, declaration, args.result_fd)
+    if os.environ.get("APP_CERTIFICATION_IMPORTER") == "1":
+        return _import_candidate(args.name, root, declaration)
     return _supervise_candidate(args.name, root, declaration)
 
 

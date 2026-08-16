@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.5] - 2026-08-16
+
+### Security
+
+- Remove the candidate-writable certification result channel, bind semantic
+  evidence to the declared target sources, and cap importer output.
+- Preserve hidden handoffs, declared frontend paths, and final signed-report
+  verdict integrity throughout the reusable workflow.
+
 ## [0.23.9.4] - 2026-08-16
 
 ### Security
