@@ -85,8 +85,7 @@ jobs:
           mkdir app/.venv
           sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
           sudo cp -R app/frontend /home/app-cert-candidate/frontend
-          sudo chown -R app-cert-candidate:app-cert-candidate \
-            /home/app-cert-candidate/frontend
+          sudo chown -R app-cert-candidate:app-cert-candidate /home/app-cert-candidate/frontend
           sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
             UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/app/.venv" \
@@ -94,7 +93,8 @@ jobs:
           sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
             npm ci --prefix /home/app-cert-candidate/frontend
-          sudo chown -R "$USER":"$USER" app/.venv
+          sudo cp -R /home/app-cert-candidate/frontend/node_modules app/frontend/node_modules
+          sudo chown -R "$USER":"$USER" app/.venv app/frontend/node_modules
           chmod -R go-w zeroth app
           git -C app diff --exit-code
           git -C app diff --cached --exit-code

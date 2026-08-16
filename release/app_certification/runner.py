@@ -39,6 +39,9 @@ _CHECK_BOOTSTRAP = (
     "sys.path[:0]=[str(certifier),str(certifier/'src'),str(site_packages)];"
     "runpy.run_module('release.app_certification.checks',run_name='__main__')"
 )
+_CANDIDATE_BOOTSTRAP = _CHECK_BOOTSTRAP.replace(
+    "release.app_certification.checks", "release.app_certification.candidate_worker"
+)
 
 
 @dataclass(frozen=True)
@@ -160,6 +163,7 @@ class CertificationRunner:
         declaration: AppDeclaration,
         *,
         executor: Executor = execute_command,
+        candidate_executor: Executor | None = None,
         http: HttpBoundary | None = None,
         commit_reader: CommitReader = read_git_commit,
         declaration_path: Path | None = None,
@@ -168,6 +172,7 @@ class CertificationRunner:
         self.root = root.resolve()
         self.declaration = declaration
         self.executor = executor
+        self.candidate_executor = candidate_executor or executor
         self.http = http
         self.commit_reader = commit_reader
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
@@ -229,6 +234,26 @@ class CertificationRunner:
         return self._command(name), None
 
     def _command(self, name: str) -> CheckResult:
+        from .candidate_worker import CANDIDATE_CHECKS
+
+        if name in CANDIDATE_CHECKS:
+            return self._candidate_command(name)
+        return self._trusted_command(name)
+
+    def _command_result(
+        self, name: str, argv: list[str], executor: Executor
+    ) -> CommandResult | CheckResult:
+        try:
+            result = executor(argv, self.root)
+        except Exception as error:  # noqa: BLE001 - command faults are named check failures
+            return self._failed(name, f"argv execution raised {type(error).__name__}: {error}")
+        if not isinstance(result, CommandResult):
+            return self._failed(name, "argv executor returned no CommandResult")
+        if result.returncode:
+            return self._failed(name, f"argv exited {result.returncode}: {_output_tail(result)}")
+        return result
+
+    def _trusted_command(self, name: str) -> CheckResult:
         argv = [
             str(Path(sys.executable).absolute()),
             "-I",
@@ -243,14 +268,9 @@ class CertificationRunner:
             "--declaration",
             str(self.declaration_path),
         ]
-        try:
-            result = self.executor(argv, self.root)
-        except Exception as error:  # noqa: BLE001 - command faults are named check failures
-            return self._failed(name, f"argv execution raised {type(error).__name__}: {error}")
-        if not isinstance(result, CommandResult):
-            return self._failed(name, "argv executor returned no CommandResult")
-        if result.returncode:
-            return self._failed(name, f"argv exited {result.returncode}: {_output_tail(result)}")
+        result = self._command_result(name, argv, self.executor)
+        if isinstance(result, CheckResult):
+            return result
         try:
             structured = json.loads(result.stdout.splitlines()[-1])
         except (IndexError, json.JSONDecodeError):
@@ -259,6 +279,33 @@ class CertificationRunner:
         if structured != expected:
             return self._failed(name, "owned structured result does not match the requested check")
         return CheckResult(name=name, status="passed", detail=f"{name} semantic check completed")
+
+    def _candidate_command(self, name: str) -> CheckResult:
+        from .candidate_worker import finalize_candidate_evidence
+
+        argv = [
+            str(Path(sys.executable).absolute()),
+            "-I",
+            "-S",
+            "-c",
+            _CANDIDATE_BOOTSTRAP,
+            str(Path(__file__).parents[2].resolve()),
+            str(self.check_python.parent.parent),
+            name,
+            "--root",
+            str(self.root),
+            "--declaration-json",
+            self.declaration.model_dump_json(),
+        ]
+        result = self._command_result(name, argv, self.candidate_executor)
+        if isinstance(result, CheckResult):
+            return result
+        try:
+            payload = json.loads(result.stdout.splitlines()[-1])
+            finalize_candidate_evidence(name, payload, self.declaration)
+        except Exception as error:  # noqa: BLE001 - untrusted evidence must fail closed
+            return self._failed(name, f"trusted finalization rejected candidate evidence: {error}")
+        return CheckResult(name=name, status="passed", detail=f"{name} semantic check finalized")
 
     def _smoke(self, name: str) -> CheckResult:
         if self.http is None:

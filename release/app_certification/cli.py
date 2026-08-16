@@ -160,7 +160,8 @@ def _run(args: argparse.Namespace) -> int:
     report = CertificationRunner(
         args.root,
         declaration,
-        executor=_untrusted_executor(args.untrusted_user)
+        executor=execute_command,
+        candidate_executor=_untrusted_executor(args.untrusted_user)
         if args.untrusted_user
         else execute_command,
         http=http,

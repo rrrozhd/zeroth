@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.3 \
+  --zeroth-version 0.23.9.4 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -42,17 +42,20 @@ synced `.venv` and apply the same semantic boundaries used for publication:
 - send the same deterministic smoke request to packaged and tmpfs-backed
   candidate containers.
 
-Each host-side check runs in a bounded subprocess without an ambient shell. The
-trusted interpreter starts in isolated mode before app paths are added, and the
-runner requires an exact structured result instead of trusting process exit
-alone. Container readiness requires a parsed JSON body with `status: ok`; HTTP
-200 by itself is not sufficient.
+Each host-side check runs in a bounded subprocess without an ambient shell.
+Candidate imports run in a low-privilege child whose stdout is diagnostic only;
+a separate supervisor validates semantic evidence after that child exits, and
+the trusted runner validates it again before recording a pass. Docker state and
+the locked frontend tool tree are checked on the trusted path. Container
+readiness requires a parsed JSON body with `status: ok`; HTTP 200 by itself is
+not sufficient.
 
 ## Identity, evidence, and privileges
 
 The `certify` job has only `contents: read`. App dependency hooks and semantic
 imports run as a dedicated local user that can write only its isolated virtual
-environment and frontend copy; the pinned certifier and handoff remain
+environment and frontend copy. The locked frontend dependencies are copied to
+a runner-owned read-only tool tree; the pinned certifier and handoff remain
 runner-owned. The job builds from an exact Git archive and measures its SHA-256
 alongside the app commit and local image descriptor, generates an SPDX SBOM, and
 writes a canonical report even when preparation, build, startup, or health

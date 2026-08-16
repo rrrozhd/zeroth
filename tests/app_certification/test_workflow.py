@@ -13,7 +13,13 @@ from urllib.request import urlopen
 import pytest
 import yaml
 
-from release.app_certification import load_declaration
+from release.app_certification import (
+    AppDeclaration,
+    CertificationRunner,
+    CommandResult,
+    load_declaration,
+)
+from tests.app_certification.test_engine import declaration_data
 
 
 ROOT = Path(__file__).parents[2]
@@ -107,6 +113,55 @@ def test_candidate_execution_cannot_write_certifier_or_handoff() -> None:
     assert "chmod -R go-w zeroth app" in prepare
     assert "mkdir -m 700 app/.app-certification" in prepare
     assert "zeroth/.venv/bin/python -m release.app_certification run" in certify
+
+
+def test_container_checks_are_trusted_while_candidate_imports_stay_unprivileged(
+    tmp_path: Path,
+) -> None:
+    trusted_calls: list[str] = []
+    candidate_calls: list[str] = []
+
+    def trusted(argv: list[str], cwd: Path) -> CommandResult:
+        del cwd
+        name = argv[argv.index("--root") - 1]
+        trusted_calls.append(name)
+        payload = {"check": name, "schema_version": 1, "status": "passed"}
+        return CommandResult(0, json.dumps(payload) + "\n", "")
+
+    def candidate(argv: list[str], cwd: Path) -> CommandResult:
+        del cwd
+        candidate_calls.append(argv[argv.index("--root") - 1])
+        return CommandResult(1, "", "candidate has no Docker socket access")
+
+    runner = CertificationRunner(
+        tmp_path,
+        AppDeclaration.model_validate(declaration_data()),
+        executor=trusted,
+        candidate_executor=candidate,
+    )
+
+    assert runner._command("container-startup").status == "passed"
+    assert runner._command("health").status == "passed"
+    assert runner._command("contracts").status == "failed"
+    assert trusted_calls == ["container-startup", "health"]
+    assert candidate_calls == ["contracts"]
+    prepare = _step("prepare")["run"]
+    useradd = next(line for line in prepare.splitlines() if "useradd" in line)
+    assert "docker" not in useradd
+    assert "usermod" not in prepare and "gpasswd" not in prepare
+
+
+def test_frontend_checker_uses_locked_isolated_npm_tool_tree() -> None:
+    prepare = _step("prepare")["run"]
+    install = "npm ci --prefix /home/app-cert-candidate/frontend"
+    copy = (
+        "sudo cp -R /home/app-cert-candidate/frontend/node_modules "
+        "app/frontend/node_modules"
+    )
+
+    assert prepare.index(install) < prepare.index(copy)
+    assert 'chown -R "$USER":"$USER" app/.venv app/frontend/node_modules' in prepare
+    assert prepare.index(copy) < prepare.rindex("chmod -R go-w zeroth app")
 
 
 def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
@@ -225,7 +280,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.3"
+    assert declaration.zeroth_version == "0.23.9.4"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -237,10 +292,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.3-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.4-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.3-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.4-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile
