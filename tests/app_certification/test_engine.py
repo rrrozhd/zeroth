@@ -32,7 +32,7 @@ def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.5",
+        "zeroth_version": "0.23.9.6",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -63,7 +63,7 @@ def write_inputs(root: Path) -> None:
     provenance = evidence / "provenance.json"
     sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n')
     candidate = CandidateIdentity(
-        app_name="reference-app", app_commit=COMMIT, zeroth_version="0.23.9.5",
+        app_name="reference-app", app_commit=COMMIT, zeroth_version="0.23.9.6",
         image_reference="reference-app:certification", image_digest=DIGEST,
         source_digest=SOURCE_DIGEST,
     )
@@ -114,7 +114,7 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.9.5"
+    assert report.candidate.zeroth_version == "0.23.9.6"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")

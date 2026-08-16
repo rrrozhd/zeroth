@@ -29,7 +29,7 @@ from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
-from .candidate_process import run_importer
+from .candidate_process import isolated_candidate_imports, run_importer
 from .models import AppDeclaration
 
 CANDIDATE_CHECKS = frozenset(
@@ -315,7 +315,8 @@ def _import_candidate(name: str, root: Path, declaration: AppDeclaration) -> int
     os.dup2(devnull, 1)
     os.dup2(devnull, 2)
     try:
-        evidence = collect_candidate_evidence(name, root, declaration)
+        with isolated_candidate_imports(Path(__file__).parents[2]):
+            evidence = collect_candidate_evidence(name, root, declaration)
     except Exception as error:  # noqa: BLE001 - importer returns one captured diagnostic
         outcome: tuple[int, Any] = (1, error)
     else:

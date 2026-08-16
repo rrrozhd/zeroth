@@ -6,9 +6,34 @@ import os
 import resource
 import signal
 import subprocess
+import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
 _OUTPUT_LIMIT = 1 << 20
+
+
+@contextmanager
+def isolated_candidate_imports(certifier: Path) -> Iterator[None]:
+    """Hide mutable certifier modules and paths while app targets import."""
+    paths = sys.path[:]
+    hidden_paths = {certifier.resolve(), (certifier / "src").resolve()}
+    hidden_modules = {
+        name: sys.modules.pop(name)
+        for name in tuple(sys.modules)
+        if name == "release" or name.startswith("release.")
+    }
+    sys.path[:] = [path for path in sys.path if Path(path).resolve() not in hidden_paths]
+    try:
+        yield
+    finally:
+        for name in tuple(sys.modules):
+            if name == "release" or name.startswith("release."):
+                del sys.modules[name]
+        sys.modules.update(hidden_modules)
+        sys.path[:] = paths
 
 
 def _limit_output() -> None:

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.6] - 2026-08-16
+
+### Security
+
+- Isolate candidate target imports from mutable certifier modules, bound smoke
+  response size and read time, and stream retained-file hashing.
+
 ## [0.23.9.5] - 2026-08-16
 
 ### Security
