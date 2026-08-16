@@ -54,6 +54,8 @@ beforeEach(() => {
   api.getDeploymentGuardrails.mockResolvedValue({
     tenant_revision: null,
     deployment_revision: null,
+    tenant_overrides: null,
+    deployment_overrides: null,
     effective: {
       rate_limit_capacity: 10,
       rate_limit_refill_rate: 1,
@@ -73,6 +75,8 @@ beforeEach(() => {
       changed_by: "admin-1",
       created_at: "2026-08-14T08:00:00Z",
     },
+    tenant_overrides: null,
+    deployment_overrides: { max_concurrency: 4, backpressure_queue_depth: 25 },
     effective: {
       rate_limit_capacity: 10,
       rate_limit_refill_rate: 1,
@@ -132,5 +136,56 @@ describe("deployment guardrail controls", () => {
 
     expect(container.textContent).toContain("Check deployment-admin permissions");
     expect(input("Concurrency override").value).toBe("3");
+  });
+
+  it("shows composed overrides and distinguishes preserve, inherit, and explicit values", async () => {
+    api.getDeploymentGuardrails.mockResolvedValue({
+      tenant_revision: null,
+      deployment_revision: {
+        revision_id: "revision-2",
+        scope: "deployment",
+        deployment_ref: "support-prod",
+        policy: { backpressure_queue_depth: 25 },
+        changed_by: "admin-1",
+        created_at: "2026-08-14T08:01:00Z",
+      },
+      tenant_overrides: null,
+      deployment_overrides: { max_concurrency: 4, backpressure_queue_depth: 25 },
+      effective: {
+        rate_limit_capacity: 10,
+        rate_limit_refill_rate: 1,
+        rate_limit_burst: 0,
+        quota_daily_limit: 500,
+        backpressure_queue_depth: 25,
+        max_concurrency: 4,
+      },
+    });
+
+    await act(async () => root.render(<GuardrailsPanel refId="support-prod" />));
+    await waitFor(() => expect(container.textContent).toContain("Effective settings"));
+    expect(input("Queue depth override").closest("label")?.textContent).toContain(
+      "Active override: 25",
+    );
+    expect(input("Concurrency override").closest("label")?.textContent).toContain(
+      "Active override: 4",
+    );
+    expect(input("Queue depth override").value).toBe("");
+
+    await act(async () => {
+      setInput("Capacity override", "12");
+      setInput("Daily quota override", "unlimited");
+      setInput("Concurrency override", "inherit");
+    });
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save overrides",
+    );
+    await act(async () => save?.click());
+    await waitFor(() => expect(api.updateDeploymentGuardrails).toHaveBeenCalledTimes(1));
+
+    expect(api.updateDeploymentGuardrails).toHaveBeenCalledWith("support-prod", {
+      rate_limit_capacity: 12,
+      quota_daily_limit: null,
+      reset_fields: ["max_concurrency"],
+    });
   });
 });

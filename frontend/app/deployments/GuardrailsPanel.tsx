@@ -11,7 +11,7 @@ import {
   type GuardrailPolicyResponse,
 } from "@/app/lib/api";
 
-type GuardrailKey = keyof GuardrailPolicyPatch;
+type GuardrailKey = Exclude<keyof GuardrailPolicyPatch, "reset_fields">;
 type OverrideValues = Record<GuardrailKey, string>;
 
 const EMPTY_OVERRIDES: OverrideValues = {
@@ -85,23 +85,16 @@ const FIELDS: Array<{
   },
 ];
 
-function valuesFrom(response: GuardrailPolicyResponse): OverrideValues {
-  const policy = response.deployment_revision?.policy;
-  const values = { ...EMPTY_OVERRIDES };
-  if (!policy) return values;
-  for (const { key } of FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(policy, key)) continue;
-    const value = policy[key];
-    values[key] = key === "quota_daily_limit" && value == null ? "unlimited" : String(value);
-  }
-  return values;
-}
-
 function parseOverrides(values: OverrideValues): GuardrailPolicyPatch {
   const patch: GuardrailPolicyPatch = {};
+  const resetFields: GuardrailKey[] = [];
   for (const field of FIELDS) {
     const raw = values[field.key].trim();
     if (!raw) continue;
+    if (raw.toLowerCase() === "inherit") {
+      resetFields.push(field.key);
+      continue;
+    }
     if (field.key === "quota_daily_limit" && raw.toLowerCase() === "unlimited") {
       patch.quota_daily_limit = null;
       continue;
@@ -115,8 +108,9 @@ function parseOverrides(values: OverrideValues): GuardrailPolicyPatch {
     }
     patch[field.key] = value;
   }
+  if (resetFields.length > 0) patch.reset_fields = resetFields;
   if (Object.keys(patch).length === 0) {
-    throw new Error("Enter at least one deployment override before saving.");
+    throw new Error("Enter at least one deployment override or reset before saving.");
   }
   return patch;
 }
@@ -136,7 +130,7 @@ export function GuardrailsPanel({ refId }: { refId: string }) {
     try {
       const response = await getDeploymentGuardrails(refId);
       setData(response);
-      setValues(valuesFrom(response));
+      setValues(EMPTY_OVERRIDES);
     } catch (error) {
       setLoadError(errMsg(error));
     } finally {
@@ -163,7 +157,7 @@ export function GuardrailsPanel({ refId }: { refId: string }) {
     try {
       const response = await updateDeploymentGuardrails(refId, patch);
       setData(response);
-      setValues(valuesFrom(response));
+      setValues(EMPTY_OVERRIDES);
       setSaved(true);
     } catch (error) {
       setSaveError(errMsg(error));
@@ -232,30 +226,45 @@ export function GuardrailsPanel({ refId }: { refId: string }) {
             gap: 10,
           }}
         >
-          {FIELDS.map((field) => (
-            <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              <MonoLabel>{field.label}</MonoLabel>
-              <input
-                aria-label={field.aria}
-                inputMode="decimal"
-                placeholder={`inherit (${String(effective[field.key] ?? "unlimited")})`}
-                value={values[field.key]}
-                onChange={(event) =>
-                  setValues((current) => ({ ...current, [field.key]: event.target.value }))
-                }
-                style={{
-                  border: "1px solid var(--hair-strong)",
-                  background: "var(--bg-raised)",
-                  borderRadius: 6,
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12,
-                  padding: "8px 9px",
-                }}
-              />
-              <span style={{ color: "var(--text-faint)", fontSize: 10.5 }}>{field.hint}</span>
-            </label>
-          ))}
+          {FIELDS.map((field) => {
+            const overrides = data.deployment_overrides;
+            const hasActiveOverride =
+              overrides != null && Object.prototype.hasOwnProperty.call(overrides, field.key);
+            const activeValue = hasActiveOverride ? overrides[field.key] : undefined;
+            const displayedActive =
+              field.key === "quota_daily_limit" && activeValue == null
+                ? "unlimited"
+                : String(activeValue);
+            return (
+              <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <MonoLabel>{field.label}</MonoLabel>
+                <input
+                  aria-label={field.aria}
+                  inputMode="text"
+                  placeholder="preserve"
+                  value={values[field.key]}
+                  onChange={(event) =>
+                    setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                  }
+                  style={{
+                    border: "1px solid var(--hair-strong)",
+                    background: "var(--bg-raised)",
+                    borderRadius: 6,
+                    color: "var(--text-primary)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    padding: "8px 9px",
+                  }}
+                />
+                <span style={{ color: "var(--text-faint)", fontSize: 10.5 }}>{field.hint}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 10.5 }}>
+                  {hasActiveOverride
+                    ? `Active override: ${displayedActive}`
+                    : `No active override; inherits ${String(effective[field.key] ?? "unlimited")}`}
+                </span>
+              </label>
+            );
+          })}
         </div>
         {saveError && <ErrorNotice message={saveError} />}
         {saved && (
@@ -271,7 +280,8 @@ export function GuardrailsPanel({ refId }: { refId: string }) {
             Clear form
           </Button>
           <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
-            Blank fields inherit. “unlimited” explicitly removes the daily quota.
+            Blank preserves. “inherit” resets to tenant/configured defaults. A number sets an
+            override; daily quota also accepts “unlimited”.
           </span>
         </div>
       </form>

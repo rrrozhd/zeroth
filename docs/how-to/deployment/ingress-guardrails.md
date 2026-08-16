@@ -16,7 +16,9 @@ A deployment-level `GuardrailConfig` supplied at bootstrap replaces the product
 defaults as the baseline for all three consumers: ingress admission, the
 management API, and worker lease claims. Partial policy revisions are folded
 over that baseline in order, so a later one-field edit does not erase earlier
-fields.
+fields. A field named in `reset_fields` removes only that exact scope's active
+override, exposing the tenant or configured baseline beneath it while preserving
+sibling overrides.
 
 | Field | Product default | Accepted values |
 |---|---:|---:|
@@ -28,9 +30,11 @@ fields.
 | `max_concurrency` | `8` | `1`–`10,000` |
 
 An omitted field inherits from the next scope. Explicit `null` is accepted
-only for `quota_daily_limit`; nulling another control is rejected with `422`.
-Every successful edit appends an immutable revision. It does not reset live
-rate buckets or quota counters.
+only for `quota_daily_limit` and means an explicit unlimited quota. It is
+distinct from `{"reset_fields": ["quota_daily_limit"]}`, which restores
+inheritance. Nulling another control, sending an empty reset, or setting and
+resetting the same field is rejected with `422`. Every successful edit appends
+an immutable revision. It does not reset live rate buckets or quota counters.
 
 ## Inspect and change policy
 
@@ -45,7 +49,17 @@ curl -X PUT -H "X-API-Key: $ZEROTH_ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"rate_limit_capacity": 50, "rate_limit_burst": 10, "max_concurrency": 4}' \
   http://127.0.0.1:8000/v1/deployments/demo/guardrails
+
+curl -X PUT -H "X-API-Key: $ZEROTH_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"reset_fields": ["max_concurrency"]}' \
+  http://127.0.0.1:8000/v1/deployments/demo/guardrails
 ```
+
+Inspection returns composed `tenant_overrides` and `deployment_overrides`
+separately from the latest immutable `tenant_revision` and
+`deployment_revision`. History retains each reset as an explicit
+`reset_fields` tombstone.
 
 Use `/v1/guardrails` for tenant defaults and
 `/v1/guardrails/history` for the tenant's immutable revision history. Those
@@ -54,10 +68,11 @@ a tenant-scoped principal with no workspace. A workspace administrator cannot
 read or mutate tenant-wide policy, including another workspace in the same
 tenant. A cross-tenant deployment reference is returned as not found.
 
-The Deployments console provides the same six controls. A blank value means
-inherit; `unlimited` explicitly disables the daily quota. Validation and save
-failures remain inline so an operator can correct and retry without losing the
-form values.
+The Deployments console provides the same six controls and shows each composed
+active deployment override. A blank value preserves it, `inherit` appends a
+reset, a number sets an explicit value, and `unlimited` sets an explicit
+unlimited daily quota. Validation and save failures remain inline so an
+operator can correct and retry without losing the form values.
 
 ## Handle admission responses
 

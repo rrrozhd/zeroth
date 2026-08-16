@@ -187,6 +187,56 @@ async def test_custom_baseline_is_shared_and_partial_revisions_accumulate(sqlite
     assert await worker._effective_max_concurrency() == 2
 
 
+async def test_guardrail_api_inspects_composed_overrides_and_retains_reset_tombstone(
+    sqlite_db,
+) -> None:
+    config = GuardrailConfig(max_concurrency=6, backpressure_queue_depth=17)
+    service, app = await _client(sqlite_db, guardrail_config=config)
+    ref = service.deployment.deployment_ref
+
+    with TestClient(app) as client:
+        tenant = client.put(
+            "/v1/guardrails",
+            headers=admin_headers(),
+            json={"max_concurrency": 5},
+        )
+        first = client.put(
+            f"/v1/deployments/{ref}/guardrails",
+            headers=admin_headers(),
+            json={"max_concurrency": 2},
+        )
+        second = client.put(
+            f"/v1/deployments/{ref}/guardrails",
+            headers=admin_headers(),
+            json={"backpressure_queue_depth": 9},
+        )
+        current = client.get(
+            f"/v1/deployments/{ref}/guardrails",
+            headers=operator_headers(),
+        )
+        reset = client.put(
+            f"/v1/deployments/{ref}/guardrails",
+            headers=admin_headers(),
+            json={"reset_fields": ["max_concurrency"]},
+        )
+        history = client.get("/v1/guardrails/history", headers=admin_headers())
+
+    assert tenant.status_code == first.status_code == second.status_code == 200
+    assert current.json()["deployment_overrides"] == {
+        "backpressure_queue_depth": 9,
+        "max_concurrency": 2,
+    }
+    assert current.json()["deployment_revision"]["policy"] == {
+        "backpressure_queue_depth": 9,
+    }
+    assert reset.status_code == 200
+    assert reset.json()["deployment_overrides"] == {
+        "backpressure_queue_depth": 9,
+    }
+    assert reset.json()["effective"]["max_concurrency"] == 5
+    assert history.json()[-1]["policy"] == {"reset_fields": ["max_concurrency"]}
+
+
 async def test_guardrail_management_rbac_and_invalid_changes_fail_closed(sqlite_db) -> None:
     service, app = await _client(sqlite_db)
 
@@ -194,7 +244,7 @@ async def test_guardrail_management_rbac_and_invalid_changes_fail_closed(sqlite_
         forbidden = client.put(
             "/v1/guardrails",
             headers=reviewer_headers(),
-            json={"max_concurrency": 2},
+            json={"reset_fields": ["max_concurrency"]},
         )
         invalid = client.put(
             "/v1/guardrails",
@@ -206,12 +256,30 @@ async def test_guardrail_management_rbac_and_invalid_changes_fail_closed(sqlite_
             headers=admin_headers(),
             json={"max_concurrency": None},
         )
+        empty_reset = client.put(
+            "/v1/guardrails",
+            headers=admin_headers(),
+            json={"reset_fields": []},
+        )
+        invalid_reset = client.put(
+            "/v1/guardrails",
+            headers=admin_headers(),
+            json={"reset_fields": ["not_a_guardrail"]},
+        )
+        overlapping_reset = client.put(
+            "/v1/guardrails",
+            headers=admin_headers(),
+            json={"max_concurrency": 2, "reset_fields": ["max_concurrency"]},
+        )
         empty = client.put("/v1/guardrails", headers=admin_headers(), json={})
         history = client.get("/v1/guardrails/history", headers=admin_headers())
 
     assert forbidden.status_code == 403
     assert invalid.status_code == 422
     assert invalid_null.status_code == 422
+    assert empty_reset.status_code == 422
+    assert invalid_reset.status_code == 422
+    assert overlapping_reset.status_code == 422
     assert empty.status_code == 422
     assert history.json() == []
     assert await service.guardrail_policy_repository.history() == []
@@ -232,7 +300,7 @@ async def test_guardrail_management_hides_cross_tenant_service(sqlite_db) -> Non
         rejected = client.put(
             "/v1/guardrails",
             headers=api_key_headers("foreign-key"),
-            json={"max_concurrency": 1},
+            json={"reset_fields": ["max_concurrency"]},
         )
 
     assert hidden.status_code == 404
