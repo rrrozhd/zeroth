@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.1] - 2026-08-16
+
+### Fixed
+
+- Use the database clock for lease claims, concurrency, orphan recovery, and renewal so replica
+  clock skew cannot exceed the configured concurrency cap.
+
 ## [0.23.9] - 2026-08-16
 
 ### Fixed

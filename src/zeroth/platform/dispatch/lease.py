@@ -71,8 +71,15 @@ _FENCEABLE_COLUMNS = frozenset(
 )
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
+async def _database_now(connection: AsyncConnection) -> datetime:
+    clock = await connection.fetch_one("SELECT CURRENT_TIMESTAMP AS current_time")
+    assert clock is not None
+    current_time = clock["current_time"]
+    if not isinstance(current_time, datetime):
+        current_time = datetime.fromisoformat(str(current_time).replace(" ", "T"))
+    if current_time.tzinfo is None:
+        return current_time.replace(tzinfo=UTC)
+    return current_time.astimezone(UTC)
 
 
 def _new_worker_id() -> str:
@@ -276,10 +283,10 @@ class LeaseManager:
         success. ``RETURNING`` makes the guard and the answer one statement, so
         exactly one caller gets a row back regardless of worker ids.
         """
-        now = _utc_now()
-        expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            now = await _database_now(conn)
+            expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
                 deployment_ref,
@@ -365,10 +372,10 @@ class LeaseManager:
         Workers skip rows already being claimed by another worker.
         No verify step needed -- the lock is acquired at SELECT time.
         """
-        now = _utc_now()
-        expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
+            now = await _database_now(conn)
+            expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
                 deployment_ref,
@@ -469,11 +476,11 @@ class LeaseManager:
         Sets ``recovery_checkpoint_id`` to the latest checkpoint for each
         claimed run so the worker knows where to resume.
         """
-        now = _utc_now()
-        expires_at = now + timedelta(seconds=self.lease_duration_seconds)
         claimed: list[str] = []
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
+            now = await _database_now(conn)
+            expires_at = now + timedelta(seconds=self.lease_duration_seconds)
             availability = await self._available_concurrency_slots(
                 conn,
                 deployment_ref,
@@ -569,15 +576,7 @@ class LeaseManager:
         must then present to :meth:`commit_fenced`.
         """
         async with self.database.transaction() as conn:
-            clock = await conn.fetch_one("SELECT CURRENT_TIMESTAMP AS current_time")
-            assert clock is not None
-            current_time = clock["current_time"]
-            if not isinstance(current_time, datetime):
-                current_time = datetime.fromisoformat(str(current_time).replace(" ", "T"))
-            if current_time.tzinfo is None:
-                current_time = current_time.replace(tzinfo=UTC)
-            else:
-                current_time = current_time.astimezone(UTC)
+            current_time = await _database_now(conn)
             generation_sql = "" if generation is None else "AND lease_generation = ?"
             params: tuple[object, ...] = (
                 (current_time + timedelta(seconds=self.lease_duration_seconds)).isoformat(),

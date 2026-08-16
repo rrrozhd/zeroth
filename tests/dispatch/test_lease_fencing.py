@@ -225,7 +225,9 @@ async def test_expired_recovery_lease_is_not_executed_after_replica_takeover(
     await _expire_lease(dual_database, run_id)
     assert await manager.claim_orphaned(DEPLOYMENT, worker.worker_id) == [run_id]
 
-    await asyncio.sleep(1.1)
+    # SQLite CURRENT_TIMESTAMP has one-second precision; wait until strictly
+    # after the expiry because equality is still renewable by contract.
+    await asyncio.sleep(2.1)
     assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
     await worker._execute_leased_run(run_id, is_recovery=True)
 

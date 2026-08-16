@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import zeroth.platform.dispatch.lease as lease_module
+from tests.conftest import requires_docker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
@@ -25,6 +26,38 @@ async def _create_pending_run(run_repo: RunRepository) -> str:
     run = Run(graph_version_ref="g:v1", deployment_ref=DEPLOYMENT)
     persisted = await run_repo.create(run)
     return persisted.run_id
+
+
+async def _assert_fast_replica_cannot_overallocate(database, monkeypatch) -> None:
+    old_owner = LeaseManager(database, lease_duration_seconds=60)
+    fast_replica = LeaseManager(database, lease_duration_seconds=60)
+    run_repo = RunRepository.for_default_compatibility(database)
+    original_run = await _create_pending_run(run_repo)
+    replacement_run = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await old_owner.claim_pending(DEPLOYMENT, WORKER_A, **scope) == original_run
+    await run_repo.transition(original_run, RunStatus.RUNNING)
+    monkeypatch.setattr(
+        lease_module,
+        "_utc_now",
+        lambda: datetime.now(UTC) + timedelta(days=1),
+        raising=False,
+    )
+
+    replacement = await fast_replica.claim_pending_result(DEPLOYMENT, WORKER_B, **scope)
+    renewed = await old_owner.renew_lease(original_run, WORKER_A, generation=1)
+    async with database.transaction() as connection:
+        leased = await connection.fetch_one(
+            "SELECT COUNT(*) AS count FROM runs WHERE lease_worker_id IS NOT NULL"
+        )
+
+    assert replacement_run != original_run
+    assert replacement.run_id is None
+    assert replacement.concurrency_saturated is True
+    assert replacement.active_count == 1
+    assert renewed is True
+    assert leased is not None and int(leased["count"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +145,6 @@ async def test_renew_lease_returns_false_for_non_owner(sqlite_db: AsyncSQLiteDat
 @pytest.mark.asyncio
 async def test_expired_lease_cannot_be_renewed_after_slot_reallocation(
     sqlite_db: AsyncSQLiteDatabase,
-    monkeypatch,
 ) -> None:
     old_owner = LeaseManager(sqlite_db)
     new_owner = LeaseManager(sqlite_db)
@@ -130,11 +162,6 @@ async def test_expired_lease_cannot_be_renewed_after_slot_reallocation(
         )
     assert await new_owner.claim_pending(DEPLOYMENT, WORKER_B, **scope) == replacement_run
 
-    monkeypatch.setattr(
-        lease_module,
-        "_utc_now",
-        lambda: datetime(2100, 1, 1, tzinfo=UTC),
-    )
     assert await old_owner.renew_lease(expired_run, WORKER_A, generation=1) is False
     async with sqlite_db.transaction() as connection:
         row = await connection.fetch_one(
@@ -142,6 +169,23 @@ async def test_expired_lease_cannot_be_renewed_after_slot_reallocation(
             (expired_run,),
         )
     assert row["lease_expires_at"] == "2000-01-01T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_fast_replica_clock_cannot_overallocate_live_lease(
+    sqlite_db: AsyncSQLiteDatabase,
+    monkeypatch,
+) -> None:
+    await _assert_fast_replica_cannot_overallocate(sqlite_db, monkeypatch)
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_fast_replica_clock_cannot_overallocate_live_lease_on_both_backends(
+    dual_database,
+    monkeypatch,
+) -> None:
+    await _assert_fast_replica_cannot_overallocate(dual_database, monkeypatch)
 
 
 @pytest.mark.asyncio
@@ -272,7 +316,9 @@ async def test_claim_pending_pg_returns_none_when_no_work() -> None:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
-    mock_conn.fetch_one = AsyncMock(return_value=None)
+    mock_conn.fetch_one = AsyncMock(
+        side_effect=[{"current_time": datetime(2026, 8, 16, tzinfo=UTC)}, None]
+    )
 
     mock_pool = MagicMock()
     pg_db = AsyncPostgresDatabase(pool=mock_pool)
@@ -295,7 +341,12 @@ async def test_claim_pending_pg_returns_run_id_on_success() -> None:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
 
     mock_conn = AsyncMock()
-    mock_conn.fetch_one = AsyncMock(return_value={"run_id": "test-123"})
+    mock_conn.fetch_one = AsyncMock(
+        side_effect=[
+            {"current_time": datetime(2026, 8, 16, tzinfo=UTC)},
+            {"run_id": "test-123"},
+        ]
+    )
     mock_conn.execute = AsyncMock()
 
     mock_pool = MagicMock()
