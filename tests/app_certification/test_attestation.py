@@ -58,13 +58,26 @@ def _candidate_archives(tmp_path: Path) -> tuple[Path, Path, CandidateIdentity]:
 
 def _candidate_evidence(
     tmp_path: Path, candidate: CandidateIdentity
-) -> tuple[Path, Path, Path, Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
     root, report, verdict = tmp_path / "root", tmp_path / "report.json", tmp_path / "verdict.json"
     sbom, provenance = root / "evidence/app.spdx.json", root / "evidence/provenance.json"
     wheel = tmp_path / "zeroth-core.whl"
     requirements = tmp_path / "requirements-image.txt"
+    installation = tmp_path / "installed-wheel.json"
     wheel.write_bytes(b"trusted wheel")
-    requirements.write_text("zeroth-core==0.23.9.8.1\n", encoding="utf-8")
+    requirements.write_text("zeroth-core==0.23.9.9\n", encoding="utf-8")
+    installation.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "package": "zeroth-core",
+                "version": candidate.zeroth_version,
+                "wheel_sha256": file_digest(wheel),
+                "installed_files": {"zeroth/__init__.py": "sha256:" + "a" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
     sbom.parent.mkdir(parents=True)
     sbom.write_text(
         json.dumps(
@@ -87,6 +100,7 @@ def _candidate_evidence(
             "sbom": file_digest(sbom),
             "zeroth_wheel": file_digest(wheel),
             "requirements_lock": file_digest(requirements),
+            "wheel_installation": file_digest(installation),
         },
     )
     write_report(CertificationReport.passed(candidate, sbom, provenance, root=root), report)
@@ -96,7 +110,7 @@ def _candidate_evidence(
             {"dsseEnvelope": {"payload": base64.b64encode(provenance.read_bytes()).decode()}}
         )
     )
-    return root, report, verdict, bundle, wheel, requirements
+    return root, report, verdict, bundle, wheel, requirements, installation
 
 
 def _handoff_args(
@@ -108,6 +122,7 @@ def _handoff_args(
     candidate: CandidateIdentity,
     wheel: Path,
     requirements: Path,
+    installation: Path,
     verdict: Path,
 ) -> list[str]:
     return [
@@ -129,6 +144,8 @@ def _handoff_args(
         str(wheel),
         "--requirements-lock",
         str(requirements),
+        "--wheel-installation",
+        str(installation),
         "--verdict",
         str(verdict),
     ]
@@ -138,7 +155,9 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
     tmp_path: Path, monkeypatch
 ) -> None:
     image, source, candidate = _candidate_archives(tmp_path)
-    root, report, verdict, bundle, wheel, requirements = _candidate_evidence(tmp_path, candidate)
+    root, report, verdict, bundle, wheel, requirements, installation = _candidate_evidence(
+        tmp_path, candidate
+    )
     gh = tmp_path / "gh"
     gh.write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
     gh.chmod(0o755)
@@ -151,6 +170,7 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
         candidate=candidate,
         wheel=wheel,
         requirements=requirements,
+        installation=installation,
         verdict=verdict,
     )
     assert app_certification_main(["validate-handoff", *handoff]) == 0

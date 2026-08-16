@@ -19,6 +19,7 @@ from .evidence import (
     validate_source_archive,
     write_provenance,
 )
+from .http_process import probe_readiness as _probe_readiness
 from .http_process import run_http_exchange
 from .models import (
     SmokeSpec,
@@ -36,10 +37,10 @@ from .runner import (
     measure_candidate_identity,
 )
 from .scaffold import scaffold_checkout
+from .wheel_installation import validate_wheel_installation, verify_wheel_installation
 from .workflow_finalizer import finalize_workflow as _finalize_workflow
 
 _HTTP_TIMEOUT_SECONDS = 30.0
-_READINESS_TIMEOUT_SECONDS = 5.0
 
 
 class UrlHttpBoundary:
@@ -110,7 +111,22 @@ def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--zeroth-commit", required=True)
     command.add_argument("--certifier-wheel", type=Path, required=True)
     command.add_argument("--requirements-lock", type=Path, required=True)
+    command.add_argument("--wheel-installation", type=Path, required=True)
     command.add_argument("--verdict", type=Path, required=True)
+
+
+def _add_wheel_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--wheel", type=Path, required=True)
+    command.add_argument("--site-packages", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+
+
+def _add_scaffold_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--root", type=Path, required=True)
+    command.add_argument("--app-name", required=True)
+    command.add_argument("--module", required=True)
+    command.add_argument("--zeroth-version", required=True)
+    command.add_argument("--zeroth-ref", required=True)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -142,6 +158,9 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--zeroth-commit", required=True)
     evidence.add_argument("--certifier-wheel", type=Path, required=True)
     evidence.add_argument("--requirements-lock", type=Path, required=True)
+    evidence.add_argument("--wheel-installation", type=Path, required=True)
+    wheel = commands.add_parser("verify-wheel-installation")
+    _add_wheel_arguments(wheel)
     handoff = commands.add_parser("validate-handoff")
     _add_handoff_arguments(handoff)
     attestation = commands.add_parser("finalize-attestation")
@@ -156,11 +175,7 @@ def _parser() -> argparse.ArgumentParser:
     finalizer = commands.add_parser("finalize-workflow")
     finalizer.add_argument("--root", type=Path, required=True)
     scaffold = commands.add_parser("scaffold")
-    scaffold.add_argument("--root", type=Path, required=True)
-    scaffold.add_argument("--app-name", required=True)
-    scaffold.add_argument("--module", required=True)
-    scaffold.add_argument("--zeroth-version", required=True)
-    scaffold.add_argument("--zeroth-ref", required=True)
+    _add_scaffold_arguments(scaffold)
     return parser
 
 
@@ -200,19 +215,23 @@ def _build_material_digests(
     sbom: Path,
     certifier_wheel: Path,
     requirements_lock: Path,
+    wheel_installation: Path,
 ) -> dict[str, str]:
     for label, path in (
         ("certifier wheel", certifier_wheel),
         ("image requirements lock", requirements_lock),
+        ("wheel installation proof", wheel_installation),
     ):
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"{label} is missing or empty")
+    validate_wheel_installation(wheel_installation, certifier_wheel, candidate)
     return {
         "source": candidate.source_digest,
         "image": candidate.image_digest,
         "sbom": file_digest(sbom),
         "zeroth_wheel": file_digest(certifier_wheel),
         "requirements_lock": file_digest(requirements_lock),
+        "wheel_installation": file_digest(wheel_installation),
     }
 
 
@@ -240,6 +259,7 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         sbom,
         args.certifier_wheel,
         args.requirements_lock,
+        args.wheel_installation,
     )
     write_provenance(
         provenance,
@@ -248,10 +268,7 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         sbom_digest=file_digest(sbom),
         build_material_digests=materials,
     )
-    retained_materials = certification_root / "materials"
-    retained_materials.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(args.certifier_wheel, retained_materials / "zeroth-core.whl")
-    shutil.copyfile(args.requirements_lock, retained_materials / "requirements-image.txt")
+    _retain_build_materials(certification_root, args)
     retained = certification_root / "root"
     for source, relative in (
         (sbom, declaration.sbom_path),
@@ -265,6 +282,14 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     return 0
+
+
+def _retain_build_materials(root: Path, args: argparse.Namespace) -> None:
+    materials = root / "materials"
+    materials.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(args.certifier_wheel, materials / "zeroth-core.whl")
+    shutil.copyfile(args.requirements_lock, materials / "requirements-image.txt")
+    shutil.copyfile(args.wheel_installation, materials / "installed-wheel.json")
 
 
 def _validate_handoff(args: argparse.Namespace) -> int:
@@ -285,6 +310,7 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         sbom,
         args.certifier_wheel,
         args.requirements_lock,
+        args.wheel_installation,
     )
     validate_evidence_subject(
         "provenance",
@@ -317,37 +343,29 @@ def _validate_handoff(args: argparse.Namespace) -> int:
     return 0
 
 
-def _probe_readiness(url: str) -> int:
-    status, payload = run_http_exchange(
-        url,
-        method="GET",
-        headers={"Accept": "application/json"},
-        body=None,
-        timeout=_READINESS_TIMEOUT_SECONDS,
-    )
-    if status != 200:
-        raise ValueError(f"readiness expected HTTP 200, received {status}")
-    if not isinstance(payload, dict) or payload.get("status") != "ok":
-        raise ValueError(f"readiness status must be 'ok', received {payload!r}")
-    return 0
+def _validate_command(args: argparse.Namespace) -> int:
+    if args.command == "validate-declaration":
+        load_declaration(args.declaration)
+        print(f"valid declaration: {args.declaration}")
+        return 0
+    report = validate_report(args.report, root=args.root)
+    print(f"valid report: {args.report}; status={report.status}")
+    return 0 if report.status == "passed" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     """Validate declarations, execute certification, or validate retained reports."""
     args = _parser().parse_args(argv)
     try:
-        if args.command == "validate-declaration":
-            load_declaration(args.declaration)
-            print(f"valid declaration: {args.declaration}")
-            return 0
+        if args.command in {"validate-declaration", "validate-report"}:
+            return _validate_command(args)
         if args.command == "run":
             return _run(args)
-        if args.command == "validate-report":
-            report = validate_report(args.report, root=args.root)
-            print(f"valid report: {args.report}; status={report.status}")
-            return 0 if report.status == "passed" else 1
         if args.command == "prepare-evidence":
             return _prepare_evidence(args)
+        if args.command == "verify-wheel-installation":
+            verify_wheel_installation(args.wheel, args.site_packages, args.output)
+            return 0
         if args.command == "validate-handoff":
             return _validate_handoff(args)
         if args.command == "finalize-attestation":

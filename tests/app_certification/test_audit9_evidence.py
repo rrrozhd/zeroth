@@ -36,7 +36,7 @@ def _identity(image_digest: str = DIGEST) -> CandidateIdentity:
     return CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.8.1",
+        zeroth_version="0.23.9.9",
         image_reference="reference-app:certification",
         image_digest=image_digest,
         source_digest=SOURCE_DIGEST,

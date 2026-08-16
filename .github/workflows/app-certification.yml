@@ -155,6 +155,25 @@ jobs:
           }
           timeout 5m docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+      - name: Verify exact trusted wheel installation
+        id: wheel
+        env:
+          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
+          WHEEL_SITE=$(mktemp -d "$RUNNER_TEMP/app-cert-wheel-site.XXXXXX")
+          trap 'docker rm -f app-cert-wheel-inspect >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
+          docker create --name app-cert-wheel-inspect "$IMAGE_REFERENCE" >/dev/null
+          docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
+          zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
+            --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
+            --output app/.app-certification/installed-wheel.json
+          docker rm app-cert-wheel-inspect >/dev/null
+          rm -rf "$WHEEL_SITE"
+          trap - EXIT
       - name: Generate SPDX image SBOM
         id: sbom
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -187,7 +206,8 @@ jobs:
             --raw-sbom app/.app-certification/image.spdx.json \
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
             --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
-            --requirements-lock trusted-certifier/requirements-image.txt
+            --requirements-lock trusted-certifier/requirements-image.txt \
+            --wheel-installation app/.app-certification/installed-wheel.json
       - name: Start isolated packaged and ephemeral containers
         id: containers
         env:
@@ -264,6 +284,7 @@ jobs:
           CERTIFIER_CHECKOUT: ${{ steps.certifier-checkout.outcome }}
           PREPARE: ${{ steps.prepare.outcome }}
           IMAGE: ${{ steps.image.outcome }}
+          WHEEL: ${{ steps.wheel.outcome }}
           SBOM: ${{ steps.sbom.outcome }}
           EVIDENCE: ${{ steps.evidence.outcome }}
           CONTAINERS: ${{ steps.containers.outcome }}
@@ -273,7 +294,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
             -m release.app_certification finalize-workflow \
-            --root app/.app-certification || python3 -c 'import json,os,pathlib; r=pathlib.Path("app/.app-certification"); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p)'
+            --root app/.app-certification || python3 -c 'import json,os,pathlib; r=pathlib.Path("app/.app-certification"); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p)'
       - name: Capture container diagnostics
         if: ${{ always() }}
         run: |
@@ -287,6 +308,7 @@ jobs:
         if: ${{ always() }}
         run: |
           set +e
+          docker rm -f app-cert-wheel-inspect
           docker stop app-cert-packaged app-cert-ephemeral
           docker rm app-cert-packaged app-cert-ephemeral
           docker network rm app-cert-packaged-net app-cert-ephemeral-net
@@ -345,6 +367,7 @@ jobs:
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
             --certifier-wheel evidence/materials/zeroth-core.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
+            --wheel-installation evidence/materials/installed-wheel.json \
             --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
       - name: Upload authenticated unprivileged verdict
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -418,6 +441,7 @@ jobs:
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
             --certifier-wheel evidence/materials/zeroth-core.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
+            --wheel-installation evidence/materials/installed-wheel.json \
             --repository '${{ github.repository }}' --signer-repo rrrozhd/zeroth \
             --signer-workflow rrrozhd/zeroth/.github/workflows/app-certification.yml \
             --signer-digest '${{ inputs.zeroth_ref }}' --verdict evidence/verdict.json

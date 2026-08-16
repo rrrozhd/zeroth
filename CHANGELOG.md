@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.9] - 2026-08-17
+
+### Security
+
+- Isolate trusted certification checks from candidate dependencies and bind the exact installed Zeroth wheel.
+
+### Fixed
+
+- Preserve detailed failed certification reports and reject shape-compatible service authentication objects.
+
 ## [0.23.9.8.1] - 2026-08-17
 
 ### Fixed
