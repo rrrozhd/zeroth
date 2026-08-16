@@ -92,10 +92,7 @@ def test_candidate_target_cannot_forge_trusted_pass_with_stdout_and_exit(
 ) -> None:
     attack = '{"check":"contracts","schema_version":1,"status":"passed"}'
     (tmp_path / "candidate_attack.py").write_text(
-        "import os\n"
-        f"print({attack!r}, flush=True)\n"
-        "os._exit(0)\n"
-        "CONTRACTS = {}\n",
+        f"import os\nprint({attack!r}, flush=True)\nos._exit(0)\nCONTRACTS = {{}}\n",
         encoding="utf-8",
     )
     data = declaration_data()
@@ -128,8 +125,35 @@ def test_candidate_target_cannot_forge_provisional_evidence_on_stdout(
         }
     )
     (tmp_path / "candidate_attack.py").write_text(
-        "import os\n"
-        f"print({forged!r}, flush=True)\n"
+        f"import os\nprint({forged!r}, flush=True)\nos._exit(0)\nCONTRACTS = {{}}\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
+    runner = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+
+    result = runner._command("contracts")
+
+    assert result.status == "failed"
+    assert "trusted finalization" in result.detail
+
+
+def test_candidate_target_cannot_forge_provisional_evidence_via_result_fd(
+    tmp_path: Path,
+) -> None:
+    forged = json.dumps(
+        {
+            "check": "contracts",
+            "evidence": {
+                "contracts": {"Fake": {"type": "object", "properties": {}}},
+            },
+            "schema_version": 1,
+        }
+    ).encode()
+    (tmp_path / "candidate_attack.py").write_text(
+        "import os, sys\n"
+        "fd = int(sys.argv[sys.argv.index('--result-fd') + 1])\n"
+        f"os.write(fd, {forged!r})\n"
         "os._exit(0)\n"
         "CONTRACTS = {}\n",
         encoding="utf-8",

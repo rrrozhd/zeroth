@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import shutil
 from pathlib import Path
 import pytest
 from pydantic import ValidationError
@@ -19,7 +20,7 @@ from release.app_certification import (
 )
 from release.app_certification.checks import run_owned_check
 from release.app_certification import checks as owned_checks
-from release.app_certification.candidate_worker import collect_candidate_evidence
+from release.app_certification.candidate_worker import _payload, collect_candidate_evidence
 from release.app_certification.cli import _untrusted_executor
 
 COMMIT = "a" * 40
@@ -31,7 +32,7 @@ def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.4",
+        "zeroth_version": "0.23.9.5",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -62,12 +63,13 @@ def write_inputs(root: Path) -> None:
     provenance = evidence / "provenance.json"
     sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n')
     candidate = CandidateIdentity(
-        app_name="reference-app", app_commit=COMMIT, zeroth_version="0.23.9.4",
+        app_name="reference-app", app_commit=COMMIT, zeroth_version="0.23.9.5",
         image_reference="reference-app:certification", image_digest=DIGEST,
         source_digest=SOURCE_DIGEST,
     )
     bind_sbom(sbom, candidate)
     write_provenance(provenance, candidate)
+    shutil.copytree(Path("apps/vendor_dd"), root / "apps/vendor_dd")
 
 
 def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
@@ -78,14 +80,13 @@ def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
         evidence = collect_candidate_evidence(
             check, cwd, declaration, installed_version=declaration.zeroth_version
         )
-        structured = {"check": check, "evidence": evidence, "schema_version": 1}
+        structured = _payload(check, evidence, cwd, declaration)
     return CommandResult(returncode=0, stdout=json.dumps(structured) + "\n", stderr="")
 
 
 def passing_http(check: str, smoke) -> HttpResult:
     body = {"status": "accepted", "result": {"case": "fixed", "extra": True}}
     return HttpResult(status_code=202, json_body=body)
-
 
 def run_certification(
     root: Path, declaration: AppDeclaration, *,
@@ -113,7 +114,7 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.9.4"
+    assert report.candidate.zeroth_version == "0.23.9.5"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")

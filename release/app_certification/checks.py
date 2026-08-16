@@ -25,7 +25,7 @@ from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 from zeroth.service.bootstrap import run_migrations
 
-from .models import AppDeclaration, load_declaration
+from .models import AppDeclaration, file_digest, load_declaration
 
 
 def _load_target(reference: str) -> Any:
@@ -34,6 +34,42 @@ def _load_target(reference: str) -> Any:
     for attribute in attribute_path.split("."):
         value = getattr(value, attribute)
     return value
+
+
+def target_source_digests(name: str, root: Path, declaration: AppDeclaration) -> dict[str, str]:
+    """Bind candidate evidence to the declared app modules without importing them."""
+    root = root.resolve()
+    targets = declaration.targets
+    references = {
+        "graph": [*targets.graph_builders, targets.contracts],
+        "contracts": [targets.contracts],
+        "service-config": [targets.auth_config],
+        "optional-extras": [
+            *targets.graph_builders,
+            targets.contracts,
+            targets.auth_config,
+            targets.policy_guard,
+        ],
+        "policies": [*targets.graph_builders, targets.policy_guard],
+    }[name]
+    bindings: dict[str, str] = {}
+    for reference in sorted(set(references)):
+        module_name = reference.partition(":")[0]
+        module = Path(*module_name.split("."))
+        source = next(
+            (
+                path
+                for path in (root / module.with_suffix(".py"), root / module / "__init__.py")
+                if path.is_file()
+            ),
+            None,
+        )
+        if source is None:
+            raise ValueError(f"declared target source is missing for {reference!r}")
+        source = source.resolve()
+        source.relative_to(root)
+        bindings[reference] = file_digest(source)
+    return bindings
 
 
 def _contracts(declaration: AppDeclaration) -> dict[str, type[BaseModel]]:
