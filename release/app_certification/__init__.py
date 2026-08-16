@@ -1,6 +1,12 @@
 """Reusable generated-app certification contract and runner."""
 
-from .evidence import bind_sbom, finalize_attestation, validate_image_archive, write_provenance
+from .evidence import (
+    bind_sbom,
+    finalize_attestation,
+    validate_image_archive,
+    validate_source_archive,
+    write_provenance,
+)
 from .models import (
     MANDATORY_CHECKS,
     AppDeclaration,
@@ -48,6 +54,7 @@ __all__ = [
     "scaffold_checkout",
     "bind_sbom",
     "validate_image_archive",
+    "validate_source_archive",
     "validate_report",
     "write_report",
     "write_provenance",

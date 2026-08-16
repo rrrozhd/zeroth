@@ -190,6 +190,7 @@ class CandidateIdentity(BaseModel):
     zeroth_version: str
     image_reference: str
     image_digest: str
+    source_digest: str
 
     @field_validator("app_name")
     @classmethod
@@ -224,6 +225,13 @@ class CandidateIdentity(BaseModel):
     def _image_digest(cls, value: str) -> str:
         if _DIGEST.fullmatch(value) is None:
             raise ValueError("image_digest must be immutable sha256:<64 lowercase hex>")
+        return value
+
+    @field_validator("source_digest")
+    @classmethod
+    def _source_digest(cls, value: str) -> str:
+        if _DIGEST.fullmatch(value) is None:
+            raise ValueError("source_digest must be immutable sha256:<64 lowercase hex>")
         return value
 
 
