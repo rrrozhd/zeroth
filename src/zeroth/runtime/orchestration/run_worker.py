@@ -242,16 +242,21 @@ class RunWorker:
                 if self._stopping:
                     return
                 limit = await self._effective_max_concurrency()
-                orphans = await self.lease_manager.claim_orphaned(
+                result = await self.lease_manager.claim_orphaned_result(
                     self.deployment_ref,
                     self.worker_id,
                     max_concurrency=limit if self._uses_shared_concurrency() else None,
                     claim_limit=1,
                     **self._lease_scope(),
                 )
-                if not orphans:
+                if not result.run_ids and not result.concurrency_saturated:
                     return
-                run_id = orphans[0]
+                if result.concurrency_saturated:
+                    self._semaphore.release()
+                    slot_reserved = False
+                    await asyncio.sleep(max(0.01, self.poll_interval))
+                    continue
+                run_id = result.run_ids[0]
                 logger.info("worker %s recovering orphaned run %s", self.worker_id, run_id)
                 task = asyncio.create_task(
                     self._execute_leased_run(

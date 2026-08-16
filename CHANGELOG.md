@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.4] - 2026-08-17
+
+### Fixed
+
+- Retry startup orphan recovery after temporary shared concurrency saturation frees.
+
 ## [0.23.9.3] - 2026-08-17
 
 ### Fixed

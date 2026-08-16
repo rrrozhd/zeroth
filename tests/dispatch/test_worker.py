@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.conftest import requires_docker
 from zeroth.contracts.graph.token_snapshot import TokenEngineSnapshotState
 from zeroth.governance.audit import AuditRepository
 from zeroth.platform.observability.metrics import MetricsCollector
@@ -565,6 +566,77 @@ async def test_worker_recovers_orphaned_run(sqlite_db) -> None:
     await worker.start()
     # Wait for recovery tasks to finish.
     final = await _wait_for_status(run_repo, run.run_id, RunStatus.COMPLETED)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED
+
+
+@requires_docker
+async def test_worker_recovers_orphan_after_initial_shared_capacity_saturation(
+    dual_database, monkeypatch
+) -> None:
+    run_repo = RunRepository.for_default_compatibility(dual_database)
+    lease_manager = LeaseManager(dual_database)
+    orchestrator = _FakeOrchestrator(run_repo)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=run_repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=lease_manager,
+        max_concurrency=1,
+        poll_interval=0.01,
+    )
+    worker.guardrail_policy_repository = SimpleNamespace(
+        effective=AsyncMock(return_value=SimpleNamespace(max_concurrency=1))
+    )
+
+    occupying = await _make_run(run_repo)
+    orphan = await _make_run(run_repo)
+    await run_repo.transition(occupying.run_id, RunStatus.RUNNING)
+    await run_repo.transition(orphan.run_id, RunStatus.RUNNING)
+    async with dual_database.transaction() as connection:
+        await connection.execute(
+            """UPDATE runs
+               SET lease_worker_id = 'occupying-worker',
+                   lease_expires_at = '2999-01-01T00:00:00+00:00',
+                   lease_generation = 1
+               WHERE run_id = ?""",
+            (occupying.run_id,),
+        )
+        await connection.execute(
+            """UPDATE runs
+               SET lease_worker_id = 'crashed-worker',
+                   lease_expires_at = '2000-01-01T00:00:00+00:00',
+                   lease_generation = 1
+               WHERE run_id = ?""",
+            (orphan.run_id,),
+        )
+
+    first_scan = asyncio.Event()
+    method_name = (
+        "claim_orphaned_result"
+        if hasattr(LeaseManager, "claim_orphaned_result")
+        else "claim_orphaned"
+    )
+    original_claim = getattr(LeaseManager, method_name)
+
+    async def _observed_claim(manager, *args, **kwargs):
+        result = await original_claim(manager, *args, **kwargs)
+        first_scan.set()
+        return result
+
+    monkeypatch.setattr(LeaseManager, method_name, _observed_claim)
+
+    await worker.start()
+    recovery_task = next(iter(worker._active_tasks))
+    await asyncio.wait_for(first_scan.wait(), timeout=2)
+    await asyncio.sleep(0)
+    recovery_finished_while_saturated = recovery_task.done()
+
+    await lease_manager.release_lease(occupying.run_id, "occupying-worker")
+    final = await _wait_for_status(run_repo, orphan.run_id, RunStatus.COMPLETED, timeout=2)
+
+    assert recovery_finished_while_saturated is False
     assert final is not None
     assert final.status is RunStatus.COMPLETED
 

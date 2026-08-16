@@ -156,6 +156,14 @@ class _ConcurrencyAvailability:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _OrphanClaimResult:
+    """One bounded orphan scan, including why it returned no runs."""
+
+    run_ids: tuple[str, ...]
+    concurrency_saturated: bool
+
+
 @dataclass(slots=True)
 class LeaseManager:
     """Manages worker leases on runs stored in an async database.
@@ -514,6 +522,27 @@ class LeaseManager:
         Sets ``recovery_checkpoint_id`` to the latest checkpoint for each
         claimed run so the worker knows where to resume.
         """
+        result = await self.claim_orphaned_result(
+            deployment_ref,
+            worker_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            max_concurrency=max_concurrency,
+            claim_limit=claim_limit,
+        )
+        return list(result.run_ids)
+
+    async def claim_orphaned_result(
+        self,
+        deployment_ref: str,
+        worker_id: str,
+        *,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+        max_concurrency: int | None = None,
+        claim_limit: int | None = None,
+    ) -> _OrphanClaimResult:
+        """Claim expired RUNNING runs and distinguish saturation from exhaustion."""
         claimed: list[str] = []
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction(write_lock=max_concurrency is not None) as conn:
@@ -537,7 +566,17 @@ class LeaseManager:
             if claim_limit is not None and claim_limit < 1:
                 raise ValueError("claim_limit must be positive")
             if availability.saturated:
-                return []
+                waiting = await conn.fetch_one(
+                    f"""SELECT 1 AS waiting FROM runs
+                        WHERE deployment_ref = ?
+                          {scope_sql}
+                          AND status = ?
+                          AND lease_worker_id IS NOT NULL
+                          AND lease_expires_at < ?
+                        LIMIT 1""",
+                    (deployment_ref, *scope_params, _STATUS_RUNNING, now.isoformat()),
+                )
+                return _OrphanClaimResult((), waiting is not None)
             available = availability.slots
             limit = claim_limit if available is None else available
             if claim_limit is not None and available is not None:
@@ -602,7 +641,7 @@ class LeaseManager:
                 )
                 if won is not None:
                     claimed.append(run_id)
-        return claimed
+        return _OrphanClaimResult(tuple(claimed), False)
 
     # ---------------------------------------------------------------------------
     # Lease maintenance
