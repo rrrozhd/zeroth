@@ -18,14 +18,18 @@ def main() -> int:
     parser.add_argument("--frontend", type=Path, required=True)
     args = parser.parse_args()
     frontend = args.frontend.resolve()
-    root = frontend.parent
-    compiler = frontend / "node_modules" / ".bin" / "openapi-typescript"
+    toolchain = Path(__file__).resolve().parents[1]
+    compiler = toolchain / "frontend/node_modules/.bin/openapi-typescript"
     pairs = (
-        ("openapi.json", "app/lib/api-types.ts", root / "scripts" / "dump_openapi.py"),
+        (
+            "openapi.json",
+            "app/lib/api-types.ts",
+            toolchain / "scripts/dump_openapi.py",
+        ),
         (
             "openapi.regulus.json",
             "app/lib/api-types.regulus.ts",
-            root / "scripts" / "dump_regulus_openapi.py",
+            toolchain / "scripts/dump_regulus_openapi.py",
         ),
     )
     drift: list[str] = []
@@ -34,7 +38,13 @@ def main() -> int:
         for json_name, ts_name, generator in pairs:
             generated_json = tmp / json_name
             generated_ts = tmp / Path(ts_name).name
-            _run(sys.executable, str(generator), "--out", str(generated_json), cwd=root)
+            _run(
+                sys.executable,
+                str(generator),
+                "--out",
+                str(generated_json),
+                cwd=toolchain,
+            )
             _run(str(compiler), str(generated_json), "-o", str(generated_ts), cwd=frontend)
             for tracked, generated in (
                 (frontend / json_name, generated_json),

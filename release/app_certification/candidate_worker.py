@@ -3,16 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
-import importlib.metadata
 import json
-import os
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-
-from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph
 from zeroth.contracts.graph.validation import ContractValidator
@@ -29,7 +23,7 @@ from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
-from .candidate_process import isolated_candidate_imports, run_importer
+from .candidate_process import run_importer
 from .models import AppDeclaration
 
 CANDIDATE_CHECKS = frozenset(
@@ -43,125 +37,8 @@ _IMPORT_BOOTSTRAP = (
     "'site-packages';"
     "sys.prefix=sys.exec_prefix=str(venv);"
     "sys.path[:0]=[str(certifier),str(certifier/'src'),str(site_packages)];"
-    "runpy.run_module('release.app_certification.candidate_worker',run_name='__main__')"
+    "runpy.run_module('release.app_certification.candidate_process',run_name='__main__')"
 )
-
-
-def _schemas(contracts: Mapping[str, type[BaseModel]]) -> dict[str, dict[str, Any]]:
-    return {name: model.model_json_schema() for name, model in contracts.items()}
-
-
-def _graph_evidence(declaration: AppDeclaration) -> dict[str, Any]:
-    contracts = checks._contracts(declaration)
-    graphs = checks._graphs(declaration)
-    asyncio.run(checks._registered_validation(contracts, graphs))
-    reducers = {
-        node.parallel_config.reducer_ref
-        for graph in graphs
-        for node in graph.nodes
-        if getattr(node, "parallel_config", None) is not None
-        and node.parallel_config.reducer_ref is not None
-    }
-    return {
-        "contracts": _schemas(contracts),
-        "graphs": [graph.model_dump(mode="json") for graph in graphs],
-        "reducers": sorted(reducers),
-    }
-
-
-def _contracts_evidence(declaration: AppDeclaration) -> dict[str, Any]:
-    contracts = checks._contracts(declaration)
-    asyncio.run(checks._registered_validation(contracts, []))
-    return {"contracts": _schemas(contracts)}
-
-
-def _service_config_evidence(declaration: AppDeclaration) -> dict[str, Any]:
-    settings = checks.get_settings()
-    if settings.database.backend not in {"sqlite", "postgresql"}:
-        raise ValueError(f"unsupported database backend {settings.database.backend!r}")
-    config = checks._load_target(declaration.targets.auth_config)()
-    if not isinstance(config, ServiceAuthConfig):
-        raise ValueError("auth_config target must return ServiceAuthConfig")
-    if not config.api_keys:
-        raise ValueError("ServiceAuthConfig must contain at least one API key")
-    return {
-        "auth_config": config.model_dump(mode="json"),
-        "database_backend": settings.database.backend,
-    }
-
-
-def _optional_extras_evidence(
-    root: Path, declaration: AppDeclaration, installed_version: str | None
-) -> dict[str, Any]:
-    app_venv = (root / ".venv").resolve()
-    if Path(sys.prefix).resolve() != app_venv and installed_version is None:
-        raise ValueError(f"optional extras check must run with {app_venv}/bin/python")
-    targets = [
-        *declaration.targets.graph_builders,
-        declaration.targets.contracts,
-        declaration.targets.auth_config,
-        declaration.targets.policy_guard,
-    ]
-    for reference in targets:
-        checks._load_target(reference)
-    return {
-        "targets": targets,
-        "zeroth_version": installed_version or importlib.metadata.version("zeroth-core"),
-    }
-
-
-def _policy_evidence(declaration: AppDeclaration) -> dict[str, Any]:
-    guard = checks._load_target(declaration.targets.policy_guard)()
-    if not isinstance(guard, PolicyGuard):
-        raise ValueError("policy_guard target must return PolicyGuard")
-    graphs = checks._graphs(declaration)
-    if not sum(checks._validate_graph_policies(guard, graph) for graph in graphs):
-        raise ValueError("app graphs contain no registered policy bindings")
-    policy_refs = {
-        reference
-        for graph in graphs
-        for reference in (
-            *graph.policy_bindings,
-            *(ref for node in graph.nodes for ref in node.policy_bindings),
-        )
-    }
-    capability_refs = {
-        reference
-        for graph in graphs
-        for node in graph.nodes
-        for reference in node.capability_bindings
-    }
-    return {
-        "capabilities": {
-            ref: guard.capability_registry.resolve(ref).value for ref in sorted(capability_refs)
-        },
-        "graphs": [graph.model_dump(mode="json") for graph in graphs],
-        "policies": {
-            ref: guard.policy_registry.resolve(ref).model_dump(mode="json")
-            for ref in sorted(policy_refs)
-        },
-    }
-
-
-def collect_candidate_evidence(
-    name: str,
-    root: Path,
-    declaration: AppDeclaration,
-    *,
-    installed_version: str | None = None,
-) -> dict[str, Any]:
-    """Collect provisional semantic evidence in the candidate process."""
-    if name == "graph":
-        return _graph_evidence(declaration)
-    if name == "contracts":
-        return _contracts_evidence(declaration)
-    if name == "service-config":
-        return _service_config_evidence(declaration)
-    if name == "optional-extras":
-        return _optional_extras_evidence(root, declaration, installed_version)
-    if name == "policies":
-        return _policy_evidence(declaration)
-    raise ValueError(f"no candidate semantic check named {name!r}")
 
 
 def _trusted_schemas(raw: Any) -> dict[str, dict[str, Any]]:
@@ -297,46 +174,6 @@ def finalize_candidate_evidence(
         raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _payload(
-    name: str, evidence: dict[str, Any], root: Path, declaration: AppDeclaration
-) -> dict[str, Any]:
-    return {
-        "check": name,
-        "evidence": evidence,
-        "schema_version": 1,
-        "target_sources": checks.target_source_digests(name, root, declaration),
-    }
-
-
-def _import_candidate(name: str, root: Path, declaration: AppDeclaration) -> int:
-    sys.path.insert(0, str(root))
-    saved_stdout, saved_stderr = os.dup(1), os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, 1)
-    os.dup2(devnull, 2)
-    try:
-        with isolated_candidate_imports(Path(__file__).parents[2]):
-            evidence = collect_candidate_evidence(name, root, declaration)
-    except Exception as error:  # noqa: BLE001 - importer returns one captured diagnostic
-        outcome: tuple[int, Any] = (1, error)
-    else:
-        outcome = (0, _payload(name, evidence, root, declaration))
-    finally:
-        os.dup2(saved_stdout, 1)
-        os.dup2(saved_stderr, 2)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
-        os.close(devnull)
-        if sys.path[0] == str(root):
-            sys.path.pop(0)
-    if outcome[0]:
-        error = outcome[1]
-        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(outcome[1], sort_keys=True, separators=(",", ":")))
-    return 0
-
-
 def _importer_argv(name: str, root: Path, declaration: AppDeclaration) -> list[str]:
     return [
         str(Path(sys.executable).absolute()),
@@ -380,8 +217,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
     root = args.root.resolve()
-    if os.environ.get("APP_CERTIFICATION_IMPORTER") == "1":
-        return _import_candidate(args.name, root, declaration)
     return _supervise_candidate(args.name, root, declaration)
 
 

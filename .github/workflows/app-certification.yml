@@ -76,7 +76,7 @@ jobs:
             exit 1
           }
           uv sync --directory zeroth --frozen --all-extras
-          FRONTEND_PATH=$(PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python -c 'from pathlib import Path; import sys; from release.app_certification.models import load_declaration; print(load_declaration(Path(sys.argv[1])).targets.frontend_path)' "$DECLARATION_FILE")
+          npm ci --prefix zeroth/frontend
           mkdir trusted-certifier
           uv build --directory zeroth --wheel --out-dir trusted-certifier
           cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
@@ -85,17 +85,11 @@ jobs:
           chmod -R go-w zeroth app
           mkdir app/.venv
           sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
-          sudo cp -R "app/$FRONTEND_PATH" /home/app-cert-candidate/frontend
-          sudo chown -R app-cert-candidate:app-cert-candidate /home/app-cert-candidate/frontend
           sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
             UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/app/.venv" \
             uv sync --directory app --frozen --all-extras
-          sudo -H -u app-cert-candidate env -i \
-            HOME=/home/app-cert-candidate PATH="$PATH" \
-            npm ci --prefix /home/app-cert-candidate/frontend
-          sudo cp -R /home/app-cert-candidate/frontend/node_modules "app/$FRONTEND_PATH/node_modules"
-          sudo chown -R "$USER":"$USER" app/.venv "app/$FRONTEND_PATH/node_modules"
+          sudo chown -R "$USER":"$USER" app/.venv
           chmod -R go-w zeroth app
           git -C app diff --exit-code
           git -C app diff --cached --exit-code
