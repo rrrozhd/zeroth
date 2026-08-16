@@ -107,6 +107,10 @@
     {
       "down_revision": "026",
       "revision": "027"
+    },
+    {
+      "down_revision": "027",
+      "revision": "028"
     }
   ],
   "tables": {
@@ -1223,22 +1227,31 @@
           "cid": 0,
           "default": null,
           "hidden": 0,
-          "name": "tenant_id",
-          "not_null": true,
+          "name": "revision_order",
+          "not_null": false,
           "primary_key_position": 1,
-          "type": "TEXT"
+          "type": "INTEGER"
         },
         {
           "cid": 1,
           "default": null,
           "hidden": 0,
-          "name": "revision_id",
+          "name": "tenant_id",
           "not_null": true,
-          "primary_key_position": 2,
+          "primary_key_position": 0,
           "type": "TEXT"
         },
         {
           "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "revision_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
           "default": null,
           "hidden": 0,
           "name": "scope_type",
@@ -1247,7 +1260,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 3,
+          "cid": 4,
           "default": "''",
           "hidden": 0,
           "name": "deployment_ref",
@@ -1256,7 +1269,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 4,
+          "cid": 5,
           "default": null,
           "hidden": 0,
           "name": "policy_json",
@@ -1265,7 +1278,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 5,
+          "cid": 6,
           "default": null,
           "hidden": 0,
           "name": "changed_by",
@@ -1274,7 +1287,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 6,
+          "cid": 7,
           "default": null,
           "hidden": 0,
           "name": "created_at",
@@ -1283,7 +1296,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE guardrail_policy_revisions ( tenant_id TEXT NOT NULL, revision_id TEXT NOT NULL, scope_type TEXT NOT NULL CHECK (scope_type IN ('tenant', 'deployment')), deployment_ref TEXT NOT NULL DEFAULT '', policy_json TEXT NOT NULL, changed_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (tenant_id, revision_id))",
+      "constraint_definition": "CREATE TABLE guardrail_policy_revisions ( revision_order INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id TEXT NOT NULL, revision_id TEXT NOT NULL, scope_type TEXT NOT NULL CHECK (scope_type IN ('tenant', 'deployment')), deployment_ref TEXT NOT NULL DEFAULT '', policy_json TEXT NOT NULL, changed_by TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (tenant_id, revision_id))",
       "foreign_keys": [],
       "indexes": [
         {
@@ -1291,8 +1304,7 @@
             "tenant_id",
             "scope_type",
             "deployment_ref",
-            "created_at",
-            "revision_id"
+            "revision_order"
           ],
           "name": "idx_guardrail_policy_lookup",
           "origin": "c",
@@ -1305,7 +1317,7 @@
             "revision_id"
           ],
           "name": "sqlite_autoindex_guardrail_policy_revisions_1",
-          "origin": "pk",
+          "origin": "u",
           "partial": false,
           "unique": true
         }

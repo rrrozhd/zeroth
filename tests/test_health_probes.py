@@ -377,7 +377,7 @@ async def test_readiness_reports_current_service_schema_revision():
     """A migrated service exposes the applied and shipped Alembic revisions."""
     from fastapi.testclient import TestClient
 
-    database = RevisionDatabase(["027"])
+    database = RevisionDatabase(["028"])
 
     with (
         patch(
@@ -393,8 +393,8 @@ async def test_readiness_reports_current_service_schema_revision():
 
     assert response.json()["status"] == "ok"
     assert response.json().get("schema_revision") == {
-        "applied": "027",
-        "head": "027",
+        "applied": "028",
+        "head": "028",
         "state": "current",
     }
     assert database.queries.count("SELECT version_num FROM alembic_version LIMIT 2") == 1
@@ -406,7 +406,7 @@ async def test_readiness_reports_current_service_schema_revision():
     [
         (["025"], "025", "behind"),
         ([], None, "unknown"),
-        (["026", "027"], None, "unknown"),
+        (["027", "028"], None, "unknown"),
         (["foreign"], "foreign", "unknown"),
     ],
 )
@@ -430,14 +430,14 @@ def test_readiness_degrades_for_stale_or_unknown_service_schema(
     assert response.json()["status"] == "degraded"
     assert response.json()["schema_revision"] == {
         "applied": applied,
-        "head": "027",
+        "head": "028",
         "state": state,
     }
 
 
 @pytest.mark.asyncio
 async def test_service_schema_revision_read_has_an_explicit_timeout() -> None:
-    database = RevisionDatabase(["027"], revision_delay=1)
+    database = RevisionDatabase(["028"], revision_delay=1)
 
     revision = await asyncio.wait_for(
         check_schema_revision(database, timeout_seconds=0.001),
@@ -446,7 +446,7 @@ async def test_service_schema_revision_read_has_an_explicit_timeout() -> None:
 
     assert revision.model_dump() == {
         "applied": None,
-        "head": "027",
+        "head": "028",
         "state": "unknown",
     }
     assert database.queries == ["SELECT version_num FROM alembic_version LIMIT 2"]

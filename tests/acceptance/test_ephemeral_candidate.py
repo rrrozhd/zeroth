@@ -103,8 +103,8 @@ async def test_the_candidate_serves_the_real_application(candidate: EphemeralCan
         assert ready.status_code == 200
         assert ready.json()["checks"]["database"]["status"] == "ok"
         assert ready.json()["schema_revision"] == {
-            "applied": "027",
-            "head": "027",
+            "applied": "028",
+            "head": "028",
             "state": "current",
         }
 
@@ -232,7 +232,7 @@ async def test_product_migrations_scenario_rejects_service_parent_revision(
 
     assert result.status is ScenarioStatus.FAILED
     assert "025" in result.detail
-    assert "027" in result.detail
+    assert "028" in result.detail
 
 
 async def test_an_approval_gated_node_runs_zero_times_then_exactly_once(

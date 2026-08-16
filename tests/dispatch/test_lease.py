@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import zeroth.platform.dispatch.lease as lease_module
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import _HAS_PG, LeaseManager
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
@@ -105,6 +107,41 @@ async def test_renew_lease_returns_false_for_non_owner(sqlite_db: AsyncSQLiteDat
 
     result = await manager.renew_lease(run_id, WORKER_B)
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_expired_lease_cannot_be_renewed_after_slot_reallocation(
+    sqlite_db: AsyncSQLiteDatabase,
+    monkeypatch,
+) -> None:
+    old_owner = LeaseManager(sqlite_db)
+    new_owner = LeaseManager(sqlite_db)
+    run_repo = RunRepository.for_default_compatibility(sqlite_db)
+    expired_run = await _create_pending_run(run_repo)
+    replacement_run = await _create_pending_run(run_repo)
+    scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+    assert await old_owner.claim_pending(DEPLOYMENT, WORKER_A, **scope) == expired_run
+    await run_repo.transition(expired_run, RunStatus.RUNNING)
+    async with sqlite_db.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET lease_expires_at = ? WHERE run_id = ?",
+            ("2000-01-01T00:00:00+00:00", expired_run),
+        )
+    assert await new_owner.claim_pending(DEPLOYMENT, WORKER_B, **scope) == replacement_run
+
+    monkeypatch.setattr(
+        lease_module,
+        "_utc_now",
+        lambda: datetime(2100, 1, 1, tzinfo=UTC),
+    )
+    assert await old_owner.renew_lease(expired_run, WORKER_A, generation=1) is False
+    async with sqlite_db.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT lease_expires_at FROM runs WHERE run_id = ?",
+            (expired_run,),
+        )
+    assert row["lease_expires_at"] == "2000-01-01T00:00:00+00:00"
 
 
 @pytest.mark.asyncio

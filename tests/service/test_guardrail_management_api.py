@@ -308,6 +308,46 @@ async def test_guardrail_management_hides_cross_tenant_service(sqlite_db) -> Non
     assert await service.guardrail_policy_repository.history() == []
 
 
+async def test_deployment_guardrails_reject_foreign_tenant_deployment_through_owner_app(
+    sqlite_db,
+) -> None:
+    auth = scoped_auth_config(
+        ("owner", "owner-key", ServiceRole.ADMIN, "tenant-owner", None),
+        ("foreign", "foreign-key", ServiceRole.ADMIN, "tenant-foreign", None),
+    )
+    owner, app = await _client(sqlite_db, auth_config=auth, tenant_id="tenant-owner")
+    foreign, _ = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-foreign-guardrails"),
+        deployment_ref="foreign-guardrails",
+        auth_config=auth,
+        tenant_id="tenant-foreign",
+    )
+    foreign_ref = foreign.deployment.deployment_ref
+
+    with TestClient(app) as client:
+        seeded = client.put(
+            "/v1/guardrails",
+            headers=api_key_headers("owner-key"),
+            json={"max_concurrency": 2},
+        )
+        read = client.get(
+            f"/v1/deployments/{foreign_ref}/guardrails",
+            headers=api_key_headers("foreign-key"),
+        )
+        write = client.put(
+            f"/v1/deployments/{foreign_ref}/guardrails",
+            headers=api_key_headers("foreign-key"),
+            json={"max_concurrency": 3},
+        )
+
+    assert seeded.status_code == 200
+    assert read.status_code == write.status_code == 404
+    history = await owner.guardrail_policy_repository.history()
+    assert len(history) == 1
+    assert history[0].scope == "tenant"
+
+
 async def test_rate_rejection_metrics_audit_and_effective_utilization(sqlite_db) -> None:
     service, app = await _client(sqlite_db)
     ref = service.deployment.deployment_ref

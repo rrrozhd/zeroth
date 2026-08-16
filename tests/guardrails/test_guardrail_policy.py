@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+import zeroth.governance.guardrails.policy as policy_module
 from tests.conftest import requires_docker
 from tests.service.helpers import admin_headers, agent_graph, deploy_service, operator_headers
 from zeroth.governance.guardrails.policy import (
@@ -173,6 +174,38 @@ async def test_current_overrides_compose_deltas_and_reset_one_field(sqlite_db) -
     assert (await repository.effective("deployment-reset")).max_concurrency == 5
     assert reset.policy.reset_fields == ("max_concurrency",)
     assert (await repository.history())[-1] == reset
+
+
+async def test_clock_behind_replica_reset_keeps_database_revision_precedence(
+    sqlite_db,
+    monkeypatch,
+) -> None:
+    now = [datetime(2026, 8, 16, 12, 10, tzinfo=UTC)]
+    monkeypatch.setattr(policy_module, "utc_now", lambda: now[0])
+    first_replica = GuardrailPolicyRepository.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-clock-skew")
+    )
+    second_replica = GuardrailPolicyRepository.scoped(
+        sqlite_db, NullWorkspaceScopeContext(tenant_id="tenant-clock-skew")
+    )
+    set_revision = await first_replica.append(
+        scope="deployment",
+        deployment_ref="clock-skew",
+        policy=GuardrailPolicyPatch(max_concurrency=2),
+        changed_by="replica-a",
+    )
+    now[0] -= timedelta(minutes=5)
+    reset_revision = await second_replica.append(
+        scope="deployment",
+        deployment_ref="clock-skew",
+        policy=GuardrailPolicyPatch(reset_fields=("max_concurrency",)),
+        changed_by="replica-b",
+    )
+
+    history = await first_replica.history(scope="deployment", deployment_ref="clock-skew")
+    assert history == [set_revision, reset_revision]
+    assert await first_replica.current("deployment", deployment_ref="clock-skew") is None
+    assert await first_replica.latest("deployment", deployment_ref="clock-skew") == reset_revision
 
 
 async def test_concurrent_policy_writers_append_distinct_revisions(sqlite_db) -> None:

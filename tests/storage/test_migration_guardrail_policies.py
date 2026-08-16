@@ -1,4 +1,4 @@
-"""Migration 027 round-trips guardrail policy and coordination tables."""
+"""Migration 028 round-trips database-ordered guardrail policy history."""
 
 from __future__ import annotations
 
@@ -22,10 +22,18 @@ def _insert_guardrail_state(database_url: str) -> None:
                     """INSERT INTO guardrail_policy_revisions
                     (tenant_id, revision_id, scope_type, deployment_ref,
                      policy_json, changed_by, created_at)
-                    VALUES ('tenant-a', 'revision-a', 'tenant', '',
-                            :policy_json, 'admin-a', '2026-08-14T00:00:00Z')"""
+                    VALUES
+                    ('tenant-a', 'revision-b', 'deployment', 'deployment-a',
+                     :set_policy, 'admin-a', '2026-08-14T00:00:00Z'),
+                    ('tenant-a', 'revision-a', 'deployment', 'deployment-a',
+                     :reset_policy, 'admin-b', '2026-08-14T00:00:00Z'),
+                    ('tenant-b', 'revision-a', 'tenant', '',
+                     :set_policy, 'admin-c', '2026-08-13T00:00:00Z')"""
                 ),
-                {"policy_json": '{"max_concurrency":2}'},
+                {
+                    "set_policy": '{"max_concurrency":2}',
+                    "reset_policy": '{"reset_fields":["max_concurrency"]}',
+                },
             )
             connection.execute(
                 sa.text(
@@ -43,28 +51,96 @@ def _assert_round_trip(database_url: str) -> None:
     config = _config(database_url)
     command.upgrade(config, "027")
     _insert_guardrail_state(database_url)
+    command.upgrade(config, "028")
     engine = sa.create_engine(database_url)
     try:
-        assert _TABLES.issubset(sa.inspect(engine).get_table_names())
+        inspector = sa.inspect(engine)
+        assert _TABLES.issubset(inspector.get_table_names())
+        assert "revision_order" in {
+            column["name"] for column in inspector.get_columns("guardrail_policy_revisions")
+        }
+        lookup = next(
+            index
+            for index in inspector.get_indexes("guardrail_policy_revisions")
+            if index["name"] == "idx_guardrail_policy_lookup"
+        )
+        assert lookup["column_names"] == [
+            "tenant_id",
+            "scope_type",
+            "deployment_ref",
+            "revision_order",
+        ]
+        with engine.begin() as connection:
+            rows = connection.execute(
+                sa.text(
+                    """SELECT tenant_id, revision_id, revision_order
+                    FROM guardrail_policy_revisions ORDER BY revision_order"""
+                )
+            ).all()
+            assert rows == [
+                ("tenant-a", "revision-a", 1),
+                ("tenant-a", "revision-b", 2),
+                ("tenant-b", "revision-a", 3),
+            ]
+            connection.execute(
+                sa.text(
+                    """INSERT INTO guardrail_policy_revisions
+                    (tenant_id, revision_id, scope_type, deployment_ref,
+                     policy_json, changed_by, created_at)
+                    VALUES ('tenant-a', 'revision-c', 'tenant', '',
+                            :policy_json, 'admin-d', '2026-08-15T00:00:00Z')"""
+                ),
+                {"policy_json": '{"max_concurrency":4}'},
+            )
+            generated = connection.execute(
+                sa.text(
+                    """SELECT revision_order FROM guardrail_policy_revisions
+                    WHERE tenant_id = 'tenant-a' AND revision_id = 'revision-c'"""
+                )
+            ).scalar_one()
+            assert generated > rows[-1].revision_order
     finally:
         engine.dispose()
 
-    command.downgrade(config, "026")
+    command.downgrade(config, "027")
     engine = sa.create_engine(database_url)
     try:
-        assert _TABLES.isdisjoint(sa.inspect(engine).get_table_names())
+        inspector = sa.inspect(engine)
+        assert _TABLES.issubset(inspector.get_table_names())
+        assert "revision_order" not in {
+            column["name"] for column in inspector.get_columns("guardrail_policy_revisions")
+        }
+        assert inspector.get_pk_constraint("guardrail_policy_revisions")["constrained_columns"] == [
+            "tenant_id",
+            "revision_id",
+        ]
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    sa.text("SELECT COUNT(*) FROM guardrail_policy_revisions")
+                ).scalar_one()
+                == 4
+            )
     finally:
         engine.dispose()
 
-    command.upgrade(config, "027")
+    command.upgrade(config, "028")
     engine = sa.create_engine(database_url)
     try:
         assert _TABLES.issubset(sa.inspect(engine).get_table_names())
         with engine.connect() as connection:
-            for table in _TABLES:
-                assert (
-                    connection.execute(sa.text(f"SELECT COUNT(*) FROM {table}")).scalar_one() == 0
-                )
+            assert (
+                connection.execute(
+                    sa.text("SELECT COUNT(DISTINCT revision_order) FROM guardrail_policy_revisions")
+                ).scalar_one()
+                == 4
+            )
+            assert (
+                connection.execute(
+                    sa.text("SELECT COUNT(*) FROM guardrail_admission_state")
+                ).scalar_one()
+                == 1
+            )
     finally:
         engine.dispose()
 
