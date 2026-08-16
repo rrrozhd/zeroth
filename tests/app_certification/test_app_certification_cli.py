@@ -69,6 +69,8 @@ def test_cli_fails_closed_when_smoke_header_environment_is_missing(
             COMMIT,
             "--image-digest",
             DIGEST,
+            "--source-digest",
+            "sha256:" + "c" * 64,
             "--packaged-url",
             "http://127.0.0.1:18080",
             "--ephemeral-url",

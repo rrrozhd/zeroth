@@ -289,7 +289,13 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:  # noqa: BLE001 - boundary emits a concise retained diagnostic
         print(f"{args.name}: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
-    print(f"{args.name}: semantic validation passed")
+    print(
+        json.dumps(
+            {"check": args.name, "schema_version": 1, "status": "passed"},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
     return 0
 
 

@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.2.1 \
+  --zeroth-version 0.23.9.3 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -42,35 +42,40 @@ synced `.venv` and apply the same semantic boundaries used for publication:
 - send the same deterministic smoke request to packaged and tmpfs-backed
   candidate containers.
 
-Each host-side check runs in a bounded subprocess without an ambient shell.
-Container readiness requires a parsed JSON body with `status: ok`; HTTP 200 by
-itself is not sufficient.
+Each host-side check runs in a bounded subprocess without an ambient shell. The
+trusted interpreter starts in isolated mode before app paths are added, and the
+runner requires an exact structured result instead of trusting process exit
+alone. Container readiness requires a parsed JSON body with `status: ok`; HTTP
+200 by itself is not sufficient.
 
 ## Identity, evidence, and privileges
 
 The `certify` job has only `contents: read`. App dependency hooks and semantic
 imports run as a dedicated local user that can write only its isolated virtual
 environment and frontend copy; the pinned certifier and handoff remain
-runner-owned. The job measures the exact app commit and local image descriptor,
-generates an SPDX SBOM, and writes a canonical report even when preparation,
-build, startup, or health fails.
+runner-owned. The job builds from an exact Git archive and measures its SHA-256
+alongside the app commit and local image descriptor, generates an SPDX SBOM, and
+writes a canonical report even when preparation, build, startup, or health
+fails.
 
 A fresh, unprivileged `verify` job downloads that handoff and uses a clean
-pinned Zeroth checkout to validate its hashes, Docker/OCI descriptor tree,
-config, and layers. It emits a digest-bound verdict that candidate code cannot
-rewrite. Only after verification succeeds does the separate `attest` job
+pinned Zeroth checkout to validate its source archive, hashes, Docker/OCI
+descriptor tree, config, and layers. It emits a digest-bound verdict that
+candidate code cannot rewrite. Only after verification succeeds does the
+separate `attest` job
 receive `id-token: write`, `attestations: write`, and
 `artifact-metadata: write`; it authenticates the verdict before signing the
 exact image subject. Candidate code is never checked out or executed in either
 post-certification job.
 
-The final report cross-binds the app commit, exact Zeroth version, image name
-and digest, SPDX subject, signed provenance predicate, and hashes of both
-retained evidence files. A hand-written or tampered passing report is rejected.
+The final report cross-binds the app commit, source archive digest, exact Zeroth
+version, image name and digest, SPDX subject, signed provenance predicate, and
+hashes of both retained evidence files. A hand-written or tampered passing
+report is rejected.
 
 ## Retained diagnostics
 
 The workflow retains the canonical JSON report, stage outcomes, declaration,
-image archive, SPDX JSON, signed provenance bundle, container inspection, and
-container logs for 14 days. The in-repository `vendor-dd` reference can be run
-from **Actions → Certify vendor-dd → Run workflow**.
+source and image archives, SPDX JSON, signed provenance bundle, container
+inspection, and container logs for 14 days. The in-repository `vendor-dd`
+reference can be run from **Actions → Certify vendor-dd → Run workflow**.

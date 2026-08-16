@@ -98,9 +98,17 @@ jobs:
           chmod -R go-w zeroth app
           git -C app diff --exit-code
           git -C app diff --cached --exit-code
-          mkdir -m 700 app/.zeroth-certifier
           mkdir -m 700 app/.app-certification
-          cp trusted-certifier/* app/.zeroth-certifier/
+          APP_COMMIT=$(git -C app rev-parse HEAD)
+          git -C app archive --format=tar \
+            --output="$GITHUB_WORKSPACE/app/.app-certification/source.tar" \
+            "$APP_COMMIT"
+          SOURCE_DIGEST="sha256:$(sha256sum app/.app-certification/source.tar | cut -d ' ' -f 1)"
+          mkdir build-context
+          tar -xf app/.app-certification/source.tar -C build-context
+          mkdir -m 700 build-context/.zeroth-certifier
+          cp trusted-certifier/* build-context/.zeroth-certifier/
+          DECLARATION_FILE=$(realpath -e "build-context/$DECLARATION_PATH")
           APP_PYTHON="$GITHUB_WORKSPACE/app/.venv/bin/python"
           [[ -x "$APP_PYTHON" ]] || {
             echo "app uv environment has no Python interpreter" >&2
@@ -121,7 +129,6 @@ jobs:
             echo "declaration Zeroth pin does not match checked-out certifier" >&2
             exit 1
           }
-          APP_COMMIT=$(git -C app rev-parse HEAD)
           DOCKERFILE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
             "$DECLARATION_FILE")
@@ -129,6 +136,7 @@ jobs:
             'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
             "$DECLARATION_FILE")
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           APP_CERTIFICATION_API_KEY=$("$ZEROTH_PYTHON" -c \
@@ -142,7 +150,8 @@ jobs:
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
         run: |
           set -euo pipefail
-          docker build --file "app/$DOCKERFILE" --tag "$IMAGE_REFERENCE" app
+          docker build --file "build-context/$DOCKERFILE" \
+            --tag "$IMAGE_REFERENCE" build-context
           IMAGE_DIGEST=$(docker image inspect "$IMAGE_REFERENCE" --format '{{.Id}}')
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "docker returned a non-immutable image digest" >&2
@@ -162,16 +171,17 @@ jobs:
         id: evidence
         env:
           PYTHONPATH: ${{ github.workspace }}/zeroth
-          DECLARATION_PATH: ${{ inputs.declaration_path }}
           APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_DIGEST: ${{ steps.prepare.outputs.source_digest }}
         run: |
           set -euo pipefail
           zeroth/.venv/bin/python -m release.app_certification prepare-evidence \
-            --declaration "app/$DECLARATION_PATH" \
+            --declaration app/.app-certification/declaration.json \
             --root app \
             --app-commit "$APP_COMMIT" \
             --image-digest "$IMAGE_DIGEST" \
+            --source-digest "$SOURCE_DIGEST" \
             --raw-sbom app/.app-certification/image.spdx.json
       - name: Start isolated packaged and ephemeral containers
         id: containers
@@ -221,17 +231,18 @@ jobs:
       - name: Run fail-closed certification
         id: certify
         env:
-          PYTHONPATH: ${{ github.workspace }}/zeroth:${{ github.workspace }}/app
-          DECLARATION_PATH: ${{ inputs.declaration_path }}
+          PYTHONPATH: ${{ github.workspace }}/zeroth
           APP_COMMIT: ${{ steps.prepare.outputs.app_commit }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_DIGEST: ${{ steps.prepare.outputs.source_digest }}
         run: |
           set -euo pipefail
           zeroth/.venv/bin/python -m release.app_certification run \
-            --declaration "app/$DECLARATION_PATH" \
+            --declaration app/.app-certification/declaration.json \
             --root app \
             --app-commit "$APP_COMMIT" \
             --image-digest "$IMAGE_DIGEST" \
+            --source-digest "$SOURCE_DIGEST" \
             --packaged-url http://127.0.0.1:18080 \
             --ephemeral-url http://127.0.0.1:18081 \
             --report app/.app-certification/report.json \
@@ -318,7 +329,8 @@ jobs:
             'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
             validate-handoff --report evidence/report.json --root evidence/root \
-            --image-archive evidence/image.tar --app-commit "$APP_COMMIT" \
+            --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-commit "$APP_COMMIT" \
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
             --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
       - name: Upload authenticated unprivileged verdict

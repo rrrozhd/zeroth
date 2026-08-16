@@ -23,13 +23,14 @@ from release.app_certification.cli import _untrusted_executor
 
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+SOURCE_DIGEST = "sha256:" + "c" * 64
 
 
 def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.2.1",
+        "zeroth_version": "0.23.9.3",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -62,16 +63,19 @@ def write_inputs(root: Path) -> None:
     candidate = CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.2.1",
+        zeroth_version="0.23.9.3",
         image_reference="reference-app:certification",
         image_digest=DIGEST,
+        source_digest=SOURCE_DIGEST,
     )
     bind_sbom(sbom, candidate)
     write_provenance(provenance, candidate)
 
 
 def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
-    return CommandResult(returncode=0, stdout="ok\n", stderr="")
+    check = argv[argv.index("--root") - 1]
+    structured = json.dumps({"check": check, "schema_version": 1, "status": "passed"})
+    return CommandResult(returncode=0, stdout=structured + "\n", stderr="")
 
 
 def passing_http(check: str, smoke) -> HttpResult:
@@ -97,7 +101,7 @@ def run_certification(
         http=http,
         commit_reader=lambda _: measured_commit,
     )
-    return runner.run(expected_commit=COMMIT, image_digest=digest)
+    return runner.run(expected_commit=COMMIT, image_digest=digest, source_digest=SOURCE_DIGEST)
 
 
 def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: Path) -> None:
@@ -109,7 +113,7 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.9.2.1"
+    assert report.candidate.zeroth_version == "0.23.9.3"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")
@@ -143,7 +147,7 @@ def test_failure_injection_rejects_each_mandatory_check(tmp_path: Path, failed_c
     declaration = AppDeclaration.model_validate(declaration_data())
 
     def executor(argv: list[str], cwd: Path) -> CommandResult:
-        if argv[3] == failed_check:
+        if argv[argv.index("--root") - 1] == failed_check:
             return CommandResult(returncode=23, stdout="", stderr="deliberate failure")
         return passing_executor(argv, cwd)
 
@@ -271,6 +275,7 @@ def test_untrusted_executor_scrubs_workflow_control_environment(
     ]
     assert "-i" in observed["argv"]
     assert not any("GITHUB_OUTPUT" in item for item in observed["argv"])
+    assert not any("PYTHONPATH=" in item for item in observed["argv"])
     assert observed["argv"][-2:] == ["python", "owned.py"]
 
 

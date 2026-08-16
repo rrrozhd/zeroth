@@ -85,6 +85,7 @@ def write_provenance(path: Path, candidate: CandidateIdentity) -> None:
         "predicateType": _PREDICATE_TYPE,
         "predicate": {
             "app_commit": candidate.app_commit,
+            "source_digest": candidate.source_digest,
             "zeroth_version": candidate.zeroth_version,
             "candidate_identity_digest": identity_digest(candidate),
         },
@@ -122,6 +123,7 @@ def _validate_statement(statement: dict[str, Any], candidate: CandidateIdentity)
         raise ValueError("provenance predicate type is not the app-certification contract")
     expected = {
         "app_commit": candidate.app_commit,
+        "source_digest": candidate.source_digest,
         "zeroth_version": candidate.zeroth_version,
         "candidate_identity_digest": identity_digest(candidate),
     }
@@ -394,3 +396,16 @@ def validate_image_archive(path: Path, candidate: CandidateIdentity) -> None:
                 _validate_classic_archive(archive, members, candidate)
     except (OSError, tarfile.TarError) as error:
         raise ValueError(f"image archive is unreadable: {error}") from error
+
+
+def validate_source_archive(path: Path, candidate: CandidateIdentity) -> None:
+    """Bind the exact Git archive used as the Docker source context."""
+    try:
+        if file_digest(path) != candidate.source_digest:
+            raise ValueError("source archive digest does not match the candidate")
+        with tarfile.open(path, mode="r:") as archive:
+            archived_commit = archive.pax_headers.get("comment")
+    except (OSError, tarfile.TarError) as error:
+        raise ValueError(f"source archive is unreadable: {error}") from error
+    if archived_commit != candidate.app_commit:
+        raise ValueError("source archive commit does not match the candidate")

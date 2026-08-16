@@ -29,6 +29,16 @@ from .models import (
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CHECK_BOOTSTRAP = (
+    "import pathlib,runpy,sys;"
+    "certifier=pathlib.Path(sys.argv.pop(1));"
+    "venv=pathlib.Path(sys.argv.pop(1));"
+    "site_packages=venv/'lib'/f'python{sys.version_info.major}.{sys.version_info.minor}'/"
+    "'site-packages';"
+    "sys.prefix=sys.exec_prefix=str(venv);"
+    "sys.path[:0]=[str(certifier),str(certifier/'src'),str(site_packages)];"
+    "runpy.run_module('release.app_certification.checks',run_name='__main__')"
+)
 
 
 @dataclass(frozen=True)
@@ -95,6 +105,7 @@ def measure_candidate_identity(
     *,
     expected_commit: str,
     image_digest: str,
+    source_digest: str,
     commit_reader: CommitReader = read_git_commit,
 ) -> CandidateIdentity:
     """Measure and validate the immutable app candidate identity."""
@@ -105,12 +116,15 @@ def measure_candidate_identity(
         raise ValueError(f"app commit mismatch: expected {expected_commit}, measured {measured}")
     if _DIGEST.fullmatch(image_digest) is None:
         raise ValueError("image digest must be immutable sha256:<64 lowercase hex>")
+    if _DIGEST.fullmatch(source_digest) is None:
+        raise ValueError("source digest must be immutable sha256:<64 lowercase hex>")
     return CandidateIdentity(
         app_name=declaration.app_name,
         app_commit=measured,
         zeroth_version=declaration.zeroth_version,
         image_reference=declaration.image_reference,
         image_digest=image_digest,
+        source_digest=source_digest,
     )
 
 
@@ -157,10 +171,12 @@ class CertificationRunner:
         self.http = http
         self.commit_reader = commit_reader
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
-        self.check_python = (check_python or Path(sys.executable)).resolve()
+        self.check_python = (check_python or Path(sys.executable)).absolute()
 
-    def run(self, *, expected_commit: str, image_digest: str) -> CertificationReport:
-        identity, identity_error = self._identity(expected_commit, image_digest)
+    def run(
+        self, *, expected_commit: str, image_digest: str, source_digest: str
+    ) -> CertificationReport:
+        identity, identity_error = self._identity(expected_commit, image_digest, source_digest)
         checks: list[CheckResult] = []
         evidence: dict[str, EvidenceFile] = {}
         for name in MANDATORY_CHECKS:
@@ -178,7 +194,7 @@ class CertificationRunner:
         )
 
     def _identity(
-        self, expected_commit: str, image_digest: str
+        self, expected_commit: str, image_digest: str, source_digest: str
     ) -> tuple[CandidateIdentity | None, str | None]:
         try:
             identity = measure_candidate_identity(
@@ -186,6 +202,7 @@ class CertificationRunner:
                 self.declaration,
                 expected_commit=expected_commit,
                 image_digest=image_digest,
+                source_digest=source_digest,
                 commit_reader=self.commit_reader,
             )
         except Exception as error:  # noqa: BLE001 - identity faults become report evidence
@@ -213,9 +230,13 @@ class CertificationRunner:
 
     def _command(self, name: str) -> CheckResult:
         argv = [
-            str(self.check_python),
-            "-m",
-            "release.app_certification.checks",
+            str(Path(sys.executable).absolute()),
+            "-I",
+            "-S",
+            "-c",
+            _CHECK_BOOTSTRAP,
+            str(Path(__file__).parents[2].resolve()),
+            str(self.check_python.parent.parent),
             name,
             "--root",
             str(self.root),
@@ -230,6 +251,13 @@ class CertificationRunner:
             return self._failed(name, "argv executor returned no CommandResult")
         if result.returncode:
             return self._failed(name, f"argv exited {result.returncode}: {_output_tail(result)}")
+        try:
+            structured = json.loads(result.stdout.splitlines()[-1])
+        except (IndexError, json.JSONDecodeError):
+            return self._failed(name, "owned structured result is missing or malformed")
+        expected = {"check": name, "schema_version": 1, "status": "passed"}
+        if structured != expected:
+            return self._failed(name, "owned structured result does not match the requested check")
         return CheckResult(name=name, status="passed", detail=f"{name} semantic check completed")
 
     def _smoke(self, name: str) -> CheckResult:

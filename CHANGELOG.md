@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.3] - 2026-08-16
+
+### Security
+
+- Isolate trusted and candidate check startup from app-controlled Python hooks
+  and require certifier-owned structured results instead of interpreter exit.
+- Build certification images from exact committed source archives and bind the
+  source digest through reports, SBOM, provenance, and verifier verdicts.
+
 ## [0.23.9.2.1] - 2026-08-14
 
 ### Fixed

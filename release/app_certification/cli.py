@@ -17,6 +17,7 @@ from .evidence import (
     bind_sbom,
     finalize_attestation,
     validate_image_archive,
+    validate_source_archive,
     write_provenance,
 )
 from .models import (
@@ -77,7 +78,6 @@ def _untrusted_executor(user: str) -> Executor:
         f"HOME=/home/{user}",
         "LANG=C.UTF-8",
         f"PATH={os.environ.get('PATH', '')}",
-        f"PYTHONPATH={os.environ.get('PYTHONPATH', '')}",
     )
     prefix = ("sudo", "--non-interactive", "--user", user, "--", *clean_environment)
 
@@ -111,6 +111,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--root", type=Path, required=True)
     run.add_argument("--app-commit", required=True)
     run.add_argument("--image-digest", required=True)
+    run.add_argument("--source-digest", required=True)
     run.add_argument("--packaged-url", required=True)
     run.add_argument("--ephemeral-url", required=True)
     run.add_argument("--report", type=Path, required=True)
@@ -124,11 +125,13 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--root", type=Path, required=True)
     evidence.add_argument("--app-commit", required=True)
     evidence.add_argument("--image-digest", required=True)
+    evidence.add_argument("--source-digest", required=True)
     evidence.add_argument("--raw-sbom", type=Path, required=True)
     handoff = commands.add_parser("validate-handoff")
     handoff.add_argument("--report", type=Path, required=True)
     handoff.add_argument("--root", type=Path, required=True)
     handoff.add_argument("--image-archive", type=Path, required=True)
+    handoff.add_argument("--source-archive", type=Path, required=True)
     handoff.add_argument("--app-commit", required=True)
     handoff.add_argument("--zeroth-version", required=True)
     handoff.add_argument("--zeroth-commit", required=True)
@@ -166,6 +169,7 @@ def _run(args: argparse.Namespace) -> int:
     ).run(
         expected_commit=args.app_commit,
         image_digest=args.image_digest,
+        source_digest=args.source_digest,
     )
     write_report(report, args.report)
     print(f"app certification: {report.status}; report={args.report}")
@@ -186,6 +190,7 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         declaration,
         expected_commit=args.app_commit,
         image_digest=args.image_digest,
+        source_digest=args.source_digest,
     )
     bind_sbom(args.raw_sbom, candidate)
     certification_root = args.root / ".app-certification"
@@ -223,6 +228,7 @@ def _validate_handoff(args: argparse.Namespace) -> int:
     if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
         raise ValueError("trusted certifier commit must be a full commit SHA")
     validate_image_archive(args.image_archive, candidate)
+    validate_source_archive(args.source_archive, candidate)
     verdict = {
         "schema_version": 1,
         "app_commit": candidate.app_commit,
@@ -230,6 +236,7 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         "zeroth_version": candidate.zeroth_version,
         "image_reference": candidate.image_reference,
         "image_digest": candidate.image_digest,
+        "source_digest": candidate.source_digest,
         "candidate_identity_digest": identity_digest(candidate),
         "report_sha256": file_digest(args.report),
         "image_archive_sha256": file_digest(args.image_archive),

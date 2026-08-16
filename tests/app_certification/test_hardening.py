@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-
 from release.app_certification import (
     AppDeclaration,
     CandidateIdentity,
@@ -33,13 +32,14 @@ from apps.vendor_dd import certification_healthcheck
 
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+SOURCE_DIGEST = "sha256:" + "c" * 64
 
 
 def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.2.1",
+        "zeroth_version": "0.23.9.3",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -66,9 +66,10 @@ def identity() -> CandidateIdentity:
     return CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.2.1",
+        zeroth_version="0.23.9.3",
         image_reference="reference-app:certification",
         image_digest=DIGEST,
+        source_digest=SOURCE_DIGEST,
     )
 
 
@@ -291,7 +292,7 @@ def test_scaffold_emits_valid_executable_assets(tmp_path: Path) -> None:
         tmp_path,
         app_name="sample",
         module="sample_app",
-        zeroth_version="0.23.9.2.1",
+        zeroth_version="0.23.9.3",
         zeroth_ref=COMMIT,
     )
 
