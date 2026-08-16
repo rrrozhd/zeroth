@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph
+from zeroth.contracts.graph.validation_errors import GraphValidationError
 from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.policy import PolicyDecision, PolicyGuard
 from zeroth.platform.config import get_settings
@@ -49,8 +50,10 @@ def target_source_digests(name: str, root: Path, declaration: AppDeclaration) ->
             targets.contracts,
             targets.auth_config,
             targets.policy_guard,
+            targets.migration_runner,
         ],
         "policies": [*targets.graph_builders, targets.policy_guard],
+        "migrations": [targets.migration_runner],
     }[name]
     bindings: dict[str, str] = {}
     for reference in sorted(set(references)):
@@ -98,7 +101,7 @@ def _graphs(declaration: AppDeclaration) -> list[Graph]:
 
 
 async def _registered_validation(
-    contracts: dict[str, type[BaseModel]], graphs: list[Graph]
+    schemas: Mapping[str, dict[str, Any]], graphs: list[Graph]
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="zeroth-app-cert-") as directory:
         database_path = Path(directory) / "certification.sqlite"
@@ -109,13 +112,24 @@ async def _registered_validation(
             contract_scope_context("app-certification", None),
         )
         try:
-            for name, model in contracts.items():
-                await registry.register(model, name=name)
+            for name, schema in schemas.items():
+                await registry.register_schema(name, schema)
             for graph in graphs:
-                await GraphValidator(contract_registry=registry).validate_or_raise(graph)
+                try:
+                    await GraphValidator(contract_registry=registry).validate_or_raise(graph)
+                except GraphValidationError as error:
+                    details = "; ".join(issue.message for issue in error.report.errors)
+                    raise ValueError(f"graph validation failed: {details}") from error
                 await _resolve_graph_contracts(registry, graph)
         finally:
             await database.close()
+
+
+async def validate_serialized_graphs(
+    schemas: Mapping[str, dict[str, Any]], graphs: list[Graph]
+) -> None:
+    """Run the complete public graph validator over trusted canonical JSON."""
+    await _registered_validation(schemas, graphs)
 
 
 async def _resolve_graph_contracts(registry: ContractRegistry, graph: Graph) -> None:
@@ -136,7 +150,8 @@ async def _resolve_graph_contracts(registry: ContractRegistry, graph: Graph) -> 
 
 def _check_graph(root: Path, declaration: AppDeclaration) -> None:
     del root
-    asyncio.run(_registered_validation(_contracts(declaration), _graphs(declaration)))
+    schemas = {name: model.model_json_schema() for name, model in _contracts(declaration).items()}
+    asyncio.run(validate_serialized_graphs(schemas, _graphs(declaration)))
 
 
 def _check_service_config(root: Path, declaration: AppDeclaration) -> None:
@@ -153,7 +168,8 @@ def _check_service_config(root: Path, declaration: AppDeclaration) -> None:
 
 def _check_contracts(root: Path, declaration: AppDeclaration) -> None:
     del root
-    asyncio.run(_registered_validation(_contracts(declaration), []))
+    schemas = {name: model.model_json_schema() for name, model in _contracts(declaration).items()}
+    asyncio.run(validate_serialized_graphs(schemas, []))
 
 
 def _run(argv: list[str], root: Path, timeout: int) -> None:
@@ -197,15 +213,6 @@ def _check_optional_extras(root: Path, declaration: AppDeclaration) -> None:
         declaration.targets.policy_guard,
     ):
         _load_target(reference)
-
-
-def _check_migrations(root: Path, declaration: AppDeclaration) -> None:
-    del root, declaration
-    with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
-        path = Path(directory) / "migration.sqlite"
-        run_migrations(f"sqlite:///{path}")
-        if not path.is_file() or path.stat().st_size == 0:
-            raise ValueError("migration did not create a non-empty database")
 
 
 def _container_states(root: Path) -> list[dict[str, Any]]:
@@ -291,7 +298,6 @@ _CHECKS = {
     "contracts": _check_contracts,
     "dependency-lock": _check_dependency_lock,
     "optional-extras": _check_optional_extras,
-    "migrations": _check_migrations,
     "container-startup": _check_container_startup,
     "health": _check_health,
     "policies": _check_policies,

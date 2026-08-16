@@ -14,6 +14,7 @@ from release.app_certification import (
     HttpResult,
     bind_sbom,
     execute_command,
+    file_digest,
     validate_report,
     write_report,
     write_provenance,
@@ -26,13 +27,28 @@ from release.app_certification.cli import _untrusted_executor
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
 SOURCE_DIGEST = "sha256:" + "c" * 64
+ZEROTH_COMMIT = "d" * 40
+ZEROTH_MATERIAL_DIGEST = "sha256:" + "e" * 64
+
+
+def provenance_kwargs(candidate: CandidateIdentity, sbom_digest: str) -> dict:
+    return {
+        "zeroth_commit": ZEROTH_COMMIT,
+        "sbom_digest": sbom_digest,
+        "build_material_digests": {
+            "source": candidate.source_digest,
+            "image": candidate.image_digest,
+            "sbom": sbom_digest,
+            "zeroth": ZEROTH_MATERIAL_DIGEST,
+        },
+    }
 
 
 def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.7",
+        "zeroth_version": "0.23.9.8",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -43,6 +59,7 @@ def declaration_data() -> dict:
             "contracts": "apps.vendor_dd.contracts:CONTRACTS",
             "auth_config": "apps.vendor_dd.entrypoint:build_auth_config",
             "policy_guard": "apps.vendor_dd.entrypoint:build_policy_guard",
+            "migration_runner": "apps.vendor_dd.migrations:migrate",
             "frontend_path": "frontend",
         },
         "smoke": {
@@ -61,14 +78,26 @@ def write_inputs(root: Path) -> None:
     evidence.mkdir()
     sbom = evidence / "app.spdx.json"
     provenance = evidence / "provenance.json"
-    sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n')
     candidate = CandidateIdentity(
-        app_name="reference-app", app_commit=COMMIT, zeroth_version="0.23.9.7",
-        image_reference="reference-app:certification", image_digest=DIGEST,
+        app_name="reference-app",
+        app_commit=COMMIT,
+        zeroth_version="0.23.9.8",
+        image_reference="reference-app:certification",
+        image_digest=DIGEST,
         source_digest=SOURCE_DIGEST,
     )
+    sbom.write_text(
+        json.dumps(
+            {
+                "spdxVersion": "SPDX-2.3",
+                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     bind_sbom(sbom, candidate)
-    write_provenance(provenance, candidate)
+    write_provenance(provenance, candidate, **provenance_kwargs(candidate, file_digest(sbom)))
     shutil.copytree(Path("apps/vendor_dd"), root / "apps/vendor_dd")
 
 
@@ -88,8 +117,11 @@ def passing_http(check: str, smoke) -> HttpResult:
     body = {"status": "accepted", "result": {"case": "fixed", "extra": True}}
     return HttpResult(status_code=202, json_body=body)
 
+
 def run_certification(
-    root: Path, declaration: AppDeclaration, *,
+    root: Path,
+    declaration: AppDeclaration,
+    *,
     executor=passing_executor,
     http=passing_http,
     digest: str = DIGEST,
@@ -114,7 +146,7 @@ def test_reference_declaration_produces_bound_deterministic_evidence(tmp_path: P
     assert all(check.status == "passed" for check in report.checks)
     assert report.candidate is not None
     assert report.candidate.app_commit == COMMIT
-    assert report.candidate.zeroth_version == "0.23.9.7"
+    assert report.candidate.zeroth_version == "0.23.9.8"
     assert report.candidate.image_digest == DIGEST
     assert report.evidence is not None
     assert report.evidence.candidate_identity_digest.startswith("sha256:")
@@ -216,16 +248,19 @@ def test_failure_injection_rejects_incompatible_installed_extra(
 
 
 def test_failure_injection_propagates_broken_migration(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
 ) -> None:
-    declaration = AppDeclaration.model_validate(declaration_data())
-
-    def broken_migration(url: str) -> None:
-        raise RuntimeError(f"broken migration at {url}")
-
-    monkeypatch.setattr(owned_checks, "run_migrations", broken_migration)
-    with pytest.raises(RuntimeError, match="broken migration"):
-        run_owned_check("migrations", tmp_path, declaration)
+    (tmp_path / "broken_migration.py").write_text(
+        "def migrate(url):\n    raise RuntimeError(f'broken migration at {url}')\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["migration_runner"] = "broken_migration:migrate"
+    result = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))._command(
+        "migrations"
+    )
+    assert result.status == "failed"
+    assert "broken migration" in result.detail
 
 
 def test_argv_executor_never_uses_an_ambient_shell(tmp_path: Path, monkeypatch) -> None:

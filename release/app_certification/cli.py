@@ -14,13 +14,13 @@ from pathlib import Path
 from .evidence import (
     bind_sbom,
     finalize_attestation,
+    validate_evidence_subject,
     validate_image_archive,
     validate_source_archive,
     write_provenance,
 )
 from .http_process import run_http_exchange
 from .models import (
-    MANDATORY_CHECKS,
     SmokeSpec,
     file_digest,
     identity_digest,
@@ -36,6 +36,7 @@ from .runner import (
     measure_candidate_identity,
 )
 from .scaffold import scaffold_checkout
+from .workflow_finalizer import finalize_workflow as _finalize_workflow
 
 _HTTP_TIMEOUT_SECONDS = 30.0
 _READINESS_TIMEOUT_SECONDS = 5.0
@@ -107,6 +108,8 @@ def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--app-commit", required=True)
     command.add_argument("--zeroth-version", required=True)
     command.add_argument("--zeroth-commit", required=True)
+    command.add_argument("--certifier-wheel", type=Path, required=True)
+    command.add_argument("--requirements-lock", type=Path, required=True)
     command.add_argument("--verdict", type=Path, required=True)
 
 
@@ -136,10 +139,17 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--image-digest", required=True)
     evidence.add_argument("--source-digest", required=True)
     evidence.add_argument("--raw-sbom", type=Path, required=True)
+    evidence.add_argument("--zeroth-commit", required=True)
+    evidence.add_argument("--certifier-wheel", type=Path, required=True)
+    evidence.add_argument("--requirements-lock", type=Path, required=True)
     handoff = commands.add_parser("validate-handoff")
     _add_handoff_arguments(handoff)
     attestation = commands.add_parser("finalize-attestation")
     attestation.add_argument("--bundle", type=Path, required=True)
+    attestation.add_argument("--repository", required=True)
+    attestation.add_argument("--signer-repo", required=True)
+    attestation.add_argument("--signer-workflow", required=True)
+    attestation.add_argument("--signer-digest", required=True)
     _add_handoff_arguments(attestation)
     probe = commands.add_parser("probe-readiness")
     probe.add_argument("--url", required=True)
@@ -185,6 +195,27 @@ def _destination(root: Path, relative: str) -> Path:
     return destination
 
 
+def _build_material_digests(
+    candidate,
+    sbom: Path,
+    certifier_wheel: Path,
+    requirements_lock: Path,
+) -> dict[str, str]:
+    for label, path in (
+        ("certifier wheel", certifier_wheel),
+        ("image requirements lock", requirements_lock),
+    ):
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"{label} is missing or empty")
+    return {
+        "source": candidate.source_digest,
+        "image": candidate.image_digest,
+        "sbom": file_digest(sbom),
+        "zeroth_wheel": file_digest(certifier_wheel),
+        "requirements_lock": file_digest(requirements_lock),
+    }
+
+
 def _prepare_evidence(args: argparse.Namespace) -> int:
     declaration = load_declaration(args.declaration)
     candidate = measure_candidate_identity(
@@ -202,7 +233,25 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
     sbom.parent.mkdir(parents=True, exist_ok=True)
     if sbom.resolve() != args.raw_sbom.resolve():
         shutil.copyfile(args.raw_sbom, sbom)
-    write_provenance(provenance, candidate)
+    if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
+        raise ValueError("trusted certifier commit must be a full commit SHA")
+    materials = _build_material_digests(
+        candidate,
+        sbom,
+        args.certifier_wheel,
+        args.requirements_lock,
+    )
+    write_provenance(
+        provenance,
+        candidate,
+        zeroth_commit=args.zeroth_commit,
+        sbom_digest=file_digest(sbom),
+        build_material_digests=materials,
+    )
+    retained_materials = certification_root / "materials"
+    retained_materials.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(args.certifier_wheel, retained_materials / "zeroth-core.whl")
+    shutil.copyfile(args.requirements_lock, retained_materials / "requirements-image.txt")
     retained = certification_root / "root"
     for source, relative in (
         (sbom, declaration.sbom_path),
@@ -229,6 +278,22 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         raise ValueError("handoff Zeroth version does not match the trusted certifier")
     if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
         raise ValueError("trusted certifier commit must be a full commit SHA")
+    sbom = _destination(args.root, report.evidence.sbom.path)
+    provenance = _destination(args.root, report.evidence.provenance.path)
+    materials = _build_material_digests(
+        candidate,
+        sbom,
+        args.certifier_wheel,
+        args.requirements_lock,
+    )
+    validate_evidence_subject(
+        "provenance",
+        provenance,
+        candidate,
+        zeroth_commit=args.zeroth_commit,
+        sbom_digest=file_digest(sbom),
+        build_material_digests=materials,
+    )
     validate_image_archive(args.image_archive, candidate)
     validate_source_archive(args.source_archive, candidate)
     verdict = {
@@ -244,59 +309,11 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         "image_archive_sha256": file_digest(args.image_archive),
         "provenance_path": report.evidence.provenance.path,
     }
-    args.verdict.write_text(
-        json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    args.verdict.write_text(json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"image_reference={candidate.image_reference}")
     print(f"image_digest={candidate.image_digest}")
     print(f"provenance_path={report.evidence.provenance.path}")
     print(f"verdict_sha256={file_digest(args.verdict)}")
-    return 0
-
-
-def _finalize_workflow(root: Path) -> int:
-    stages = {
-        name.lower(): os.environ.get(name, "skipped")
-        for name in (
-            "APP_CHECKOUT",
-            "CERTIFIER_CHECKOUT",
-            "PREPARE",
-            "IMAGE",
-            "SBOM",
-            "EVIDENCE",
-            "CONTAINERS",
-            "HEALTH",
-            "CERTIFY",
-        )
-    }
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "workflow-stages.json").write_text(
-        json.dumps(stages, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    if (root / "report.json").exists():
-        return 0
-    stage = {
-        "container-startup": "containers",
-        "health": "health",
-        "packaged-smoke": "certify",
-        "ephemeral-smoke": "certify",
-        "sbom": "sbom",
-        "provenance": "evidence",
-    }
-    checks = [
-        {
-            "name": name,
-            "status": "failed",
-            "detail": f"{name}: workflow stage {stage.get(name, 'prepare')} "
-            f"outcome={stages[stage.get(name, 'prepare')]}",
-        }
-        for name in MANDATORY_CHECKS
-    ]
-    payload = {"schema_version": 1, "status": "failed", "candidate": None, "checks": checks}
-    payload["evidence"] = None
-    (root / "report.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
     return 0
 
 
@@ -334,7 +351,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-handoff":
             return _validate_handoff(args)
         if args.command == "finalize-attestation":
-            finalize_attestation(args.bundle, args.report, args.root)
+            finalize_attestation(
+                args.bundle,
+                args.report,
+                args.root,
+                repository=args.repository,
+                signer_repo=args.signer_repo,
+                signer_workflow=args.signer_workflow,
+                signer_digest=args.signer_digest,
+            )
             return _validate_handoff(args)
         if args.command == "probe-readiness":
             return _probe_readiness(args.url)

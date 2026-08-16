@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import subprocess
 import tarfile
 import hashlib
@@ -17,6 +18,7 @@ from release.app_certification import (
     CertificationTargets,
     bind_sbom,
     execute_command,
+    file_digest,
     finalize_attestation,
     identity_digest,
     scaffold_checkout,
@@ -28,6 +30,7 @@ from release.app_certification import (
 from release.app_certification.checks import run_owned_check
 from release.app_certification import checks as owned_checks
 from apps.vendor_dd import certification_healthcheck
+from tests.app_certification.test_engine import provenance_kwargs
 
 
 COMMIT = "a" * 40
@@ -39,7 +42,7 @@ def declaration_data() -> dict:
     return {
         "schema_version": 2,
         "app_name": "reference-app",
-        "zeroth_version": "0.23.9.7",
+        "zeroth_version": "0.23.9.8",
         "lock_path": "uv.lock",
         "dockerfile": "Dockerfile.certification",
         "image_reference": "reference-app:certification",
@@ -50,6 +53,7 @@ def declaration_data() -> dict:
             "contracts": "apps.vendor_dd.contracts:CONTRACTS",
             "auth_config": "apps.vendor_dd.entrypoint:build_auth_config",
             "policy_guard": "apps.vendor_dd.entrypoint:build_policy_guard",
+            "migration_runner": "apps.vendor_dd.migrations:migrate",
             "frontend_path": "frontend",
         },
         "smoke": {
@@ -66,7 +70,7 @@ def identity() -> CandidateIdentity:
     return CandidateIdentity(
         app_name="reference-app",
         app_commit=COMMIT,
-        zeroth_version="0.23.9.7",
+        zeroth_version="0.23.9.8",
         image_reference="reference-app:certification",
         image_digest=DIGEST,
         source_digest=SOURCE_DIGEST,
@@ -115,9 +119,17 @@ def test_report_validation_recomputes_hashes_and_subjects(tmp_path: Path) -> Non
     sbom = tmp_path / "evidence/app.spdx.json"
     provenance = tmp_path / "evidence/provenance.json"
     sbom.parent.mkdir()
-    sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8")
+    sbom.write_text(
+        json.dumps(
+            {
+                "spdxVersion": "SPDX-2.3",
+                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+            }
+        ),
+        encoding="utf-8",
+    )
     bind_sbom(sbom, candidate)
-    write_provenance(provenance, candidate)
+    write_provenance(provenance, candidate, **provenance_kwargs(candidate, file_digest(sbom)))
     report = CertificationReport.passed(candidate, sbom, provenance, root=tmp_path)
     path = tmp_path / "report.json"
     path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -125,19 +137,37 @@ def test_report_validation_recomputes_hashes_and_subjects(tmp_path: Path) -> Non
     assert validate_report(
         path, root=tmp_path
     ).evidence.candidate_identity_digest == identity_digest(candidate)
-    sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8")
+    sbom.write_text(
+        json.dumps(
+            {
+                "spdxVersion": "SPDX-2.3",
+                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+            }
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="SBOM.*subject|sha256"):
         validate_report(path, root=tmp_path)
 
 
-def test_signed_attestation_replaces_and_rebinds_unsigned_predicate(tmp_path: Path) -> None:
+def test_signed_attestation_replaces_and_rebinds_unsigned_predicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     candidate = identity()
     sbom = tmp_path / "evidence/app.spdx.json"
     provenance = tmp_path / "evidence/provenance.json"
     sbom.parent.mkdir()
-    sbom.write_text('{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8")
+    sbom.write_text(
+        json.dumps(
+            {
+                "spdxVersion": "SPDX-2.3",
+                "packages": [{"name": "zeroth-core", "versionInfo": candidate.zeroth_version}],
+            }
+        ),
+        encoding="utf-8",
+    )
     bind_sbom(sbom, candidate)
-    write_provenance(provenance, candidate)
+    write_provenance(provenance, candidate, **provenance_kwargs(candidate, file_digest(sbom)))
     report_path = tmp_path / "report.json"
     write_report(
         CertificationReport.passed(candidate, sbom, provenance, root=tmp_path), report_path
@@ -148,8 +178,20 @@ def test_signed_attestation_replaces_and_rebinds_unsigned_predicate(tmp_path: Pa
         json.dumps({"dsseEnvelope": {"payload": base64.b64encode(statement).decode()}}),
         encoding="utf-8",
     )
+    gh = tmp_path / "gh"
+    gh.write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
 
-    final = finalize_attestation(bundle, report_path, tmp_path)
+    final = finalize_attestation(
+        bundle,
+        report_path,
+        tmp_path,
+        repository="owner/reference-app",
+        signer_repo="rrrozhd/zeroth",
+        signer_workflow="rrrozhd/zeroth/.github/workflows/app-certification.yml",
+        signer_digest="d" * 40,
+    )
 
     assert final.evidence is not None
     assert provenance.read_bytes() == bundle.read_bytes()
@@ -168,7 +210,15 @@ def test_handoff_recomputes_docker_archive_config_digest(tmp_path: Path) -> None
     archive_path = tmp_path / "image.tar"
     config_name = f"blobs/sha256/{digest[7:]}"
     layer_name = "layers/one/layer.tar"
-    manifest = json.dumps([{"Config": config_name, "Layers": [layer_name]}]).encode()
+    manifest = json.dumps(
+        [
+            {
+                "Config": config_name,
+                "RepoTags": [candidate.image_reference],
+                "Layers": [layer_name],
+            }
+        ]
+    ).encode()
     _write_archive(
         archive_path,
         {"manifest.json": manifest, config_name: config, layer_name: layer},
@@ -213,14 +263,17 @@ def test_handoff_accepts_oci_index_descriptor_digest(tmp_path: Path) -> None:
     ).encode()
     manifest_digest = "sha256:" + hashlib.sha256(manifest).hexdigest()
     nested = json.dumps(
-        {"schemaVersion": 2, "manifests": [_descriptor("manifest", manifest_digest, len(manifest))]},
+        {
+            "schemaVersion": 2,
+            "manifests": [_descriptor("manifest", manifest_digest, len(manifest))],
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
     candidate_digest = "sha256:" + hashlib.sha256(nested).hexdigest()
-    index = json.dumps(
-        {"schemaVersion": 2, "manifests": [_descriptor("index", candidate_digest, len(nested))]}
-    ).encode()
+    root_descriptor = _descriptor("index", candidate_digest, len(nested))
+    root_descriptor["annotations"] = {"io.containerd.image.name": identity().image_reference}
+    index = json.dumps({"schemaVersion": 2, "manifests": [root_descriptor]}).encode()
     archive_path = tmp_path / "oci.tar"
     entries = {
         "index.json": index,
@@ -292,7 +345,7 @@ def test_scaffold_emits_valid_executable_assets(tmp_path: Path) -> None:
         tmp_path,
         app_name="sample",
         module="sample_app",
-        zeroth_version="0.23.9.7",
+        zeroth_version="0.23.9.8",
         zeroth_ref=COMMIT,
     )
 

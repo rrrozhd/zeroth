@@ -25,6 +25,7 @@ permissions:
 jobs:
   certify:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -75,17 +76,17 @@ jobs:
             echo "reserved certification paths already exist in the app checkout" >&2
             exit 1
           }
-          uv sync --directory zeroth --frozen --all-extras
-          npm ci --prefix zeroth/frontend
+          timeout 10m uv sync --directory zeroth --frozen --all-extras
+          timeout 5m npm ci --prefix zeroth/frontend
           mkdir trusted-certifier
-          uv build --directory zeroth --wheel --out-dir trusted-certifier
+          timeout 5m uv build --directory zeroth --wheel --out-dir trusted-certifier
           cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
           sudo useradd --system --create-home --home-dir /home/app-cert-candidate \
             --shell /usr/sbin/nologin app-cert-candidate
           chmod -R go-w zeroth app
           mkdir app/.venv
           sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
-          sudo -H -u app-cert-candidate env -i \
+          timeout 10m sudo -H -u app-cert-candidate env -i \
             HOME=/home/app-cert-candidate PATH="$PATH" \
             UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/app/.venv" \
             uv sync --directory app --frozen --all-extras
@@ -145,14 +146,14 @@ jobs:
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
         run: |
           set -euo pipefail
-          docker build --file "build-context/$DOCKERFILE" \
+          timeout 15m docker build --file "build-context/$DOCKERFILE" \
             --tag "$IMAGE_REFERENCE" build-context
           IMAGE_DIGEST=$(docker image inspect "$IMAGE_REFERENCE" --format '{{.Id}}')
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "docker returned a non-immutable image digest" >&2
             exit 1
           }
-          docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
+          timeout 5m docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
       - name: Generate SPDX image SBOM
         id: sbom
@@ -171,13 +172,22 @@ jobs:
           SOURCE_DIGEST: ${{ steps.prepare.outputs.source_digest }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]] || {
+            echo "expected exactly one trusted certifier wheel" >&2
+            exit 1
+          }
           zeroth/.venv/bin/python -m release.app_certification prepare-evidence \
             --declaration app/.app-certification/declaration.json \
             --root app \
             --app-commit "$APP_COMMIT" \
             --image-digest "$IMAGE_DIGEST" \
             --source-digest "$SOURCE_DIGEST" \
-            --raw-sbom app/.app-certification/image.spdx.json
+            --raw-sbom app/.app-certification/image.spdx.json \
+            --zeroth-commit '${{ inputs.zeroth_ref }}' \
+            --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
+            --requirements-lock trusted-certifier/requirements-image.txt
       - name: Start isolated packaged and ephemeral containers
         id: containers
         env:
@@ -188,12 +198,16 @@ jobs:
           docker network create app-cert-ephemeral-net
           docker volume create app-cert-packaged-data
           docker run --detach --name app-cert-packaged \
+            --cpus 2 --memory 2g --pids-limit 256 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=1 \
             --network app-cert-packaged-net \
             --mount type=volume,source=app-cert-packaged-data,target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
             "$IMAGE_ID"
           docker run --detach --name app-cert-ephemeral \
+            --cpus 2 --memory 2g --pids-limit 256 \
+            --log-driver local --log-opt max-size=10m --log-opt max-file=1 \
             --network app-cert-ephemeral-net \
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
@@ -259,14 +273,14 @@ jobs:
           set -euo pipefail
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
             -m release.app_certification finalize-workflow \
-            --root app/.app-certification || python3 -c 'import json,os,pathlib; r=pathlib.Path("app/.app-certification"); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); p.exists() or p.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"prepare"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n")'
+            --root app/.app-certification || python3 -c 'import json,os,pathlib; r=pathlib.Path("app/.app-certification"); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p)'
       - name: Capture container diagnostics
         if: ${{ always() }}
         run: |
           set +e
           mkdir -p app/.app-certification/logs
-          docker logs app-cert-packaged > app/.app-certification/logs/packaged.log 2>&1
-          docker logs app-cert-ephemeral > app/.app-certification/logs/ephemeral.log 2>&1
+          docker logs --tail 2000 app-cert-packaged > app/.app-certification/logs/packaged.log 2>&1
+          docker logs --tail 2000 app-cert-ephemeral > app/.app-certification/logs/ephemeral.log 2>&1
           docker inspect app-cert-packaged app-cert-ephemeral \
             > app/.app-certification/logs/container-inspect.json 2>&1
       - name: Stop and remove certification containers
@@ -289,6 +303,7 @@ jobs:
   verify:
     needs: certify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -328,6 +343,8 @@ jobs:
             --image-archive evidence/image.tar --source-archive evidence/source.tar \
             --app-commit "$APP_COMMIT" \
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
+            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --requirements-lock evidence/materials/requirements-image.txt \
             --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
       - name: Upload authenticated unprivileged verdict
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -340,6 +357,7 @@ jobs:
     needs: verify
     if: ${{ needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       attestations: write
@@ -393,7 +411,16 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(zeroth/.venv/bin/python -c 'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
-          zeroth/.venv/bin/python -m release.app_certification finalize-attestation --bundle "$BUNDLE" --report evidence/report.json --root evidence/root --image-archive evidence/image.tar --source-archive evidence/source.tar --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" --zeroth-commit '${{ inputs.zeroth_ref }}' --verdict evidence/verdict.json
+          zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
+            --bundle "$BUNDLE" --report evidence/report.json --root evidence/root \
+            --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" \
+            --zeroth-commit '${{ inputs.zeroth_ref }}' \
+            --certifier-wheel evidence/materials/zeroth-core.whl \
+            --requirements-lock evidence/materials/requirements-image.txt \
+            --repository '${{ github.repository }}' --signer-repo rrrozhd/zeroth \
+            --signer-workflow rrrozhd/zeroth/.github/workflows/app-certification.yml \
+            --signer-digest '${{ inputs.zeroth_ref }}' --verdict evidence/verdict.json
       - name: Upload final signed certification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

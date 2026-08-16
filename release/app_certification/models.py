@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -104,6 +106,7 @@ class CertificationTargets(BaseModel):
     contracts: str
     auth_config: str
     policy_guard: str
+    migration_runner: str
     frontend_path: str = "frontend"
 
     @field_validator("graph_builders")
@@ -120,7 +123,7 @@ class CertificationTargets(BaseModel):
             raise ValueError("graph_builders must contain safe module:attribute references")
         return value
 
-    @field_validator("contracts", "auth_config", "policy_guard")
+    @field_validator("contracts", "auth_config", "policy_guard", "migration_runner")
     @classmethod
     def _import_reference(cls, value: str) -> str:
         if not _valid_import_ref(value):
@@ -383,7 +386,18 @@ def write_report(report: CertificationReport, path: Path) -> None:
     """Write canonical, deterministic JSON evidence."""
     rendered = json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rendered, encoding="utf-8")
+    descriptor, temporary = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def validate_report(path: Path, *, root: Path | None = None) -> CertificationReport:

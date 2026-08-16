@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "app_name": "vendor-dd",
-  "zeroth_version": "0.23.9.7",
+  "zeroth_version": "0.23.9.8",
   "lock_path": "uv.lock",
   "dockerfile": "apps/vendor_dd/Dockerfile.certification",
   "image_reference": "vendor-dd:certification",
@@ -16,6 +16,7 @@
     "contracts": "apps.vendor_dd.contracts:CONTRACTS",
     "auth_config": "apps.vendor_dd.entrypoint:build_auth_config",
     "policy_guard": "apps.vendor_dd.entrypoint:build_policy_guard",
+    "migration_runner": "apps.vendor_dd.migrations:migrate",
     "frontend_path": "frontend"
   },
   "smoke": {

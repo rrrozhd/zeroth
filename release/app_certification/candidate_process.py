@@ -13,16 +13,22 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
+from zeroth.contracts.graph import Graph
 from zeroth.platform.config import get_settings
 
 from .models import AppDeclaration, file_digest
 
 _OUTPUT_LIMIT = 1 << 20
+_CPU_LIMIT = 120
+_MEMORY_LIMIT = 2 * 1024 * 1024 * 1024
+_PROCESS_LIMIT = 128
+_OPEN_FILE_LIMIT = 256
 
 
 def _load_target(reference: str) -> Any:
@@ -37,11 +43,20 @@ def _contracts(declaration: AppDeclaration) -> dict[str, type[BaseModel]]:
     value = _load_target(declaration.targets.contracts)
     if not isinstance(value, Mapping) or not value:
         raise ValueError("contracts target must be a non-empty mapping")
-    return dict(value)
+    contracts = dict(value)
+    for name, model in contracts.items():
+        if not isinstance(name, str) or not name or not isinstance(model, type):
+            raise ValueError("contracts must map non-empty names to Pydantic model types")
+        if not issubclass(model, BaseModel):
+            raise ValueError(f"contract {name!r} is not a Pydantic model type")
+    return contracts
 
 
 def _graphs(declaration: AppDeclaration) -> list[Any]:
-    return [_load_target(reference)() for reference in declaration.targets.graph_builders]
+    graphs = [_load_target(reference)() for reference in declaration.targets.graph_builders]
+    if any(not isinstance(graph, Graph) for graph in graphs):
+        raise ValueError("every graph builder must return a Graph")
+    return graphs
 
 
 def _schemas(contracts: Mapping[str, type[BaseModel]]) -> dict[str, dict[str, Any]]:
@@ -83,6 +98,7 @@ def _optional_extras_evidence(root: Path, declaration: AppDeclaration) -> dict[s
         declaration.targets.contracts,
         declaration.targets.auth_config,
         declaration.targets.policy_guard,
+        declaration.targets.migration_runner,
     ]
     for reference in targets:
         _load_target(reference)
@@ -121,6 +137,22 @@ def _policy_evidence(declaration: AppDeclaration) -> dict[str, Any]:
     }
 
 
+def _migration_evidence(declaration: AppDeclaration) -> dict[str, Any]:
+    runner = _load_target(declaration.targets.migration_runner)
+    if not callable(runner):
+        raise ValueError("migration_runner target must be callable")
+    with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
+        database = Path(directory) / "migration.sqlite"
+        runner(f"sqlite:///{database}")
+        if not database.is_file() or database.stat().st_size == 0:
+            raise ValueError("app migration did not create a non-empty database")
+        return {
+            "database_sha256": file_digest(database),
+            "database_size": database.stat().st_size,
+            "runner": declaration.targets.migration_runner,
+        }
+
+
 def collect_candidate_evidence(
     name: str,
     root: Path,
@@ -142,12 +174,12 @@ def collect_candidate_evidence(
         return evidence
     if name == "policies":
         return _policy_evidence(declaration)
+    if name == "migrations":
+        return _migration_evidence(declaration)
     raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _target_source_digests(
-    name: str, root: Path, declaration: AppDeclaration
-) -> dict[str, str]:
+def _target_source_digests(name: str, root: Path, declaration: AppDeclaration) -> dict[str, str]:
     targets = declaration.targets
     references = {
         "graph": [*targets.graph_builders, targets.contracts],
@@ -158,8 +190,10 @@ def _target_source_digests(
             targets.contracts,
             targets.auth_config,
             targets.policy_guard,
+            targets.migration_runner,
         ],
         "policies": [*targets.graph_builders, targets.policy_guard],
+        "migrations": [targets.migration_runner],
     }[name]
     bindings: dict[str, str] = {}
     for reference in sorted(set(references)):
@@ -191,21 +225,39 @@ def _payload(
     }
 
 
-def _limit_output() -> None:
-    resource.setrlimit(resource.RLIMIT_FSIZE, (_OUTPUT_LIMIT, _OUTPUT_LIMIT))
+def _cap_resource(kind: int, limit: int) -> None:
+    soft, hard = resource.getrlimit(kind)
+    capped_hard = limit if hard == resource.RLIM_INFINITY else min(limit, hard)
+    capped_soft = capped_hard if soft == resource.RLIM_INFINITY else min(capped_hard, soft)
+    resource.setrlimit(kind, (capped_soft, capped_hard))
+
+
+def _limit_resources() -> None:
+    limits = [
+        (resource.RLIMIT_FSIZE, _OUTPUT_LIMIT),
+        (resource.RLIMIT_CPU, _CPU_LIMIT),
+        (resource.RLIMIT_NOFILE, _OPEN_FILE_LIMIT),
+    ]
+    if sys.platform != "darwin":
+        limits.extend(
+            (
+                (resource.RLIMIT_AS, _MEMORY_LIMIT),
+                (resource.RLIMIT_NPROC, _PROCESS_LIMIT),
+            )
+        )
+    for kind, limit in limits:
+        _cap_resource(kind, limit)
 
 
 def run_importer(argv: list[str]) -> tuple[int, str, str]:
     """Run one candidate-only serializer with bounded output and lifetime."""
-    with tempfile.TemporaryFile(mode="w+") as stdout, tempfile.TemporaryFile(
-        mode="w+"
-    ) as stderr:
+    with tempfile.TemporaryFile(mode="w+") as stdout, tempfile.TemporaryFile(mode="w+") as stderr:
         process = subprocess.Popen(
             argv,
             stdout=stdout,
             stderr=stderr,
             text=True,
-            preexec_fn=_limit_output,
+            preexec_fn=_limit_resources,
             start_new_session=True,
         )
         timed_out = False
@@ -213,8 +265,11 @@ def run_importer(argv: list[str]) -> tuple[int, str, str]:
             process.wait(timeout=150)
         except subprocess.TimeoutExpired:
             timed_out = True
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+        finally:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            if process.poll() is None:
+                process.wait()
         stdout.seek(0)
         stderr.seek(0)
         output, diagnostics = stdout.read(_OUTPUT_LIMIT + 1), stderr.read(_OUTPUT_LIMIT + 1)

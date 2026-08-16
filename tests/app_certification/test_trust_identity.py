@@ -16,8 +16,27 @@ from release.app_certification import (
     validate_source_archive,
     write_provenance,
 )
-from tests.app_certification.test_engine import declaration_data, passing_executor
+from tests.app_certification.test_engine import (
+    declaration_data,
+    passing_executor,
+    provenance_kwargs,
+)
 from tests.app_certification.test_hardening import COMMIT, SOURCE_DIGEST, identity
+
+
+def _migration_declaration(root: Path) -> dict:
+    (root / "candidate_migration.py").write_text(
+        "import sqlite3\n"
+        "def migrate(url):\n"
+        "    connection = sqlite3.connect(url.removeprefix('sqlite:///'))\n"
+        "    connection.execute('create table certification (id integer)')\n"
+        "    connection.commit()\n"
+        "    connection.close()\n",
+        encoding="utf-8",
+    )
+    data = declaration_data()
+    data["targets"]["migration_runner"] = "candidate_migration:migrate"
+    return data
 
 
 def test_candidate_startup_ignores_tracked_sitecustomize_before_safe_import(
@@ -31,12 +50,13 @@ def test_candidate_startup_ignores_tracked_sitecustomize_before_safe_import(
         "os._exit(0)\n",
         encoding="utf-8",
     )
+    data = _migration_declaration(tmp_path)
     declaration_path = tmp_path / "certification.json"
-    declaration_path.write_text(json.dumps(declaration_data()), encoding="utf-8")
+    declaration_path.write_text(json.dumps(data), encoding="utf-8")
     monkeypatch.setenv("PYTHONPATH", str(tmp_path))
     runner = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(declaration_data()),
+        AppDeclaration.model_validate(data),
         declaration_path=declaration_path,
         check_python=Path(sys.executable),
     )
@@ -50,14 +70,19 @@ def test_candidate_startup_ignores_tracked_sitecustomize_before_safe_import(
 def test_candidate_startup_does_not_execute_candidate_interpreter(tmp_path: Path) -> None:
     candidate_python = tmp_path / ".venv/bin/python"
     observed: dict[str, list[str]] = {}
+    data = _migration_declaration(tmp_path)
 
     def capture(argv: list[str], cwd: Path) -> CommandResult:
         observed["argv"] = argv
-        return passing_executor(argv, cwd)
+        sys.path.insert(0, str(cwd))
+        try:
+            return passing_executor(argv, cwd)
+        finally:
+            sys.path.pop(0)
 
     runner = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(declaration_data()),
+        AppDeclaration.model_validate(data),
         executor=capture,
         check_python=candidate_python,
     )
@@ -84,7 +109,7 @@ def test_structured_result_must_match_the_requested_check(tmp_path: Path) -> Non
     result = runner._command("migrations")
 
     assert result.status == "failed"
-    assert "structured result" in result.detail
+    assert "trusted finalization" in result.detail
 
 
 def test_candidate_target_cannot_forge_trusted_pass_with_stdout_and_exit(
@@ -172,7 +197,11 @@ def test_source_identity_is_bound_into_provenance(tmp_path: Path) -> None:
     candidate = identity()
     provenance = tmp_path / "provenance.json"
 
-    write_provenance(provenance, candidate)
+    write_provenance(
+        provenance,
+        candidate,
+        **provenance_kwargs(candidate, "sha256:" + "f" * 64),
+    )
 
     predicate = json.loads(provenance.read_text(encoding="utf-8"))["predicate"]
     assert candidate.source_digest == SOURCE_DIGEST

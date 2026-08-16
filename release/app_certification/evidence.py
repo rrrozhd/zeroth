@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
+import re
 import shutil
-import tarfile
-from pathlib import Path, PurePosixPath
+import subprocess
+from pathlib import Path
 from typing import Any
 
+from .archives import (
+    validate_image_archive as validate_image_archive,
+)
+from .archives import (
+    validate_source_archive as validate_source_archive,
+)
 from .models import (
     CandidateIdentity,
     CertificationReport,
@@ -23,8 +29,9 @@ from .models import (
 _ANNOTATOR = "Tool: Zeroth app-certification"
 _COMMENT_PREFIX = "zeroth-candidate:"
 _PREDICATE_TYPE = "https://zeroth.dev/app-certification/provenance/v1"
-_JSON_LIMIT = 16 * 1024 * 1024
-_CONFIG_LIMIT = 4 * 1024 * 1024
+_COMMAND_OUTPUT_LIMIT = 1 << 20
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _json_object(path: Path) -> dict[str, Any]:
@@ -72,7 +79,14 @@ def bind_sbom(path: Path, candidate: CandidateIdentity) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def write_provenance(path: Path, candidate: CandidateIdentity) -> None:
+def write_provenance(
+    path: Path,
+    candidate: CandidateIdentity,
+    *,
+    zeroth_commit: str,
+    sbom_digest: str,
+    build_material_digests: dict[str, str],
+) -> None:
     """Write the exact custom predicate later signed by the privileged job."""
     statement = {
         "_type": "https://in-toto.io/Statement/v1",
@@ -87,6 +101,9 @@ def write_provenance(path: Path, candidate: CandidateIdentity) -> None:
             "app_commit": candidate.app_commit,
             "source_digest": candidate.source_digest,
             "zeroth_version": candidate.zeroth_version,
+            "zeroth_commit": zeroth_commit,
+            "sbom_digest": sbom_digest,
+            "build_material_digests": build_material_digests,
             "candidate_identity_digest": identity_digest(candidate),
         },
     }
@@ -110,7 +127,7 @@ def _statement(document: dict[str, Any]) -> dict[str, Any]:
     return statement
 
 
-def _validate_statement(statement: dict[str, Any], candidate: CandidateIdentity) -> None:
+def _validated_predicate(statement: dict[str, Any], candidate: CandidateIdentity) -> dict[str, Any]:
     expected_subject = [
         {
             "name": candidate.image_reference,
@@ -121,14 +138,78 @@ def _validate_statement(statement: dict[str, Any], candidate: CandidateIdentity)
         raise ValueError("provenance subject does not match the candidate image")
     if statement.get("predicateType") != _PREDICATE_TYPE:
         raise ValueError("provenance predicate type is not the app-certification contract")
-    expected = {
+    predicate = statement.get("predicate")
+    if not isinstance(predicate, dict):
+        raise ValueError("provenance predicate must be a JSON object")
+    expected_identity = {
         "app_commit": candidate.app_commit,
         "source_digest": candidate.source_digest,
         "zeroth_version": candidate.zeroth_version,
         "candidate_identity_digest": identity_digest(candidate),
     }
-    if statement.get("predicate") != expected:
+    required = {
+        *expected_identity,
+        "zeroth_commit",
+        "sbom_digest",
+        "build_material_digests",
+    }
+    if set(predicate) != required or any(
+        predicate.get(key) != value for key, value in expected_identity.items()
+    ):
         raise ValueError("provenance predicate does not match the exact candidate identity")
+    if (
+        not isinstance(predicate["zeroth_commit"], str)
+        or _COMMIT.fullmatch(predicate["zeroth_commit"]) is None
+    ):
+        raise ValueError("provenance has an invalid Zeroth commit binding")
+    if (
+        not isinstance(predicate["sbom_digest"], str)
+        or _DIGEST.fullmatch(predicate["sbom_digest"]) is None
+    ):
+        raise ValueError("provenance has an invalid SBOM digest binding")
+    return predicate
+
+
+def _validate_statement(
+    statement: dict[str, Any],
+    candidate: CandidateIdentity,
+    *,
+    zeroth_commit: str | None = None,
+    sbom_digest: str | None = None,
+    build_material_digests: dict[str, str] | None = None,
+) -> None:
+    predicate = _validated_predicate(statement, candidate)
+    materials = _validated_materials(predicate, candidate)
+    if zeroth_commit is not None and predicate["zeroth_commit"] != zeroth_commit:
+        raise ValueError("provenance Zeroth commit does not match the trusted certifier")
+    if sbom_digest is not None and predicate["sbom_digest"] != sbom_digest:
+        raise ValueError("provenance SBOM digest does not match retained bytes")
+    if build_material_digests is not None and materials != build_material_digests:
+        raise ValueError("provenance build material digests do not match retained inputs")
+
+
+def _validated_materials(predicate: dict[str, Any], candidate: CandidateIdentity) -> dict[str, str]:
+    materials = predicate["build_material_digests"]
+    if (
+        not isinstance(materials, dict)
+        or len(materials) < 4
+        or any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(digest, str)
+            or _DIGEST.fullmatch(digest) is None
+            for name, digest in materials.items()
+        )
+    ):
+        raise ValueError("provenance build material digests are malformed")
+    expected_materials = {
+        "source": candidate.source_digest,
+        "image": candidate.image_digest,
+        "sbom": predicate["sbom_digest"],
+    }
+    if any(materials.get(name) != value for name, value in expected_materials.items()):
+        raise ValueError("provenance build material bindings do not match the candidate")
+    return materials
 
 
 def _validate_sbom(path: Path, candidate: CandidateIdentity) -> None:
@@ -145,6 +226,18 @@ def _validate_sbom(path: Path, candidate: CandidateIdentity) -> None:
     )
     if comments != [expected]:
         raise ValueError("SBOM subject does not match the exact candidate identity")
+    packages = document.get("packages")
+    if (
+        not isinstance(packages, list)
+        or not packages
+        or any(not isinstance(item, dict) for item in packages)
+    ):
+        raise ValueError("SBOM package inventory is missing or malformed")
+    if not any(
+        item.get("name") == "zeroth-core" and item.get("versionInfo") == candidate.zeroth_version
+        for item in packages
+    ):
+        raise ValueError("SBOM package inventory does not contain the declared zeroth-core")
 
 
 def validate_evidence(report: CertificationReport, root: Path) -> None:
@@ -160,27 +253,124 @@ def validate_evidence(report: CertificationReport, root: Path) -> None:
         if not path.is_file() or file_digest(path) != record.sha256:
             raise ValueError(f"{label} sha256 does not match retained bytes")
     _validate_sbom(sbom, report.candidate)
-    _validate_statement(_statement(_json_object(provenance)), report.candidate)
+    _validate_statement(
+        _statement(_json_object(provenance)),
+        report.candidate,
+        sbom_digest=file_digest(sbom),
+    )
 
 
-def validate_evidence_subject(kind: str, path: Path, candidate: CandidateIdentity) -> None:
+def validate_evidence_subject(
+    kind: str,
+    path: Path,
+    candidate: CandidateIdentity,
+    *,
+    zeroth_commit: str | None = None,
+    sbom_digest: str | None = None,
+    build_material_digests: dict[str, str] | None = None,
+) -> None:
     """Validate one evidence document against the exact measured candidate."""
     if kind == "sbom":
         _validate_sbom(path, candidate)
         return
     if kind == "provenance":
-        _validate_statement(_statement(_json_object(path)), candidate)
+        _validate_statement(
+            _statement(_json_object(path)),
+            candidate,
+            zeroth_commit=zeroth_commit,
+            sbom_digest=sbom_digest,
+            build_material_digests=build_material_digests,
+        )
         return
     raise ValueError(f"unknown evidence kind {kind!r}")
 
 
-def finalize_attestation(bundle: Path, report_path: Path, root: Path) -> CertificationReport:
+def _verification_command(
+    bundle: Path,
+    candidate: CandidateIdentity,
+    *,
+    repository: str,
+    signer_repo: str,
+    signer_workflow: str,
+    signer_digest: str,
+) -> list[str]:
+    return [
+        "gh",
+        "attestation",
+        "verify",
+        f"oci://{candidate.image_reference}@{candidate.image_digest}",
+        "--bundle",
+        str(bundle),
+        "--predicate-type",
+        _PREDICATE_TYPE,
+        "--cert-oidc-issuer",
+        "https://token.actions.githubusercontent.com",
+        "--repo",
+        repository,
+        "--signer-repo",
+        signer_repo,
+        "--signer-workflow",
+        signer_workflow,
+        "--signer-digest",
+        signer_digest,
+        "--source-digest",
+        candidate.app_commit,
+        "--deny-self-hosted-runners",
+        "--format",
+        "json",
+    ]
+
+
+def _verify_attestation(argv: list[str]) -> None:
+    try:
+        verified = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"attestation signature verification failed: {error}") from error
+    if len(verified.stdout) + len(verified.stderr) > _COMMAND_OUTPUT_LIMIT:
+        raise ValueError("attestation signature verification output exceeded 1 MiB")
+    if verified.returncode:
+        detail = verified.stderr.strip() or verified.stdout.strip() or "gh rejected the bundle"
+        raise ValueError(f"attestation signature verification failed: {detail[-500:]}")
+    try:
+        result = json.loads(verified.stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError("attestation signature verification returned malformed JSON") from error
+    if not isinstance(result, (dict, list)):
+        raise ValueError("attestation signature verification returned malformed JSON")
+
+
+def finalize_attestation(
+    bundle: Path,
+    report_path: Path,
+    root: Path,
+    *,
+    repository: str,
+    signer_repo: str,
+    signer_workflow: str,
+    signer_digest: str,
+) -> CertificationReport:
     """Replace the unsigned predicate with its signed bundle and rebind the report."""
     report = validate_report(report_path, root=root)
     if report.candidate is None or report.evidence is None:
         raise ValueError("attestation finalization requires a passing report")
     document = _json_object(bundle)
     _validate_statement(_statement(document), report.candidate)
+    _verify_attestation(
+        _verification_command(
+            bundle,
+            report.candidate,
+            repository=repository,
+            signer_repo=signer_repo,
+            signer_workflow=signer_workflow,
+            signer_digest=signer_digest,
+        )
+    )
     destination = _resolve(root, report.evidence.provenance.path)
     shutil.copyfile(bundle, destination)
     evidence = report.evidence.model_copy(
@@ -194,218 +384,3 @@ def finalize_attestation(bundle: Path, report_path: Path, root: Path) -> Certifi
     final = report.model_copy(update={"evidence": evidence})
     write_report(final, report_path)
     return validate_report(report_path, root=root)
-
-
-def _archive_members(archive: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
-    members: dict[str, tarfile.TarInfo] = {}
-    for member in archive.getmembers():
-        name = member.name
-        path = PurePosixPath(name)
-        if not name or "\\" in name or path.is_absolute() or ".." in path.parts:
-            raise ValueError(f"image archive has unsafe archive member {name!r}")
-        if not (member.isfile() or member.isdir()):
-            raise ValueError(f"image archive has unsafe archive member type for {name!r}")
-        if name in members:
-            raise ValueError(f"image archive has duplicate member {name!r}")
-        members[name] = member
-    return members
-
-
-def _member_bytes(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    name: str,
-    limit: int,
-) -> bytes:
-    member = members.get(name)
-    if member is None or not member.isfile():
-        raise ValueError(f"image archive member {name!r} is missing")
-    if member.size > limit:
-        raise ValueError(f"image archive member {name!r} exceeds its validation limit")
-    stream = archive.extractfile(member)
-    if stream is None:
-        raise ValueError(f"image archive member {name!r} is unreadable")
-    return stream.read()
-
-
-def _sha256(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
-
-
-def _member_sha256(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    name: str,
-) -> str:
-    member = members.get(name)
-    if member is None or not member.isfile():
-        raise ValueError(f"image archive member {name!r} is missing")
-    stream = archive.extractfile(member)
-    if stream is None:
-        raise ValueError(f"image archive member {name!r} is unreadable")
-    hasher = hashlib.sha256()
-    while chunk := stream.read(1024 * 1024):
-        hasher.update(chunk)
-    return "sha256:" + hasher.hexdigest()
-
-
-def _descriptor_digest(descriptor: Any) -> str:
-    if not isinstance(descriptor, dict):
-        raise ValueError("image archive descriptor must be a JSON object")
-    digest = descriptor.get("digest")
-    if (
-        not isinstance(digest, str)
-        or not digest.startswith("sha256:")
-        or len(digest) != 71
-        or any(char not in "0123456789abcdef" for char in digest[7:])
-    ):
-        raise ValueError("image archive descriptor has an invalid sha256 digest")
-    return digest
-
-
-def _validate_blob(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    descriptor: Any,
-    limit: int | None,
-) -> bytes | None:
-    digest = _descriptor_digest(descriptor)
-    name = f"blobs/sha256/{digest[7:]}"
-    member = members.get(name)
-    if member is None or not member.isfile():
-        raise ValueError(f"image archive member {name!r} is missing")
-    if descriptor.get("size") != member.size:
-        raise ValueError("image archive descriptor size does not match its blob")
-    if limit is not None and member.size > limit:
-        raise ValueError(f"image archive member {name!r} exceeds its validation limit")
-    stream = archive.extractfile(member)
-    if stream is None:
-        raise ValueError(f"image archive member {name!r} is unreadable")
-    hasher = hashlib.sha256()
-    chunks: list[bytes] | None = [] if limit is not None else None
-    while chunk := stream.read(1024 * 1024):
-        hasher.update(chunk)
-        if chunks is not None:
-            chunks.append(chunk)
-    if "sha256:" + hasher.hexdigest() != digest:
-        raise ValueError("image archive descriptor digest does not match its blob")
-    return b"".join(chunks) if chunks is not None else None
-
-
-def _validate_descriptor(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    descriptor: Any,
-    seen: set[str],
-) -> None:
-    digest = _descriptor_digest(descriptor)
-    if digest in seen:
-        raise ValueError("image archive descriptor graph contains a cycle")
-    data = _validate_blob(archive, members, descriptor, _JSON_LIMIT)
-    assert data is not None
-    try:
-        document = json.loads(data)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("image archive descriptor blob is not JSON") from error
-    if not isinstance(document, dict):
-        raise ValueError("image archive descriptor blob must contain a JSON object")
-    seen.add(digest)
-    if isinstance(document.get("manifests"), list) and document["manifests"]:
-        for child in document["manifests"]:
-            _validate_descriptor(archive, members, child, seen)
-    elif "config" in document:
-        _validate_blob(archive, members, document["config"], _CONFIG_LIMIT)
-        layers = document.get("layers", [])
-        if not isinstance(layers, list):
-            raise ValueError("image archive manifest layers must be a list")
-        for layer in layers:
-            _validate_blob(archive, members, layer, None)
-    else:
-        raise ValueError("image archive descriptor is neither an index nor an image manifest")
-    seen.remove(digest)
-
-
-def _validate_oci_archive(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    candidate: CandidateIdentity,
-) -> None:
-    try:
-        index = json.loads(_member_bytes(archive, members, "index.json", _JSON_LIMIT))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("image archive index.json is not readable JSON") from error
-    manifests = index.get("manifests") if isinstance(index, dict) else None
-    if not isinstance(manifests, list) or len(manifests) != 1:
-        raise ValueError("image archive index must name exactly one candidate descriptor")
-    if _descriptor_digest(manifests[0]) != candidate.image_digest:
-        raise ValueError("image archive descriptor digest does not match the candidate")
-    _validate_descriptor(archive, members, manifests[0], set())
-
-
-def _classic_diff_ids(config: bytes) -> list[Any]:
-    try:
-        document = json.loads(config)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("image archive config is not readable JSON") from error
-    rootfs = document.get("rootfs") if isinstance(document, dict) else None
-    diff_ids = rootfs.get("diff_ids") if isinstance(rootfs, dict) else None
-    if not isinstance(diff_ids, list):
-        raise ValueError("image archive config must bind its saved layers")
-    return diff_ids
-
-
-def _validate_classic_archive(
-    archive: tarfile.TarFile,
-    members: dict[str, tarfile.TarInfo],
-    candidate: CandidateIdentity,
-) -> None:
-    try:
-        manifest = json.loads(_member_bytes(archive, members, "manifest.json", 1024 * 1024))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("image archive manifest.json is not readable JSON") from error
-    if not isinstance(manifest, list) or len(manifest) != 1 or not isinstance(manifest[0], dict):
-        raise ValueError("image archive must contain exactly one image")
-    config_name = manifest[0].get("Config")
-    if not isinstance(config_name, str):
-        raise ValueError("image archive config path is missing")
-    config = _member_bytes(archive, members, config_name, _CONFIG_LIMIT)
-    if _sha256(config) != candidate.image_digest:
-        raise ValueError("image archive config digest does not match the candidate")
-    diff_ids = _classic_diff_ids(config)
-    layers = manifest[0].get("Layers")
-    if not isinstance(layers, list):
-        raise ValueError("image archive config must bind its saved layers")
-    if len(diff_ids) != len(layers):
-        raise ValueError("image archive layer count does not match config rootfs")
-    for layer_name, diff_id in zip(layers, diff_ids, strict=True):
-        if not isinstance(layer_name, str):
-            raise ValueError("image archive layer path is invalid")
-        expected = _descriptor_digest({"digest": diff_id})
-        if _member_sha256(archive, members, layer_name) != expected:
-            raise ValueError("image archive layer digest does not match config rootfs")
-
-
-def validate_image_archive(path: Path, candidate: CandidateIdentity) -> None:
-    """Bind a classic Docker config or OCI root descriptor to the candidate digest."""
-    try:
-        with tarfile.open(path, mode="r:") as archive:
-            members = _archive_members(archive)
-            if "index.json" in members:
-                _validate_oci_archive(archive, members, candidate)
-            else:
-                _validate_classic_archive(archive, members, candidate)
-    except (OSError, tarfile.TarError) as error:
-        raise ValueError(f"image archive is unreadable: {error}") from error
-
-
-def validate_source_archive(path: Path, candidate: CandidateIdentity) -> None:
-    """Bind the exact Git archive used as the Docker source context."""
-    try:
-        if file_digest(path) != candidate.source_digest:
-            raise ValueError("source archive digest does not match the candidate")
-        with tarfile.open(path, mode="r:") as archive:
-            archived_commit = archive.pax_headers.get("comment")
-    except (OSError, tarfile.TarError) as error:
-        raise ValueError(f"source archive is unreadable: {error}") from error
-    if archived_commit != candidate.app_commit:
-        raise ValueError("source archive commit does not match the candidate")
