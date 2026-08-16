@@ -482,7 +482,7 @@ async def test_replay_that_fails_midway_leaves_the_run_wholly_unreset(sqlite_db)
     assert before["status"] == RunStatus.FAILED.value
     assert before["failure_state"] is not None
 
-    with _refusing_write(database, "failure_count = 0"):
+    with _refusing_write(database, "failure_count = ?"):
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(f"/admin/runs/{run_id}/replay", headers=admin_headers())
     assert response.status_code >= 500

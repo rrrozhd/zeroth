@@ -933,6 +933,7 @@ class _RunThreadStore:
             "record_history",
             "record_condition_result",
             "increment_failure_count",
+            "replay_failed",
             "delete",
             "count_pending",
             "redact_run",
@@ -1197,6 +1198,28 @@ class RunRepository:
             run.error = error
         run.touch()
         return await self.put(run)
+
+    @persistence_operation(ResourceOperation.UPDATE)
+    async def replay_failed(self, run_id: str, deployment_ref: str) -> bool:
+        """Atomically requeue one failed run inside this repository's exact scope."""
+        async with self._store.runs.transaction(write_lock=True) as runs:
+            return await runs.update_if_matches(
+                {
+                    "status": RunStatus.PENDING.value,
+                    "error": None,
+                    "failure_state": None,
+                    "failure_count": 0,
+                    "lease_worker_id": None,
+                    "lease_expires_at": None,
+                    "updated_at": utc_now().isoformat(),
+                },
+                where={
+                    "run_id": run_id,
+                    "deployment_ref": deployment_ref,
+                    "status": RunStatus.FAILED.value,
+                },
+                returning="run_id",
+            )
 
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_history(self, run_id: str, entry: RunHistoryEntry) -> Run:
