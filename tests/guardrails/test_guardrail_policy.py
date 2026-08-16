@@ -12,6 +12,7 @@ from pydantic import ValidationError
 import zeroth.governance.guardrails.policy as policy_module
 from tests.conftest import requires_docker
 from tests.service.helpers import admin_headers, agent_graph, deploy_service, operator_headers
+from zeroth.governance.guardrails.config import GuardrailConfig
 from zeroth.governance.guardrails.policy import (
     EffectiveGuardrailSettings,
     GuardrailPolicyPatch,
@@ -43,6 +44,15 @@ def test_policy_bounds_fail_closed() -> None:
         GuardrailPolicyPatch(quota_daily_limit=0)
     with pytest.raises(ValidationError):
         GuardrailPolicyPatch(max_concurrency=2, reset_fields=("max_concurrency",))
+
+
+def test_subnormal_refill_rate_fails_closed() -> None:
+    with pytest.raises(ValidationError):
+        GuardrailConfig(rate_limit_refill_rate=5e-324)
+    with pytest.raises(ValidationError):
+        GuardrailPolicyPatch(rate_limit_refill_rate=5e-324)
+    with pytest.raises(ValidationError):
+        EffectiveGuardrailSettings(rate_limit_refill_rate=5e-324)
 
 
 def test_quota_unlimited_is_distinct_from_reset() -> None:
@@ -227,6 +237,60 @@ async def test_concurrent_policy_writers_append_distinct_revisions(sqlite_db) ->
 
     assert len({row.revision_id for row in results}) == 4
     assert len(await repository.history(scope="deployment", deployment_ref="replicated")) == 4
+
+
+@requires_docker
+async def test_inspection_snapshot_stays_coherent_during_concurrent_append(
+    dual_database,
+    monkeypatch,
+) -> None:
+    repository = GuardrailPolicyRepository.scoped(
+        dual_database,
+        NullWorkspaceScopeContext(tenant_id="tenant-snapshot"),
+    )
+    await repository.append(
+        scope="tenant",
+        policy=GuardrailPolicyPatch(max_concurrency=5),
+        changed_by="tenant-admin",
+    )
+    first = await repository.append(
+        scope="deployment",
+        deployment_ref="snapshot-deployment",
+        policy=GuardrailPolicyPatch(max_concurrency=2),
+        changed_by="deployment-admin",
+    )
+    inspection_snapshot = repository.inspection_snapshot
+    rows_read = asyncio.Event()
+    release_read = asyncio.Event()
+    original_select = BoundStructuredTable.select
+
+    async def pause_after_snapshot_read(table, *args, **kwargs):
+        rows = await original_select(table, *args, **kwargs)
+        if kwargs.get("order_by") == ("revision_order",) and not rows_read.is_set():
+            rows_read.set()
+            await release_read.wait()
+        return rows
+
+    monkeypatch.setattr(BoundStructuredTable, "select", pause_after_snapshot_read)
+    snapshot_task = asyncio.create_task(inspection_snapshot("snapshot-deployment"))
+    await asyncio.wait_for(rows_read.wait(), timeout=2)
+    append_task = asyncio.create_task(
+        repository.append(
+            scope="deployment",
+            deployment_ref="snapshot-deployment",
+            policy=GuardrailPolicyPatch(backpressure_queue_depth=9),
+            changed_by="concurrent-admin",
+        )
+    )
+    await asyncio.sleep(0)
+    release_read.set()
+    snapshot, appended = await asyncio.gather(snapshot_task, append_task)
+
+    assert appended.revision_id != first.revision_id
+    assert snapshot.deployment_revision == first
+    assert snapshot.deployment_overrides == GuardrailPolicyPatch(max_concurrency=2)
+    assert snapshot.effective.max_concurrency == 2
+    assert snapshot.effective.backpressure_queue_depth == 100
 
 
 def _queued_run(index: int) -> Run:

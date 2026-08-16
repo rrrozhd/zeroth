@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from zeroth.governance.guardrails.config import GuardrailConfig
+from zeroth.governance.guardrails.config import MIN_RATE_LIMIT_REFILL_RATE, GuardrailConfig
 from zeroth.platform.primitives import utc_now
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
@@ -38,7 +39,11 @@ class GuardrailPolicyPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rate_limit_capacity: float | None = Field(default=None, ge=1, le=1_000_000)
-    rate_limit_refill_rate: float | None = Field(default=None, gt=0, le=100_000)
+    rate_limit_refill_rate: float | None = Field(
+        default=None,
+        ge=MIN_RATE_LIMIT_REFILL_RATE,
+        le=100_000,
+    )
     rate_limit_burst: float | None = Field(default=None, ge=0, le=1_000_000)
     quota_daily_limit: int | None = Field(default=None, ge=1, le=1_000_000_000_000)
     backpressure_queue_depth: int | None = Field(default=None, ge=1, le=1_000_000)
@@ -88,7 +93,11 @@ class EffectiveGuardrailSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     rate_limit_capacity: float = Field(default=10, ge=1, le=1_000_000)
-    rate_limit_refill_rate: float = Field(default=1, gt=0, le=100_000)
+    rate_limit_refill_rate: float = Field(
+        default=1,
+        ge=MIN_RATE_LIMIT_REFILL_RATE,
+        le=100_000,
+    )
     rate_limit_burst: float = Field(default=0, ge=0, le=1_000_000)
     quota_daily_limit: int | None = Field(default=None, ge=1, le=1_000_000_000_000)
     backpressure_queue_depth: int = Field(default=100, ge=1, le=1_000_000)
@@ -111,6 +120,17 @@ class GuardrailPolicyRevision(BaseModel):
     policy: GuardrailPolicyPatch
     changed_by: str
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailInspectionSnapshot:
+    """One transactionally consistent view of composed policy state."""
+
+    tenant_revision: GuardrailPolicyRevision | None
+    deployment_revision: GuardrailPolicyRevision | None
+    effective: EffectiveGuardrailSettings
+    tenant_overrides: GuardrailPolicyPatch | None
+    deployment_overrides: GuardrailPolicyPatch | None
 
 
 def effective_guardrails(
@@ -239,6 +259,33 @@ class GuardrailPolicyRepository:
                 order_by=("revision_order",),
             )
         return [_row_to_revision(row) for row in rows]
+
+    @persistence_operation(ResourceOperation.READ)
+    async def inspection_snapshot(self, deployment_ref: str) -> GuardrailInspectionSnapshot:
+        """Return latest, effective, and override state from one revision snapshot."""
+        normalized_ref = _validate_scope("deployment", deployment_ref)
+        async with self._revisions.transaction() as revisions:
+            rows = await revisions.select(order_by=("revision_order",))
+        history = [_row_to_revision(row) for row in rows]
+        tenant_history = [revision for revision in history if revision.scope == "tenant"]
+        deployment_history = [
+            revision
+            for revision in history
+            if revision.scope == "deployment" and revision.deployment_ref == normalized_ref
+        ]
+        tenant_overrides = _fold_revisions(tenant_history)
+        deployment_overrides = _fold_revisions(deployment_history)
+        return GuardrailInspectionSnapshot(
+            tenant_revision=tenant_history[-1] if tenant_history else None,
+            deployment_revision=deployment_history[-1] if deployment_history else None,
+            effective=effective_guardrails(
+                baseline=self._baseline,
+                tenant=tenant_overrides,
+                deployment=deployment_overrides,
+            ),
+            tenant_overrides=tenant_overrides,
+            deployment_overrides=deployment_overrides,
+        )
 
     @persistence_operation(ResourceOperation.READ)
     async def effective(self, deployment_ref: str) -> EffectiveGuardrailSettings:

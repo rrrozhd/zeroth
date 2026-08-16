@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
 
+from zeroth.governance.guardrails.config import MAX_RATE_LIMIT_RETRY_AFTER_SECONDS
 from zeroth.platform.storage import (
     SERVICE_SCOPE_REGISTRY,
     AsyncDatabase,
@@ -173,9 +174,17 @@ class TokenBucketRateLimiter:
         retry = (
             0
             if allowed
-            else max(1, ceil((1 - refilled) / refill_rate))
+            else max(
+                1,
+                ceil(
+                    min(
+                        MAX_RATE_LIMIT_RETRY_AFTER_SECONDS,
+                        (1 - refilled) / refill_rate,
+                    )
+                ),
+            )
             if refill_rate > 0
-            else 86_400
+            else MAX_RATE_LIMIT_RETRY_AFTER_SECONDS
         )
         return RateLimitDecision(
             allowed=allowed,

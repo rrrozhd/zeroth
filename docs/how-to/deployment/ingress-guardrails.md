@@ -24,7 +24,7 @@ beneath it while preserving sibling overrides.
 | Field | Product default | Accepted values |
 |---|---:|---:|
 | `rate_limit_capacity` | `10` | `1`–`1,000,000` |
-| `rate_limit_refill_rate` | `1` token/second | greater than `0`, up to `100,000` |
+| `rate_limit_refill_rate` | `1` token/second | at least `1/86,400` (one token/day), up to `100,000` |
 | `rate_limit_burst` | `0` | `0`–`1,000,000` |
 | `quota_daily_limit` | unlimited | `1`–`1,000,000,000,000`, or `null` for unlimited |
 | `backpressure_queue_depth` | `100` | `1`–`1,000,000` |

@@ -105,6 +105,16 @@ async def test_token_bucket_exhausts_after_capacity_requests(sqlite_db) -> None:
     assert rejected is False
 
 
+async def test_subnormal_refill_returns_a_bounded_retry(sqlite_db) -> None:
+    limiter = TokenBucketRateLimiter(sqlite_db)
+    assert (await limiter.decide("subnormal", capacity=1, refill_rate=5e-324)).allowed
+
+    rejected = await limiter.decide("subnormal", capacity=1, refill_rate=5e-324)
+
+    assert rejected.allowed is False
+    assert rejected.retry_after_seconds == 86_400
+
+
 async def test_token_bucket_different_keys_are_independent(sqlite_db) -> None:
     limiter = TokenBucketRateLimiter(sqlite_db)
     bucket_a = "tenant:a"

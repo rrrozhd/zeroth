@@ -185,13 +185,12 @@ async def _append(
 
 async def _response(bootstrap, deployment_ref: str) -> GuardrailPolicyResponse:
     repository = bootstrap.guardrail_policy_repository
+    snapshot = await repository.inspection_snapshot(deployment_ref)
     response = GuardrailPolicyResponse(
-        tenant_revision=await repository.latest("tenant"),
-        deployment_revision=await repository.latest("deployment", deployment_ref=deployment_ref),
-        effective=await repository.effective(deployment_ref),
+        tenant_revision=snapshot.tenant_revision,
+        deployment_revision=snapshot.deployment_revision,
+        effective=snapshot.effective,
     )
-    response._tenant_overrides = await repository.current("tenant")
-    response._deployment_overrides = await repository.current(
-        "deployment", deployment_ref=deployment_ref
-    )
+    response._tenant_overrides = snapshot.tenant_overrides
+    response._deployment_overrides = snapshot.deployment_overrides
     return response

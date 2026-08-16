@@ -251,6 +251,11 @@ async def test_guardrail_management_rbac_and_invalid_changes_fail_closed(sqlite_
             headers=admin_headers(),
             json={"max_concurrency": 0},
         )
+        unsafe_refill = client.put(
+            "/v1/guardrails",
+            headers=admin_headers(),
+            json={"rate_limit_refill_rate": 5e-324},
+        )
         invalid_null = client.put(
             "/v1/guardrails",
             headers=admin_headers(),
@@ -276,6 +281,7 @@ async def test_guardrail_management_rbac_and_invalid_changes_fail_closed(sqlite_
 
     assert forbidden.status_code == 403
     assert invalid.status_code == 422
+    assert unsafe_refill.status_code == 422
     assert invalid_null.status_code == 422
     assert empty_reset.status_code == 422
     assert invalid_reset.status_code == 422
