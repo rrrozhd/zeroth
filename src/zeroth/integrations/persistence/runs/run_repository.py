@@ -934,6 +934,7 @@ class _RunThreadStore:
             "record_condition_result",
             "increment_failure_count",
             "replay_failed",
+            "cancel",
             "delete",
             "count_pending",
             "redact_run",
@@ -1220,6 +1221,39 @@ class RunRepository:
                 },
                 returning="run_id",
             )
+
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
+    async def cancel(
+        self,
+        run_id: str,
+        deployment_ref: str,
+        *,
+        failure_state: RunFailureState,
+    ) -> Run:
+        """Atomically fail a run and revoke its lease inside the bound scope."""
+        async with self._store.runs.transaction(write_lock=True) as runs:
+            written = await runs.update_if_matches(
+                {
+                    "status": RunStatus.FAILED.value,
+                    "error": failure_state.message or failure_state.reason,
+                    "failure_state": _dump_model(failure_state),
+                    "lease_worker_id": None,
+                    "lease_acquired_at": None,
+                    "lease_expires_at": None,
+                    "recovery_checkpoint_id": None,
+                    "updated_at": utc_now().isoformat(),
+                },
+                where={"run_id": run_id, "deployment_ref": deployment_ref},
+                where_not_in={"status": (RunStatus.COMPLETED.value, RunStatus.FAILED.value)},
+                returning="run_id",
+            )
+            row = await runs.select_one(where={"run_id": run_id})
+        if row is None or row["deployment_ref"] != deployment_ref:
+            raise KeyError(run_id)
+        run = row_to_run(row)
+        if written or run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
+            return run
+        raise RuntimeError("run cancellation did not reach a terminal state")
 
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def record_history(self, run_id: str, entry: RunHistoryEntry) -> Run:
