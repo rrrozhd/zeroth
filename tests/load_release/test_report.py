@@ -19,7 +19,7 @@ def _identity() -> dict:
     return {
         "schema_version": 1,
         "commit": "a" * 40,
-        "package": {"version": "0.23.10.2", "artifacts": {"wheel": "sha256:" + "a" * 64}},
+        "package": {"version": "0.23.10.3", "artifacts": {"wheel": "sha256:" + "a" * 64}},
     }
 
 

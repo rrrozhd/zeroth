@@ -202,9 +202,9 @@ RUNTIME='python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e
 POSTGRES='postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 REDIS='redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2'
 docker network create load-gate
-docker run -d --rm --name load-gate-postgres --network load-gate \
+docker run -d --rm --platform linux/arm64 --name load-gate-postgres --network load-gate \
   -e POSTGRES_USER=zeroth -e POSTGRES_PASSWORD=zeroth -e POSTGRES_DB=zeroth "$POSTGRES"
-docker run -d --rm --name load-gate-redis --network load-gate "$REDIS"
+docker run -d --rm --platform linux/arm64 --name load-gate-redis --network load-gate "$REDIS"
 uv build
 WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
 SDIST=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
@@ -213,7 +213,8 @@ uv run python release/gates/cli.py identity \
   --artifact "zeroth-core-sdist=$SDIST" \
   --compatibility release/langgraph/compatibility.json \
   --output release/evidence/candidate-identity.json
-docker run --rm --network load-gate --cpus 2 --memory 8g -v "$PWD:/work" -w /work \
+docker run --rm --platform linux/arm64 --network load-gate --cpus 2 --memory 8g \
+  -v "$PWD:/work" -w /work \
   -e ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@load-gate-postgres:5432/zeroth \
   -e ZEROTH_LOAD_REDIS_URL=redis://load-gate-redis:6379/14 \
   -e ZEROTH_TEST_REDIS_URL=redis://load-gate-redis:6379/15 \

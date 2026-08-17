@@ -14,7 +14,8 @@ from tests.load_release.backend_fault_probe import (
     postgres_contention,
     redis_loss,
 )
-from tests.load_release.workload_probe import headers, install_runner, serve
+from tests.load_release.workload_probe import _observed_worker, headers, install_runner, serve
+from zeroth.contracts.governed.models.common import RunStatus
 from zeroth.governance.guardrails.policy import GuardrailPolicyPatch
 from zeroth.service.app import create_app
 from zeroth.service.bootstrap.factory import bootstrap_scoped_service
@@ -90,21 +91,31 @@ async def _wait_terminal(client: httpx.AsyncClient, run_id: str, secret: str) ->
 
 async def _submit_under_worker_loss(
     service: Any, secrets: dict[str, str], started: float, states: list[dict]
-) -> tuple[str, int, int]:
+) -> tuple[str, tuple[float, float], tuple[float, float], int, int]:
     async with serve(create_app(service)) as origin:
         async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
+            accepted_started = time.perf_counter()
             accepted = await client.post(
                 "/runs", json={"input_payload": {"value": 1}}, headers=headers(secrets["operator"])
             )
+            accepted_finished = time.perf_counter()
             assert accepted.status_code == 202
             run_id = str(accepted.json()["run_id"])
             states.append({"state": "accepted", "at_ms": elapsed_ms(started), "run_id": run_id})
+            rejected_started = time.perf_counter()
             rejected = await client.post(
                 "/runs", json={"input_payload": {"value": 2}}, headers=headers(secrets["operator"])
             )
+            rejected_finished = time.perf_counter()
             assert rejected.status_code == 503
             states.append({"state": "rejected", "at_ms": elapsed_ms(started)})
-            return run_id, rejected.status_code, int(rejected.headers["Retry-After"])
+            return (
+                run_id,
+                (accepted_started, accepted_finished),
+                (rejected_started, rejected_finished),
+                rejected.status_code,
+                int(rejected.headers["Retry-After"]),
+            )
 
 
 async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) -> list[dict]:
@@ -123,7 +134,9 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
         {"state": "fault-injected", "at_ms": 0.0},
         {"state": "worker-withdrawn", "at_ms": 0.0},
     ]
-    run_id, status, retry_after = await _submit_under_worker_loss(service, secrets, started, states)
+    run_id, accepted_window, rejected_window, status, retry_after = await _submit_under_worker_loss(
+        service, secrets, started, states
+    )
     rejected_states = [state for state in states if state["state"] == "rejected"]
     states = [state for state in states if state["state"] != "rejected"]
     replacement, _ = await _scoped_service(
@@ -150,6 +163,9 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
             retry_after=None,
             service=replacement,
             request_id="fault-worker-loss-accepted",
+            request_started=accepted_window[0],
+            request_finished=accepted_window[1],
+            worker_id=str(replacement.worker.worker_id),
         ),
         fault_row(
             "worker-loss",
@@ -158,8 +174,11 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
             rejected_states,
             status=status,
             retry_after=retry_after,
-            service=replacement,
+            service=service,
             request_id="fault-worker-loss-rejected",
+            request_started=rejected_window[0],
+            request_finished=rejected_window[1],
+            worker_id="api-without-worker",
             recovered=False,
         ),
     ]
@@ -176,11 +195,19 @@ async def _submit_for_restart(
             accepted.raise_for_status()
             run_id = str(accepted.json()["run_id"])
             states.append({"state": "accepted", "at_ms": elapsed_ms(started), "run_id": run_id})
-    states.append({"state": "draining", "at_ms": elapsed_ms(started), "run_id": run_id})
+            worker = await _observed_worker(service, run_id)
+            states.append(
+                {
+                    "state": "draining",
+                    "at_ms": elapsed_ms(started),
+                    "run_id": run_id,
+                    "worker_id": worker,
+                }
+            )
     return run_id
 
 
-async def _resume_approval(
+async def _resume_run(
     replacement: Any,
     secrets: dict[str, str],
     run_id: str,
@@ -190,17 +217,6 @@ async def _resume_approval(
     async with serve(create_app(replacement)) as origin:
         states.append({"state": "service-started", "at_ms": elapsed_ms(started)})
         async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
-            paused = await _wait_status(
-                client, run_id, secrets["operator"], {"paused_for_approval"}
-            )
-            approval_id = paused["approval_paused_state"]["approval_id"]
-            resolved = await client.post(
-                f"/deployments/{replacement.deployment.deployment_ref}/approvals/"
-                f"{approval_id}/resolve",
-                json={"decision": "approve"},
-                headers=headers(secrets["admin"]),
-            )
-            resolved.raise_for_status()
             terminal = await _wait_terminal(client, run_id, secrets["operator"])
             states.append({"state": terminal, "at_ms": elapsed_ms(started), "run_id": run_id})
 
@@ -212,12 +228,16 @@ async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]
         database,
         anchor,
         deployment_ref,
-        worker=False,
-        runner_surface="approvals",
+        worker=True,
+        runner_surface="slow-script",
     )
+    service.orchestrator.agent_runners["agent-step"].delay = 2
+    service.worker.shutdown_timeout = 0
     started = time.perf_counter()
     states = [{"state": "fault-injected", "at_ms": 0.0}]
     run_id = await _submit_for_restart(service, secrets, started, states)
+    drained = await service.run_repository.get(run_id)
+    assert drained is not None and drained.status is RunStatus.PENDING
     states.append({"state": "service-stopped", "at_ms": elapsed_ms(started)})
     replacement, _ = await _scoped_service(
         database,
@@ -225,12 +245,12 @@ async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]
         deployment_ref,
         worker=True,
         deploy=False,
-        runner_surface="approvals",
+        runner_surface="slow-script",
     )
-    await _resume_approval(replacement, secrets, run_id, started, states)
+    await _resume_run(replacement, secrets, run_id, started, states)
     return fault_row(
         "service-restart",
-        "approvals",
+        "slow-script",
         started,
         states,
         status=202,
@@ -376,7 +396,7 @@ async def collect_fault_observations(
         await postgres_contention(postgres_dsn),
         await redis_loss(redis_url),
         *await worker_loss(database, anchors["failing-script"]),
-        await service_restart(database, anchors["approvals"]),
+        await service_restart(database, anchors["slow-script"]),
         await network_delay(database, anchors["langgraph-streams"]),
         await downstream_throttling(database, anchors["webhooks"]),
     ]

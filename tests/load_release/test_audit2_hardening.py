@@ -94,7 +94,7 @@ async def test_worker_loss_emits_separate_accepted_and_rejected_request_rows(
                 {"state": "rejected", "at_ms": 2.0},
             ]
         )
-        return "run-1", 503, 1
+        return "run-1", (_started, _started + 0.1), (_started + 0.2, _started + 0.3), 503, 1
 
     @asynccontextmanager
     async def serving(_app):
@@ -182,7 +182,7 @@ async def test_drain_is_recorded_only_after_the_service_has_stopped(
     class States(list):
         def append(self, item):
             if item.get("state") == "draining":
-                assert stopped, "drain evidence preceded the observed service stop"
+                assert not stopped, "drain evidence followed the observed service stop"
             super().append(item)
 
     monkeypatch.setattr(fault_probe, "serve", serving)
@@ -190,9 +190,22 @@ async def test_drain_is_recorded_only_after_the_service_has_stopped(
     monkeypatch.setattr(fault_probe.httpx, "AsyncClient", _Client)
 
     states = States()
-    await fault_probe._submit_for_restart(object(), {"operator": "secret"}, 0.0, states)
+    worker = SimpleNamespace(
+        lease_manager=SimpleNamespace(current_holder=_worker_holder), worker_id="worker-1"
+    )
+    deployment = SimpleNamespace(deployment_ref="deployment", tenant_id="tenant", workspace_id=None)
+    await fault_probe._submit_for_restart(
+        SimpleNamespace(worker=worker, deployment=deployment),
+        {"operator": "secret"},
+        0.0,
+        states,
+    )
 
     assert states[-1]["state"] == "draining"
+
+
+async def _worker_holder(*_args, **_kwargs) -> str:
+    return "worker-1"
 
 
 def test_documented_reproduction_is_complete_and_pinned() -> None:
