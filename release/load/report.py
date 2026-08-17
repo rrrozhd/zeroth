@@ -72,7 +72,7 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:2fb311618e4114c38c23ef7c631cc9e900cb7e47aa341c671b289cf81095e485"
+BASELINE_DIGEST = "sha256:d1c2edbfa92a6e9efe296a4f5592880ec0eb627cc81a31c20b30d41a91292aa4"
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 ENVIRONMENT_KEYS = frozenset(
@@ -181,6 +181,11 @@ def _baseline_source_errors(value: dict) -> list[str]:
     ):
         return ["baseline requires distinct source run digests"]
     receipts = source.get("run_receipts")
+    source_digests = (
+        {receipt.get("source_digest") for receipt in receipts}
+        if isinstance(receipts, list)
+        else set()
+    )
     if (
         not isinstance(receipts, list)
         or len(receipts) != len(digests)
@@ -191,6 +196,16 @@ def _baseline_source_errors(value: dict) -> list[str]:
             receipt.get("package_version") != source.get("package_version") for receipt in receipts
         )
         or any(receipt.get("environment") != value.get("environment") for receipt in receipts)
+        or len(source_digests) != 1
+        or source.get("source_digest") not in source_digests
+        or any(DIGEST_PATTERN.fullmatch(str(digest)) is None for digest in source_digests)
+        or any(
+            not str(receipt.get("generated_at", "")).endswith("Z")
+            or not str(receipt.get("product_import_origin", "")).endswith(
+                "/src/zeroth/service/app.py"
+            )
+            for receipt in receipts
+        )
         or COMMIT_PATTERN.fullmatch(str(source.get("commit", ""))) is None
         or COMMIT_PATTERN.fullmatch(str(source.get("tree", ""))) is None
     ):

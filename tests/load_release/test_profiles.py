@@ -67,7 +67,7 @@ def test_cli_always_writes_machine_readable_failure_evidence(tmp_path: Path) -> 
             {
                 "schema_version": 1,
                 "commit": "a" * 40,
-                "package": {"version": "0.23.10.2", "artifacts": {}},
+                "package": {"version": "0.23.10.3", "artifacts": {}},
             }
         ),
         encoding="utf-8",

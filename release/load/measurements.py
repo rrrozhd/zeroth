@@ -69,15 +69,30 @@ def _lifecycle_accounting(rows: list[dict]) -> tuple[int, int, float]:
     return lost, duplicates, max(recoveries, default=0.0)
 
 
-def _fairness(rows: list[dict], field: str) -> float:
+def _fairness(
+    rows: list[dict],
+    field: str,
+    *,
+    scope: str | None = None,
+    expected_from: str | None = None,
+) -> float:
     workload = [row for row in rows if row["fault"] is None]
-    identities = sorted({row[field] for row in workload})
+
+    def identity(row: dict):
+        return (row[scope], row[field]) if scope else row[field]
+
+    identities = sorted({identity(row) for row in workload})
     counts = Counter()
     for row in workload:
         states = {event.get("state") for event in row["lifecycle"]}
         if "accepted" in states and states & {"completed", "failed"}:
-            counts[row[field]] += 1
+            counts[identity(row)] += 1
     values = [counts[identity] for identity in identities]
+    if scope and expected_from:
+        for owner in {row[scope] for row in workload}:
+            expected = len({row[expected_from] for row in workload if row[scope] == owner})
+            observed = sum(identity[0] == owner for identity in identities)
+            values.extend([0] * max(0, expected - observed))
     squared = sum(value * value for value in values)
     return 0.0 if not squared else (sum(values) ** 2) / (len(values) * squared)
 
@@ -110,8 +125,16 @@ def recompute(rows: list[dict], profiles: dict) -> dict[str, dict[str, float | i
             "queue_depth_max": max(row["queue_depth"] for row in group),
             "tenant_fairness": round(_fairness(group, "tenant_id"), 6),
             "deployment_fairness": round(_fairness(group, "deployment_ref"), 6),
-            "replica_fairness": round(_fairness(group, "replica"), 6),
-            "worker_fairness": round(_fairness(group, "worker"), 6),
+            "replica_fairness": round(_fairness(group, "replica", scope="deployment_ref"), 6),
+            "worker_fairness": round(
+                _fairness(
+                    group,
+                    "worker",
+                    scope="deployment_ref",
+                    expected_from="replica",
+                ),
+                6,
+            ),
             "cpu_percent_max": max(row["cpu_percent"] for row in group),
             "memory_bytes_max": max(row["memory_bytes"] for row in group),
             "recovery_seconds_max": round(recovery, 6),
@@ -176,9 +199,14 @@ def _measurement_errors(row: dict, request_id: Any) -> list[str]:
 def _rejection_errors(row: dict, profiles: dict, request_id: Any) -> list[str]:
     errors = []
     rejected = any(event.get("state") == "rejected" for event in row["lifecycle"])
-    if rejected and row["status_code"] not in set(profiles["overload_contract"]["statuses"]):
+    rejection_status = row["status_code"] in set(profiles["overload_contract"]["statuses"])
+    if rejection_status and not rejected:
+        errors.append(f"request {request_id!r} rejection status needs a rejection event")
+    if rejected and not rejection_status:
         errors.append(f"request {request_id!r} rejection must be 429 or 503")
-    if rejected and (not is_number(row["retry_after_seconds"]) or row["retry_after_seconds"] <= 0):
+    if (rejection_status or rejected) and (
+        not is_number(row["retry_after_seconds"]) or row["retry_after_seconds"] <= 0
+    ):
         errors.append(f"request {request_id!r} rejection needs useful Retry-After")
     return errors
 

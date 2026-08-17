@@ -21,6 +21,9 @@ from zeroth.service.app import create_app
 from zeroth.service.bootstrap.factory import bootstrap_scoped_service
 
 
+_CLAIMED_BY: dict[str, str] = {}
+
+
 @dataclass(slots=True)
 class Scope:
     service: Any
@@ -104,6 +107,13 @@ def install_runner(service: Any, surface: str) -> None:
         fails=surface == "failing-script",
     )
     service.worker.poll_interval = 0.005
+    execute = service.worker._execute_leased_run
+
+    async def observed_execute(run_id, **kwargs):
+        _CLAIMED_BY.setdefault(run_id, str(service.worker.worker_id))
+        return await execute(run_id, **kwargs)
+
+    service.worker._execute_leased_run = observed_execute
 
 
 async def _replica(
@@ -232,6 +242,7 @@ async def _accepted_row(
 ) -> dict:
     accepted = time.perf_counter()
     run_id = str(response.json()["run_id"])
+    worker = await _observed_worker(target.scope.service, run_id)
     queue_depth = await target.scope.service.run_repository.count_pending(
         target.scope.service.deployment.deployment_ref
     )
@@ -249,7 +260,7 @@ async def _accepted_row(
         started_ms,
         finished_ms,
         queue_depth,
-        str(target.scope.service.worker.worker_id),
+        worker,
         cpu,
         [
             {"state": "submitted", "at_ms": started_ms},
@@ -257,6 +268,23 @@ async def _accepted_row(
             *terminal,
         ],
     )
+
+
+async def _observed_worker(service: Any, run_id: str) -> str:
+    deadline = time.perf_counter() + 2
+    deployment = service.deployment
+    while time.perf_counter() < deadline:
+        if worker := _CLAIMED_BY.get(run_id):
+            return worker
+        worker = await service.worker.lease_manager.current_holder(
+            run_id,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+        )
+        if worker is not None:
+            return str(worker)
+        await asyncio.sleep(0.001)
+    raise AssertionError(f"run {run_id} executor was not observed")
 
 
 def _row(

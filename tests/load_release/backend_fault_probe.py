@@ -28,9 +28,16 @@ def fault_row(
     retry_after: int | None,
     service: Any | None = None,
     request_id: str | None = None,
+    request_started: float | None = None,
+    request_finished: float | None = None,
+    worker_id: str | None = None,
     recovered: bool = True,
 ) -> dict:
     elapsed = elapsed_ms(started)
+    started_ms = 0.0 if request_started is None else round((request_started - started) * 1000, 6)
+    finished_ms = (
+        elapsed if request_finished is None else round((request_finished - started) * 1000, 6)
+    )
     deployment = None if service is None else service.deployment
     worker = None if service is None else service.worker
     return {
@@ -41,14 +48,14 @@ def fault_row(
             "tenant-1-deployment-1" if deployment is None else deployment.deployment_ref
         ),
         "replica": "replica-1",
-        "worker": "not-applicable" if worker is None else str(worker.worker_id),
+        "worker": worker_id or ("not-applicable" if worker is None else str(worker.worker_id)),
         "surface": surface,
         "fault": fault,
         "status_code": status,
         "retry_after_seconds": retry_after,
-        "started_at_ms": 0.0,
-        "finished_at_ms": elapsed,
-        "latency_ms": elapsed,
+        "started_at_ms": started_ms,
+        "finished_at_ms": finished_ms,
+        "latency_ms": round(finished_ms - started_ms, 6),
         "queue_depth": 1,
         "cpu_percent": 0.0,
         "memory_bytes": memory_bytes(),
