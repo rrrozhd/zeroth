@@ -44,7 +44,7 @@ def _handoff_arguments() -> list[str]:
         "--app-commit",
         "a" * 40,
         "--zeroth-version",
-        "0.23.9.11",
+        "0.23.9.12",
         "--zeroth-commit",
         "b" * 40,
         "--certifier-wheel",
@@ -127,7 +127,7 @@ def test_exact_wheel_and_command_cannot_select_a_replaced_candidate_runtime() ->
     assert "prepare-runtime-context" in image
     assert "Dockerfile.certification-runtime" in image
     assert "verify-wheel-installation" in wheel
-    assert "--image-config app/.app-certification/image-config.json" in wheel
+    assert '--image-config "$HANDOFF_ROOT/image-config.json"' in wheel
     assert "--entrypoint /usr/local/bin/python" not in containers
     assert "run-certified-runtime" not in containers
 
@@ -136,7 +136,7 @@ def _replaced_runtime_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Pa
     from release.app_certification import wheel_installation
 
     source = tmp_path / "source"
-    wheel = tmp_path / "zeroth_core-0.23.9.11-py3-none-any.whl"
+    wheel = tmp_path / "zeroth_core-0.23.9.12-py3-none-any.whl"
     requirements = tmp_path / "requirements-image.txt"
     candidate_root = tmp_path / "candidate-root"
     source.mkdir()
@@ -192,10 +192,10 @@ def test_replaced_candidate_runtime_is_excluded_from_certifier_context(tmp_path:
     dockerfile = (context / "Dockerfile.certification-runtime").read_text(encoding="utf-8")
     assert dockerfile.startswith(f"FROM {trusted_image}\n")
     assert (
-        "COPY zeroth_core-0.23.9.11-py3-none-any.whl "
-        "/opt/zeroth/zeroth_core-0.23.9.11-py3-none-any.whl"
+        "COPY zeroth_core-0.23.9.12-py3-none-any.whl "
+        "/opt/zeroth/zeroth_core-0.23.9.12-py3-none-any.whl"
     ) in dockerfile
-    assert "/opt/zeroth/zeroth_core-0.23.9.11-py3-none-any.whl" in dockerfile
+    assert "/opt/zeroth/zeroth_core-0.23.9.12-py3-none-any.whl" in dockerfile
     assert "COPY requirements-image.txt /tmp/requirements-image.txt" in dockerfile
     assert "COPY app/ /opt/app/" in dockerfile
     assert "LD_PRELOAD" not in dockerfile

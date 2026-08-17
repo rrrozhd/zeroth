@@ -167,6 +167,7 @@ class CertificationRunner:
         commit_reader: CommitReader = read_git_commit,
         declaration_path: Path | None = None,
         check_python: Path | None = None,
+        evidence_root: Path | None = None,
     ) -> None:
         self.root = root.resolve()
         self.declaration = declaration
@@ -176,6 +177,7 @@ class CertificationRunner:
         self.commit_reader = commit_reader
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
         self.check_python = (check_python or Path(sys.executable)).absolute()
+        self.evidence_root = (evidence_root or self.root).resolve()
 
     def run(
         self, *, expected_commit: str, image_digest: str, source_digest: str
@@ -329,11 +331,11 @@ class CertificationRunner:
         return CheckResult(name=name, status="passed", detail=f"{name} HTTP assertions passed")
 
     def _resolve(self, relative: str) -> Path:
-        path = (self.root / relative).resolve()
+        path = (self.evidence_root / relative).resolve()
         try:
-            path.relative_to(self.root)
+            path.relative_to(self.evidence_root)
         except ValueError as error:
-            raise ValueError(f"path {relative!r} resolves outside the app root") from error
+            raise ValueError(f"path {relative!r} resolves outside the evidence root") from error
         return path
 
     def _file_error(self, relative: str, label: str) -> str | None:

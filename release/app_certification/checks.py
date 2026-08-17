@@ -37,11 +37,10 @@ def _load_target(reference: str) -> Any:
     return value
 
 
-def target_source_digests(name: str, root: Path, declaration: AppDeclaration) -> dict[str, str]:
-    """Bind candidate evidence to the declared app modules without importing them."""
-    root = root.resolve()
+def candidate_target_references(name: str, declaration: AppDeclaration) -> list[str]:
+    """Return the exact declared targets a candidate check must import."""
     targets = declaration.targets
-    references = {
+    return {
         "graph": [*targets.graph_builders, targets.contracts],
         "contracts": [targets.contracts],
         "service-config": [targets.auth_config],
@@ -55,8 +54,13 @@ def target_source_digests(name: str, root: Path, declaration: AppDeclaration) ->
         "policies": [*targets.graph_builders, targets.policy_guard],
         "migrations": [targets.migration_runner],
     }[name]
+
+
+def target_source_digests(name: str, root: Path, declaration: AppDeclaration) -> dict[str, str]:
+    """Bind candidate evidence to the declared app modules without importing them."""
+    root = root.resolve()
     bindings: dict[str, str] = {}
-    for reference in sorted(set(references)):
+    for reference in sorted(set(candidate_target_references(name, declaration))):
         module_name = reference.partition(":")[0]
         module = Path(*module_name.split("."))
         source = next(
