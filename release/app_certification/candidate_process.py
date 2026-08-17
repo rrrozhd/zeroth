@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.metadata
 import json
 import os
 import resource
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -21,6 +23,7 @@ from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph
 from zeroth.platform.config import get_settings
+from zeroth.runtime.parallel.reducers import resolve_reducer_ref
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from .models import AppDeclaration, file_digest
@@ -74,6 +77,8 @@ def _graph_evidence(declaration: AppDeclaration) -> dict[str, Any]:
         if getattr(node, "parallel_config", None) is not None
         and node.parallel_config.reducer_ref is not None
     }
+    for reference in reducers:
+        resolve_reducer_ref(reference)
     return {
         "contracts": _schemas(contracts),
         "graphs": [graph.model_dump(mode="json") for graph in graphs],
@@ -145,16 +150,68 @@ def _migration_evidence(declaration: AppDeclaration) -> dict[str, Any]:
     runner = _load_target(declaration.targets.migration_runner)
     if not callable(runner):
         raise ValueError("migration_runner target must be callable")
-    with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
-        database = Path(directory) / "migration.sqlite"
-        runner(f"sqlite:///{database}")
-        if not database.is_file() or database.stat().st_size == 0:
-            raise ValueError("app migration did not create a non-empty database")
-        return {
-            "database_sha256": file_digest(database),
-            "database_size": database.stat().st_size,
-            "runner": declaration.targets.migration_runner,
-        }
+    settings = get_settings()
+    backend = settings.database.backend
+    if backend == "postgres":
+        dsn = settings.database.postgres_dsn
+        if dsn is None:
+            raise ValueError("postgres migration certification requires a DSN")
+        database_url = dsn.get_secret_value()
+        before = _postgres_tables(database_url)
+        if before:
+            raise ValueError("postgres migration certification requires a fresh database")
+        runner(_postgres_migration_url(database_url))
+        objects = _postgres_tables(database_url)
+        if not objects:
+            raise ValueError("app migration did not create PostgreSQL tables")
+        schema_digest = (
+            "sha256:"
+            + hashlib.sha256(json.dumps(objects, separators=(",", ":")).encode()).hexdigest()
+        )
+    else:
+        with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
+            database = Path(directory) / "migration.sqlite"
+            runner(f"sqlite:///{database}")
+            if not database.is_file() or database.stat().st_size == 0:
+                raise ValueError("app migration did not create a non-empty SQLite database")
+            with sqlite3.connect(database) as connection:
+                objects = [
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+                    )
+                ]
+            if not objects:
+                raise ValueError("app migration did not create SQLite tables")
+            schema_digest = file_digest(database)
+    return {
+        "backend": backend,
+        "object_count": len(objects),
+        "runner": declaration.targets.migration_runner,
+        "schema_sha256": schema_digest,
+    }
+
+
+def _postgres_tables(database_url: str) -> list[str]:
+    import psycopg
+
+    with psycopg.connect(database_url) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT table_schema || '.' || table_name "
+            "FROM information_schema.tables "
+            "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+            "AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name"
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+
+def _postgres_migration_url(database_url: str) -> str:
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    raise ValueError("postgres migration DSN must use a PostgreSQL URL")
 
 
 def collect_candidate_evidence(

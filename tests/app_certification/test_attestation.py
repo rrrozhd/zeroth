@@ -17,6 +17,11 @@ from release.app_certification import (
     write_report,
 )
 from release.app_certification.cli import main as app_certification_main
+from release.app_certification.wheel_installation import (
+    RUNTIME_BOOTSTRAP,
+    TRUSTED_RUNTIME_IMAGE,
+    _runtime_configuration,
+)
 from tests.app_certification.test_hardening import COMMIT, _write_archive, identity
 
 
@@ -56,28 +61,58 @@ def _candidate_archives(tmp_path: Path) -> tuple[Path, Path, CandidateIdentity]:
     return image, source, candidate
 
 
-def _candidate_evidence(
+def _runtime_evidence(
     tmp_path: Path, candidate: CandidateIdentity
-) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
-    root, report, verdict = tmp_path / "root", tmp_path / "report.json", tmp_path / "verdict.json"
-    sbom, provenance = root / "evidence/app.spdx.json", root / "evidence/provenance.json"
+) -> tuple[Path, Path, Path, Path]:
     wheel = tmp_path / "zeroth-core.whl"
     requirements = tmp_path / "requirements-image.txt"
     installation = tmp_path / "installed-wheel.json"
+    image_config = tmp_path / "image-config.json"
     wheel.write_bytes(b"trusted wheel")
     requirements.write_text("zeroth-core==0.23.9.9\n", encoding="utf-8")
-    installation.write_text(
+    image_config.write_text(
         json.dumps(
             {
-                "schema_version": 1,
-                "package": "zeroth-core",
-                "version": candidate.zeroth_version,
-                "wheel_sha256": file_digest(wheel),
-                "installed_files": {"zeroth/__init__.py": "sha256:" + "a" * 64},
+                "Cmd": [
+                    "/usr/local/bin/python",
+                    "-I",
+                    "-S",
+                    "-c",
+                    RUNTIME_BOOTSTRAP,
+                    "run-certified-runtime",
+                    "/usr/local/lib/python3.12/site-packages",
+                    "/opt/app",
+                    "app",
+                ],
+                "Entrypoint": None,
+                "Env": [],
+                "Labels": {"dev.zeroth.certification.runtime-base": TRUSTED_RUNTIME_IMAGE},
             }
         ),
         encoding="utf-8",
     )
+    installation.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "package": "zeroth-core",
+                "version": candidate.zeroth_version,
+                "wheel_sha256": file_digest(wheel),
+                "installed_files": {"zeroth/__init__.py": "sha256:" + "a" * 64},
+                "runtime": _runtime_configuration(image_config, candidate.image_digest),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return wheel, requirements, installation, image_config
+
+
+def _candidate_evidence(
+    tmp_path: Path, candidate: CandidateIdentity
+) -> tuple[Path, Path, Path, Path, Path, Path, Path, Path]:
+    root, report, verdict = tmp_path / "root", tmp_path / "report.json", tmp_path / "verdict.json"
+    sbom, provenance = root / "evidence/app.spdx.json", root / "evidence/provenance.json"
+    wheel, requirements, installation, image_config = _runtime_evidence(tmp_path, candidate)
     sbom.parent.mkdir(parents=True)
     sbom.write_text(
         json.dumps(
@@ -101,6 +136,7 @@ def _candidate_evidence(
             "zeroth_wheel": file_digest(wheel),
             "requirements_lock": file_digest(requirements),
             "wheel_installation": file_digest(installation),
+            "image_config": file_digest(image_config),
         },
     )
     write_report(CertificationReport.passed(candidate, sbom, provenance, root=root), report)
@@ -110,7 +146,7 @@ def _candidate_evidence(
             {"dsseEnvelope": {"payload": base64.b64encode(provenance.read_bytes()).decode()}}
         )
     )
-    return root, report, verdict, bundle, wheel, requirements, installation
+    return root, report, verdict, bundle, wheel, requirements, installation, image_config
 
 
 def _handoff_args(
@@ -123,6 +159,7 @@ def _handoff_args(
     wheel: Path,
     requirements: Path,
     installation: Path,
+    image_config: Path,
     verdict: Path,
 ) -> list[str]:
     return [
@@ -146,8 +183,27 @@ def _handoff_args(
         str(requirements),
         "--wheel-installation",
         str(installation),
+        "--image-config",
+        str(image_config),
         "--verdict",
         str(verdict),
+    ]
+
+
+def _attestation_args(bundle: Path, handoff: list[str]) -> list[str]:
+    return [
+        "finalize-attestation",
+        "--bundle",
+        str(bundle),
+        "--repository",
+        "owner/reference-app",
+        "--signer-repo",
+        "rrrozhd/zeroth",
+        "--signer-workflow",
+        "rrrozhd/zeroth/.github/workflows/app-certification.yml",
+        "--signer-digest",
+        "d" * 40,
+        *handoff,
     ]
 
 
@@ -155,9 +211,16 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
     tmp_path: Path, monkeypatch
 ) -> None:
     image, source, candidate = _candidate_archives(tmp_path)
-    root, report, verdict, bundle, wheel, requirements, installation = _candidate_evidence(
-        tmp_path, candidate
-    )
+    (
+        root,
+        report,
+        verdict,
+        bundle,
+        wheel,
+        requirements,
+        installation,
+        image_config,
+    ) = _candidate_evidence(tmp_path, candidate)
     gh = tmp_path / "gh"
     gh.write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
     gh.chmod(0o755)
@@ -171,28 +234,11 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
         wheel=wheel,
         requirements=requirements,
         installation=installation,
+        image_config=image_config,
         verdict=verdict,
     )
     assert app_certification_main(["validate-handoff", *handoff]) == 0
     unsigned_digest = json.loads(verdict.read_text())["report_sha256"]
-    assert (
-        app_certification_main(
-            [
-                "finalize-attestation",
-                "--bundle",
-                str(bundle),
-                "--repository",
-                "owner/reference-app",
-                "--signer-repo",
-                "rrrozhd/zeroth",
-                "--signer-workflow",
-                "rrrozhd/zeroth/.github/workflows/app-certification.yml",
-                "--signer-digest",
-                "d" * 40,
-                *handoff,
-            ]
-        )
-        == 0
-    )
+    assert app_certification_main(_attestation_args(bundle, handoff)) == 0
     assert json.loads(verdict.read_text())["report_sha256"] == file_digest(report)
     assert file_digest(report) != unsigned_digest

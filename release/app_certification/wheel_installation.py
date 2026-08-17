@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,16 @@ _RUNTIME_MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMAGE_PYTHON = "/usr/local/bin/python"
 _IMAGE_SITE_PACKAGES = "/usr/local/lib/python3.12/site-packages"
+_WHEEL_FILENAME = re.compile(r"^zeroth_core-[0-9]+(?:\.[0-9]+)*-py3-none-any\.whl$")
+TRUSTED_RUNTIME_IMAGE = (
+    "python:3.12.13-slim-bookworm@"
+    "sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+)
+_RUNTIME_LABEL = "dev.zeroth.certification.runtime-base"
+_RUNTIME_APP_ROOT = re.compile(r"^/opt(?:/[A-Za-z0-9._-]+)+$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_APP_ENV_NAMES = frozenset({"HOST", "PORT"})
+_APP_ENV_PREFIXES = ("APP_", "ECP_", "ZEROTH_")
 RUNTIME_BOOTSTRAP = (
     "import importlib,importlib.util,pathlib,runpy,sys;"
     "site=pathlib.Path(sys.argv[2]).resolve(strict=True);"
@@ -122,8 +133,7 @@ def _reject_extra_package_files(site_packages: Path, expected: set[PurePosixPath
             raise ValueError(f"installed {top_level} package has a shadowing top-level module")
 
 
-def _runtime_configuration(path: Path, image_digest: str) -> dict[str, str]:
-    document = _json_object(path, "image runtime configuration")
+def _runtime_command(document: dict[str, Any]) -> tuple[list[str], str, str]:
     command = document.get("Cmd")
     if document.get("Entrypoint") not in (None, []):
         raise ValueError("certified image runtime must not override its trusted entrypoint")
@@ -140,21 +150,156 @@ def _runtime_configuration(path: Path, image_digest: str) -> dict[str, str]:
     ]:
         raise ValueError("certified image runtime must use the verified-wheel bootstrap")
     app_root, module = command[7:]
-    app_path = PurePosixPath(app_root)
-    if not app_path.is_absolute() or app_path == PurePosixPath("/") or ".." in app_path.parts:
-        raise ValueError("certified image runtime app root must be a contained absolute path")
+    if _RUNTIME_APP_ROOT.fullmatch(app_root) is None:
+        raise ValueError("certified image runtime app root must remain below /opt")
     if _RUNTIME_MODULE.fullmatch(module) is None:
         raise ValueError("certified image runtime module is invalid")
+    return command, app_root, module
+
+
+def _runtime_environment(document: dict[str, Any]) -> dict[str, str]:
+    raw = document.get("Env", [])
+    if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+        raise ValueError("image runtime environment must be a string array")
+    environment: dict[str, str] = {}
+    for item in raw:
+        key, separator, value = item.partition("=")
+        if separator != "=" or _ENV_NAME.fullmatch(key) is None:
+            raise ValueError("image runtime environment contains an invalid assignment")
+        if key in environment:
+            raise ValueError(f"image runtime environment repeats {key!r}")
+        if key not in _APP_ENV_NAMES and not key.startswith(_APP_ENV_PREFIXES):
+            continue
+        environment[key] = value
+    return environment
+
+
+def _runtime_configuration(path: Path, image_digest: str) -> dict[str, str]:
+    document = _json_object(path, "image runtime configuration")
+    command, app_root, module = _runtime_command(document)
     if _IMAGE_DIGEST.fullmatch(image_digest) is None:
         raise ValueError("certified image runtime requires an immutable image digest")
+    labels = document.get("Labels")
+    if not isinstance(labels, dict) or labels.get(_RUNTIME_LABEL) != TRUSTED_RUNTIME_IMAGE:
+        raise ValueError("certified image does not use the pinned certifier runtime")
     rendered = json.dumps(command, sort_keys=True, separators=(",", ":")).encode()
+    environment = json.dumps(
+        _runtime_environment(document), sort_keys=True, separators=(",", ":")
+    ).encode()
     return {
         "image_digest": image_digest,
         "command_sha256": "sha256:" + hashlib.sha256(rendered).hexdigest(),
+        "environment_sha256": "sha256:" + hashlib.sha256(environment).hexdigest(),
+        "runtime_base": TRUSTED_RUNTIME_IMAGE,
         "site_packages": _IMAGE_SITE_PACKAGES,
         "app_root": app_root,
         "module": module,
     }
+
+
+def _copy_runtime_tree(
+    source: Path,
+    destination: Path,
+    *,
+    ignored: frozenset[str] = frozenset(),
+) -> None:
+    if not source.is_dir():
+        raise ValueError(f"runtime context source directory is missing: {source}")
+    for path in source.rglob("*"):
+        if path.is_symlink() and path.relative_to(source).parts[0] not in ignored:
+            raise ValueError(f"runtime context refuses symlink {path.relative_to(source)!s}")
+    shutil.copytree(
+        source,
+        destination,
+        ignore=lambda _root, names: sorted(set(names) & ignored),
+    )
+
+
+def _runtime_dockerfile(
+    app_root: str,
+    module: str,
+    environment: dict[str, str],
+    wheel_name: str,
+) -> str:
+    command = [
+        _IMAGE_PYTHON,
+        "-I",
+        "-S",
+        "-c",
+        RUNTIME_BOOTSTRAP,
+        "run-certified-runtime",
+        _IMAGE_SITE_PACKAGES,
+        app_root,
+        module,
+    ]
+    env_lines = "".join(
+        f"ENV {key}={json.dumps(value)}\n" for key, value in sorted(environment.items())
+    )
+    health = (
+        "import json,urllib.request;"
+        "response=urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=3);"
+        "assert json.load(response).get('status')=='ok'"
+    )
+    health_command = json.dumps([_IMAGE_PYTHON, "-I", "-S", "-c", health], separators=(",", ":"))
+    return (
+        f"FROM {TRUSTED_RUNTIME_IMAGE}\n\n"
+        f"LABEL {_RUNTIME_LABEL}={json.dumps(TRUSTED_RUNTIME_IMAGE)}\n"
+        "RUN useradd --create-home --uid 10001 app-cert-runtime \\\n"
+        "    && mkdir -p /data \\\n"
+        "    && chown app-cert-runtime:app-cert-runtime /data\n"
+        "COPY requirements-image.txt /tmp/requirements-image.txt\n"
+        f"COPY {wheel_name} /opt/zeroth/{wheel_name}\n"
+        "RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \\\n"
+        "        -r /tmp/requirements-image.txt \\\n"
+        f"    && pip install --no-cache-dir --no-deps /opt/zeroth/{wheel_name} \\\n"
+        "    && rm /tmp/requirements-image.txt\n"
+        f"COPY app/ {app_root}/\n"
+        f"WORKDIR {app_root}\n"
+        f"{env_lines}USER app-cert-runtime\n"
+        "EXPOSE 8000\n"
+        "HEALTHCHECK --interval=5s --timeout=4s --start-period=30s --retries=12 \\\n"
+        f"    CMD {health_command}\n"
+        f"CMD {json.dumps(command, separators=(',', ':'))}\n"
+    )
+
+
+def prepare_runtime_context(
+    source_root: Path,
+    certifier_wheel: Path,
+    requirements_lock: Path,
+    image_config: Path,
+    output: Path,
+) -> None:
+    """Build a Docker context that excludes candidate runtime machinery."""
+    document = _json_object(image_config, "candidate image runtime configuration")
+    _command, app_root, module = _runtime_command(document)
+    wheel_name = certifier_wheel.name
+    if _WHEEL_FILENAME.fullmatch(wheel_name) is None:
+        raise ValueError("certifier runtime requires a canonical zeroth-core wheel filename")
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("certifier runtime context output must be empty")
+    output.mkdir(parents=True, exist_ok=True)
+    _copy_runtime_tree(
+        source_root,
+        output / "app",
+        ignored=frozenset({".zeroth-certifier"}),
+    )
+    for source, name in (
+        (certifier_wheel, wheel_name),
+        (requirements_lock, "requirements-image.txt"),
+    ):
+        if source.is_symlink() or not source.is_file() or source.stat().st_size == 0:
+            raise ValueError(f"certifier runtime material is missing: {source}")
+        shutil.copyfile(source, output / name)
+    (output / "Dockerfile.certification-runtime").write_text(
+        _runtime_dockerfile(
+            app_root,
+            module,
+            _runtime_environment(document),
+            wheel_name,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _verify_installed_files(wheel: Path, site_packages: Path) -> tuple[str, str, dict[str, str]]:
@@ -198,24 +343,21 @@ def verify_wheel_installation(
     site_packages: Path,
     output: Path,
     *,
-    image_config: Path | None = None,
-    image_digest: str | None = None,
+    image_config: Path,
+    image_digest: str,
 ) -> None:
     """Write proof that copied image package files exactly match the trusted wheel."""
     if not wheel.is_file() or not site_packages.is_dir():
         raise ValueError("trusted wheel and copied site-packages directory are required")
     package, version, installed_files = _verify_installed_files(wheel, site_packages)
-    if (image_config is None) != (image_digest is None):
-        raise ValueError("image configuration and digest must be verified together")
     proof: dict[str, Any] = {
-        "schema_version": 2 if image_config is not None else 1,
+        "schema_version": 2,
         "package": package,
         "version": version,
         "wheel_sha256": file_digest(wheel),
         "installed_files": dict(sorted(installed_files.items())),
+        "runtime": _runtime_configuration(image_config, image_digest),
     }
-    if image_config is not None and image_digest is not None:
-        proof["runtime"] = _runtime_configuration(image_config, image_digest)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp")
     temporary.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -226,7 +368,7 @@ def validate_wheel_installation(
     proof: Path,
     wheel: Path,
     candidate: CandidateIdentity,
-    image_config: Path | None = None,
+    image_config: Path,
 ) -> None:
     """Validate retained installation proof against the exact wheel and candidate version."""
     document = _json_object(proof)
@@ -237,13 +379,12 @@ def validate_wheel_installation(
         "wheel_sha256",
         "installed_files",
     }
-    if image_config is not None:
-        required.add("runtime")
+    required.add("runtime")
     if set(document) != required:
         raise ValueError("wheel installation proof has unexpected fields")
     files = document.get("installed_files")
     if (
-        document.get("schema_version") != (2 if image_config is not None else 1)
+        document.get("schema_version") != 2
         or document.get("package") != "zeroth-core"
         or document.get("version") != candidate.zeroth_version
         or document.get("wheel_sha256") != file_digest(wheel)
@@ -251,10 +392,9 @@ def validate_wheel_installation(
         or not files
     ):
         raise ValueError("wheel installation proof does not match the trusted candidate")
-    if image_config is not None:
-        expected_runtime = _runtime_configuration(image_config, candidate.image_digest)
-        if document.get("runtime") != expected_runtime:
-            raise ValueError("wheel installation proof does not match the image runtime")
+    expected_runtime = _runtime_configuration(image_config, candidate.image_digest)
+    if document.get("runtime") != expected_runtime:
+        raise ValueError("wheel installation proof does not match the image runtime")
 
 
 def build_material_digests(
@@ -263,7 +403,7 @@ def build_material_digests(
     certifier_wheel: Path,
     requirements_lock: Path,
     wheel_installation: Path,
-    image_config: Path | None,
+    image_config: Path,
 ) -> dict[str, str]:
     """Validate and digest the trusted inputs co-bound to one candidate image."""
     inputs = [
@@ -271,8 +411,7 @@ def build_material_digests(
         ("image requirements lock", requirements_lock),
         ("wheel installation proof", wheel_installation),
     ]
-    if image_config is not None:
-        inputs.append(("image runtime configuration", image_config))
+    inputs.append(("image runtime configuration", image_config))
     for label, path in inputs:
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"{label} is missing or empty")
@@ -287,6 +426,5 @@ def build_material_digests(
         "requirements_lock": file_digest(requirements_lock),
         "wheel_installation": file_digest(wheel_installation),
     }
-    if image_config is not None:
-        materials["image_config"] = file_digest(image_config)
+    materials["image_config"] = file_digest(image_config)
     return materials

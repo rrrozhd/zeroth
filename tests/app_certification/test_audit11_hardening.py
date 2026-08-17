@@ -20,6 +20,10 @@ from release.app_certification import (
     write_report,
 )
 from release.app_certification.cli import main as certification_main
+from release.app_certification.wheel_installation import (
+    RUNTIME_BOOTSTRAP,
+    TRUSTED_RUNTIME_IMAGE,
+)
 from release.app_certification.workflow_finalizer import finalize_workflow
 from tests.app_certification.test_engine import declaration_data
 
@@ -151,10 +155,13 @@ def _wheel_fixture(tmp_path: Path) -> tuple[Path, Path]:
         ),
     }
     record_name = "zeroth_core-0.23.9.9.dist-info/RECORD"
-    record = "".join(
-        f"{name},{_record_digest(payload)},{len(payload)}\n"
-        for name, payload in members.items()
-    ) + f"{record_name},,\n"
+    record = (
+        "".join(
+            f"{name},{_record_digest(payload)},{len(payload)}\n"
+            for name, payload in members.items()
+        )
+        + f"{record_name},,\n"
+    )
     members[record_name] = record.encode()
     with zipfile.ZipFile(wheel, "w") as archive:
         for name, payload in members.items():
@@ -168,12 +175,37 @@ def _wheel_fixture(tmp_path: Path) -> tuple[Path, Path]:
 def test_exact_wheel_contents_are_verified_outside_the_candidate(tmp_path: Path) -> None:
     wheel, site_packages = _wheel_fixture(tmp_path)
     manifest = tmp_path / "installed-wheel.json"
+    image_config = tmp_path / "image-config.json"
+    image_config.write_text(
+        json.dumps(
+            {
+                "Cmd": [
+                    "/usr/local/bin/python",
+                    "-I",
+                    "-S",
+                    "-c",
+                    RUNTIME_BOOTSTRAP,
+                    "run-certified-runtime",
+                    "/usr/local/lib/python3.12/site-packages",
+                    "/opt/app",
+                    "candidate.entrypoint",
+                ],
+                "Entrypoint": None,
+                "Labels": {"dev.zeroth.certification.runtime-base": TRUSTED_RUNTIME_IMAGE},
+            }
+        ),
+        encoding="utf-8",
+    )
     argv = [
         "verify-wheel-installation",
         "--wheel",
         str(wheel),
         "--site-packages",
         str(site_packages),
+        "--image-config",
+        str(image_config),
+        "--image-digest",
+        "sha256:" + "a" * 64,
         "--output",
         str(manifest),
     ]

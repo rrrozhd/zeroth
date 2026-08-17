@@ -168,7 +168,9 @@ def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
     containers = _step("containers")["run"]
     health = _step("health")["run"]
 
-    assert image.count("docker build") == 1
+    assert image.count("docker build") == 2
+    assert "CANDIDATE_IMAGE_REFERENCE" in image
+    assert "prepare-runtime-context" in image
     assert "docker image inspect" in image and "docker save" in image
     assert containers.count("docker run --detach") == 2
     assert "app-cert-packaged-net" in containers and "app-cert-ephemeral-net" in containers
@@ -187,8 +189,9 @@ def test_build_context_uses_exact_committed_source_archive() -> None:
 
     assert "git -C app archive" in prepare
     assert "app/.app-certification/source.tar" in prepare
-    assert '--tag "$IMAGE_REFERENCE" build-context' in image
-    assert '--tag "$IMAGE_REFERENCE" app' not in image
+    assert '--tag "$CANDIDATE_IMAGE_REFERENCE" build-context' in image
+    assert "--source-root build-context" in image
+    assert '--tag "$IMAGE_REFERENCE" "$RUNTIME_CONTEXT"' in image
     assert '--source-digest "$SOURCE_DIGEST"' in evidence
     assert '--source-digest "$SOURCE_DIGEST"' in certify
     assert "--source-archive evidence/source.tar" in validate
@@ -295,7 +298,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.10"
+    assert declaration.zeroth_version == "0.23.9.11"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -307,10 +310,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.10-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.11-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.10-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.11-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile

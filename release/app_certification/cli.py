@@ -37,7 +37,11 @@ from .runner import (
     measure_candidate_identity,
 )
 from .scaffold import scaffold_checkout
-from .wheel_installation import build_material_digests, verify_wheel_installation
+from .wheel_installation import (
+    build_material_digests,
+    prepare_runtime_context,
+    verify_wheel_installation,
+)
 from .workflow_finalizer import finalize_workflow as _finalize_workflow
 
 _HTTP_TIMEOUT_SECONDS = 30.0
@@ -72,12 +76,18 @@ class UrlHttpBoundary:
 def _untrusted_executor(user: str) -> Executor:
     if re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) is None:
         raise ValueError("untrusted user must be a simple local account name")
+    database_environment = tuple(
+        f"{name}={os.environ[name]}"
+        for name in ("ZEROTH_DATABASE__BACKEND", "ZEROTH_DATABASE__POSTGRES_DSN")
+        if name in os.environ
+    )
     clean_environment = (
         "env",
         "-i",
         f"HOME=/home/{user}",
         "LANG=C.UTF-8",
         f"PATH={os.environ.get('PATH', '')}",
+        *database_environment,
     )
     prefix = ("sudo", "--non-interactive", "--user", user, "--", *clean_environment)
 
@@ -112,15 +122,23 @@ def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--certifier-wheel", type=Path, required=True)
     command.add_argument("--requirements-lock", type=Path, required=True)
     command.add_argument("--wheel-installation", type=Path, required=True)
-    command.add_argument("--image-config", type=Path)
+    command.add_argument("--image-config", type=Path, required=True)
     command.add_argument("--verdict", type=Path, required=True)
 
 
 def _add_wheel_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--wheel", type=Path, required=True)
     command.add_argument("--site-packages", type=Path, required=True)
-    command.add_argument("--image-config", type=Path)
-    command.add_argument("--image-digest")
+    command.add_argument("--image-config", type=Path, required=True)
+    command.add_argument("--image-digest", required=True)
+    command.add_argument("--output", type=Path, required=True)
+
+
+def _add_runtime_context_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--source-root", type=Path, required=True)
+    command.add_argument("--certifier-wheel", type=Path, required=True)
+    command.add_argument("--requirements-lock", type=Path, required=True)
+    command.add_argument("--image-config", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
 
 
@@ -163,9 +181,10 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--certifier-wheel", type=Path, required=True)
     evidence.add_argument("--requirements-lock", type=Path, required=True)
     evidence.add_argument("--wheel-installation", type=Path, required=True)
-    evidence.add_argument("--image-config", type=Path)
+    evidence.add_argument("--image-config", type=Path, required=True)
     wheel = commands.add_parser("verify-wheel-installation")
     _add_wheel_arguments(wheel)
+    _add_runtime_context_arguments(commands.add_parser("prepare-runtime-context"))
     handoff = commands.add_parser("validate-handoff")
     _add_handoff_arguments(handoff)
     attestation = commands.add_parser("finalize-attestation")
@@ -179,8 +198,7 @@ def _parser() -> argparse.ArgumentParser:
     probe.add_argument("--url", required=True)
     finalizer = commands.add_parser("finalize-workflow")
     finalizer.add_argument("--root", type=Path, required=True)
-    scaffold = commands.add_parser("scaffold")
-    _add_scaffold_arguments(scaffold)
+    _add_scaffold_arguments(commands.add_parser("scaffold"))
     return parser
 
 
@@ -271,8 +289,7 @@ def _retain_build_materials(root: Path, args: argparse.Namespace) -> None:
     shutil.copyfile(args.certifier_wheel, materials / "zeroth-core.whl")
     shutil.copyfile(args.requirements_lock, materials / "requirements-image.txt")
     shutil.copyfile(args.wheel_installation, materials / "installed-wheel.json")
-    if args.image_config is not None:
-        shutil.copyfile(args.image_config, materials / "image-config.json")
+    shutil.copyfile(args.image_config, materials / "image-config.json")
 
 
 def _validate_handoff(args: argparse.Namespace) -> int:
@@ -345,6 +362,26 @@ def _validate_command(args: argparse.Namespace) -> int:
     return 0 if report.status == "passed" else 1
 
 
+def _prepare_runtime_artifact(args: argparse.Namespace) -> int:
+    if args.command == "verify-wheel-installation":
+        verify_wheel_installation(
+            args.wheel,
+            args.site_packages,
+            args.output,
+            image_config=args.image_config,
+            image_digest=args.image_digest,
+        )
+    else:
+        prepare_runtime_context(
+            args.source_root,
+            args.certifier_wheel,
+            args.requirements_lock,
+            args.image_config,
+            args.output,
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Validate declarations, execute certification, or validate retained reports."""
     args = _parser().parse_args(argv)
@@ -355,15 +392,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run(args)
         if args.command == "prepare-evidence":
             return _prepare_evidence(args)
-        if args.command == "verify-wheel-installation":
-            verify_wheel_installation(
-                args.wheel,
-                args.site_packages,
-                args.output,
-                image_config=args.image_config,
-                image_digest=args.image_digest,
-            )
-            return 0
+        if args.command in {"verify-wheel-installation", "prepare-runtime-context"}:
+            return _prepare_runtime_artifact(args)
         if args.command == "validate-handoff":
             return _validate_handoff(args)
         if args.command == "finalize-attestation":

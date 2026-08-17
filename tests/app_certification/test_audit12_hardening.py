@@ -11,7 +11,10 @@ import pytest
 import yaml
 
 from release.app_certification.cli import main as certification_main
-from release.app_certification.wheel_installation import RUNTIME_BOOTSTRAP
+from release.app_certification.wheel_installation import (
+    RUNTIME_BOOTSTRAP,
+    TRUSTED_RUNTIME_IMAGE,
+)
 from tests.app_certification.test_audit11_hardening import _wheel_fixture
 from tests.app_certification.test_engine import declaration_data
 
@@ -109,8 +112,11 @@ def test_runtime_identity_imports_zeroth_from_verified_site_packages(
     assert marker.read_text(encoding="utf-8") == "verified-wheel"
 
 
-def test_runtime_identity_starts_both_candidates_through_verified_command() -> None:
+def test_runtime_identity_starts_both_candidates_through_pinned_image_command() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    image = next(
+        step["run"] for step in workflow["jobs"]["certify"]["steps"] if step.get("id") == "image"
+    )
     wheel = next(
         step["run"] for step in workflow["jobs"]["certify"]["steps"] if step.get("id") == "wheel"
     )
@@ -122,9 +128,10 @@ def test_runtime_identity_starts_both_candidates_through_verified_command() -> N
 
     assert "--image-config app/.app-certification/image-config.json" in wheel
     assert '--image-digest "$IMAGE_DIGEST"' in wheel
-    assert containers.count("--entrypoint /usr/local/bin/python") == 2
-    assert containers.count("run-certified-runtime") == 2
-    assert containers.count("PYTHONSAFEPATH=1") == 2
+    assert "prepare-runtime-context" in image
+    assert containers.count('"$IMAGE_ID"') == 2
+    assert "--entrypoint" not in containers
+    assert "run-certified-runtime" not in containers
 
 
 def test_runtime_identity_reference_keeps_the_verified_interpreter(monkeypatch) -> None:
@@ -176,7 +183,12 @@ def test_runtime_identity_wheel_proof_binds_absolute_isolated_command(
         "/opt/app",
         "candidate.entrypoint",
     ]
-    image_config.write_text(json.dumps({"Cmd": command, "Entrypoint": None}), encoding="utf-8")
+    config = {
+        "Cmd": command,
+        "Entrypoint": None,
+        "Labels": {"dev.zeroth.certification.runtime-base": TRUSTED_RUNTIME_IMAGE},
+    }
+    image_config.write_text(json.dumps(config), encoding="utf-8")
     argv = [
         "verify-wheel-installation",
         "--wheel",
@@ -197,5 +209,5 @@ def test_runtime_identity_wheel_proof_binds_absolute_isolated_command(
     assert proof["runtime"]["site_packages"] == command[6]
 
     command[0] = "python"
-    image_config.write_text(json.dumps({"Cmd": command, "Entrypoint": None}), encoding="utf-8")
+    image_config.write_text(json.dumps(config), encoding="utf-8")
     assert certification_main(argv) == 2
