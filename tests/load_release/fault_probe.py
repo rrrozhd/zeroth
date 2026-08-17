@@ -107,7 +107,7 @@ async def _submit_under_worker_loss(
             return run_id, rejected.status_code, int(rejected.headers["Retry-After"])
 
 
-async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) -> dict:
+async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) -> list[dict]:
     """Leave accepted work durable, replace the worker, and observe settlement."""
     deployment_ref = f"{anchor[0].deployment.tenant_id}-worker-loss"
     service, secrets = await _scoped_service(
@@ -124,6 +124,8 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
         {"state": "worker-withdrawn", "at_ms": 0.0},
     ]
     run_id, status, retry_after = await _submit_under_worker_loss(service, secrets, started, states)
+    rejected_states = [state for state in states if state["state"] == "rejected"]
+    states = [state for state in states if state["state"] != "rejected"]
     replacement, _ = await _scoped_service(
         database,
         anchor,
@@ -138,15 +140,29 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
         async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
             terminal = await _wait_terminal(client, run_id, secrets["operator"])
             states.append({"state": terminal, "at_ms": elapsed_ms(started), "run_id": run_id})
-    return fault_row(
-        "worker-loss",
-        "failing-script",
-        started,
-        states,
-        status=status,
-        retry_after=retry_after,
-        service=replacement,
-    )
+    return [
+        fault_row(
+            "worker-loss",
+            "failing-script",
+            started,
+            states,
+            status=202,
+            retry_after=None,
+            service=replacement,
+            request_id="fault-worker-loss-accepted",
+        ),
+        fault_row(
+            "worker-loss",
+            "failing-script",
+            started,
+            rejected_states,
+            status=status,
+            retry_after=retry_after,
+            service=replacement,
+            request_id="fault-worker-loss-rejected",
+            recovered=False,
+        ),
+    ]
 
 
 async def _submit_for_restart(
@@ -160,8 +176,8 @@ async def _submit_for_restart(
             accepted.raise_for_status()
             run_id = str(accepted.json()["run_id"])
             states.append({"state": "accepted", "at_ms": elapsed_ms(started), "run_id": run_id})
-            states.append({"state": "draining", "at_ms": elapsed_ms(started), "run_id": run_id})
-            return run_id
+    states.append({"state": "draining", "at_ms": elapsed_ms(started), "run_id": run_id})
+    return run_id
 
 
 async def _resume_approval(
@@ -359,7 +375,7 @@ async def collect_fault_observations(
     return [
         await postgres_contention(postgres_dsn),
         await redis_loss(redis_url),
-        await worker_loss(database, anchors["failing-script"]),
+        *await worker_loss(database, anchors["failing-script"]),
         await service_restart(database, anchors["approvals"]),
         await network_delay(database, anchors["langgraph-streams"]),
         await downstream_throttling(database, anchors["webhooks"]),

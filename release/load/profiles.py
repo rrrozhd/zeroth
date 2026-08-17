@@ -30,6 +30,21 @@ THRESHOLD_DERIVATION = {
     "rejection_rate_delta": {"kind": "maximum", "metric": "rejection_rate", "limit": 0.1},
     "queue_depth_ratio": {"kind": "maximum", "metric": "queue_depth_max", "limit": 1.5},
     "tenant_fairness_minimum": {"kind": "minimum", "metric": "tenant_fairness", "limit": 0.9},
+    "deployment_fairness_minimum": {
+        "kind": "minimum",
+        "metric": "deployment_fairness",
+        "limit": 0.9,
+    },
+    "replica_fairness_ratio": {
+        "kind": "minimum",
+        "metric": "replica_fairness",
+        "limit": 0.8,
+    },
+    "worker_fairness_ratio": {
+        "kind": "minimum",
+        "metric": "worker_fairness",
+        "limit": 0.8,
+    },
     "cpu_ratio": {"kind": "maximum", "metric": "cpu_percent_max", "limit": 1.5},
     "memory_ratio": {"kind": "maximum", "metric": "memory_bytes_max", "limit": 1.5},
     "recovery_seconds_ratio": {
@@ -52,6 +67,9 @@ THRESHOLD_RULES = {
     "rejection_rate_delta": {"maximum": 0.1},
     "queue_depth_ratio": {"maximum": 1.5},
     "tenant_fairness_minimum": {"minimum": 0.9},
+    "deployment_fairness_minimum": {"minimum": 0.9},
+    "replica_fairness_ratio": {"minimum": 0.8},
+    "worker_fairness_ratio": {"minimum": 0.8},
     "cpu_ratio": {"maximum": 1.5},
     "memory_ratio": {"maximum": 1.5},
     "recovery_seconds_ratio": {"maximum": 1.5},

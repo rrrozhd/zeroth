@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.2] - 2026-08-17
+
+### Fixed
+
+- Bind load baselines to measured source receipts, enforce fairness at every workload scope,
+  and retain exact per-request cancellation, drain, and worker-loss evidence.
+
 ## [0.23.10.1] - 2026-08-17
 
 ### Fixed

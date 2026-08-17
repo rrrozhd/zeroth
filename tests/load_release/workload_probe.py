@@ -172,6 +172,11 @@ async def _settle_run(
             headers=headers(target.scope.secrets["admin"]),
         )
         response.raise_for_status()
+        body = response.json()
+        failure = body.get("failure_state") or {}
+        assert body.get("status") == "failed" and failure.get("reason") == "operator_cancelled", (
+            "cancellation was not observed in the returned product state"
+        )
         return [
             {
                 "state": "cancel-requested",
