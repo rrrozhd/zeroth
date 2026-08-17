@@ -17,7 +17,7 @@ from tests.conftest import requires_docker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.runtime.orchestration.run_worker import RunWorker
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 
 DEPLOYMENT = "fencing-deployment"
 WORKER_A = "worker-a"
@@ -201,6 +201,75 @@ class _RecordingOrchestrator:
     @property
     def approval_service(self):
         return None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_admin_cancel_atomically_fences_pending_worker(
+    dual_database,
+    monkeypatch,
+) -> None:
+    """Cancellation and lease revocation must be one stale-write fence."""
+    admin_repository = RunRepository.for_default_compatibility(dual_database)
+    worker_repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=worker_repository,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, worker.worker_id) == run_id
+
+    original_get = worker_repository.get
+    reads = 0
+    transition_read = asyncio.Event()
+    release_transition = asyncio.Event()
+
+    async def pause_stale_transition_read(claimed_run_id: str):
+        nonlocal reads
+        run = await original_get(claimed_run_id)
+        reads += 1
+        if reads == 2:
+            assert run is not None
+            assert run.status is RunStatus.PENDING
+            transition_read.set()
+            await release_transition.wait()
+        return run
+
+    monkeypatch.setattr(worker_repository, "get", pause_stale_transition_read)
+    execution = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
+    await asyncio.wait_for(transition_read.wait(), timeout=5)
+    try:
+        cancelled = await admin_repository.cancel(
+            run_id,
+            DEPLOYMENT,
+            failure_state=RunFailureState(
+                reason="operator_cancelled",
+                message="cancelled by admin",
+            ),
+        )
+    finally:
+        release_transition.set()
+        await asyncio.wait_for(execution, timeout=5)
+
+    async with dual_database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT status, lease_worker_id, lease_acquired_at, lease_expires_at "
+            "FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+    assert row is not None
+    assert cancelled.status is RunStatus.FAILED
+    assert row["status"] == RunStatus.FAILED.value
+    assert row["lease_worker_id"] is None
+    assert row["lease_acquired_at"] is None
+    assert row["lease_expires_at"] is None
+    assert orchestrator.driven == []
 
 
 @requires_docker

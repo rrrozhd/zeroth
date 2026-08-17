@@ -134,6 +134,7 @@ zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_r
 zeroth.integrations.persistence.runs.checkpoint_store|CheckpointRowStore|write_row_in_connection|CU
 zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|coordinate|CR
 zeroth.integrations.persistence.runs.run_repository|GuardrailAdmissionCoordinator|exists|R
+zeroth.integrations.persistence.runs.run_repository|RunRepository|cancel|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|clear_active_run_id|U
 zeroth.integrations.persistence.runs.run_repository|RunRepository|compare_and_swap_token_snapshot|CU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|count_pending|N
@@ -280,7 +281,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 194
+    assert len(METHOD_METADATA_ORACLE) == 195
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

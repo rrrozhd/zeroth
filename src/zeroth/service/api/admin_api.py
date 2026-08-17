@@ -95,23 +95,15 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             manager = await _token_interrupt_manager(bootstrap, run_id)
             if manager is not None:
                 await manager.cancel_run(run_id)
-            run = await bootstrap.run_repository.transition(
+            run = await bootstrap.run_repository.cancel(
                 run_id,
-                RunStatus.FAILED,
+                bootstrap.deployment.deployment_ref,
                 failure_state=RunFailureState(
                     reason="operator_cancelled", message="cancelled by admin"
                 ),
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        # Clear lease so any worker won't resume it.
-        lease_manager = getattr(bootstrap, "lease_manager", None)
-        if lease_manager is not None:
-            await lease_manager.clear_lease(
-                run_id,
-                tenant_id=run.tenant_id,
-                workspace_id=run.workspace_id,
-            )
         return _serialize_run(run)
 
     @app.post("/admin/runs/{run_id}/replay", response_model=RunStatusResponse)
