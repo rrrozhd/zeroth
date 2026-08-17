@@ -315,9 +315,9 @@ class _RunThreadStore:
     token_snapshots: ScopedTable = field(init=False)
     admission_state: GuardrailAdmissionCoordinator = field(init=False)
     # ZER-26/AUD-004: per-run write fences. While a fence is installed for a
-    # run id, every save of that run's row carries the lease predicate, so a
-    # displaced worker's write is refused *inside* the statement rather than by
-    # a check that races it.
+    # run id, every save of that run's row carries the live lease predicate, so
+    # a displaced or expired worker's write is refused *inside* the statement
+    # rather than by a check that races it.
     _fences: dict[str, tuple[str, int]] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -361,9 +361,9 @@ class _RunThreadStore:
         """Insert or update a run record in the database.
 
         When a fence is installed for this run, persistence is update-only and
-        carries ``WHERE lease_worker_id = ? AND lease_generation = ?``. No row
-        back means ownership moved and the write was refused, which raises
-        :class:`FencedRunWriteRejectedError`.
+        carries the owner, generation, and database-time expiry predicates. No
+        row back means ownership moved or expired and the write was refused,
+        which raises :class:`FencedRunWriteRejectedError`.
         """
         self.validate_owner(run.tenant_id, run.workspace_id)
         fence = self._fences.get(run.run_id)
@@ -398,6 +398,7 @@ class _RunThreadStore:
                 {column: value for column, value in values.items() if column != "run_id"},
                 where=where,
                 returning="run_id",
+                where_gte_database_now=("lease_expires_at",) if fence is not None else (),
             )
         else:
             written = await runs.upsert(
@@ -1094,12 +1095,12 @@ class RunRepository:
         return stored
 
     def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
-        """ZER-26/AUD-004: fence this run's saves on (worker_id, generation).
+        """Fence this run's saves on its unexpired owner and generation.
 
         While installed, every save of the run's row — the worker's own status
         transitions and the orchestrator's drive-time writes alike, since both
         share this repository — is refused in-statement once lease ownership
-        moves, raising :class:`FencedRunWriteRejectedError`.
+        moves or expires, raising :class:`FencedRunWriteRejectedError`.
         """
         self._store.install_fence(run_id, worker_id, generation)
 

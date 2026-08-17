@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.11] - 2026-08-17
+
+### Fixed
+
+- Reject run-state writes after their worker lease expires and distributed capacity is reassigned.
+
 ## [0.23.9.10] - 2026-08-17
 
 ### Fixed

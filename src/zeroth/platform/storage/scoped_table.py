@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Self
 
-from zeroth.platform.storage.database import AsyncConnection, AsyncDatabase, database_now
+from zeroth.platform.storage.database import (
+    AsyncConnection,
+    AsyncDatabase,
+    database_now,
+    database_now_text_expression,
+)
 from zeroth.platform.storage.scoping import (
     CrossTenantMaintenanceScopeContext,
     NullWorkspaceScopeContext,
@@ -691,6 +696,7 @@ class BoundStructuredTable:
         where_null: tuple[str, ...] = (),
         where_not_null: tuple[str, ...] = (),
         where_lt: dict[str, Any] | None = None,
+        where_gte_database_now: tuple[str, ...] = (),
         where_in: dict[str, tuple[Any, ...]] | None = None,
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
     ) -> tuple[list[str], list[Any]]:
@@ -703,6 +709,12 @@ class BoundStructuredTable:
         for column, value in (where_lt or {}).items():
             predicates.append(f"{_identifier(column)} < ?")
             params.append(value)
+        if where_gte_database_now:
+            database = self.__table._StructuredTable__database  # noqa: SLF001
+            now = database_now_text_expression(database.backend)
+            predicates.extend(
+                f"{_identifier(column)} >= {now}" for column in where_gte_database_now
+            )
         for column, values in (where_in or {}).items():
             identifier = _identifier(column)
             if not values:
@@ -914,6 +926,7 @@ class BoundStructuredTable:
         *,
         where: dict[str, Any],
         returning: str,
+        where_gte_database_now: tuple[str, ...] = (),
         where_not_in: dict[str, tuple[Any, ...]] | None = None,
         increment: tuple[str, ...] = (),
     ) -> bool:
@@ -923,7 +936,12 @@ class BoundStructuredTable:
         if not where:
             raise ValueError("update requires a non-empty where predicate")
         rendered = self.__table._validate_values(values, create=False, definition=definition)
-        predicates, where_params = self._where(definition, where, where_not_in=where_not_in)
+        predicates, where_params = self._where(
+            definition,
+            where,
+            where_gte_database_now=where_gte_database_now,
+            where_not_in=where_not_in,
+        )
         increments = tuple(_identifier(column) for column in increment)
         if _OWNERSHIP_COLUMNS.intersection(increments):
             raise ValueError("ownership columns cannot be updated")
