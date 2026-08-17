@@ -129,6 +129,7 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
                 "record_failed_execution",
                 "record_history",
                 "record_policy_rejection",
+                "write_prepared",
             }
         },
     },
@@ -4397,6 +4398,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/runtime/orchestration/audit_recorder.py::record_failed_execution::write",
     "src/zeroth/runtime/orchestration/audit_recorder.py::record_history::write",
     "src/zeroth/runtime/orchestration/audit_recorder.py::record_policy_rejection::write",
+    "src/zeroth/runtime/orchestration/audit_recorder.py::write_prepared::write",
     "src/zeroth/runtime/orchestration/parallel_executor.py::branch_coro_factory::write",
     "src/zeroth/runtime/orchestration/parallel_executor.py::execute_fan_out_resume::write",
     "src/zeroth/runtime/orchestration/run_worker.py::_record_worker_audit::write",

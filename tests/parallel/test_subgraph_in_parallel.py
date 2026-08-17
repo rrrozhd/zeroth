@@ -395,6 +395,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repo = AsyncMock()
         repo.create = AsyncMock(side_effect=lambda r: r)
         repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
         repo.get = AsyncMock(return_value=None)
         repo.write_checkpoint = AsyncMock()
 
@@ -484,6 +485,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.get = AsyncMock(return_value=None)
         repository.write_checkpoint = AsyncMock()
         orchestrator = RuntimeOrchestrator(
@@ -575,6 +577,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.write_checkpoint = AsyncMock()
         audit_repository = AsyncMock()
         audit_repository.write = AsyncMock()
@@ -592,7 +595,9 @@ class TestScenario1SubgraphInFanOutBranch:
         paused = [entry for entry in result.execution_history if entry.node_id == "sub-step"]
         assert len(paused) == 2
         assert sorted(entry.cost_usd for entry in paused) == pytest.approx([0.2, 0.3])
-        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(0.6)
+        assert sum(entry.cost_usd or 0.0 for entry in result.execution_history) == pytest.approx(
+            0.6
+        )
         child_audits = [
             call.args[0]
             for call in audit_repository.write.call_args_list
@@ -698,6 +703,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repo = AsyncMock()
         repo.create = AsyncMock(side_effect=lambda r: r)
         repo.put = AsyncMock(side_effect=lambda r: r)
+        repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
         repo.get = AsyncMock(return_value=None)
         repo.write_checkpoint = AsyncMock()
 
@@ -848,6 +854,7 @@ class TestScenario1SubgraphInFanOutBranch:
         repository = AsyncMock()
         repository.create = AsyncMock(side_effect=lambda run: run)
         repository.put = AsyncMock(side_effect=lambda run: run)
+        repository.put_if_status = AsyncMock(side_effect=lambda run, _expected: run)
         repository.get = AsyncMock(return_value=None)
         repository.write_checkpoint = AsyncMock()
         orchestrator = RuntimeOrchestrator(
