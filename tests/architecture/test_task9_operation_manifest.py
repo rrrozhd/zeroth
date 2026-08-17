@@ -44,6 +44,7 @@ TASK9_OPERATION_MANIFEST: dict[str, dict[type, dict[str, frozenset[ResourceOpera
             "list_runs": frozenset({O.ENUMERATE}),
             "list_dead_letter_runs": frozenset({O.ENUMERATE}),
             "put": frozenset({O.CREATE, O.UPDATE}),
+            "put_if_status": frozenset({O.READ, O.UPDATE}),
             "transition": frozenset({O.READ, O.UPDATE}),
             "record_history": frozenset({O.READ, O.UPDATE}),
             "record_condition_result": frozenset({O.READ, O.UPDATE}),

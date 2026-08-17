@@ -501,6 +501,7 @@ class RuntimeOrchestrator:
         the run history, plans the next nodes, and sets the run back to
         RUNNING status so it can be resumed.
         """
+        expected_status = run.status
         if token_engine_enabled(graph.execution_settings):
             action = (
                 approval_record.resolution.decision.value
@@ -524,7 +525,11 @@ class RuntimeOrchestrator:
             run.pending_approval = None
             run.status = RunStatus.RUNNING
             run.touch()
-            run = await self.run_repository.put(run)
+            run = (
+                await self.run_repository.put_if_status(run, expected_status)
+                if expected_status is RunStatus.WAITING_APPROVAL
+                else await self.run_repository.put(run)
+            )
             await self.run_repository.write_checkpoint(run)
             return run
         if run.pending_node_ids and run.pending_node_ids[0] == node.node_id:
@@ -557,7 +562,11 @@ class RuntimeOrchestrator:
         run.pending_approval = None
         run.status = RunStatus.RUNNING
         run.touch()
-        run = await self.run_repository.put(run)
+        run = (
+            await self.run_repository.put_if_status(run, expected_status)
+            if expected_status is RunStatus.WAITING_APPROVAL
+            else await self.run_repository.put(run)
+        )
         await self.run_repository.write_checkpoint(run)
         await self._refresh_artifact_ttls(run)
         return run

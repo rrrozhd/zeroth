@@ -959,6 +959,7 @@ class _RunThreadStore:
             "list_runs",
             "list_dead_letter_runs",
             "put",
+            "put_if_status",
             "transition",
             "record_history",
             "record_condition_result",
@@ -1080,6 +1081,14 @@ class RunRepository:
         """Save (insert or update) a run, including its checkpoint and thread."""
         await self._store.put_run(run)
         return await self.get(run.run_id)
+
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        """Save a run only while its persisted status matches the caller's snapshot."""
+        await self._store.put_run_if_status(run, expected_status)
+        stored = await self.get(run.run_id)
+        assert stored is not None
+        return stored
 
     def install_fence(self, run_id: str, worker_id: str, generation: int) -> None:
         """ZER-26/AUD-004: fence this run's saves on (worker_id, generation).
