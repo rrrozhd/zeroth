@@ -291,6 +291,24 @@ export function GuardrailsPanel({ refId }: { refId: string }) {
   );
 }
 
+export function DeploymentGuardrailsPanel({
+  refId,
+  serving,
+}: {
+  refId: string;
+  serving: boolean;
+}) {
+  if (serving) return <GuardrailsPanel refId={refId} />;
+  return (
+    <Card label="Ingress guardrails">
+      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
+        Guardrails are managed by the serving deployment so its configured baseline remains
+        authoritative.
+      </p>
+    </Card>
+  );
+}
+
 function ErrorNotice({ message }: { message: string }) {
   return (
     <div role="alert" style={{ color: "var(--danger)", fontSize: 12, marginTop: 12 }}>

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.8] - 2026-08-17
+
+### Fixed
+
+- Preserve admin cancellation across concurrent shutdown and interrupt status writes.
+- Qualify lease and write-fence cleanup by generation when a worker reclaims a replayed run.
+- Expose guardrail controls only for the deployment whose configured baseline the service owns.
+
 ## [0.23.9.7] - 2026-08-17
 
 ### Fixed

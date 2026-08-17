@@ -99,8 +99,9 @@ async def test_a_failed_generation_read_releases_the_permit(sqlite_db) -> None:
         await worker._execute_leased_run(run.run_id, is_recovery=False)
 
     assert worker._semaphore._value == 1
-    # The rest of the finally must have run too: the lease is handed back.
-    assert await lease_manager.current_holder(run.run_id) is None
+    # Without a readable generation, cleanup retains the expiring lease rather
+    # than risking deletion of a newer same-worker generation.
+    assert await lease_manager.current_holder(run.run_id) == worker.worker_id
     assert worker._active_drives == {}
     assert worker._lease_generations == {}
 

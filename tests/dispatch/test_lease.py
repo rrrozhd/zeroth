@@ -113,7 +113,7 @@ async def test_release_clears_lease_columns(sqlite_db: AsyncSQLiteDatabase) -> N
 
     run_id = await _create_pending_run(run_repo)
     await manager.claim_pending(DEPLOYMENT, WORKER_A)
-    await manager.release_lease(run_id, WORKER_A)
+    await manager.release_lease(run_id, WORKER_A, generation=1)
 
     # After release the run should be claimable again.
     reclaimed = await manager.claim_pending(DEPLOYMENT, WORKER_A)

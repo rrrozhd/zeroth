@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import requires_docker
 from tests.service.helpers import (
     admin_headers,
     agent_graph,
@@ -517,3 +518,37 @@ async def test_concurrency_rejection_metrics_are_distinct(sqlite_db) -> None:
         ScopeContext(tenant_id="tenant-a", workspace_id="foreign-workspace"),
     )
     assert await foreign_workspace.list_by_node("service.guardrail.concurrency") == []
+
+
+@requires_docker
+async def test_cross_deployment_guardrails_never_use_the_serving_deployments_baseline(
+    dual_database,
+) -> None:
+    """A service may not inspect a peer using its own process-local baseline."""
+    serving, app = await _client(
+        dual_database,
+        guardrail_config=GuardrailConfig(max_concurrency=2),
+    )
+    graph_repository = serving.deployment_service.graph_repository
+    peer_graph = agent_graph(graph_id="graph-peer-guardrail-baseline")
+    peer_graph = await graph_repository.create(peer_graph)
+    await graph_repository.publish(peer_graph.graph_id, peer_graph.version)
+    peer = await serving.deployment_service.deploy(
+        "peer-guardrail-baseline",
+        peer_graph.graph_id,
+        peer_graph.version,
+    )
+    peer_service = await bootstrap_scoped_service(
+        dual_database,
+        deployment_ref=peer.deployment_ref,
+        guardrail_config=GuardrailConfig(max_concurrency=7),
+    )
+    peer_effective = await peer_service.guardrail_policy_repository.effective(peer.deployment_ref)
+    assert peer_effective.max_concurrency == 7
+
+    with TestClient(app) as client:
+        response = client.get(
+            f"/v1/deployments/{peer.deployment_ref}/guardrails",
+            headers=operator_headers(),
+        )
+    assert response.status_code == 404

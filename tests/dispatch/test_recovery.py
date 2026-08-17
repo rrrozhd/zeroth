@@ -113,7 +113,7 @@ async def test_lease_is_cleared_after_schedule_continuation(sqlite_db) -> None:
     await run_repo.transition(run.run_id, RunStatus.RUNNING)
     await run_repo.transition(run.run_id, RunStatus.WAITING_APPROVAL)
     # Manually clear lease (as the worker would after the approval pause).
-    await lease_manager.release_lease(run.run_id, "worker-old")
+    await lease_manager.release_lease(run.run_id, "worker-old", generation=1)
 
     approval_record = ApprovalRecord(
         run_id=run.run_id,
