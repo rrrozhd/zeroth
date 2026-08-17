@@ -31,6 +31,7 @@ from release.app_certification.checks import run_owned_check
 from release.app_certification import checks as owned_checks
 from apps.vendor_dd import certification_healthcheck
 from tests.app_certification.test_engine import provenance_kwargs
+from tests.app_certification.workflow_fixtures import write_generated_app
 
 
 COMMIT = "a" * 40
@@ -341,6 +342,7 @@ def test_structurally_bogus_report_is_rejected() -> None:
 
 
 def test_scaffold_emits_valid_executable_assets(tmp_path: Path) -> None:
+    write_generated_app(tmp_path, "sample_app")
     scaffold_checkout(
         tmp_path,
         app_name="sample",

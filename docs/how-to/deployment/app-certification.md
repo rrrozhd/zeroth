@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.14 \
+  --zeroth-version 0.23.9.15 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -26,15 +26,21 @@ The command refuses to overwrite existing files and emits:
 - `<module>/certification_healthcheck.py`;
 - `<module>/migrations.py`.
 
-The generated module must expose `migrations.migrate` for the one dynamic
-certification operation. Runtime modules can still expose graph, contract,
-authentication, and policy factories, but their trusted certification input is
-the committed `certification.semantic.json` document. Fill its canonical graph,
-JSON Schema, authentication, policy, and capability values, plus the SHA-256 of
-each declared target source. The scaffold starts with an intentionally invalid
-empty document so an unfinished semantic contract cannot pass accidentally.
-Adjust only the structured `targets` references if the app uses different
-names. Neither declaration can provide commands or shell text.
+The generated module must already expose the graph, contract, authentication,
+and policy factories named by the standard targets. The scaffold executes those
+generator-owned inputs once and emits their complete deterministic semantic
+manifest, including target-source hashes. Refresh it after changing a target:
+
+```bash
+PYTHONPATH=/path/to/zeroth python -m release.app_certification generate-semantic \
+  --root . --declaration certification.json \
+  --output certification.semantic.json --database-backend sqlite
+```
+
+The generation command normalizes volatile graph timestamps and writes the
+canonical JSON atomically, so identical inputs produce identical bytes. Adjust
+only the structured `targets` references if the app uses different names.
+Neither declaration can provide commands or shell text.
 
 ## What is checked
 
@@ -48,6 +54,8 @@ document without importing candidate Python:
 - validate service authentication, the frozen lock and declared Zeroth version,
   the declared app migration against a fresh database, container state,
   readiness JSON, and frontend/API drift;
+- import the exact installed runtime distribution and exercise authenticated
+  Regulus capability, budget, and instrumentation operations in both modes;
 - send the same deterministic smoke request to packaged and tmpfs-backed
   candidate containers.
 
@@ -75,7 +83,9 @@ and fixed-size state storage. App dependency hooks run inside a digest-pinned,
 read-only container with the same resource classes and a fixed-size
 virtual-environment filesystem. Docker daemon logs use a rotating size cap,
 and the complete named build and dependency scopes are removed and inventoried
-after every outcome. The pinned certifier and handoff remain runner-owned. The job builds
+after every outcome. Every Docker name and image tag includes the immutable
+workflow run/attempt identity; collisions fail before creation, and image cleanup
+requires the exact recorded image IDs. The pinned certifier and handoff remain runner-owned. The job builds
 from an exact Git archive and measures its SHA-256
 alongside the app commit and local image descriptor, generates an SPDX SBOM, and
 writes a canonical report even when preparation, build, startup, or health

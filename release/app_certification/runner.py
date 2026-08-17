@@ -106,6 +106,7 @@ def measure_candidate_identity(
     declaration: AppDeclaration,
     *,
     expected_commit: str,
+    image_reference: str | None = None,
     image_digest: str,
     source_digest: str,
     commit_reader: CommitReader = read_git_commit,
@@ -124,7 +125,7 @@ def measure_candidate_identity(
         app_name=declaration.app_name,
         app_commit=measured,
         zeroth_version=declaration.zeroth_version,
-        image_reference=declaration.image_reference,
+        image_reference=image_reference or declaration.image_reference,
         image_digest=image_digest,
         source_digest=source_digest,
     )
@@ -182,9 +183,16 @@ class CertificationRunner:
         self.untrusted_user = untrusted_user
 
     def run(
-        self, *, expected_commit: str, image_digest: str, source_digest: str
+        self,
+        *,
+        expected_commit: str,
+        image_reference: str | None = None,
+        image_digest: str,
+        source_digest: str,
     ) -> CertificationReport:
-        identity, identity_error = self._identity(expected_commit, image_digest, source_digest)
+        identity, identity_error = self._identity(
+            expected_commit, image_reference, image_digest, source_digest
+        )
         checks: list[CheckResult] = []
         evidence: dict[str, EvidenceFile] = {}
         for name in MANDATORY_CHECKS:
@@ -202,13 +210,18 @@ class CertificationRunner:
         )
 
     def _identity(
-        self, expected_commit: str, image_digest: str, source_digest: str
+        self,
+        expected_commit: str,
+        image_reference: str | None,
+        image_digest: str,
+        source_digest: str,
     ) -> tuple[CandidateIdentity | None, str | None]:
         try:
             identity = measure_candidate_identity(
                 self.root,
                 self.declaration,
                 expected_commit=expected_commit,
+                image_reference=image_reference,
                 image_digest=image_digest,
                 source_digest=source_digest,
                 commit_reader=self.commit_reader,

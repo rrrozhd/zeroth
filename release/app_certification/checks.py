@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -266,13 +267,16 @@ def _check_optional_extras(root: Path, declaration: AppDeclaration) -> None:
 
 
 def _container_states(root: Path) -> list[dict[str, Any]]:
+    containers = (
+        os.environ.get("PACKAGED_CONTAINER", "app-cert-packaged"),
+        os.environ.get("EPHEMERAL_CONTAINER", "app-cert-ephemeral"),
+    )
     result = subprocess.run(
         [
             "docker",
             "inspect",
             "--format={{json .State}}",
-            "app-cert-packaged",
-            "app-cert-ephemeral",
+            *containers,
         ],
         cwd=root,
         check=False,

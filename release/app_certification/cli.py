@@ -39,7 +39,9 @@ from .runner import (
     execute_command,
     measure_candidate_identity,
 )
-from .scaffold import scaffold_checkout
+from .runtime_probe import probe_regulus
+from .runtime_probe_worker import probe_runtime_extras
+from .scaffold import generate_semantic_manifest, scaffold_checkout
 from .wheel_installation import (
     build_material_digests,
     prepare_runtime_context,
@@ -163,6 +165,37 @@ def _add_scaffold_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--zeroth-ref", required=True)
 
 
+def _add_probe_commands(commands: argparse._SubParsersAction) -> None:
+    commands.add_parser("probe-readiness").add_argument("--url", required=True)
+    runtime = commands.add_parser("probe-runtime-extras")
+    runtime.add_argument("--zeroth-version", required=True)
+    regulus = commands.add_parser("probe-regulus")
+    regulus.add_argument("--url", required=True)
+    regulus.add_argument("--tenant", required=True)
+    regulus.add_argument("--probe-id", required=True)
+    regulus.add_argument("--mode", choices=("packaged", "ephemeral"), required=True)
+
+
+def _add_semantic_commands(commands: argparse._SubParsersAction) -> None:
+    commands.add_parser("finalize-workflow").add_argument("--root", type=Path, required=True)
+    semantic = commands.add_parser("generate-semantic")
+    semantic.add_argument("--root", type=Path, required=True)
+    semantic.add_argument("--declaration", type=Path, required=True)
+    semantic.add_argument("--output", type=Path, required=True)
+    semantic.add_argument("--database-backend", choices=("sqlite", "postgres"), default="sqlite")
+    _add_scaffold_arguments(commands.add_parser("scaffold"))
+
+
+def _add_attestation_command(commands: argparse._SubParsersAction) -> None:
+    attestation = commands.add_parser("finalize-attestation")
+    attestation.add_argument("--bundle", type=Path, required=True)
+    attestation.add_argument("--repository", required=True)
+    attestation.add_argument("--signer-repo", required=True)
+    attestation.add_argument("--signer-workflow", required=True)
+    attestation.add_argument("--signer-digest", required=True)
+    _add_handoff_arguments(attestation)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app-certification")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -174,6 +207,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--root", type=Path, required=True)
     run.add_argument("--app-commit", required=True)
     run.add_argument("--image-digest", required=True)
+    run.add_argument("--image-reference")
     run.add_argument("--source-digest", required=True)
     run.add_argument("--packaged-url", required=True)
     run.add_argument("--ephemeral-url", required=True)
@@ -189,6 +223,7 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--root", type=Path, required=True)
     evidence.add_argument("--app-commit", required=True)
     evidence.add_argument("--image-digest", required=True)
+    evidence.add_argument("--image-reference")
     evidence.add_argument("--source-digest", required=True)
     evidence.add_argument("--raw-sbom", type=Path, required=True)
     evidence.add_argument("--zeroth-commit", required=True)
@@ -202,16 +237,9 @@ def _parser() -> argparse.ArgumentParser:
     _add_runtime_context_arguments(commands.add_parser("prepare-runtime-context"))
     handoff = commands.add_parser("validate-handoff")
     _add_handoff_arguments(handoff)
-    attestation = commands.add_parser("finalize-attestation")
-    attestation.add_argument("--bundle", type=Path, required=True)
-    attestation.add_argument("--repository", required=True)
-    attestation.add_argument("--signer-repo", required=True)
-    attestation.add_argument("--signer-workflow", required=True)
-    attestation.add_argument("--signer-digest", required=True)
-    _add_handoff_arguments(attestation)
-    commands.add_parser("probe-readiness").add_argument("--url", required=True)
-    commands.add_parser("finalize-workflow").add_argument("--root", type=Path, required=True)
-    _add_scaffold_arguments(commands.add_parser("scaffold"))
+    _add_attestation_command(commands)
+    _add_probe_commands(commands)
+    _add_semantic_commands(commands)
     return parser
 
 
@@ -233,6 +261,7 @@ def _run(args: argparse.Namespace) -> int:
         untrusted_user=args.untrusted_user,
     ).run(
         expected_commit=args.app_commit,
+        image_reference=args.image_reference,
         image_digest=args.image_digest,
         source_digest=args.source_digest,
     )
@@ -254,6 +283,7 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         args.root,
         declaration,
         expected_commit=args.app_commit,
+        image_reference=args.image_reference,
         image_digest=args.image_digest,
         source_digest=args.source_digest,
     )
@@ -434,50 +464,90 @@ def _prepare_runtime_artifact(args: argparse.Namespace) -> int:
     return 0
 
 
+def _finalize_attestation_command(args: argparse.Namespace) -> int:
+    _validate_handoff(args)
+    finalize_attestation(
+        args.bundle,
+        args.report,
+        args.root,
+        repository=args.repository,
+        signer_repo=args.signer_repo,
+        signer_workflow=args.signer_workflow,
+        signer_digest=args.signer_digest,
+    )
+    write_workflow_evidence(
+        args.workflow_evidence,
+        cleanup=args.cleanup,
+        report=args.report,
+        workflow_stages=args.workflow_stages,
+    )
+    return _validate_handoff(args)
+
+
+def _probe_readiness_command(args: argparse.Namespace) -> int:
+    return _probe_readiness(args.url)
+
+
+def _probe_runtime_command(args: argparse.Namespace) -> int:
+    probe_runtime_extras(args.zeroth_version)
+    return 0
+
+
+def _probe_regulus_command(args: argparse.Namespace) -> int:
+    probe_regulus(args.url, args.tenant, args.probe_id, args.mode)
+    return 0
+
+
+def _finalize_workflow_command(args: argparse.Namespace) -> int:
+    return _finalize_workflow(args.root)
+
+
+def _generate_semantic_command(args: argparse.Namespace) -> int:
+    generate_semantic_manifest(
+        args.root,
+        load_declaration(args.declaration),
+        args.output,
+        database_backend=args.database_backend,
+    )
+    return 0
+
+
+def _scaffold_command(args: argparse.Namespace) -> int:
+    scaffold_checkout(
+        args.root,
+        app_name=args.app_name,
+        module=args.module,
+        zeroth_version=args.zeroth_version,
+        zeroth_ref=args.zeroth_ref,
+    )
+    return 0
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    handlers = {
+        "validate-declaration": _validate_command,
+        "validate-report": _validate_command,
+        "run": _run,
+        "prepare-evidence": _prepare_evidence,
+        "verify-wheel-installation": _prepare_runtime_artifact,
+        "prepare-runtime-context": _prepare_runtime_artifact,
+        "validate-handoff": _validate_handoff,
+        "finalize-attestation": _finalize_attestation_command,
+        "probe-readiness": _probe_readiness_command,
+        "probe-runtime-extras": _probe_runtime_command,
+        "probe-regulus": _probe_regulus_command,
+        "finalize-workflow": _finalize_workflow_command,
+        "generate-semantic": _generate_semantic_command,
+        "scaffold": _scaffold_command,
+    }
+    return handlers[args.command](args)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Validate declarations, execute certification, or validate retained reports."""
     args = _parser().parse_args(argv)
     try:
-        if args.command in {"validate-declaration", "validate-report"}:
-            return _validate_command(args)
-        if args.command == "run":
-            return _run(args)
-        if args.command == "prepare-evidence":
-            return _prepare_evidence(args)
-        if args.command in {"verify-wheel-installation", "prepare-runtime-context"}:
-            return _prepare_runtime_artifact(args)
-        if args.command == "validate-handoff":
-            return _validate_handoff(args)
-        if args.command == "finalize-attestation":
-            _validate_handoff(args)
-            finalize_attestation(
-                args.bundle,
-                args.report,
-                args.root,
-                repository=args.repository,
-                signer_repo=args.signer_repo,
-                signer_workflow=args.signer_workflow,
-                signer_digest=args.signer_digest,
-            )
-            write_workflow_evidence(
-                args.workflow_evidence,
-                cleanup=args.cleanup,
-                report=args.report,
-                workflow_stages=args.workflow_stages,
-            )
-            return _validate_handoff(args)
-        if args.command == "probe-readiness":
-            return _probe_readiness(args.url)
-        if args.command == "finalize-workflow":
-            return _finalize_workflow(args.root)
-        scaffold_checkout(
-            args.root,
-            app_name=args.app_name,
-            module=args.module,
-            zeroth_version=args.zeroth_version,
-            zeroth_ref=args.zeroth_ref,
-        )
-        return 0
+        return _dispatch(args)
     except (OSError, ValueError) as error:
         print(f"app certification error: {error}", file=sys.stderr)
         return 2

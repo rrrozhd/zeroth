@@ -140,6 +140,13 @@ def test_runtime_identity_reference_keeps_the_verified_interpreter(monkeypatch) 
     async def seed_main() -> int:
         return 0
 
+    for name in (
+        "ECP_BASE_URL",
+        "ECP_SERVICE_PRINCIPAL_TENANT_ID",
+        "ZEROTH_REGULUS__BASE_URL",
+    ):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
     monkeypatch.setenv("APP_CERTIFICATION_API_KEY", "test-key")
     seed = ModuleType("apps.vendor_dd.seed")
     service = ModuleType("apps.vendor_dd.entrypoint")

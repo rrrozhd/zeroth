@@ -23,6 +23,10 @@ from release.app_certification.wheel_installation import (
 )
 from release.app_certification.workflow_finalizer import write_workflow_evidence
 from tests.app_certification.test_hardening import _write_archive, identity
+from tests.app_certification.workflow_fixtures import (
+    successful_cleanup_document,
+    successful_workflow_stages,
+)
 
 
 def _git(repository: Path, *args: str) -> str:
@@ -181,29 +185,11 @@ def _write_workflow_inputs(tmp_path: Path, report: Path) -> None:
     cleanup = tmp_path / "cleanup.json"
     stages = tmp_path / "workflow-stages.json"
     cleanup.write_text(
-        json.dumps({"schema_version": 1, "status": "passed", "resources": []}) + "\n",
+        json.dumps(successful_cleanup_document()) + "\n",
         encoding="utf-8",
     )
     stages.write_text(
-        json.dumps(
-            {
-                name: "success"
-                for name in (
-                    "app_checkout",
-                    "certifier_checkout",
-                    "prepare",
-                    "image",
-                    "wheel",
-                    "sbom",
-                    "evidence",
-                    "containers",
-                    "health",
-                    "certify",
-                    "cleanup",
-                )
-            }
-        )
-        + "\n",
+        json.dumps(successful_workflow_stages()) + "\n",
         encoding="utf-8",
     )
     write_workflow_evidence(
