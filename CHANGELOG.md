@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.11] - 2026-08-17
+
+### Security
+
+- Run certified applications on a digest-pinned certifier runtime, exercise
+  fresh migrations for the selected database backend, and validate app-local
+  custom reducers inside the contained candidate process.
+
 ## [0.23.9.10] - 2026-08-17
 
 ### Security

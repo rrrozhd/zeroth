@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from zeroth.contracts.graph import Graph
-from zeroth.contracts.graph.validation_errors import GraphValidationError
+from zeroth.contracts.graph.validation_errors import ValidationCode
 from zeroth.contracts.registry import ContractRegistry, contract_scope_context
 from zeroth.governance.policy import PolicyDecision, PolicyGuard
 from zeroth.platform.config import get_settings
@@ -101,7 +101,9 @@ def _graphs(declaration: AppDeclaration) -> list[Graph]:
 
 
 async def _registered_validation(
-    schemas: Mapping[str, dict[str, Any]], graphs: list[Graph]
+    schemas: Mapping[str, dict[str, Any]],
+    graphs: list[Graph],
+    validated_reducers: frozenset[str],
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="zeroth-app-cert-") as directory:
         database_path = Path(directory) / "certification.sqlite"
@@ -115,21 +117,31 @@ async def _registered_validation(
             for name, schema in schemas.items():
                 await registry.register_schema(name, schema)
             for graph in graphs:
-                try:
-                    await GraphValidator(contract_registry=registry).validate_or_raise(graph)
-                except GraphValidationError as error:
-                    details = "; ".join(issue.message for issue in error.report.errors)
-                    raise ValueError(f"graph validation failed: {details}") from error
+                report = await GraphValidator(contract_registry=registry).validate(graph)
+                errors = [
+                    issue
+                    for issue in report.errors
+                    if not (
+                        issue.code is ValidationCode.INVALID_REDUCER_REF
+                        and issue.details.get("reducer_ref") in validated_reducers
+                    )
+                ]
+                if errors:
+                    details = "; ".join(issue.message for issue in errors)
+                    raise ValueError(f"graph validation failed: {details}")
                 await _resolve_graph_contracts(registry, graph)
         finally:
             await database.close()
 
 
 async def validate_serialized_graphs(
-    schemas: Mapping[str, dict[str, Any]], graphs: list[Graph]
+    schemas: Mapping[str, dict[str, Any]],
+    graphs: list[Graph],
+    *,
+    validated_reducers: frozenset[str] = frozenset(),
 ) -> None:
     """Run the complete public graph validator over trusted canonical JSON."""
-    await _registered_validation(schemas, graphs)
+    await _registered_validation(schemas, graphs, validated_reducers)
 
 
 async def _resolve_graph_contracts(registry: ContractRegistry, graph: Graph) -> None:
@@ -157,7 +169,7 @@ def _check_graph(root: Path, declaration: AppDeclaration) -> None:
 def _check_service_config(root: Path, declaration: AppDeclaration) -> None:
     del root
     settings = get_settings()
-    if settings.database.backend not in {"sqlite", "postgresql"}:
+    if settings.database.backend not in {"sqlite", "postgres"}:
         raise ValueError(f"unsupported database backend {settings.database.backend!r}")
     config = _load_target(declaration.targets.auth_config)()
     if not isinstance(config, ServiceAuthConfig):

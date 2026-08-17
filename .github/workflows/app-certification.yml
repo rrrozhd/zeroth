@@ -153,15 +153,36 @@ jobs:
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          CERTIFIER_WHEELS=(trusted-certifier/*.whl)
+          [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
+          CANDIDATE_IMAGE_REFERENCE="app-cert-candidate:${GITHUB_RUN_ID}"
           timeout 15m docker build --file "build-context/$DOCKERFILE" \
-            --tag "$IMAGE_REFERENCE" build-context
+            --tag "$CANDIDATE_IMAGE_REFERENCE" build-context
+          docker image inspect "$CANDIDATE_IMAGE_REFERENCE" --format '{{json .Config}}' \
+            > app/.app-certification/candidate-image-config.json
+          RUNTIME_CONTEXT=$(mktemp -d "$RUNNER_TEMP/app-cert-runtime.XXXXXX")
+          trap 'rm -rf "$RUNTIME_CONTEXT"' EXIT
+          zeroth/.venv/bin/python -m release.app_certification prepare-runtime-context \
+            --source-root build-context \
+            --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
+            --requirements-lock trusted-certifier/requirements-image.txt \
+            --image-config app/.app-certification/candidate-image-config.json \
+            --output "$RUNTIME_CONTEXT"
+          timeout 15m docker build \
+            --file "$RUNTIME_CONTEXT/Dockerfile.certification-runtime" \
+            --tag "$IMAGE_REFERENCE" "$RUNTIME_CONTEXT"
           IMAGE_DIGEST=$(docker image inspect "$IMAGE_REFERENCE" --format '{{.Id}}')
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "docker returned a non-immutable image digest" >&2
             exit 1
           }
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config}}' \
+            > app/.app-certification/image-config.json
           timeout 5m docker save --output app/.app-certification/image.tar "$IMAGE_REFERENCE"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNTIME_CONTEXT"
+          trap - EXIT
       - name: Verify exact trusted wheel installation
         id: wheel
         env:
@@ -176,8 +197,6 @@ jobs:
           trap 'docker rm -f app-cert-wheel-inspect >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
           docker create --name app-cert-wheel-inspect "$IMAGE_REFERENCE" >/dev/null
           docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
-          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config}}' \
-            > app/.app-certification/image-config.json
           zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
             --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
             --image-config app/.app-certification/image-config.json \
@@ -227,15 +246,6 @@ jobs:
           IMAGE_ID: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          RUNTIME_BOOTSTRAP=$(zeroth/.venv/bin/python -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][4])' \
-            app/.app-certification/image-config.json)
-          RUNTIME_APP_ROOT=$(zeroth/.venv/bin/python -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][7])' \
-            app/.app-certification/image-config.json)
-          RUNTIME_MODULE=$(zeroth/.venv/bin/python -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][8])' \
-            app/.app-certification/image-config.json)
           docker network create app-cert-packaged-net
           docker network create app-cert-ephemeral-net
           docker volume create app-cert-packaged-data
@@ -246,9 +256,7 @@ jobs:
             --mount type=volume,source=app-cert-packaged-data,target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            --env PYTHONSAFEPATH=1 --entrypoint /usr/local/bin/python \
-            "$IMAGE_ID" -I -S -c "$RUNTIME_BOOTSTRAP" run-certified-runtime \
-            /usr/local/lib/python3.12/site-packages "$RUNTIME_APP_ROOT" "$RUNTIME_MODULE"
+            "$IMAGE_ID"
           docker run --detach --name app-cert-ephemeral \
             --cpus 2 --memory 2g --pids-limit 256 \
             --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
@@ -256,9 +264,7 @@ jobs:
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            --env PYTHONSAFEPATH=1 --entrypoint /usr/local/bin/python \
-            "$IMAGE_ID" -I -S -c "$RUNTIME_BOOTSTRAP" run-certified-runtime \
-            /usr/local/lib/python3.12/site-packages "$RUNTIME_APP_ROOT" "$RUNTIME_MODULE"
+            "$IMAGE_ID"
       - name: Require healthy container state and readiness payload
         id: health
         env:
@@ -339,6 +345,7 @@ jobs:
           docker rm app-cert-packaged app-cert-ephemeral
           docker network rm app-cert-packaged-net app-cert-ephemeral-net
           docker volume rm app-cert-packaged-data
+          docker image rm -f "app-cert-candidate:${GITHUB_RUN_ID}"
       - name: Upload unprivileged certification handoff
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

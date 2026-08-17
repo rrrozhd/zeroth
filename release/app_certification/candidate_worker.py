@@ -62,7 +62,6 @@ def _trusted_graphs(raw: Any, expected: int) -> list[Graph]:
 def _validate_static_graphs(
     graphs: list[Graph], schemas: dict[str, dict[str, Any]], reducers: Any
 ) -> None:
-    asyncio.run(checks.validate_serialized_graphs(schemas, graphs))
     expected_reducers: set[str] = set()
     for graph in graphs:
         for node in graph.nodes:
@@ -71,6 +70,13 @@ def _validate_static_graphs(
                 expected_reducers.add(config.reducer_ref)
     if reducers != sorted(expected_reducers):
         raise ValueError("candidate reducer evidence does not match the graphs")
+    asyncio.run(
+        checks.validate_serialized_graphs(
+            schemas,
+            graphs,
+            validated_reducers=frozenset(expected_reducers),
+        )
+    )
 
 
 def _finalize_graph(evidence: dict[str, Any], declaration: AppDeclaration) -> None:
@@ -84,7 +90,7 @@ def _finalize_contracts(evidence: dict[str, Any]) -> None:
 
 
 def _finalize_service_config(evidence: dict[str, Any]) -> None:
-    if evidence.get("database_backend") not in {"sqlite", "postgresql"}:
+    if evidence.get("database_backend") not in {"sqlite", "postgres"}:
         raise ValueError("candidate database backend evidence is unsupported")
     config = ServiceAuthConfig.model_validate(evidence.get("auth_config"))
     if not config.api_keys:
@@ -138,17 +144,19 @@ def _finalize_policies(evidence: dict[str, Any], declaration: AppDeclaration) ->
 
 
 def _finalize_migrations(evidence: dict[str, Any], declaration: AppDeclaration) -> None:
-    if set(evidence) != {"database_sha256", "database_size", "runner"}:
+    if set(evidence) != {"backend", "object_count", "runner", "schema_sha256"}:
         raise ValueError("candidate migration evidence is malformed")
+    if evidence.get("backend") not in {"sqlite", "postgres"}:
+        raise ValueError("candidate migration backend evidence is unsupported")
     if evidence.get("runner") != declaration.targets.migration_runner:
         raise ValueError("candidate migration runner does not match the declaration")
-    if not isinstance(evidence.get("database_size"), int) or evidence["database_size"] <= 0:
-        raise ValueError("candidate migration database is empty")
+    if not isinstance(evidence.get("object_count"), int) or evidence["object_count"] <= 0:
+        raise ValueError("candidate migration schema is empty")
     if (
-        not isinstance(evidence.get("database_sha256"), str)
-        or _DIGEST.fullmatch(evidence["database_sha256"]) is None
+        not isinstance(evidence.get("schema_sha256"), str)
+        or _DIGEST.fullmatch(evidence["schema_sha256"]) is None
     ):
-        raise ValueError("candidate migration database digest is invalid")
+        raise ValueError("candidate migration schema digest is invalid")
 
 
 def _trusted_evidence(
