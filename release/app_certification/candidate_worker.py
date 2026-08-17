@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.metadata
 import json
 import re
 import sys
@@ -23,6 +24,7 @@ from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
 from .candidate_process import run_importer
+from .migration_supervisor import inspect_migration
 from .models import AppDeclaration
 
 CANDIDATE_CHECKS = frozenset(
@@ -62,12 +64,7 @@ def _trusted_graphs(raw: Any, expected: int) -> list[Graph]:
 def _validate_static_graphs(
     graphs: list[Graph], schemas: dict[str, dict[str, Any]], reducers: Any
 ) -> None:
-    expected_reducers: set[str] = set()
-    for graph in graphs:
-        for node in graph.nodes:
-            config = getattr(node, "parallel_config", None)
-            if config is not None and config.reducer_ref is not None:
-                expected_reducers.add(config.reducer_ref)
+    expected_reducers = _graph_reducers(graphs)
     if reducers != sorted(expected_reducers):
         raise ValueError("candidate reducer evidence does not match the graphs")
     asyncio.run(
@@ -77,6 +74,16 @@ def _validate_static_graphs(
             validated_reducers=frozenset(expected_reducers),
         )
     )
+
+
+def _graph_reducers(graphs: list[Graph]) -> set[str]:
+    return {
+        config.reducer_ref
+        for graph in graphs
+        for node in graph.nodes
+        if (config := getattr(node, "parallel_config", None)) is not None
+        and config.reducer_ref is not None
+    }
 
 
 def _finalize_graph(evidence: dict[str, Any], declaration: AppDeclaration) -> None:
@@ -196,8 +203,12 @@ def finalize_candidate_evidence(
         raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _importer_argv(
-    name: str, root: Path, declaration: AppDeclaration, candidate_venv: Path
+def _candidate_argv(
+    name: str,
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    *extra: str,
 ) -> list[str]:
     return [
         str(Path(sys.executable).absolute()),
@@ -212,25 +223,124 @@ def _importer_argv(
         str(root),
         "--declaration-json",
         declaration.model_dump_json(),
+        *extra,
     ]
+
+
+def _candidate_payload(argv: list[str]) -> Any:
+    returncode, raw, diagnostics = run_importer(argv)
+    if returncode:
+        detail = diagnostics.strip() or raw.strip() or "candidate operation failed"
+        raise ValueError(detail)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("candidate operation returned malformed JSON") from error
+
+
+def _run_operation(
+    operation: str,
+    reference: str,
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    *,
+    database_url: str | None = None,
+) -> None:
+    extra = ["--reference", reference]
+    if database_url is not None:
+        extra.extend(("--database-url", database_url))
+    payload = _candidate_payload(
+        _candidate_argv(operation, root, declaration, candidate_venv, *extra)
+    )
+    expected = {"operation": operation, "reference": reference, "schema_version": 1}
+    if payload != expected:
+        raise ValueError(f"candidate {operation} result is malformed")
+
+
+def _supervised_payload(
+    name: str, evidence: dict[str, Any], root: Path, declaration: AppDeclaration
+) -> dict[str, Any]:
+    return {
+        "check": name,
+        "evidence": evidence,
+        "schema_version": 1,
+        "target_sources": checks.target_source_digests(name, root, declaration),
+    }
+
+
+def _candidate_version(candidate_venv: Path) -> str:
+    site_packages = (
+        candidate_venv
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    for distribution in importlib.metadata.distributions(path=[str(site_packages)]):
+        name = distribution.metadata.get("Name", "").lower().replace("_", "-")
+        if name == "zeroth-core":
+            return distribution.version
+    raise ValueError("candidate environment has no zeroth-core distribution")
+
+
+def _supervise_optional_imports(
+    root: Path, declaration: AppDeclaration, candidate_venv: Path
+) -> dict[str, Any]:
+    targets = checks.candidate_target_references("optional-extras", declaration)
+    for reference in dict.fromkeys(targets):
+        _run_operation("import-target", reference, root, declaration, candidate_venv)
+    return _supervised_payload(
+        "optional-extras",
+        {"targets": targets, "zeroth_version": _candidate_version(candidate_venv)},
+        root,
+        declaration,
+    )
+
+
+def _supervise_reducers(
+    payload: Any, root: Path, declaration: AppDeclaration, candidate_venv: Path
+) -> None:
+    evidence = _trusted_evidence("graph", payload, declaration, root)
+    graphs = _trusted_graphs(evidence.get("graphs"), len(declaration.targets.graph_builders))
+    reducers = sorted(_graph_reducers(graphs))
+    for reference in reducers:
+        _run_operation("resolve-reducer", reference, root, declaration, candidate_venv)
+    evidence["reducers"] = reducers
+
+
+def _supervise_migration(
+    root: Path, declaration: AppDeclaration, candidate_venv: Path
+) -> dict[str, Any]:
+    def run_candidate(reference: str, database_url: str) -> None:
+        _run_operation(
+            "run-migration",
+            reference,
+            root,
+            declaration,
+            candidate_venv,
+            database_url=database_url,
+        )
+
+    return _supervised_payload(
+        "migrations", inspect_migration(declaration, run_candidate), root, declaration
+    )
 
 
 def _supervise_candidate(
     name: str, root: Path, declaration: AppDeclaration, candidate_venv: Path
 ) -> int:
-    returncode, raw, diagnostics = run_importer(
-        _importer_argv(name, root, declaration, candidate_venv)
-    )
-    if returncode:
-        detail = diagnostics.strip() or raw.strip() or "candidate importer failed"
-        print(f"{name}: trusted finalization unavailable: {detail}", file=sys.stderr)
-        return 1
     try:
-        payload = json.loads(raw)
+        if name == "migrations":
+            payload = _supervise_migration(root, declaration, candidate_venv)
+        elif name == "optional-extras":
+            payload = _supervise_optional_imports(root, declaration, candidate_venv)
+        else:
+            payload = _candidate_payload(_candidate_argv(name, root, declaration, candidate_venv))
+            if name == "graph":
+                _supervise_reducers(payload, root, declaration, candidate_venv)
         finalize_candidate_evidence(name, payload, declaration, root)
-    except Exception as error:  # noqa: BLE001 - provisional evidence is untrusted
-        detail = f"{name}: trusted finalization rejected provisional evidence: {error}"
-        print(detail, file=sys.stderr)
+    except Exception as error:  # noqa: BLE001 - candidate evidence is untrusted
+        print(f"{name}: trusted finalization failed in supervisor: {error}", file=sys.stderr)
         return 1
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0

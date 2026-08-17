@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.12] - 2026-08-17
+
+### Security
+
+- Supervise candidate imports, reducer resolution, and migration schema changes
+  from certifier-owned processes, and retain workflow reports outside the app checkout.
+
 ## [0.23.9.11] - 2026-08-17
 
 ### Security

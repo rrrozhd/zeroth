@@ -167,6 +167,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--report", type=Path, required=True)
     run.add_argument("--check-python", type=Path)
     run.add_argument("--untrusted-user")
+    run.add_argument("--evidence-root", type=Path)
     report = commands.add_parser("validate-report")
     report.add_argument("--report", type=Path, required=True)
     report.add_argument("--root", type=Path)
@@ -182,6 +183,7 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--requirements-lock", type=Path, required=True)
     evidence.add_argument("--wheel-installation", type=Path, required=True)
     evidence.add_argument("--image-config", type=Path, required=True)
+    evidence.add_argument("--output-root", type=Path, required=True)
     wheel = commands.add_parser("verify-wheel-installation")
     _add_wheel_arguments(wheel)
     _add_runtime_context_arguments(commands.add_parser("prepare-runtime-context"))
@@ -194,10 +196,8 @@ def _parser() -> argparse.ArgumentParser:
     attestation.add_argument("--signer-workflow", required=True)
     attestation.add_argument("--signer-digest", required=True)
     _add_handoff_arguments(attestation)
-    probe = commands.add_parser("probe-readiness")
-    probe.add_argument("--url", required=True)
-    finalizer = commands.add_parser("finalize-workflow")
-    finalizer.add_argument("--root", type=Path, required=True)
+    commands.add_parser("probe-readiness").add_argument("--url", required=True)
+    commands.add_parser("finalize-workflow").add_argument("--root", type=Path, required=True)
     _add_scaffold_arguments(commands.add_parser("scaffold"))
     return parser
 
@@ -216,6 +216,7 @@ def _run(args: argparse.Namespace) -> int:
         http=http,
         declaration_path=args.declaration,
         check_python=args.check_python,
+        evidence_root=args.evidence_root,
     ).run(
         expected_commit=args.app_commit,
         image_digest=args.image_digest,
@@ -243,10 +244,13 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         source_digest=args.source_digest,
     )
     bind_sbom(args.raw_sbom, candidate)
-    certification_root = args.root / ".app-certification"
+    if args.output_root.is_symlink():
+        raise ValueError("certification output root must not be a symlink")
+    certification_root = args.output_root.resolve()
     certification_root.mkdir(parents=True, exist_ok=True)
-    sbom = _destination(args.root, declaration.sbom_path)
-    provenance = _destination(args.root, declaration.provenance_path)
+    retained = certification_root / "root"
+    sbom = _destination(retained, declaration.sbom_path)
+    provenance = _destination(retained, declaration.provenance_path)
     sbom.parent.mkdir(parents=True, exist_ok=True)
     if sbom.resolve() != args.raw_sbom.resolve():
         shutil.copyfile(args.raw_sbom, sbom)
@@ -268,14 +272,6 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         build_material_digests=materials,
     )
     _retain_build_materials(certification_root, args)
-    retained = certification_root / "root"
-    for source, relative in (
-        (sbom, declaration.sbom_path),
-        (provenance, declaration.provenance_path),
-    ):
-        destination = _destination(retained, relative)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
     (certification_root / "candidate.json").write_text(
         json.dumps(candidate.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

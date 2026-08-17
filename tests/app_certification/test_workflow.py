@@ -104,15 +104,19 @@ def test_candidate_job_uses_the_app_environment_and_no_privileged_action() -> No
 
 
 def test_candidate_execution_cannot_write_certifier_or_handoff() -> None:
+    handoff = _step("handoff")["run"]
     prepare = _step("prepare")["run"]
     certify = _step("certify")["run"]
 
+    assert 'mkdir -m 700 "$HANDOFF_ROOT"' in handoff
     assert "useradd" in prepare and "app-cert-candidate" in prepare
     assert prepare.index("uv sync --directory zeroth") < prepare.index("app-cert-candidate")
     assert "sudo -H -u app-cert-candidate" in prepare
     assert 'sudo chown -R "$USER":"$USER" app/.venv' in prepare
     assert "chmod -R go-w zeroth app" in prepare
-    assert "mkdir -m 700 app/.app-certification" in prepare
+    assert "app/.app-certification" in prepare
+    assert '--report "$HANDOFF_ROOT/report.json"' in certify
+    assert '--evidence-root "$HANDOFF_ROOT/root"' in certify
     assert "zeroth/.venv/bin/python -m release.app_certification run" in certify
 
 
@@ -188,7 +192,7 @@ def test_build_context_uses_exact_committed_source_archive() -> None:
     validate = _step("validate", "verify")["run"]
 
     assert "git -C app archive" in prepare
-    assert "app/.app-certification/source.tar" in prepare
+    assert '"$HANDOFF_ROOT/source.tar"' in prepare
     assert '--tag "$CANDIDATE_IMAGE_REFERENCE" build-context' in image
     assert "--source-root build-context" in image
     assert '--tag "$IMAGE_REFERENCE" "$RUNTIME_CONTEXT"' in image
@@ -213,19 +217,24 @@ def test_every_pre_certification_failure_gets_a_canonical_report(tmp_path: Path)
     assert "finalize-workflow" in script
     assert "workflow finalizer fallback" in script
     assert "workflow stage " in script and " outcome=" in script
-    assert "--root app/.app-certification" in script
+    assert '--root "$HANDOFF_ROOT"' in script
     for name in ("prepare", "image", "containers", "health", "certify"):
         assert name.upper() in finalizer["env"]
     fallback = script.split("|| ", 1)[1]
     result = subprocess.run(
         shlex.split(fallback),
         cwd=tmp_path,
-        env={**os.environ, "APP_CHECKOUT": "success", "CERTIFIER_CHECKOUT": "failure"},
+        env={
+            **os.environ,
+            "HANDOFF_ROOT": str(tmp_path / "handoff"),
+            "APP_CHECKOUT": "success",
+            "CERTIFIER_CHECKOUT": "failure",
+        },
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    report = json.loads((tmp_path / "app/.app-certification/report.json").read_text())
+    report = json.loads((tmp_path / "handoff/report.json").read_text())
     assert all(
         "certifier_checkout outcome=failure" in check["detail"] for check in report["checks"]
     )
@@ -252,7 +261,7 @@ def test_hidden_unprivileged_handoff_is_included_in_artifact() -> None:
         step for step in _steps() if step["name"] == "Upload unprivileged certification handoff"
     )
 
-    assert upload["with"]["path"] == "app/.app-certification"
+    assert upload["with"]["path"] == "${{ env.HANDOFF_ROOT }}"
     assert upload["with"]["include-hidden-files"] is True
 
 
@@ -298,7 +307,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.11"
+    assert declaration.zeroth_version == "0.23.9.12"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -310,10 +319,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.11-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.12-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.11-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.12-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile

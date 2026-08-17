@@ -126,7 +126,7 @@ def test_runtime_identity_starts_both_candidates_through_pinned_image_command() 
         if step.get("id") == "containers"
     )
 
-    assert "--image-config app/.app-certification/image-config.json" in wheel
+    assert '--image-config "$HANDOFF_ROOT/image-config.json"' in wheel
     assert '--image-digest "$IMAGE_DIGEST"' in wheel
     assert "prepare-runtime-context" in image
     assert containers.count('"$IMAGE_ID"') == 2

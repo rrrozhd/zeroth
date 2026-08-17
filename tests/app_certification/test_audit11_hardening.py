@@ -225,6 +225,6 @@ def test_workflow_extracts_and_binds_installed_wheel_without_execution() -> None
     assert "docker create --name app-cert-wheel-inspect" in workflow
     assert "docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/." in workflow
     assert "verify-wheel-installation" in workflow
-    assert "--wheel-installation app/.app-certification/installed-wheel.json" in workflow
+    assert '--wheel-installation "$HANDOFF_ROOT/installed-wheel.json"' in workflow
     assert "--wheel-installation evidence/materials/installed-wheel.json" in workflow
     assert "docker rm app-cert-wheel-inspect" in workflow

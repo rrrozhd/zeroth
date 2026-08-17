@@ -71,6 +71,8 @@ def _failed_checks(stages: dict[str, str]) -> list[CheckResult]:
 
 def finalize_workflow(root: Path) -> int:
     stages = _workflow_stages()
+    if root.is_symlink():
+        raise ValueError("handoff root must not be a symlink")
     root.mkdir(parents=True, exist_ok=True)
     (root / "workflow-stages.json").write_text(
         json.dumps(stages, indent=2, sort_keys=True) + "\n", encoding="utf-8"

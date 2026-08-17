@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib
 import importlib.metadata
 import json
 import os
 import resource
 import signal
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -146,74 +144,6 @@ def _policy_evidence(declaration: AppDeclaration) -> dict[str, Any]:
     }
 
 
-def _migration_evidence(declaration: AppDeclaration) -> dict[str, Any]:
-    runner = _load_target(declaration.targets.migration_runner)
-    if not callable(runner):
-        raise ValueError("migration_runner target must be callable")
-    settings = get_settings()
-    backend = settings.database.backend
-    if backend == "postgres":
-        dsn = settings.database.postgres_dsn
-        if dsn is None:
-            raise ValueError("postgres migration certification requires a DSN")
-        database_url = dsn.get_secret_value()
-        before = _postgres_tables(database_url)
-        if before:
-            raise ValueError("postgres migration certification requires a fresh database")
-        runner(_postgres_migration_url(database_url))
-        objects = _postgres_tables(database_url)
-        if not objects:
-            raise ValueError("app migration did not create PostgreSQL tables")
-        schema_digest = (
-            "sha256:"
-            + hashlib.sha256(json.dumps(objects, separators=(",", ":")).encode()).hexdigest()
-        )
-    else:
-        with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
-            database = Path(directory) / "migration.sqlite"
-            runner(f"sqlite:///{database}")
-            if not database.is_file() or database.stat().st_size == 0:
-                raise ValueError("app migration did not create a non-empty SQLite database")
-            with sqlite3.connect(database) as connection:
-                objects = [
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT name FROM sqlite_master "
-                        "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-                    )
-                ]
-            if not objects:
-                raise ValueError("app migration did not create SQLite tables")
-            schema_digest = file_digest(database)
-    return {
-        "backend": backend,
-        "object_count": len(objects),
-        "runner": declaration.targets.migration_runner,
-        "schema_sha256": schema_digest,
-    }
-
-
-def _postgres_tables(database_url: str) -> list[str]:
-    import psycopg
-
-    with psycopg.connect(database_url) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT table_schema || '.' || table_name "
-            "FROM information_schema.tables "
-            "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
-            "AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name"
-        )
-        return [row[0] for row in cursor.fetchall()]
-
-
-def _postgres_migration_url(database_url: str) -> str:
-    if database_url.startswith("postgresql://"):
-        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if database_url.startswith("postgres://"):
-        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
-    raise ValueError("postgres migration DSN must use a PostgreSQL URL")
-
-
 def collect_candidate_evidence(
     name: str,
     root: Path,
@@ -235,8 +165,6 @@ def collect_candidate_evidence(
         return evidence
     if name == "policies":
         return _policy_evidence(declaration)
-    if name == "migrations":
-        return _migration_evidence(declaration)
     raise ValueError(f"no candidate semantic check named {name!r}")
 
 
@@ -368,15 +296,68 @@ def _serialize(name: str, root: Path, declaration: AppDeclaration) -> int:
     return 0
 
 
+def _operate(name: str, root: Path, reference: str, database_url: str | None) -> int:
+    """Run one target operation; the parent supervisor owns sequencing and validation."""
+    sys.path.insert(0, str(root))
+    saved_stdout, saved_stderr = os.dup(1), os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    try:
+        if name == "import-target":
+            _load_target(reference)
+        elif name == "resolve-reducer":
+            resolve_reducer_ref(reference)
+        elif name == "run-migration":
+            runner = _load_target(reference)
+            if not callable(runner):
+                raise ValueError("migration_runner target must be callable")
+            if database_url is None:
+                raise ValueError("migration operation requires a database URL")
+            runner(database_url)
+        else:
+            raise ValueError(f"unknown candidate operation {name!r}")
+    except Exception as error:  # noqa: BLE001 - candidate failures are retained by the supervisor
+        outcome: tuple[int, Any] = (1, error)
+    else:
+        outcome = (0, None)
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stdout)
+        os.close(saved_stderr)
+        os.close(devnull)
+        sys.path.pop(0)
+    if outcome[0]:
+        error = outcome[1]
+        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {"operation": name, "reference": reference, "schema_version": 1},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run only the untrusted serializer; trusted validation lives elsewhere."""
     parser = argparse.ArgumentParser(prog="python -m release.app_certification.candidate_process")
     parser.add_argument("name")
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--declaration-json", required=True)
+    parser.add_argument("--reference")
+    parser.add_argument("--database-url")
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
-    return _serialize(args.name, args.root.resolve(), declaration)
+    root = args.root.resolve()
+    if args.name in {"import-target", "resolve-reducer", "run-migration"}:
+        if args.reference is None:
+            parser.error(f"{args.name} requires --reference")
+        return _operate(args.name, root, args.reference, args.database_url)
+    return _serialize(args.name, root, declaration)
 
 
 if __name__ == "__main__":

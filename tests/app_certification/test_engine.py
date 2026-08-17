@@ -108,8 +108,17 @@ def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
         declaration = AppDeclaration.model_validate_json(
             argv[argv.index("--declaration-json") + 1]
         )
-        evidence = collect_candidate_evidence(
-            check, cwd, declaration, installed_version=declaration.zeroth_version
+        evidence = (
+            {
+                "backend": "sqlite",
+                "object_count": 1,
+                "runner": declaration.targets.migration_runner,
+                "schema_sha256": "sha256:" + "f" * 64,
+            }
+            if check == "migrations"
+            else collect_candidate_evidence(
+                check, cwd, declaration, installed_version=declaration.zeroth_version
+            )
         )
         structured = _payload(check, evidence, cwd, declaration)
     return CommandResult(returncode=0, stdout=json.dumps(structured) + "\n", stderr="")
