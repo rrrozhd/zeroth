@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10] - 2026-08-17
+
+### Added
+
+- Gate release candidates on versioned load, fairness, overload and automatic-recovery
+  profiles with candidate-bound raw evidence and accepted-run accounting.
+
 ## [0.23.9.11] - 2026-08-17
 
 ### Fixed

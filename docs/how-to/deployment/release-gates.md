@@ -29,11 +29,12 @@ being silently accepted.
 | 3 | LangGraph compatibility | The pinned LangChain/LangGraph/Agent Server matrix conforms and the governed-tool benchmark holds | nightly, release candidate |
 | 4 | Untrusted code execution | The sandbox sidecar still refuses what it must: argv handling, hardening, strict-network containment | nightly, release candidate |
 | 5 | Security regression | The reviewed tenant-isolation and hostile-execution matrix ran exactly, completed without skips, and its observable evidence contains no credential canary or GitHub token | pull request, nightly, release candidate |
-| 6 | Deployment smoke | The image starts, reports ready, serves the gateway, refuses invalid configuration, drains on shutdown, and carries an SBOM and a verified provenance attestation | release candidate |
-| 7 | Remote acceptance | The candidate installs from the published index and the published artifact runs end to end | release candidate |
-| 8 | Promotion | Every preceding gate validated, and a named human accepted the release | release candidate, manual |
+| 6 | Load and recovery | Versioned burst, sustained, soak, overload, and fault profiles preserve capacity, fairness, recovery and every accepted run | nightly, release candidate |
+| 7 | Deployment smoke | The image starts, reports ready, serves the gateway, refuses invalid configuration, drains on shutdown, and carries an SBOM and a verified provenance attestation | release candidate |
+| 8 | Remote acceptance | The candidate installs from the published index and the published artifact runs end to end | release candidate |
+| 9 | Promotion | Every preceding gate validated, and a named human accepted the release | release candidate, manual |
 
-Gates 1–6 are the **candidate** phase and gate TestPyPI. Gates 7–8 are the
+Gates 1–7 are the **candidate** phase and gate TestPyPI. Gates 8–9 are the
 **final** phase and gate PyPI.
 
 ## Responsibilities by trigger
@@ -53,7 +54,7 @@ cases belong to the complete `release-candidate` tier.
 
 ### Nightly
 
-`release-gates.yml` runs on a schedule and produces gates 1–5, so drift is
+`release-gates.yml` runs on a schedule and produces gates 1–6, so drift is
 found before a release is cut rather than during one. It validates exactly the
 gates it produces — a nightly is never blocked by evidence only a release
 candidate can generate.
@@ -70,8 +71,8 @@ Run the same set on demand from the Actions tab (**Release gates** →
 ### Release candidate
 
 Publishing a GitHub Release runs `release-zeroth-core.yml`. It builds once,
-calls the nightly workflow to gather gates 1–5 against **that** build, adds
-gates 6–8, and validates:
+calls the nightly workflow to gather gates 1–6 against **that** build, adds
+gates 7–9, and validates:
 
 - `evidence-gate` validates the candidate phase; TestPyPI publication depends
   on it.
@@ -122,6 +123,102 @@ Adding a repository-installation endpoint, checkout path, GitHub App ingress,
 or trusted materializer invalidates this absence proof. The feature must not be
 promoted until the inventory, matrix cases, tenant-isolation tests, and release
 evidence are updated to cover its real read/write/execute lifecycle.
+
+## Load and recovery profile
+
+The load gate runs only on the nightly schedule and for an explicit release
+candidate; it is intentionally absent from pull requests. The committed
+`release/load/profiles-v1.json` is the executable capacity contract:
+
+| Profile | Duration | Scheduled rate | Maximum in flight |
+|---|---:|---:|---:|
+| Burst | 15 seconds | 12 requests/second | 24 |
+| Sustained | 60 seconds | 6 requests/second | 18 |
+| Soak | 300 seconds | 3 requests/second | 12 |
+| Overload | 30 seconds | 30 requests/second | 48 |
+
+Every profile covers 3 tenants, 2 deployments per tenant, 2 replicas and at
+least 3 workers. Requests rotate across deployments configured for the
+LangGraph, slow-script, failing-script, approval, artifact and webhook
+scenarios. The companion fault observations exercise the real Redis artifact
+and persisted webhook-delivery paths; the linked LangGraph gate exercises the
+streaming routes. A surface label therefore cannot replace the native product
+behavior it names.
+
+The environment is isolated but production-representative: loopback HTTP
+servers run the real ASGI application and durable workers against PostgreSQL
+17 and Redis 7.4. It excludes external network and model-provider latency. The
+committed baseline records its operating system, architecture, CPU count,
+Python version, exact prior commit and package version; compare results only
+within that declared capacity assumption.
+
+### Candidate safe envelope
+
+A candidate is inside the safe envelope only when all of these remain true:
+
+- observed throughput is at least 80% of the pinned baseline for every profile;
+- p50, p95 and p99 latency, maximum queue depth, CPU, memory and recovery time
+  are no more than 150% of their baseline values;
+- rejection rate grows by no more than 0.10, Jain tenant fairness is at least
+  0.90, and no accepted run ID is lost or accepted twice;
+- overload refusals are only HTTP 429 or 503 and include a positive
+  `Retry-After`; cancellation and graceful drain both reach a terminal state;
+- PostgreSQL contention, Redis loss, worker loss, service restart, network
+  delay and downstream throttling each demonstrate automatic recovery without
+  manual data repair.
+
+This envelope is a release regression boundary, not a claim of universal
+production capacity. Re-measure after changing the reference runner, database,
+Redis topology or workload shape.
+
+### Baseline and fixed thresholds
+
+`release/load/baseline-v1.json` retains the raw numerical distributions behind
+the prior release's summaries. Its SHA-256 digest and the threshold literals
+are pinned in `release/load/report.py`. Runtime evaluation never derives a new
+threshold from a mutable baseline: editing the baseline fails validation.
+
+A legitimate baseline refresh is deliberate: run the full profiles at least
+three isolated times against the exact previous release, review every raw
+distribution and hardware field, then update the combined baseline, pinned
+digest and independently declared threshold derivation together. The tests
+recompute throughput, p50/p95/p99, rejection, queue, resource and recovery
+values from those distributions.
+
+### Reproducing the gate
+
+Start isolated PostgreSQL and Redis services, then provide their non-production
+URLs and an output path:
+
+```bash
+export ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@127.0.0.1:5432/zeroth
+export ZEROTH_LOAD_REDIS_URL=redis://127.0.0.1:6379/14
+export ZEROTH_LOAD_OBSERVATIONS=release/evidence/load-recovery-raw.json
+uv run pytest -q tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence
+```
+
+Bind the raw observations to the measured candidate and evaluate them:
+
+```bash
+python release/gates/cli.py identity --output release/evidence/candidate-identity.json
+uv run python release/load/harness.py run \
+  --profiles release/load/profiles-v1.json \
+  --baseline release/load/baseline-v1.json \
+  --identity release/evidence/candidate-identity.json \
+  --observations release/evidence/load-recovery-raw.json \
+  --output release/evidence/load-recovery-benchmark.json
+```
+
+The report retains the candidate identity and every raw per-request timestamp,
+lifecycle/run ID, tenant, deployment, replica, worker, surface, fault, status,
+`Retry-After`, latency, queue, CPU and memory value. This is sufficient to
+independently recompute throughput, p50/p95/p99, fairness, recovery time and
+lost/duplicate accepted IDs instead of trusting the report summaries.
+
+CI uploads `release/evidence/load-recovery*`: the raw rows, benchmark report,
+JUnit output and gate record. They are retained for at least 30 days even when
+the job fails. A missing, malformed, threshold-regressed, or differently-bound
+file blocks the candidate verdict.
 
 ## Reading a blocked verdict
 

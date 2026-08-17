@@ -28,6 +28,7 @@ REQUIRED_GATES = frozenset(
         "langgraph",
         "security-regression",
         "untrusted-code",
+        "load-recovery",
         "deployment-smoke",
         "remote-acceptance",
         "promotion",

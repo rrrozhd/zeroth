@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "profile_version": "1",
+  "profiles": {
+    "burst": {
+      "duration_seconds": 15,
+      "requests_per_second": 12,
+      "max_in_flight": 24
+    },
+    "sustained": {
+      "duration_seconds": 60,
+      "requests_per_second": 6,
+      "max_in_flight": 18
+    },
+    "soak": {
+      "duration_seconds": 300,
+      "requests_per_second": 3,
+      "max_in_flight": 12
+    },
+    "overload": {
+      "duration_seconds": 30,
+      "requests_per_second": 30,
+      "max_in_flight": 48
+    }
+  },
+  "matrix": {
+    "tenants": 3,
+    "deployments_per_tenant": 2,
+    "replicas": 2,
+    "workers": 3
+  },
+  "surfaces": [
+    "langgraph-streams",
+    "slow-script",
+    "failing-script",
+    "approvals",
+    "artifacts",
+    "webhooks"
+  ],
+  "faults": {
+    "database-contention": "bounded PostgreSQL lock contention",
+    "redis-loss": "Redis disconnect and reconnect",
+    "worker-loss": "worker withdrawal with durable claim recovery",
+    "service-restart": "serving process replacement against durable state",
+    "network-delay": "bounded transport delay",
+    "downstream-throttling": "downstream 429 with Retry-After"
+  },
+  "thresholds": {
+    "derived_from": "release/load/baseline-v1.json",
+    "rules": {
+      "throughput_ratio": {
+        "minimum": 0.8
+      },
+      "latency_p50_ratio": {
+        "maximum": 1.5
+      },
+      "latency_p95_ratio": {
+        "maximum": 1.5
+      },
+      "latency_p99_ratio": {
+        "maximum": 1.5
+      },
+      "rejection_rate_delta": {
+        "maximum": 0.1
+      },
+      "queue_depth_ratio": {
+        "maximum": 1.5
+      },
+      "tenant_fairness_minimum": {
+        "minimum": 0.9
+      },
+      "cpu_ratio": {
+        "maximum": 1.5
+      },
+      "memory_ratio": {
+        "maximum": 1.5
+      },
+      "recovery_seconds_ratio": {
+        "maximum": 1.5
+      },
+      "lost_accepted_runs": {
+        "maximum": 0
+      },
+      "duplicate_accepted_runs": {
+        "maximum": 0
+      }
+    }
+  },
+  "overload_contract": {
+    "statuses": [
+      429,
+      503
+    ],
+    "require_retry_after": true,
+    "drain": true,
+    "cancellation": true
+  },
+  "baseline": {
+    "path": "release/load/baseline-v1.json",
+    "release": "0.23.9.11"
+  }
+}
