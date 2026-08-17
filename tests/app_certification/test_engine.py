@@ -21,7 +21,7 @@ from release.app_certification import (
 )
 from release.app_certification.checks import run_owned_check
 from release.app_certification import checks as owned_checks
-from release.app_certification.candidate_process import _payload, collect_candidate_evidence
+from release.app_certification.checks import target_source_digests
 from release.app_certification.cli import _untrusted_executor
 
 COMMIT = "a" * 40
@@ -29,6 +29,7 @@ DIGEST = "sha256:" + "b" * 64
 SOURCE_DIGEST = "sha256:" + "c" * 64
 ZEROTH_COMMIT = "d" * 40
 ZEROTH_MATERIAL_DIGEST = "sha256:" + "e" * 64
+ROOT = Path(__file__).parents[2]
 
 
 def provenance_kwargs(candidate: CandidateIdentity, sbom_digest: str) -> dict:
@@ -54,6 +55,7 @@ def declaration_data() -> dict:
         "image_reference": "reference-app:certification",
         "sbom_path": "evidence/app.spdx.json",
         "provenance_path": "evidence/provenance.json",
+        "semantic_path": "apps/vendor_dd/certification.semantic.json",
         "targets": {
             "graph_builders": ["apps.vendor_dd.graphs:build_main_graph"],
             "contracts": "apps.vendor_dd.contracts:CONTRACTS",
@@ -70,6 +72,50 @@ def declaration_data() -> dict:
             "expected_json": {"status": "accepted", "result": {"case": "fixed"}},
         },
     }
+
+
+def write_semantic_inputs(
+    root: Path, data: dict, *, updates: dict | None = None
+) -> AppDeclaration:
+    """Write a static certification contract bound to the test checkout sources."""
+    declaration = AppDeclaration.model_validate(data)
+    (root / "certification.json").write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    manifest = json.loads(
+        (ROOT / "apps/vendor_dd/certification.semantic.json").read_text(encoding="utf-8")
+    )
+    manifest["graphs"] = manifest["graphs"][: len(declaration.targets.graph_builders)]
+    manifest["zeroth_version"] = declaration.zeroth_version
+    references = {
+        *declaration.targets.graph_builders,
+        declaration.targets.contracts,
+        declaration.targets.auth_config,
+        declaration.targets.policy_guard,
+        declaration.targets.migration_runner,
+    }
+    sources: dict[str, str] = {}
+    for reference in references:
+        module = Path(*reference.partition(":")[0].split("."))
+        source = next(
+            (
+                path
+                for path in (root / module.with_suffix(".py"), root / module / "__init__.py")
+                if path.is_file()
+            ),
+            None,
+        )
+        if source is not None:
+            sources[reference] = file_digest(source)
+    manifest["target_sources"] = sources
+    if updates:
+        manifest.update(updates)
+    semantic = root / declaration.semantic_path
+    semantic.parent.mkdir(parents=True, exist_ok=True)
+    semantic.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return declaration
 
 
 def write_inputs(root: Path) -> None:
@@ -108,19 +154,17 @@ def passing_executor(argv: list[str], cwd: Path) -> CommandResult:
         declaration = AppDeclaration.model_validate_json(
             argv[argv.index("--declaration-json") + 1]
         )
-        evidence = (
-            {
+        structured = {
+            "check": check,
+            "evidence": {
                 "backend": "sqlite",
                 "object_count": 1,
                 "runner": declaration.targets.migration_runner,
                 "schema_sha256": "sha256:" + "f" * 64,
-            }
-            if check == "migrations"
-            else collect_candidate_evidence(
-                check, cwd, declaration, installed_version=declaration.zeroth_version
-            )
-        )
-        structured = _payload(check, evidence, cwd, declaration)
+            },
+            "schema_version": 1,
+            "target_sources": target_source_digests(check, cwd, declaration),
+        }
     return CommandResult(returncode=0, stdout=json.dumps(structured) + "\n", stderr="")
 
 
@@ -204,57 +248,60 @@ def test_failure_injection_rejects_each_mandatory_check(tmp_path: Path, failed_c
 
 
 @pytest.mark.parametrize(
-    ("name", "field", "target", "diagnostic"),
+    ("name", "updates", "diagnostic"),
     [
         (
             "graph",
-            "graph_builders",
-            ["tests.app_certification.semantic_fixtures:invalid_graph"],
+            {
+                "contracts": {
+                    "contract://unrelated": {
+                        "properties": {},
+                        "type": "object",
+                    }
+                }
+            },
             "contract",
         ),
         (
             "contracts",
-            "contracts",
-            "tests.app_certification.semantic_fixtures:INVALID_CONTRACTS",
-            "Pydantic",
+            {"contracts": {"contract://invalid": {"type": 3}}},
+            "schema",
         ),
         (
             "service-config",
-            "auth_config",
-            "tests.app_certification.semantic_fixtures:invalid_auth_config",
-            "ServiceAuthConfig",
+            {
+                "service_config": {
+                    "auth_config": {"api_keys": "invalid"},
+                    "database_backend": "sqlite",
+                }
+            },
+            "validation",
         ),
         (
             "policies",
-            "policy_guard",
-            "tests.app_certification.semantic_fixtures:empty_policy_guard",
+            {"capabilities": {}, "policies": {}},
             "policy",
         ),
     ],
 )
 def test_failure_injection_rejects_invalid_semantic_objects(
-    tmp_path: Path, name: str, field: str, target, diagnostic: str
+    tmp_path: Path, name: str, updates: dict, diagnostic: str
 ) -> None:
+    shutil.copytree(ROOT / "apps/vendor_dd", tmp_path / "apps/vendor_dd")
     data = declaration_data()
-    data["targets"][field] = target
-    declaration = AppDeclaration.model_validate(data)
+    declaration = write_semantic_inputs(tmp_path, data, updates=updates)
 
     with pytest.raises(ValueError, match=diagnostic):
         run_owned_check(name, tmp_path, declaration)
 
 
-def test_failure_injection_rejects_incompatible_installed_extra(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    declaration = AppDeclaration.model_validate(declaration_data())
-    app_venv = tmp_path / ".venv"
-    app_venv.mkdir()
-    metadata = tmp_path / "zeroth_core-0.0.0.dist-info/METADATA"
-    metadata.parent.mkdir()
-    metadata.write_text("Metadata-Version: 2.1\nName: zeroth-core\nVersion: 0.0.0\n")
-    monkeypatch.setattr(owned_checks.sys, "prefix", str(app_venv))
+def test_failure_injection_rejects_incompatible_semantic_version(tmp_path: Path) -> None:
+    shutil.copytree(ROOT / "apps/vendor_dd", tmp_path / "apps/vendor_dd")
+    declaration = write_semantic_inputs(
+        tmp_path, declaration_data(), updates={"zeroth_version": "0.0.0"}
+    )
 
-    with pytest.raises(ValueError, match="installed Zeroth '0.0.0' does not match"):
+    with pytest.raises(ValueError, match="Zeroth version"):
         run_owned_check("optional-extras", tmp_path, declaration)
 
 

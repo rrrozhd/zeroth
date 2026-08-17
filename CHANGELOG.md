@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.14] - 2026-08-17
+
+### Security
+
+- Replace candidate-authored semantic results with a committed, source-bound
+  static certification contract; keep only migration effects as dynamic input.
+- Sweep the dedicated candidate user after migration checks, contain candidate
+  builds in a bounded disposable BuildKit scope, include Regulus in the runtime
+  lock, and authenticate retained cleanup and workflow-stage evidence.
+
 ## [0.23.9.13] - 2026-08-17
 
 ### Security

@@ -116,6 +116,7 @@ def _declaration(app_name: str, module: str, version: str) -> dict:
         "image_reference": f"{app_name}:certification",
         "sbom_path": f"evidence/{app_name}.spdx.json",
         "provenance_path": f"evidence/{app_name}.provenance.json",
+        "semantic_path": "certification.semantic.json",
         "targets": {
             "graph_builders": [f"{module}.graphs:build_graph"],
             "contracts": f"{module}.contracts:CONTRACTS",
@@ -152,6 +153,22 @@ def scaffold_checkout(
     files = {
         root / "certification.json": json.dumps(
             declaration.model_dump(mode="json"), indent=2, sort_keys=True
+        )
+        + "\n",
+        root / "certification.semantic.json": json.dumps(
+            {
+                "capabilities": {},
+                "contracts": {},
+                "graphs": [],
+                "policies": {},
+                "reducers": [],
+                "schema_version": 1,
+                "service_config": {},
+                "target_sources": {},
+                "zeroth_version": zeroth_version,
+            },
+            indent=2,
+            sort_keys=True,
         )
         + "\n",
         root / "Dockerfile.certification": _dockerfile(module, zeroth_version),

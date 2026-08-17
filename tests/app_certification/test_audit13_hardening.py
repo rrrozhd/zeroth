@@ -13,10 +13,10 @@ import yaml
 from psycopg import sql
 
 from release.app_certification import AppDeclaration, CertificationRunner
-from release.app_certification.candidate_worker import _finalize_service_config
+from release.app_certification.checks import validate_serialized_service_config
 from release.app_certification.cli import _parser, _untrusted_executor
 from release.app_certification.runner import CommandResult
-from tests.app_certification.test_engine import declaration_data
+from tests.app_certification.test_engine import declaration_data, write_semantic_inputs
 from tests.conftest import requires_docker
 
 
@@ -37,6 +37,12 @@ def _handoff_arguments() -> list[str]:
         "report.json",
         "--root",
         "root",
+        "--workflow-evidence",
+        "workflow-evidence.json",
+        "--workflow-stages",
+        "workflow-stages.json",
+        "--cleanup",
+        "cleanup.json",
         "--image-archive",
         "image.tar",
         "--source-archive",
@@ -46,7 +52,7 @@ def _handoff_arguments() -> list[str]:
         "--app-commit",
         "a" * 40,
         "--zeroth-version",
-        "0.23.9.13",
+        "0.23.9.14",
         "--zeroth-commit",
         "b" * 40,
         "--certifier-wheel",
@@ -138,7 +144,7 @@ def _replaced_runtime_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Pa
     from release.app_certification import wheel_installation
 
     source = tmp_path / "source"
-    wheel = tmp_path / "zeroth_core-0.23.9.13-py3-none-any.whl"
+    wheel = tmp_path / "zeroth_core-0.23.9.14-py3-none-any.whl"
     requirements = tmp_path / "requirements-image.txt"
     candidate_root = tmp_path / "candidate-root"
     source.mkdir()
@@ -194,10 +200,10 @@ def test_replaced_candidate_runtime_is_excluded_from_certifier_context(tmp_path:
     dockerfile = (context / "Dockerfile.certification-runtime").read_text(encoding="utf-8")
     assert dockerfile.startswith(f"FROM {trusted_image}\n")
     assert (
-        "COPY zeroth_core-0.23.9.13-py3-none-any.whl "
-        "/opt/zeroth/zeroth_core-0.23.9.13-py3-none-any.whl"
+        "COPY zeroth_core-0.23.9.14-py3-none-any.whl "
+        "/opt/zeroth/zeroth_core-0.23.9.14-py3-none-any.whl"
     ) in dockerfile
-    assert "/opt/zeroth/zeroth_core-0.23.9.13-py3-none-any.whl" in dockerfile
+    assert "/opt/zeroth/zeroth_core-0.23.9.14-py3-none-any.whl" in dockerfile
     assert "COPY requirements-image.txt /tmp/requirements-image.txt" in dockerfile
     assert "COPY app/ /opt/app/" in dockerfile
     assert "LD_PRELOAD" not in dockerfile
@@ -238,7 +244,7 @@ def _fresh_postgres_dsn(postgres_container) -> str:
 def test_service_finalizer_accepts_canonical_postgres_backend() -> None:
     from apps.vendor_dd.entrypoint import build_auth_config
 
-    _finalize_service_config(
+    validate_serialized_service_config(
         {
             "auth_config": build_auth_config().model_dump(mode="json"),
             "database_backend": "postgres",
@@ -351,14 +357,13 @@ def build_graph():
     data = declaration_data()
     data["targets"]["graph_builders"] = ["candidate:build_graph"]
     data["targets"]["contracts"] = "candidate:CONTRACTS"
-    return CertificationRunner(
-        tmp_path,
-        AppDeclaration.model_validate(data),
-        check_python=Path(sys.executable),
-    )._command("graph")
+    declaration = write_semantic_inputs(tmp_path, data, updates={"reducers": [reducer_ref]})
+    return CertificationRunner(tmp_path, declaration, check_python=Path(sys.executable))._command(
+        "graph"
+    )
 
 
-def test_app_local_callable_reducer_passes_contained_candidate_validation(
+def test_app_local_callable_reducer_is_outside_static_certification_contract(
     tmp_path: Path,
 ) -> None:
     result = _custom_reducer_result(
@@ -367,7 +372,8 @@ def test_app_local_callable_reducer_passes_contained_candidate_validation(
         "candidate.merge_values",
     )
 
-    assert result.status == "passed", result.detail
+    assert result.status == "failed"
+    assert "outside the static certification contract" in result.detail
 
 
 @pytest.mark.parametrize(

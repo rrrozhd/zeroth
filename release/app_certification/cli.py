@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -23,6 +24,7 @@ from .http_process import probe_readiness as _probe_readiness
 from .http_process import run_http_exchange
 from .models import (
     CandidateIdentity,
+    CertificationReport,
     SmokeSpec,
     file_digest,
     identity_digest,
@@ -43,7 +45,13 @@ from .wheel_installation import (
     prepare_runtime_context,
     verify_wheel_installation,
 )
-from .workflow_finalizer import finalize_workflow as _finalize_workflow
+from .workflow_finalizer import (
+    finalize_workflow as _finalize_workflow,
+)
+from .workflow_finalizer import (
+    validate_workflow_evidence,
+    write_workflow_evidence,
+)
 
 _HTTP_TIMEOUT_SECONDS = 30.0
 
@@ -115,6 +123,9 @@ def resolve_smoke_headers(
 def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--report", type=Path, required=True)
     command.add_argument("--root", type=Path, required=True)
+    command.add_argument("--workflow-evidence", type=Path, required=True)
+    command.add_argument("--workflow-stages", type=Path, required=True)
+    command.add_argument("--cleanup", type=Path, required=True)
     command.add_argument("--image-archive", type=Path, required=True)
     command.add_argument("--source-archive", type=Path, required=True)
     command.add_argument("--app-repository", type=Path, required=True)
@@ -304,17 +315,34 @@ def _handoff_material_digests(
     )
 
 
-def _validate_handoff(args: argparse.Namespace) -> int:
-    report = validate_report(args.report, root=args.root)
+def _validated_handoff_candidate(
+    args: argparse.Namespace, report: CertificationReport
+) -> CandidateIdentity:
     candidate = report.candidate
     if report.status != "passed" or candidate is None or report.evidence is None:
         raise ValueError("handoff requires a passing candidate-bound report")
     if candidate.app_commit != args.app_commit:
         raise ValueError("handoff app commit does not match the workflow candidate")
+    repository_head = subprocess.run(
+        ["git", "-C", str(args.app_repository), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if repository_head.returncode or repository_head.stdout.strip() != args.app_commit:
+        raise ValueError("handoff verifier checkout is not at the exact candidate HEAD")
     if candidate.zeroth_version != args.zeroth_version:
         raise ValueError("handoff Zeroth version does not match the trusted certifier")
     if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
         raise ValueError("trusted certifier commit must be a full commit SHA")
+    return candidate
+
+
+def _validated_handoff_materials(
+    args: argparse.Namespace,
+    report: CertificationReport,
+    candidate: CandidateIdentity,
+) -> tuple[dict[str, str], str]:
     sbom = _destination(args.root, report.evidence.sbom.path)
     provenance = _destination(args.root, report.evidence.provenance.path)
     materials = _handoff_material_digests(args, candidate, sbom)
@@ -330,6 +358,19 @@ def _validate_handoff(args: argparse.Namespace) -> int:
     app_tree = validate_source_archive(
         args.source_archive, candidate, repository=args.app_repository
     )
+    return materials, app_tree
+
+
+def _validate_handoff(args: argparse.Namespace) -> int:
+    workflow_evidence = validate_workflow_evidence(
+        args.workflow_evidence,
+        cleanup=args.cleanup,
+        report=args.report,
+        workflow_stages=args.workflow_stages,
+    )
+    report = validate_report(args.report, root=args.root)
+    candidate = _validated_handoff_candidate(args, report)
+    _materials, app_tree = _validated_handoff_materials(args, report, candidate)
     verdict = {
         "schema_version": 1,
         "app_commit": candidate.app_commit,
@@ -340,7 +381,10 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         "image_digest": candidate.image_digest,
         "source_digest": candidate.source_digest,
         "candidate_identity_digest": identity_digest(candidate),
+        "cleanup_sha256": workflow_evidence["cleanup_sha256"],
         "report_sha256": file_digest(args.report),
+        "workflow_evidence_sha256": file_digest(args.workflow_evidence),
+        "workflow_stages_sha256": workflow_evidence["workflow_stages_sha256"],
         "image_archive_sha256": file_digest(args.image_archive),
         "provenance_path": report.evidence.provenance.path,
     }
@@ -405,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-handoff":
             return _validate_handoff(args)
         if args.command == "finalize-attestation":
+            _validate_handoff(args)
             finalize_attestation(
                 args.bundle,
                 args.report,
@@ -413,6 +458,12 @@ def main(argv: list[str] | None = None) -> int:
                 signer_repo=args.signer_repo,
                 signer_workflow=args.signer_workflow,
                 signer_digest=args.signer_digest,
+            )
+            write_workflow_evidence(
+                args.workflow_evidence,
+                cleanup=args.cleanup,
+                report=args.report,
+                workflow_stages=args.workflow_stages,
             )
             return _validate_handoff(args)
         if args.command == "probe-readiness":

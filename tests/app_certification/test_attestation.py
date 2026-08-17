@@ -21,6 +21,7 @@ from release.app_certification.wheel_installation import (
     TRUSTED_RUNTIME_IMAGE,
     _runtime_configuration,
 )
+from release.app_certification.workflow_finalizer import write_workflow_evidence
 from tests.app_certification.test_hardening import _write_archive, identity
 
 
@@ -171,13 +172,56 @@ def _candidate_evidence(
         },
     )
     write_report(CertificationReport.passed(candidate, sbom, provenance, root=root), report)
+    _write_workflow_inputs(tmp_path, report)
+    bundle = _write_bundle(tmp_path, provenance)
+    return root, report, verdict, bundle, wheel, requirements, installation, image_config
+
+
+def _write_workflow_inputs(tmp_path: Path, report: Path) -> None:
+    cleanup = tmp_path / "cleanup.json"
+    stages = tmp_path / "workflow-stages.json"
+    cleanup.write_text(
+        json.dumps({"schema_version": 1, "status": "passed", "resources": []}) + "\n",
+        encoding="utf-8",
+    )
+    stages.write_text(
+        json.dumps(
+            {
+                name: "success"
+                for name in (
+                    "app_checkout",
+                    "certifier_checkout",
+                    "prepare",
+                    "image",
+                    "wheel",
+                    "sbom",
+                    "evidence",
+                    "containers",
+                    "health",
+                    "certify",
+                    "cleanup",
+                )
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_workflow_evidence(
+        tmp_path / "workflow-evidence.json",
+        cleanup=cleanup,
+        report=report,
+        workflow_stages=stages,
+    )
+
+
+def _write_bundle(tmp_path: Path, provenance: Path) -> Path:
     bundle = tmp_path / "bundle.json"
     bundle.write_text(
         json.dumps(
             {"dsseEnvelope": {"payload": base64.b64encode(provenance.read_bytes()).decode()}}
         )
     )
-    return root, report, verdict, bundle, wheel, requirements, installation, image_config
+    return bundle
 
 
 def _handoff_args(
@@ -199,6 +243,12 @@ def _handoff_args(
         str(report),
         "--root",
         str(root),
+        "--workflow-evidence",
+        str(report.parent / "workflow-evidence.json"),
+        "--workflow-stages",
+        str(report.parent / "workflow-stages.json"),
+        "--cleanup",
+        str(report.parent / "cleanup.json"),
         "--image-archive",
         str(image),
         "--source-archive",

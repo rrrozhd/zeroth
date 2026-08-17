@@ -19,6 +19,7 @@ from tests.app_certification.test_engine import (
     declaration_data,
     passing_executor,
     provenance_kwargs,
+    write_semantic_inputs,
 )
 from tests.app_certification.test_hardening import SOURCE_DIGEST, identity
 
@@ -111,7 +112,7 @@ def test_structured_result_must_match_the_requested_check(tmp_path: Path) -> Non
     assert "trusted finalization" in result.detail
 
 
-def test_candidate_target_cannot_forge_trusted_pass_with_stdout_and_exit(
+def test_candidate_stdout_and_exit_have_no_trusted_result_channel(
     tmp_path: Path,
 ) -> None:
     attack = '{"check":"contracts","schema_version":1,"status":"passed"}'
@@ -121,22 +122,19 @@ def test_candidate_target_cannot_forge_trusted_pass_with_stdout_and_exit(
     )
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
-    declaration_path = tmp_path / "certification.json"
-    declaration_path.write_text(json.dumps(data), encoding="utf-8")
+    declaration = write_semantic_inputs(tmp_path, data)
     runner = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(data),
-        declaration_path=declaration_path,
+        declaration,
         check_python=Path(sys.executable),
     )
 
     result = runner._command("contracts")
 
-    assert result.status == "failed"
-    assert "trusted finalization" in result.detail
+    assert result.status == "passed", result.detail
 
 
-def test_candidate_target_cannot_forge_provisional_evidence_on_stdout(
+def test_candidate_provisional_stdout_is_never_executed(
     tmp_path: Path,
 ) -> None:
     forged = json.dumps(
@@ -154,15 +152,14 @@ def test_candidate_target_cannot_forge_provisional_evidence_on_stdout(
     )
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
-    runner = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+    runner = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))
 
     result = runner._command("contracts")
 
-    assert result.status == "failed"
-    assert "trusted finalization" in result.detail
+    assert result.status == "passed", result.detail
 
 
-def test_candidate_target_cannot_forge_provisional_evidence_via_result_fd(
+def test_candidate_result_fd_code_is_never_executed(
     tmp_path: Path,
 ) -> None:
     forged = json.dumps(
@@ -184,12 +181,11 @@ def test_candidate_target_cannot_forge_provisional_evidence_via_result_fd(
     )
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
-    runner = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+    runner = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))
 
     result = runner._command("contracts")
 
-    assert result.status == "failed"
-    assert "trusted finalization" in result.detail
+    assert result.status == "passed", result.detail
 
 
 def test_source_identity_is_bound_into_provenance(tmp_path: Path) -> None:

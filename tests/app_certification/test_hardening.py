@@ -355,6 +355,8 @@ def test_scaffold_emits_valid_executable_assets(tmp_path: Path) -> None:
     assert declaration.app_name == "sample"
     assert (tmp_path / ".github/workflows/app-certification.yml").is_file()
     assert (tmp_path / "Dockerfile.certification").is_file()
+    assert (tmp_path / "certification.semantic.json").is_file()
+    assert declaration.semantic_path == "certification.semantic.json"
     assert (tmp_path / "sample_app/certification_healthcheck.py").is_file()
     assert "checks" not in json.loads((tmp_path / "certification.json").read_text())
 

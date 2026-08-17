@@ -27,6 +27,7 @@ from tests.app_certification.test_engine import (
     declaration_data,
     passing_http,
     run_certification,
+    write_semantic_inputs,
     write_inputs,
 )
 
@@ -40,13 +41,17 @@ def _data() -> dict:
     return data
 
 
-def _candidate_result(tmp_path: Path, source: str, check: str) -> CheckResult:
+def _candidate_result(
+    tmp_path: Path, source: str, check: str, *, semantic_updates: dict
+) -> CheckResult:
     (tmp_path / "candidate.py").write_text(source, encoding="utf-8")
     data = _data()
     data["targets"]["contracts"] = "candidate:CONTRACTS"
     if check == "graph":
         data["targets"]["graph_builders"] = ["candidate:build_graph"]
-    return CertificationRunner(tmp_path, AppDeclaration.model_validate(data))._command(check)
+    return CertificationRunner(
+        tmp_path, write_semantic_inputs(tmp_path, data, updates=semantic_updates)
+    )._command(check)
 
 
 def test_candidate_route_rejects_non_runtime_graph(tmp_path: Path) -> None:
@@ -61,7 +66,9 @@ class PretendGraph:
     def model_dump(self, *args, **kwargs): return REAL.model_dump(*args, **kwargs)
 def build_graph(): return PretendGraph()
 """
-    result = _candidate_result(tmp_path, source, "graph")
+    result = _candidate_result(
+        tmp_path, source, "graph", semantic_updates={"graphs": [{"not": "a graph"}]}
+    )
     assert result.status == "failed" and "Graph" in result.detail
 
 
@@ -72,8 +79,13 @@ class PretendContract:
     def model_json_schema(cls): return {'type': 'object', 'properties': {}}
 CONTRACTS = {'contract://payload': PretendContract}
 """
-    result = _candidate_result(tmp_path, source, "contracts")
-    assert result.status == "failed" and "Pydantic" in result.detail
+    result = _candidate_result(
+        tmp_path,
+        source,
+        "contracts",
+        semantic_updates={"contracts": {"contract://payload": {"type": 3}}},
+    )
+    assert result.status == "failed" and "schema" in result.detail.lower()
 
 
 def test_candidate_route_runs_full_graph_validator_for_custom_reducer(tmp_path: Path) -> None:
@@ -87,7 +99,12 @@ def build_graph():
     node = AgentNode(node_id='start', graph_version_ref='app@1', input_contract_ref='contract://payload', output_contract_ref='contract://payload', agent=AgentNodeData(instruction='go', model_provider='test'), parallel_config=ParallelConfig(split_path='items', merge_strategy='custom', reducer_ref='candidate.no_such_reducer'))
     return Graph(graph_id='app', name='App', entry_step='start', nodes=[node], edges=[])
 """
-    result = _candidate_result(tmp_path, source, "graph")
+    result = _candidate_result(
+        tmp_path,
+        source,
+        "graph",
+        semantic_updates={"reducers": ["candidate.no_such_reducer"]},
+    )
     assert result.status == "failed" and "reducer" in result.detail.lower()
 
 
@@ -235,7 +252,7 @@ def test_failure_matrix_covers_all_non_host_checks(tmp_path: Path, name: str) ->
 
 @pytest.mark.parametrize(
     ("name", "candidate_route"),
-    [("graph", True), ("contracts", True), ("migrations", True), ("frontend-api", False)],
+    [("graph", False), ("contracts", False), ("migrations", True), ("frontend-api", False)],
 )
 def test_semantic_negative_paths_use_production_command_route(
     tmp_path: Path, name: str, candidate_route: bool

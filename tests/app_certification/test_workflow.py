@@ -149,9 +149,10 @@ def test_container_checks_are_trusted_while_candidate_imports_stay_unprivileged(
 
     assert runner._command("container-startup").status == "passed"
     assert runner._command("health").status == "passed"
-    assert runner._command("contracts").status == "failed"
-    assert trusted_calls == ["container-startup", "health"]
-    assert candidate_calls == ["contracts"]
+    assert runner._command("contracts").status == "passed"
+    assert runner._command("migrations").status == "failed"
+    assert trusted_calls == ["container-startup", "health", "contracts"]
+    assert candidate_calls == ["migrations"]
     prepare = _step("prepare")["run"]
     useradd = next(line for line in prepare.splitlines() if "useradd" in line)
     assert "docker" not in useradd
@@ -174,7 +175,8 @@ def test_candidate_job_builds_two_measured_ready_boundaries() -> None:
     containers = _step("containers")["run"]
     health = _step("health")["run"]
 
-    assert image.count("docker build") == 2
+    assert image.count("docker build") == 1
+    assert "run-build-sandbox" in image
     assert "CANDIDATE_IMAGE_REFERENCE" in image
     assert "prepare-runtime-context" in image
     assert "docker image inspect" in image and "docker save" in image
@@ -195,7 +197,8 @@ def test_build_context_uses_exact_committed_source_archive() -> None:
 
     assert "git -C app archive" in prepare
     assert '"$HANDOFF_ROOT/source.tar"' in prepare
-    assert '--tag "$CANDIDATE_IMAGE_REFERENCE" build-context' in image
+    assert '--context build-context' in image
+    assert '--tag "$CANDIDATE_IMAGE_REFERENCE"' in image
     assert "--source-root build-context" in image
     assert '--tag "$IMAGE_REFERENCE" "$RUNTIME_CONTEXT"' in image
     assert '--source-digest "$SOURCE_DIGEST"' in evidence
@@ -257,6 +260,7 @@ def test_fresh_unprivileged_verifier_authenticates_handoff() -> None:
     assert app_checkout["with"]["ref"] == "${{ github.sha }}"
     assert "validate-handoff" in validate and "--image-archive evidence/image.tar" in validate
     assert "--app-repository app" in validate
+    assert 'git -C app rev-parse HEAD' in validate
     assert "--verdict evidence/verdict.json" in validate
     assert "$GITHUB_OUTPUT" in validate
     assert "npm ci" not in "\n".join(step.get("run", "") for step in steps)
@@ -321,7 +325,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.13"
+    assert declaration.zeroth_version == "0.23.9.14"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -333,10 +337,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.13-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.14-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.13-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.14-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile

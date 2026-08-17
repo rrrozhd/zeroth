@@ -1,12 +1,13 @@
 {
   "schema_version": 2,
   "app_name": "vendor-dd",
-  "zeroth_version": "0.23.9.13",
+  "zeroth_version": "0.23.9.14",
   "lock_path": "uv.lock",
   "dockerfile": "apps/vendor_dd/Dockerfile.certification",
   "image_reference": "vendor-dd:certification",
   "sbom_path": "evidence/vendor-dd.spdx.json",
   "provenance_path": "evidence/vendor-dd.provenance.json",
+  "semantic_path": "apps/vendor_dd/certification.semantic.json",
   "targets": {
     "graph_builders": [
       "apps.vendor_dd.graphs:build_main_graph",
