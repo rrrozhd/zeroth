@@ -160,8 +160,10 @@ A candidate is inside the safe envelope only when all of these remain true:
 - observed throughput is at least 80% of the pinned baseline for every profile;
 - p50, p95 and p99 latency, maximum queue depth, CPU, memory and recovery time
   are no more than 150% of their baseline values;
-- rejection rate grows by no more than 0.10, Jain tenant fairness is at least
-  0.90, and no accepted run ID is lost or accepted twice;
+- rejection rate grows by no more than 0.10; tenant and deployment Jain
+  fairness remain at least 0.90, while replica and worker fairness remain at
+  least 80% of the pinned baseline; no accepted run ID is lost or accepted
+  twice;
 - overload refusals are only HTTP 429 or 503 and include a positive
   `Retry-After`; cancellation and graceful drain both reach a terminal state;
 - PostgreSQL contention, Redis loss, worker loss, service restart, network
@@ -190,26 +192,51 @@ values from the retained distributions.
 
 ### Reproducing the gate
 
-Start isolated PostgreSQL and Redis services, then provide their non-production
-URLs and an output path:
+Build the artifacts used by the candidate identity, then run the same pinned
+ARM capacity envelope used by the workflow. The service images and the Python
+runtime are immutable inputs; replace `load-gate` only with another isolated
+network name:
 
 ```bash
-export ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@127.0.0.1:5432/zeroth
-export ZEROTH_LOAD_REDIS_URL=redis://127.0.0.1:6379/14
-export ZEROTH_LOAD_OBSERVATIONS=release/evidence/load-recovery-raw.json
-uv run pytest -q tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence
+RUNTIME='python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2'
+POSTGRES='postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
+REDIS='redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2'
+docker network create load-gate
+docker run -d --rm --name load-gate-postgres --network load-gate \
+  -e POSTGRES_USER=zeroth -e POSTGRES_PASSWORD=zeroth -e POSTGRES_DB=zeroth "$POSTGRES"
+docker run -d --rm --name load-gate-redis --network load-gate "$REDIS"
+uv build
+WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+SDIST=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
+uv run python release/gates/cli.py identity \
+  --artifact "zeroth-core-wheel=$WHEEL" \
+  --artifact "zeroth-core-sdist=$SDIST" \
+  --compatibility release/langgraph/compatibility.json \
+  --output release/evidence/candidate-identity.json
+docker run --rm --network load-gate --cpus 2 --memory 8g -v "$PWD:/work" -w /work \
+  -e ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@load-gate-postgres:5432/zeroth \
+  -e ZEROTH_LOAD_REDIS_URL=redis://load-gate-redis:6379/14 \
+  -e ZEROTH_TEST_REDIS_URL=redis://load-gate-redis:6379/15 \
+  -e ZEROTH_LOAD_OBSERVATIONS=release/evidence/load-recovery-raw.json \
+  -e ZEROTH_LOAD_RUNTIME_IMAGE="$RUNTIME" \
+  -e ZEROTH_LOAD_POSTGRES_VERSION="$POSTGRES" \
+  -e ZEROTH_LOAD_REDIS_VERSION="$REDIS" \
+  "$RUNTIME" sh -c 'python -m pip install uv==0.11.6 && \
+  uv sync --frozen --all-groups --all-extras && uv run pytest -q \
+  tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence'
 ```
 
 Bind the raw observations to the measured candidate and evaluate them:
 
 ```bash
-python release/gates/cli.py identity --output release/evidence/candidate-identity.json
 uv run python release/load/harness.py run \
   --profiles release/load/profiles-v1.json \
   --baseline release/load/baseline-v1.json \
   --identity release/evidence/candidate-identity.json \
   --observations release/evidence/load-recovery-raw.json \
   --output release/evidence/load-recovery-benchmark.json
+docker rm -f load-gate-postgres load-gate-redis
+docker network rm load-gate
 ```
 
 The report retains the candidate identity and every raw per-request timestamp,

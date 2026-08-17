@@ -27,12 +27,14 @@ def fault_row(
     status: int,
     retry_after: int | None,
     service: Any | None = None,
+    request_id: str | None = None,
+    recovered: bool = True,
 ) -> dict:
     elapsed = elapsed_ms(started)
     deployment = None if service is None else service.deployment
     worker = None if service is None else service.worker
     return {
-        "request_id": f"fault-{fault}",
+        "request_id": request_id or f"fault-{fault}",
         "profile": "overload",
         "tenant_id": "tenant-1" if deployment is None else deployment.tenant_id,
         "deployment_ref": (
@@ -52,7 +54,11 @@ def fault_row(
         "memory_bytes": memory_bytes(),
         "lifecycle": [
             *states,
-            {"state": "recovered", "at_ms": elapsed_ms(started), "repair": "automatic"},
+            *(
+                ({"state": "recovered", "at_ms": elapsed_ms(started), "repair": "automatic"},)
+                if recovered
+                else ()
+            ),
         ],
     }
 

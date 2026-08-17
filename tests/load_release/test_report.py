@@ -19,7 +19,7 @@ def _identity() -> dict:
     return {
         "schema_version": 1,
         "commit": "a" * 40,
-        "package": {"version": "0.23.10.1", "artifacts": {"wheel": "sha256:" + "a" * 64}},
+        "package": {"version": "0.23.10.2", "artifacts": {"wheel": "sha256:" + "a" * 64}},
     }
 
 
@@ -166,6 +166,9 @@ def test_raw_rows_are_sufficient_to_recompute_every_release_metric() -> None:
             "rejection_rate",
             "queue_depth_max",
             "tenant_fairness",
+            "deployment_fairness",
+            "replica_fairness",
+            "worker_fairness",
             "cpu_percent_max",
             "memory_bytes_max",
             "recovery_seconds_max",

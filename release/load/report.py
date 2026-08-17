@@ -34,6 +34,9 @@ METRIC_NAMES = frozenset(
         "rejection_rate",
         "queue_depth_max",
         "tenant_fairness",
+        "deployment_fairness",
+        "replica_fairness",
+        "worker_fairness",
         "cpu_percent_max",
         "memory_bytes_max",
         "recovery_seconds_max",
@@ -69,7 +72,7 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:74f7e60539bfa1ab8e6e3617d3370488de4d30fed8af4c290b7a7ddbf9485982"
+BASELINE_DIGEST = "sha256:2fb311618e4114c38c23ef7c631cc9e900cb7e47aa341c671b289cf81095e485"
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 ENVIRONMENT_KEYS = frozenset(
@@ -177,6 +180,21 @@ def _baseline_source_errors(value: dict) -> list[str]:
         or any(DIGEST_PATTERN.fullmatch(str(digest)) is None for digest in digests)
     ):
         return ["baseline requires distinct source run digests"]
+    receipts = source.get("run_receipts")
+    if (
+        not isinstance(receipts, list)
+        or len(receipts) != len(digests)
+        or [receipt.get("observation_digest") for receipt in receipts] != digests
+        or any(receipt.get("commit") != source.get("commit") for receipt in receipts)
+        or any(receipt.get("tree") != source.get("tree") for receipt in receipts)
+        or any(
+            receipt.get("package_version") != source.get("package_version") for receipt in receipts
+        )
+        or any(receipt.get("environment") != value.get("environment") for receipt in receipts)
+        or COMMIT_PATTERN.fullmatch(str(source.get("commit", ""))) is None
+        or COMMIT_PATTERN.fullmatch(str(source.get("tree", ""))) is None
+    ):
+        return ["baseline requires measured source receipts"]
     return []
 
 
@@ -216,7 +234,7 @@ def _comparison(name: str, candidate: dict, baseline: dict) -> float:
     metric = THRESHOLD_DERIVATION[name]["metric"]
     if name == "rejection_rate_delta":
         return candidate[metric] - baseline[metric]
-    if name == "tenant_fairness_minimum" or name in {
+    if name.endswith("_fairness_minimum") or name in {
         "lost_accepted_runs",
         "duplicate_accepted_runs",
     }:

@@ -69,14 +69,15 @@ def _lifecycle_accounting(rows: list[dict]) -> tuple[int, int, float]:
     return lost, duplicates, max(recoveries, default=0.0)
 
 
-def _fairness(rows: list[dict]) -> float:
-    tenants = sorted({row["tenant_id"] for row in rows})
+def _fairness(rows: list[dict], field: str) -> float:
+    workload = [row for row in rows if row["fault"] is None]
+    identities = sorted({row[field] for row in workload})
     counts = Counter()
-    for row in rows:
+    for row in workload:
         states = {event.get("state") for event in row["lifecycle"]}
         if "accepted" in states and states & {"completed", "failed"}:
-            counts[row["tenant_id"]] += 1
-    values = [counts[tenant] for tenant in tenants]
+            counts[row[field]] += 1
+    values = [counts[identity] for identity in identities]
     squared = sum(value * value for value in values)
     return 0.0 if not squared else (sum(values) ** 2) / (len(values) * squared)
 
@@ -107,7 +108,10 @@ def recompute(rows: list[dict], profiles: dict) -> dict[str, dict[str, float | i
                 sum(row["status_code"] in {429, 503} for row in group) / len(group), 6
             ),
             "queue_depth_max": max(row["queue_depth"] for row in group),
-            "tenant_fairness": round(_fairness(group), 6),
+            "tenant_fairness": round(_fairness(group, "tenant_id"), 6),
+            "deployment_fairness": round(_fairness(group, "deployment_ref"), 6),
+            "replica_fairness": round(_fairness(group, "replica"), 6),
+            "worker_fairness": round(_fairness(group, "worker"), 6),
             "cpu_percent_max": max(row["cpu_percent"] for row in group),
             "memory_bytes_max": max(row["memory_bytes"] for row in group),
             "recovery_seconds_max": round(recovery, 6),

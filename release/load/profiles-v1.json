@@ -69,6 +69,15 @@
       "tenant_fairness_minimum": {
         "minimum": 0.9
       },
+      "deployment_fairness_minimum": {
+        "minimum": 0.9
+      },
+      "replica_fairness_ratio": {
+        "minimum": 0.8
+      },
+      "worker_fairness_ratio": {
+        "minimum": 0.8
+      },
       "cpu_ratio": {
         "maximum": 1.5
       },
