@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.10] - 2026-08-17
+
+### Security
+
+- Bind certified container startup to the exact verified Zeroth wheel and
+  reject Dockerfiles that resolve outside the digest-bound build context.
+
 ## [0.23.9.9] - 2026-08-17
 
 ### Security

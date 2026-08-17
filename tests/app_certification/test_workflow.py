@@ -19,6 +19,7 @@ from release.app_certification import (
     CommandResult,
     load_declaration,
 )
+from release.app_certification.wheel_installation import RUNTIME_BOOTSTRAP
 from tests.app_certification.test_engine import declaration_data
 
 
@@ -294,7 +295,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.9"
+    assert declaration.zeroth_version == "0.23.9.10"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -306,17 +307,30 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.9-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.10-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.9-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.10-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile
     assert "ZEROTH_REGULUS__ENABLED=true" in dockerfile
     assert "ZEROTH_ARTIFACT_STORE__FILESYSTEM_BASE_DIR=/data/artifacts" in dockerfile
     assert "ECP_DATABASE_URL=sqlite:////data/vendor_dd_econ.sqlite" in dockerfile
-    assert 'CMD ["python", "-m", "apps.vendor_dd.certification_entrypoint"]' in dockerfile
+    runtime = json.loads(
+        next(line[4:] for line in dockerfile.splitlines() if line.startswith("CMD "))
+    )
+    assert runtime == [
+        "/usr/local/bin/python",
+        "-I",
+        "-S",
+        "-c",
+        RUNTIME_BOOTSTRAP,
+        "run-certified-runtime",
+        "/usr/local/lib/python3.12/site-packages",
+        "/opt/vendor/app",
+        "apps.vendor_dd.certification_entrypoint",
+    ]
 
 
 def _free_port() -> int:

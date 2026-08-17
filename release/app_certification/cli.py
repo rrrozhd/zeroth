@@ -37,7 +37,7 @@ from .runner import (
     measure_candidate_identity,
 )
 from .scaffold import scaffold_checkout
-from .wheel_installation import validate_wheel_installation, verify_wheel_installation
+from .wheel_installation import build_material_digests, verify_wheel_installation
 from .workflow_finalizer import finalize_workflow as _finalize_workflow
 
 _HTTP_TIMEOUT_SECONDS = 30.0
@@ -112,12 +112,15 @@ def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--certifier-wheel", type=Path, required=True)
     command.add_argument("--requirements-lock", type=Path, required=True)
     command.add_argument("--wheel-installation", type=Path, required=True)
+    command.add_argument("--image-config", type=Path)
     command.add_argument("--verdict", type=Path, required=True)
 
 
 def _add_wheel_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--wheel", type=Path, required=True)
     command.add_argument("--site-packages", type=Path, required=True)
+    command.add_argument("--image-config", type=Path)
+    command.add_argument("--image-digest")
     command.add_argument("--output", type=Path, required=True)
 
 
@@ -134,6 +137,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     declaration = commands.add_parser("validate-declaration")
     declaration.add_argument("--declaration", type=Path, required=True)
+    declaration.add_argument("--root", type=Path)
     run = commands.add_parser("run")
     run.add_argument("--declaration", type=Path, required=True)
     run.add_argument("--root", type=Path, required=True)
@@ -159,6 +163,7 @@ def _parser() -> argparse.ArgumentParser:
     evidence.add_argument("--certifier-wheel", type=Path, required=True)
     evidence.add_argument("--requirements-lock", type=Path, required=True)
     evidence.add_argument("--wheel-installation", type=Path, required=True)
+    evidence.add_argument("--image-config", type=Path)
     wheel = commands.add_parser("verify-wheel-installation")
     _add_wheel_arguments(wheel)
     handoff = commands.add_parser("validate-handoff")
@@ -210,31 +215,6 @@ def _destination(root: Path, relative: str) -> Path:
     return destination
 
 
-def _build_material_digests(
-    candidate,
-    sbom: Path,
-    certifier_wheel: Path,
-    requirements_lock: Path,
-    wheel_installation: Path,
-) -> dict[str, str]:
-    for label, path in (
-        ("certifier wheel", certifier_wheel),
-        ("image requirements lock", requirements_lock),
-        ("wheel installation proof", wheel_installation),
-    ):
-        if not path.is_file() or path.stat().st_size == 0:
-            raise ValueError(f"{label} is missing or empty")
-    validate_wheel_installation(wheel_installation, certifier_wheel, candidate)
-    return {
-        "source": candidate.source_digest,
-        "image": candidate.image_digest,
-        "sbom": file_digest(sbom),
-        "zeroth_wheel": file_digest(certifier_wheel),
-        "requirements_lock": file_digest(requirements_lock),
-        "wheel_installation": file_digest(wheel_installation),
-    }
-
-
 def _prepare_evidence(args: argparse.Namespace) -> int:
     declaration = load_declaration(args.declaration)
     candidate = measure_candidate_identity(
@@ -254,12 +234,13 @@ def _prepare_evidence(args: argparse.Namespace) -> int:
         shutil.copyfile(args.raw_sbom, sbom)
     if re.fullmatch(r"[0-9a-f]{40}", args.zeroth_commit) is None:
         raise ValueError("trusted certifier commit must be a full commit SHA")
-    materials = _build_material_digests(
+    materials = build_material_digests(
         candidate,
         sbom,
         args.certifier_wheel,
         args.requirements_lock,
         args.wheel_installation,
+        args.image_config,
     )
     write_provenance(
         provenance,
@@ -290,6 +271,8 @@ def _retain_build_materials(root: Path, args: argparse.Namespace) -> None:
     shutil.copyfile(args.certifier_wheel, materials / "zeroth-core.whl")
     shutil.copyfile(args.requirements_lock, materials / "requirements-image.txt")
     shutil.copyfile(args.wheel_installation, materials / "installed-wheel.json")
+    if args.image_config is not None:
+        shutil.copyfile(args.image_config, materials / "image-config.json")
 
 
 def _validate_handoff(args: argparse.Namespace) -> int:
@@ -305,12 +288,13 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         raise ValueError("trusted certifier commit must be a full commit SHA")
     sbom = _destination(args.root, report.evidence.sbom.path)
     provenance = _destination(args.root, report.evidence.provenance.path)
-    materials = _build_material_digests(
+    materials = build_material_digests(
         candidate,
         sbom,
         args.certifier_wheel,
         args.requirements_lock,
         args.wheel_installation,
+        args.image_config,
     )
     validate_evidence_subject(
         "provenance",
@@ -345,7 +329,15 @@ def _validate_handoff(args: argparse.Namespace) -> int:
 
 def _validate_command(args: argparse.Namespace) -> int:
     if args.command == "validate-declaration":
-        load_declaration(args.declaration)
+        declaration = load_declaration(args.declaration)
+        root = args.root or args.declaration.parent
+        declared_dockerfile = root.resolve() / declaration.dockerfile
+        try:
+            dockerfile = _destination(root, declaration.dockerfile)
+        except ValueError as error:
+            raise ValueError("declared dockerfile resolves outside the build context") from error
+        if dockerfile != declared_dockerfile or not dockerfile.is_file():
+            raise ValueError("declared dockerfile must be a regular file without symlinks")
         print(f"valid declaration: {args.declaration}")
         return 0
     report = validate_report(args.report, root=args.root)
@@ -364,7 +356,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-evidence":
             return _prepare_evidence(args)
         if args.command == "verify-wheel-installation":
-            verify_wheel_installation(args.wheel, args.site_packages, args.output)
+            verify_wheel_installation(
+                args.wheel,
+                args.site_packages,
+                args.output,
+                image_config=args.image_config,
+                image_digest=args.image_digest,
+            )
             return 0
         if args.command == "validate-handoff":
             return _validate_handoff(args)
