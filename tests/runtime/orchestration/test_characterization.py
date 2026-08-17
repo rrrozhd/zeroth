@@ -545,8 +545,8 @@ async def test_human_approval_pause_persists_gate_state_then_resume_continues(sq
     assert continued.status is RunStatus.RUNNING
     assert continued.pending_node_ids == []
     assert journal.entries == [
-        ("audit.write", "gate", "completed"),
         ("run.put", "RUNNING", "gate"),
+        ("audit.write", "gate", "completed"),
         ("run.checkpoint", "RUNNING"),
     ]
 

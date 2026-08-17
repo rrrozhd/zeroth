@@ -42,6 +42,10 @@ class _EchoRunRepository:
         self.puts.append(run)
         return run
 
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        self.puts.append(run)
+        return run
+
     async def write_checkpoint(self, run: Run) -> str:
         self.checkpoints.append(run)
         return "cp"

@@ -6,7 +6,13 @@ import asyncio
 
 import pytest
 
-from zeroth.contracts.graph import Graph, HumanApprovalNode, HumanApprovalNodeData
+from zeroth.contracts.graph import (
+    Edge,
+    ExecutionSettings,
+    Graph,
+    HumanApprovalNode,
+    HumanApprovalNodeData,
+)
 from zeroth.governance.approvals import (
     ApprovalDecision,
     ApprovalRecord,
@@ -14,6 +20,7 @@ from zeroth.governance.approvals import (
     ApprovalService,
 )
 from zeroth.governance.identity import ActorIdentity, AuthMethod
+from zeroth.governance.audit import AuditRepository
 from zeroth.integrations.execution import ExecutableUnitRegistry, ExecutableUnitRunner
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.storage import NullWorkspaceScopeContext
@@ -45,6 +52,60 @@ class _ReadBarrierRunRepository(RunRepository):
         return run
 
 
+class _PostCasReadBarrierRunRepository(RunRepository):
+    """Pause the drive's first status read after approval is durably resumed."""
+
+    def __init__(self, database) -> None:
+        super().__init__(database, NullWorkspaceScopeContext.for_default_compatibility())
+        self.drive_status_read = asyncio.Event()
+        self.release_drive_status_read = asyncio.Event()
+        self._approval_cas_done = False
+        self._running_reads = 0
+
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        stored = await super().put_if_status(run, expected_status)
+        if expected_status is RunStatus.WAITING_APPROVAL and run.status is RunStatus.RUNNING:
+            self._approval_cas_done = True
+        return stored
+
+    async def get(self, run_id: str) -> Run | None:
+        run = await super().get(run_id)
+        if self._approval_cas_done and run is not None and run.status is RunStatus.RUNNING:
+            self._running_reads += 1
+            # resume_graph reloads once; the next read is GraphDriver.external_stop.
+            if self._running_reads == 2:
+                self.drive_status_read.set()
+                await self.release_drive_status_read.wait()
+        return run
+
+
+class _PreCasWriteBarrierRunRepository(RunRepository):
+    """Pause approval continuation after history preparation but before its CAS."""
+
+    def __init__(self, database) -> None:
+        super().__init__(database, NullWorkspaceScopeContext.for_default_compatibility())
+        self.before_approval_cas = asyncio.Event()
+        self.release_approval_cas = asyncio.Event()
+
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        if expected_status is RunStatus.WAITING_APPROVAL and run.status is RunStatus.RUNNING:
+            self.before_approval_cas.set()
+            await self.release_approval_cas.wait()
+        return await super().put_if_status(run, expected_status)
+
+
+class _RecordingAuditRepository:
+    """Retain every attempted durable audit write for race assertions."""
+
+    def __init__(self, database) -> None:
+        self._inner = AuditRepository.for_default_compatibility(database)
+        self.records = []
+
+    async def write(self, record):
+        self.records.append(record)
+        return await self._inner.write(record)
+
+
 def _actor() -> ActorIdentity:
     return ActorIdentity(
         subject="reviewer-1",
@@ -54,27 +115,42 @@ def _actor() -> ActorIdentity:
     )
 
 
-def _graph() -> Graph:
+def _graph(*, with_successor: bool = False) -> Graph:
+    nodes = [
+        HumanApprovalNode(
+            node_id=NODE_ID,
+            graph_version_ref="approval-cancellation-race:v1",
+            human_approval=HumanApprovalNodeData(),
+        )
+    ]
+    edges = []
+    if with_successor:
+        nodes.append(
+            HumanApprovalNode(
+                node_id="next-approval",
+                graph_version_ref="approval-cancellation-race:v1",
+                human_approval=HumanApprovalNodeData(),
+            )
+        )
+        edges.append(
+            Edge(edge_id="approval-next", source_node_id=NODE_ID, target_node_id="next-approval")
+        )
     return Graph(
         graph_id="approval-cancellation-race",
         name="Approval cancellation race",
         entry_step=NODE_ID,
-        nodes=[
-            HumanApprovalNode(
-                node_id=NODE_ID,
-                graph_version_ref="approval-cancellation-race:v1",
-                human_approval=HumanApprovalNodeData(),
-            )
-        ],
-        edges=[],
+        execution_settings=ExecutionSettings(sequential_join_enabled=False),
+        nodes=nodes,
+        edges=edges,
     )
 
 
 async def _resolved_service(
     database,
     decision: ApprovalDecision,
-) -> tuple[ApprovalService, _ReadBarrierRunRepository, str]:
-    run_repository = _ReadBarrierRunRepository(database)
+    run_repository: RunRepository | None = None,
+) -> tuple[ApprovalService, RunRepository, str]:
+    run_repository = run_repository or _ReadBarrierRunRepository(database)
     run = await run_repository.create(
         Run(
             graph_version_ref="approval-cancellation-race:v1",
@@ -87,6 +163,7 @@ async def _resolved_service(
     service = ApprovalService(
         repository=ApprovalRepository(database),
         run_repository=run_repository,
+        audit_repository=AuditRepository.for_default_compatibility(database),
     )
     approval = ApprovalRecord(
         run_id=run.run_id,
@@ -143,6 +220,7 @@ async def test_cancel_wins_durable_approval_continuation_race(
     decision: ApprovalDecision,
 ) -> None:
     service, repository, approval_id = await _resolved_service(dual_database, decision)
+    assert isinstance(repository, _ReadBarrierRunRepository)
     record = await service.get(approval_id)
     assert record is not None
     repository.arm()
@@ -167,11 +245,13 @@ async def test_cancel_wins_inline_approval_continuation_race(
     decision: ApprovalDecision,
 ) -> None:
     service, repository, approval_id = await _resolved_service(dual_database, decision)
+    assert isinstance(repository, _ReadBarrierRunRepository)
     record = await service.get(approval_id)
     assert record is not None
     graph = _graph()
     orchestrator = RuntimeOrchestrator(
         run_repository=repository,
+        audit_repository=AuditRepository.for_default_compatibility(dual_database),
         agent_runners={},
         executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
         approval_service=service,
@@ -189,3 +269,108 @@ async def test_cancel_wins_inline_approval_continuation_race(
     await cancellation
 
     await _assert_cancelled(dual_database, record.run_id)
+
+
+@pytest.mark.parametrize("with_successor", [False, True], ids=["completion", "next-node"])
+async def test_cancel_wins_after_inline_approval_cas_before_drive_write(
+    dual_database,
+    with_successor: bool,
+) -> None:
+    repository = _PostCasReadBarrierRunRepository(dual_database)
+    service, _, approval_id = await _resolved_service(
+        dual_database,
+        ApprovalDecision.APPROVE,
+        repository,
+    )
+    record = await service.get(approval_id)
+    assert record is not None
+    orchestrator = RuntimeOrchestrator(
+        run_repository=repository,
+        audit_repository=AuditRepository.for_default_compatibility(dual_database),
+        agent_runners={},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        approval_service=service,
+    )
+
+    continuation = asyncio.create_task(
+        service.continue_run(
+            approval_id,
+            graph=_graph(with_successor=with_successor),
+            orchestrator=orchestrator,
+        )
+    )
+    await repository.drive_status_read.wait()
+    await RunRepository.for_default_compatibility(dual_database).transition(
+        record.run_id,
+        RunStatus.FAILED,
+        failure_state=RunFailureState(
+            reason="admin_cancelled",
+            message="run cancelled by administrator",
+        ),
+    )
+    repository.release_drive_status_read.set()
+
+    with pytest.raises(ValueError, match="RUNNING|running"):
+        await continuation
+    await _assert_cancelled(dual_database, record.run_id)
+
+
+async def test_cancelled_inline_approval_does_not_publish_completed_node_audit(
+    dual_database,
+) -> None:
+    repository = _PreCasWriteBarrierRunRepository(dual_database)
+    service, _, approval_id = await _resolved_service(
+        dual_database,
+        ApprovalDecision.APPROVE,
+        repository,
+    )
+    record = await service.get(approval_id)
+    assert record is not None
+    audit_repository = _RecordingAuditRepository(dual_database)
+    orchestrator = RuntimeOrchestrator(
+        run_repository=repository,
+        audit_repository=audit_repository,
+        agent_runners={},
+        executable_unit_runner=ExecutableUnitRunner(ExecutableUnitRegistry()),
+        approval_service=service,
+    )
+
+    continuation = asyncio.create_task(
+        service.continue_run(approval_id, graph=_graph(), orchestrator=orchestrator)
+    )
+    await repository.before_approval_cas.wait()
+    await RunRepository.for_default_compatibility(dual_database).transition(
+        record.run_id,
+        RunStatus.FAILED,
+        failure_state=RunFailureState(
+            reason="admin_cancelled",
+            message="run cancelled by administrator",
+        ),
+    )
+    repository.release_approval_cas.set()
+
+    with pytest.raises(ValueError, match="WAITING_APPROVAL|waiting_approval"):
+        await continuation
+    assert not any(
+        audit.node_id == NODE_ID and audit.status == "completed"
+        for audit in audit_repository.records
+    )
+
+
+async def test_status_cas_does_not_recreate_a_deleted_run(dual_database) -> None:
+    repository = RunRepository.for_default_compatibility(dual_database)
+    run = await repository.create(
+        Run(
+            graph_version_ref="approval-cancellation-race:v1",
+            deployment_ref=DEPLOYMENT,
+        )
+    )
+    snapshot = await repository.get(run.run_id)
+    assert snapshot is not None
+    await repository.delete(run.run_id)
+    snapshot.status = RunStatus.RUNNING
+    snapshot.touch()
+
+    with pytest.raises(ValueError):
+        await repository.put_if_status(snapshot, RunStatus.PENDING)
+    assert await repository.get(run.run_id) is None

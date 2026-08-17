@@ -360,12 +360,10 @@ class _RunThreadStore:
     async def save_run(self, run: Run) -> None:
         """Insert or update a run record in the database.
 
-        When a fence is installed for this run, the upsert's UPDATE arm carries
-        ``WHERE lease_worker_id = ? AND lease_generation = ?`` and the statement
-        returns the written row — no row back means ownership moved and the
-        write was refused, which raises :class:`FencedRunWriteRejectedError`. A
-        fresh insert cannot conflict with a displaced owner, so the fence only
-        gates the update arm.
+        When a fence is installed for this run, persistence is update-only and
+        carries ``WHERE lease_worker_id = ? AND lease_generation = ?``. No row
+        back means ownership moved and the write was refused, which raises
+        :class:`FencedRunWriteRejectedError`.
         """
         self.validate_owner(run.tenant_id, run.workspace_id)
         fence = self._fences.get(run.run_id)
@@ -387,15 +385,21 @@ class _RunThreadStore:
                 values,
                 conflict_columns=("tenant_id", "workspace_scope", "run_id"),
             )
-        else:
-            update_where: dict[str, object] = {}
+        elif fence is not None or expected_status is not None:
+            where: dict[str, object] = {"run_id": run.run_id}
             if fence is not None:
-                update_where.update(
+                where.update(
                     lease_worker_id=fence[0],
                     lease_generation=fence[1],
                 )
             if expected_status is not None:
-                update_where["status"] = expected_status.value
+                where["status"] = expected_status.value
+            written = await runs.update_if_matches(
+                {column: value for column, value in values.items() if column != "run_id"},
+                where=where,
+                returning="run_id",
+            )
+        else:
             written = await runs.upsert(
                 values,
                 conflict_columns=("tenant_id", "workspace_scope", "run_id"),
@@ -403,7 +407,6 @@ class _RunThreadStore:
                     column for column in values if column not in {"run_id", "workspace_scope"}
                 ),
                 returning="run_id",
-                update_where=update_where or None,
             )
         if insert_only and not written:
             raise KeyError(f"run already exists: {run.run_id}")

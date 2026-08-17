@@ -252,15 +252,15 @@ async def test_external_stop_yields_to_concurrent_operator_transition(sqlite_db)
 
     # get() returns FAILED (fresh) then PENDING (operator replay has landed).
     orchestrator.run_repository.get = AsyncMock(side_effect=[failed, replayed])
-    put_spy = AsyncMock(side_effect=lambda r: r)
-    orchestrator.run_repository.put = put_spy
+    put_spy = AsyncMock(side_effect=ValueError("operator moved the run"))
+    orchestrator.run_repository.put_if_status = put_spy
 
     in_memory = failed.model_copy(update={"status": RunStatus.RUNNING})
     result = await orchestrator._driver.external_stop(in_memory)
 
     assert result is not None
     assert result.status is RunStatus.PENDING  # yielded to the operator's replay
-    put_spy.assert_not_called()  # did NOT clobber back to FAILED
+    put_spy.assert_awaited_once_with(in_memory, RunStatus.FAILED)
 
 
 @pytest.mark.asyncio
@@ -283,9 +283,9 @@ async def test_external_stop_persists_when_no_concurrent_transition(sqlite_db) -
     failed = await repo.get(persisted.run_id)
     assert failed is not None
 
-    orchestrator.run_repository.get = AsyncMock(side_effect=[failed, failed])
-    put_spy = AsyncMock(side_effect=lambda r: r)
-    orchestrator.run_repository.put = put_spy
+    orchestrator.run_repository.get = AsyncMock(side_effect=[failed])
+    put_spy = AsyncMock(side_effect=lambda run, expected_status: run)
+    orchestrator.run_repository.put_if_status = put_spy
     wc_spy = AsyncMock()
     orchestrator.run_repository.write_checkpoint = wc_spy
 
@@ -294,5 +294,5 @@ async def test_external_stop_persists_when_no_concurrent_transition(sqlite_db) -
 
     assert result is not None
     assert result.status is RunStatus.FAILED
-    put_spy.assert_called_once()
+    put_spy.assert_awaited_once_with(in_memory, RunStatus.FAILED)
     wc_spy.assert_called_once()

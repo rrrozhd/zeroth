@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.10] - 2026-08-17
+
+### Fixed
+
+- Fence inline approval drive writes against concurrent cancellation.
+- Publish completed approval audits only after the continuation status transition succeeds.
+- Keep conditional run writes update-only so deleted runs remain deleted.
+
 ## [0.23.9.9] - 2026-08-17
 
 ### Fixed
