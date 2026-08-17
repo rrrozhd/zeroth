@@ -5,15 +5,11 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.metadata
+import io
 import json
-import os
-import resource
-import signal
-import subprocess
 import sys
-import tempfile
 from collections.abc import Mapping
-from contextlib import suppress
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -25,12 +21,6 @@ from zeroth.runtime.parallel.reducers import resolve_reducer_ref
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from .models import AppDeclaration, file_digest
-
-_OUTPUT_LIMIT = 1 << 20
-_CPU_LIMIT = 120
-_MEMORY_LIMIT = 2 * 1024 * 1024 * 1024
-_PROCESS_LIMIT = 128
-_OPEN_FILE_LIMIT = 256
 
 
 def _load_target(reference: str) -> Any:
@@ -214,132 +204,42 @@ def _payload(
     }
 
 
-def _cap_resource(kind: int, limit: int) -> None:
-    soft, hard = resource.getrlimit(kind)
-    capped_hard = limit if hard == resource.RLIM_INFINITY else min(limit, hard)
-    capped_soft = capped_hard if soft == resource.RLIM_INFINITY else min(capped_hard, soft)
-    resource.setrlimit(kind, (capped_soft, capped_hard))
-
-
-def _limit_resources() -> None:
-    limits = [
-        (resource.RLIMIT_FSIZE, _OUTPUT_LIMIT),
-        (resource.RLIMIT_CPU, _CPU_LIMIT),
-        (resource.RLIMIT_NOFILE, _OPEN_FILE_LIMIT),
-    ]
-    if sys.platform != "darwin":
-        limits.extend(
-            (
-                (resource.RLIMIT_AS, _MEMORY_LIMIT),
-                (resource.RLIMIT_NPROC, _PROCESS_LIMIT),
-            )
-        )
-    for kind, limit in limits:
-        _cap_resource(kind, limit)
-
-
-def run_importer(argv: list[str]) -> tuple[int, str, str]:
-    """Run one candidate-only serializer with bounded output and lifetime."""
-    with tempfile.TemporaryFile(mode="w+") as stdout, tempfile.TemporaryFile(mode="w+") as stderr:
-        process = subprocess.Popen(
-            argv,
-            stdout=stdout,
-            stderr=stderr,
-            text=True,
-            preexec_fn=_limit_resources,
-            start_new_session=True,
-        )
-        timed_out = False
+def _probe_serialize(name: str, root: Path, declaration: AppDeclaration) -> dict[str, Any]:
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        sys.path.insert(0, str(root))
         try:
-            process.wait(timeout=150)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+            evidence = collect_candidate_evidence(name, root, declaration)
         finally:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            if process.poll() is None:
-                process.wait()
-        stdout.seek(0)
-        stderr.seek(0)
-        output, diagnostics = stdout.read(_OUTPUT_LIMIT + 1), stderr.read(_OUTPUT_LIMIT + 1)
-    if timed_out:
-        return 1, output, diagnostics or "candidate serializer timed out"
-    if len(output) > _OUTPUT_LIMIT or len(diagnostics) > _OUTPUT_LIMIT:
-        return 1, "", "candidate output exceeded limit"
-    return process.returncode, output, diagnostics
+            sys.path.pop(0)
+    return _payload(name, evidence, root, declaration)
 
 
-def _serialize(name: str, root: Path, declaration: AppDeclaration) -> int:
-    sys.path.insert(0, str(root))
-    saved_stdout, saved_stderr = os.dup(1), os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, 1)
-    os.dup2(devnull, 2)
-    try:
-        evidence = collect_candidate_evidence(name, root, declaration)
-    except Exception as error:  # noqa: BLE001 - untrusted failure becomes one diagnostic
-        outcome: tuple[int, Any] = (1, error)
-    else:
-        outcome = (0, _payload(name, evidence, root, declaration))
-    finally:
-        os.dup2(saved_stdout, 1)
-        os.dup2(saved_stderr, 2)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
-        os.close(devnull)
-        sys.path.pop(0)
-    if outcome[0]:
-        error = outcome[1]
-        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(outcome[1], sort_keys=True, separators=(",", ":")))
-    return 0
-
-
-def _operate(name: str, root: Path, reference: str, database_url: str | None) -> int:
+def _probe_operate(
+    name: str,
+    root: Path,
+    reference: str,
+    database_url: str | None,
+) -> dict[str, Any]:
     """Run one target operation; the parent supervisor owns sequencing and validation."""
-    sys.path.insert(0, str(root))
-    saved_stdout, saved_stderr = os.dup(1), os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, 1)
-    os.dup2(devnull, 2)
-    try:
-        if name == "import-target":
-            _load_target(reference)
-        elif name == "resolve-reducer":
-            resolve_reducer_ref(reference)
-        elif name == "run-migration":
-            runner = _load_target(reference)
-            if not callable(runner):
-                raise ValueError("migration_runner target must be callable")
-            if database_url is None:
-                raise ValueError("migration operation requires a database URL")
-            runner(database_url)
-        else:
-            raise ValueError(f"unknown candidate operation {name!r}")
-    except Exception as error:  # noqa: BLE001 - candidate failures are retained by the supervisor
-        outcome: tuple[int, Any] = (1, error)
-    else:
-        outcome = (0, None)
-    finally:
-        os.dup2(saved_stdout, 1)
-        os.dup2(saved_stderr, 2)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
-        os.close(devnull)
-        sys.path.pop(0)
-    if outcome[0]:
-        error = outcome[1]
-        print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr)
-        return 1
-    print(
-        json.dumps(
-            {"operation": name, "reference": reference, "schema_version": 1},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-    )
-    return 0
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        sys.path.insert(0, str(root))
+        try:
+            if name == "import-target":
+                _load_target(reference)
+            elif name == "resolve-reducer":
+                resolve_reducer_ref(reference)
+            elif name == "run-migration":
+                runner = _load_target(reference)
+                if not callable(runner):
+                    raise ValueError("migration_runner target must be callable")
+                if database_url is None:
+                    raise ValueError("migration operation requires a database URL")
+                runner(database_url)
+            else:
+                raise ValueError(f"unknown candidate operation {name!r}")
+        finally:
+            sys.path.pop(0)
+    return {"operation": name, "reference": reference, "schema_version": 1}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -353,11 +253,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
     root = args.root.resolve()
-    if args.name in {"import-target", "resolve-reducer", "run-migration"}:
-        if args.reference is None:
-            parser.error(f"{args.name} requires --reference")
-        return _operate(args.name, root, args.reference, args.database_url)
-    return _serialize(args.name, root, declaration)
+    try:
+        if args.name in {"import-target", "resolve-reducer", "run-migration"}:
+            if args.reference is None:
+                parser.error(f"{args.name} requires --reference")
+            payload = _probe_operate(args.name, root, args.reference, args.database_url)
+        else:
+            payload = _probe_serialize(args.name, root, declaration)
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    except Exception as error:  # noqa: BLE001 - untrusted faults become diagnostics
+        print(f"{args.name}: {type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -93,7 +93,7 @@ def test_candidate_job_uses_the_app_environment_and_no_privileged_action() -> No
     actions = [step["uses"] for step in steps if "uses" in step]
     prepare = _step("prepare")["run"]
 
-    assert "uv sync --directory app --frozen --all-extras" in prepare
+    assert "run-dependency-sandbox" in prepare
     assert "app/.venv/bin/python" in prepare
     assert "uv build --directory zeroth --wheel" in prepare
     assert "npm ci --prefix zeroth/frontend" in prepare
@@ -111,7 +111,9 @@ def test_candidate_execution_cannot_write_certifier_or_handoff() -> None:
     assert 'mkdir -m 700 "$HANDOFF_ROOT"' in handoff
     assert "useradd" in prepare and "app-cert-candidate" in prepare
     assert prepare.index("uv sync --directory zeroth") < prepare.index("app-cert-candidate")
-    assert "sudo -H -u app-cert-candidate" in prepare
+    assert '--uid "$CANDIDATE_UID"' in prepare
+    assert '--gid "$CANDIDATE_GID"' in prepare
+    assert "--disk-bytes 3221225472" in prepare
     assert 'sudo chown -R "$USER":"$USER" app/.venv' in prepare
     assert "chmod -R go-w zeroth app" in prepare
     assert "app/.app-certification" in prepare
@@ -243,12 +245,18 @@ def test_every_pre_certification_failure_gets_a_canonical_report(tmp_path: Path)
 def test_fresh_unprivileged_verifier_authenticates_handoff() -> None:
     steps = _steps("verify")
     actions = [step["uses"] for step in steps if "uses" in step]
-    checkout = steps[0]
+    checkout = next(
+        step for step in steps if step.get("with", {}).get("repository") == "rrrozhd/zeroth"
+    )
+    app_checkout = next(step for step in steps if step.get("with", {}).get("path") == "app")
     validate = _step("validate", "verify")["run"]
 
     assert checkout["uses"] == CHECKOUT
     assert checkout["with"]["repository"] == "rrrozhd/zeroth"
+    assert app_checkout["uses"] == CHECKOUT
+    assert app_checkout["with"]["ref"] == "${{ github.sha }}"
     assert "validate-handoff" in validate and "--image-archive evidence/image.tar" in validate
+    assert "--app-repository app" in validate
     assert "--verdict evidence/verdict.json" in validate
     assert "$GITHUB_OUTPUT" in validate
     assert "npm ci" not in "\n".join(step.get("run", "") for step in steps)
@@ -268,12 +276,17 @@ def test_hidden_unprivileged_handoff_is_included_in_artifact() -> None:
 def test_privileged_job_uses_only_authenticated_verifier_outputs() -> None:
     steps = _steps("attest")
     actions = [step["uses"] for step in steps if "uses" in step]
-    checkout = steps[0]
+    checkout = next(
+        step for step in steps if step.get("with", {}).get("repository") == "rrrozhd/zeroth"
+    )
+    app_checkout = next(step for step in steps if step.get("with", {}).get("path") == "app")
     authenticate = _step("authenticate", "attest")["run"]
     attest = _step("provenance", "attest")
 
     assert checkout["uses"] == CHECKOUT
     assert checkout["with"]["repository"] == "rrrozhd/zeroth"
+    assert app_checkout["uses"] == CHECKOUT
+    assert app_checkout["with"]["ref"] == "${{ github.sha }}"
     assert "sha256sum" in authenticate and "needs.verify.outputs.verdict_sha256" in authenticate
     assert attest["with"]["subject-name"] == "${{ needs.verify.outputs.image_reference }}"
     assert attest["with"]["subject-digest"] == "${{ needs.verify.outputs.image_digest }}"
@@ -287,6 +300,7 @@ def test_finalizer_reissues_verdict_for_the_signed_report() -> None:
 
     assert "--image-archive evidence/image.tar" in finalize
     assert "--source-archive evidence/source.tar" in finalize
+    assert "--app-repository app" in finalize
     assert "--verdict evidence/verdict.json" in finalize
 
 
@@ -307,7 +321,7 @@ def test_vendor_dd_reference_uses_structured_semantic_targets() -> None:
     raw = json.loads(DECLARATION.read_text(encoding="utf-8"))
 
     assert declaration.schema_version == 2
-    assert declaration.zeroth_version == "0.23.9.12"
+    assert declaration.zeroth_version == "0.23.9.13"
     assert "checks" not in raw
     assert raw["targets"]["contracts"] == "apps.vendor_dd.contracts:CONTRACTS"
     assert raw["targets"]["policy_guard"] == "apps.vendor_dd.entrypoint:build_policy_guard"
@@ -319,10 +333,10 @@ def test_vendor_dd_container_healthcheck_parses_readiness_payload() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     copy_lines = [line for line in dockerfile.splitlines() if line.startswith("COPY ")]
 
-    assert "zeroth_core-0.23.9.12-py3-none-any.whl" in dockerfile
+    assert "zeroth_core-0.23.9.13-py3-none-any.whl" in dockerfile
     assert copy_lines == [
         "COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt",
-        "COPY .zeroth-certifier/zeroth_core-0.23.9.12-py3-none-any.whl /opt/zeroth/",
+        "COPY .zeroth-certifier/zeroth_core-0.23.9.13-py3-none-any.whl /opt/zeroth/",
         "COPY apps/vendor_dd /opt/vendor/app/apps/vendor_dd",
     ]
     assert "apps.vendor_dd.certification_healthcheck" in dockerfile

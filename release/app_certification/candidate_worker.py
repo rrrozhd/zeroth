@@ -23,7 +23,7 @@ from zeroth.governance.policy import (
 from zeroth.service.api.authentication import ServiceAuthConfig
 
 from . import checks
-from .candidate_process import run_importer
+from .candidate_supervisor import probe_candidate
 from .migration_supervisor import inspect_migration
 from .models import AppDeclaration
 
@@ -31,16 +31,6 @@ CANDIDATE_CHECKS = frozenset(
     {"graph", "service-config", "contracts", "optional-extras", "policies", "migrations"}
 )
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_IMPORT_BOOTSTRAP = (
-    "import pathlib,runpy,sys;"
-    "certifier=pathlib.Path(sys.argv.pop(1));"
-    "venv=pathlib.Path(sys.argv.pop(1));"
-    "site_packages=venv/'lib'/f'python{sys.version_info.major}.{sys.version_info.minor}'/"
-    "'site-packages';"
-    "sys.prefix=sys.exec_prefix=str(venv);"
-    "sys.path[:0]=[str(certifier),str(certifier/'src'),str(site_packages)];"
-    "runpy.run_module('release.app_certification.candidate_process',run_name='__main__')"
-)
 
 
 def _trusted_schemas(raw: Any) -> dict[str, dict[str, Any]]:
@@ -203,41 +193,6 @@ def finalize_candidate_evidence(
         raise ValueError(f"no candidate semantic check named {name!r}")
 
 
-def _candidate_argv(
-    name: str,
-    root: Path,
-    declaration: AppDeclaration,
-    candidate_venv: Path,
-    *extra: str,
-) -> list[str]:
-    return [
-        str(Path(sys.executable).absolute()),
-        "-I",
-        "-S",
-        "-c",
-        _IMPORT_BOOTSTRAP,
-        str(Path(__file__).parents[2].resolve()),
-        str(candidate_venv.resolve()),
-        name,
-        "--root",
-        str(root),
-        "--declaration-json",
-        declaration.model_dump_json(),
-        *extra,
-    ]
-
-
-def _candidate_payload(argv: list[str]) -> Any:
-    returncode, raw, diagnostics = run_importer(argv)
-    if returncode:
-        detail = diagnostics.strip() or raw.strip() or "candidate operation failed"
-        raise ValueError(detail)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise ValueError("candidate operation returned malformed JSON") from error
-
-
 def _run_operation(
     operation: str,
     reference: str,
@@ -246,12 +201,16 @@ def _run_operation(
     candidate_venv: Path,
     *,
     database_url: str | None = None,
+    untrusted_user: str | None = None,
 ) -> None:
-    extra = ["--reference", reference]
-    if database_url is not None:
-        extra.extend(("--database-url", database_url))
-    payload = _candidate_payload(
-        _candidate_argv(operation, root, declaration, candidate_venv, *extra)
+    payload = probe_candidate(
+        operation,
+        root,
+        declaration,
+        candidate_venv,
+        reference=reference,
+        database_url=database_url,
+        untrusted_user=untrusted_user,
     )
     expected = {"operation": operation, "reference": reference, "schema_version": 1}
     if payload != expected:
@@ -284,11 +243,21 @@ def _candidate_version(candidate_venv: Path) -> str:
 
 
 def _supervise_optional_imports(
-    root: Path, declaration: AppDeclaration, candidate_venv: Path
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    untrusted_user: str | None,
 ) -> dict[str, Any]:
     targets = checks.candidate_target_references("optional-extras", declaration)
     for reference in dict.fromkeys(targets):
-        _run_operation("import-target", reference, root, declaration, candidate_venv)
+        _run_operation(
+            "import-target",
+            reference,
+            root,
+            declaration,
+            candidate_venv,
+            untrusted_user=untrusted_user,
+        )
     return _supervised_payload(
         "optional-extras",
         {"targets": targets, "zeroth_version": _candidate_version(candidate_venv)},
@@ -298,18 +267,32 @@ def _supervise_optional_imports(
 
 
 def _supervise_reducers(
-    payload: Any, root: Path, declaration: AppDeclaration, candidate_venv: Path
+    payload: Any,
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    untrusted_user: str | None,
 ) -> None:
     evidence = _trusted_evidence("graph", payload, declaration, root)
     graphs = _trusted_graphs(evidence.get("graphs"), len(declaration.targets.graph_builders))
     reducers = sorted(_graph_reducers(graphs))
     for reference in reducers:
-        _run_operation("resolve-reducer", reference, root, declaration, candidate_venv)
+        _run_operation(
+            "resolve-reducer",
+            reference,
+            root,
+            declaration,
+            candidate_venv,
+            untrusted_user=untrusted_user,
+        )
     evidence["reducers"] = reducers
 
 
 def _supervise_migration(
-    root: Path, declaration: AppDeclaration, candidate_venv: Path
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    untrusted_user: str | None,
 ) -> dict[str, Any]:
     def run_candidate(reference: str, database_url: str) -> None:
         _run_operation(
@@ -319,6 +302,7 @@ def _supervise_migration(
             declaration,
             candidate_venv,
             database_url=database_url,
+            untrusted_user=untrusted_user,
         )
 
     return _supervised_payload(
@@ -327,17 +311,27 @@ def _supervise_migration(
 
 
 def _supervise_candidate(
-    name: str, root: Path, declaration: AppDeclaration, candidate_venv: Path
+    name: str,
+    root: Path,
+    declaration: AppDeclaration,
+    candidate_venv: Path,
+    untrusted_user: str | None,
 ) -> int:
     try:
         if name == "migrations":
-            payload = _supervise_migration(root, declaration, candidate_venv)
+            payload = _supervise_migration(root, declaration, candidate_venv, untrusted_user)
         elif name == "optional-extras":
-            payload = _supervise_optional_imports(root, declaration, candidate_venv)
+            payload = _supervise_optional_imports(root, declaration, candidate_venv, untrusted_user)
         else:
-            payload = _candidate_payload(_candidate_argv(name, root, declaration, candidate_venv))
+            payload = probe_candidate(
+                name,
+                root,
+                declaration,
+                candidate_venv,
+                untrusted_user=untrusted_user,
+            )
             if name == "graph":
-                _supervise_reducers(payload, root, declaration, candidate_venv)
+                _supervise_reducers(payload, root, declaration, candidate_venv, untrusted_user)
         finalize_candidate_evidence(name, payload, declaration, root)
     except Exception as error:  # noqa: BLE001 - candidate evidence is untrusted
         print(f"{name}: trusted finalization failed in supervisor: {error}", file=sys.stderr)
@@ -353,10 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--declaration-json", required=True)
     parser.add_argument("--candidate-venv", type=Path, required=True)
+    parser.add_argument("--untrusted-user")
     args = parser.parse_args(argv)
     declaration = AppDeclaration.model_validate_json(args.declaration_json)
     root = args.root.resolve()
-    return _supervise_candidate(args.name, root, declaration, args.candidate_venv)
+    return _supervise_candidate(
+        args.name, root, declaration, args.candidate_venv, args.untrusted_user
+    )
 
 
 if __name__ == "__main__":

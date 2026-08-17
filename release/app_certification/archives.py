@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import tarfile
+import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -253,14 +255,82 @@ def validate_image_archive(path: Path, candidate: CandidateIdentity) -> None:
         raise ValueError(f"image archive is unreadable: {error}") from error
 
 
-def validate_source_archive(path: Path, candidate: CandidateIdentity) -> None:
-    """Bind the exact Git archive used as the Docker source context."""
+def _source_manifest(path: Path) -> dict[str, tuple[Any, ...]]:
+    manifest: dict[str, tuple[Any, ...]] = {}
+    total_size = 0
+    with tarfile.open(path, mode="r:") as archive:
+        for member in archive:
+            name = member.name.removesuffix("/")
+            archive_path = PurePosixPath(name)
+            if not name or "\\" in name or archive_path.is_absolute() or ".." in archive_path.parts:
+                raise ValueError(f"source archive has unsafe member {member.name!r}")
+            if name in manifest or len(manifest) >= _ARCHIVE_MEMBER_LIMIT:
+                raise ValueError("source archive has duplicate or too many members")
+            total_size += member.size
+            if total_size > _ARCHIVE_LIMIT:
+                raise ValueError("source archive exceeds the 8 GiB validation limit")
+            if member.isdir():
+                manifest[name] = ("directory", member.mode)
+            elif member.issym():
+                manifest[name] = ("symlink", member.mode, member.linkname)
+            elif member.isfile():
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError(f"source archive member {name!r} is unreadable")
+                digest = hashlib.sha256()
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+                manifest[name] = ("file", member.mode, member.size, digest.hexdigest())
+            else:
+                raise ValueError(f"source archive has unsupported member {name!r}")
+    return manifest
+
+
+def _git(repository: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repository), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        shell=False,
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or "git returned no diagnostic"
+        raise ValueError(f"cannot validate external app commit: {detail}")
+    return completed.stdout.strip()
+
+
+def validate_source_archive(path: Path, candidate: CandidateIdentity, *, repository: Path) -> str:
+    """Bind source content to an independently checked-out exact Git commit and tree."""
     try:
         if file_digest(path) != candidate.source_digest:
             raise ValueError("source archive digest does not match the candidate")
-        with tarfile.open(path, mode="r:") as archive:
-            archived_commit = archive.pax_headers.get("comment")
+        repository = repository.resolve(strict=True)
+        if _git(repository, "rev-parse", "HEAD") != candidate.app_commit:
+            raise ValueError("external app checkout HEAD does not match the candidate commit")
+        tree = _git(repository, "rev-parse", f"{candidate.app_commit}^{{tree}}")
+        with tempfile.TemporaryDirectory(prefix="app-cert-source-") as temporary:
+            expected = Path(temporary) / "expected.tar"
+            completed = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repository),
+                    "archive",
+                    "--format=tar",
+                    f"--output={expected}",
+                    candidate.app_commit,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                shell=False,
+            )
+            if completed.returncode:
+                detail = completed.stderr.strip() or "git archive returned no diagnostic"
+                raise ValueError(f"cannot reconstruct external app commit archive: {detail}")
+            if _source_manifest(path) != _source_manifest(expected):
+                raise ValueError("source archive content does not match the external commit tree")
     except (OSError, tarfile.TarError) as error:
         raise ValueError(f"source archive is unreadable: {error}") from error
-    if archived_commit != candidate.app_commit:
-        raise ValueError("source archive commit does not match the candidate")
+    return tree

@@ -168,6 +168,7 @@ class CertificationRunner:
         declaration_path: Path | None = None,
         check_python: Path | None = None,
         evidence_root: Path | None = None,
+        untrusted_user: str | None = None,
     ) -> None:
         self.root = root.resolve()
         self.declaration = declaration
@@ -178,6 +179,7 @@ class CertificationRunner:
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
         self.check_python = (check_python or Path(sys.executable)).absolute()
         self.evidence_root = (evidence_root or self.root).resolve()
+        self.untrusted_user = untrusted_user
 
     def run(
         self, *, expected_commit: str, image_digest: str, source_digest: str
@@ -300,7 +302,10 @@ class CertificationRunner:
             "--candidate-venv",
             str(self.check_python.parent.parent),
         ]
-        result = self._command_result(name, argv, self.candidate_executor)
+        if self.untrusted_user is not None:
+            argv.extend(("--untrusted-user", self.untrusted_user))
+        executor = self.executor if self.untrusted_user is not None else self.candidate_executor
+        result = self._command_result(name, argv, executor)
         if isinstance(result, CheckResult):
             return result
         try:

@@ -30,6 +30,9 @@ jobs:
       contents: read
     env:
       HANDOFF_ROOT: ${{ runner.temp }}/app-certification-handoff-${{ github.run_id }}
+      CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}
+      CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}.img
+      CANDIDATE_BUILD_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
     steps:
       - name: Initialize certifier-owned handoff
         id: handoff
@@ -96,12 +99,17 @@ jobs:
           sudo useradd --system --create-home --home-dir /home/app-cert-candidate \
             --shell /usr/sbin/nologin app-cert-candidate
           chmod -R go-w zeroth app
-          mkdir app/.venv
-          sudo chown -R app-cert-candidate:app-cert-candidate app/.venv
-          timeout 10m sudo -H -u app-cert-candidate env -i \
-            HOME=/home/app-cert-candidate PATH="$PATH" \
-            UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/app/.venv" \
-            uv sync --directory app --frozen --all-extras
+          CANDIDATE_UID=$(id -u app-cert-candidate)
+          CANDIDATE_GID=$(id -g app-cert-candidate)
+          UV_BIN=$(realpath "$(command -v uv)")
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            run-dependency-sandbox --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" --disk-bytes 3221225472 \
+            --image "$CANDIDATE_BUILD_IMAGE" --uv "$UV_BIN" \
+            --uid "$CANDIDATE_UID" --gid "$CANDIDATE_GID" \
+            --cpus 2 --memory 2g --pids-limit 128 --timeout 600 \
+            --output-limit 1048576 --log "$HANDOFF_ROOT/logs/dependency-build.log"
           sudo chown -R "$USER":"$USER" app/.venv
           chmod -R go-w zeroth app
           git -C app diff --exit-code
@@ -368,6 +376,14 @@ jobs:
           docker network rm app-cert-packaged-net app-cert-ephemeral-net
           docker volume rm app-cert-packaged-data
           docker image rm -f "app-cert-candidate:${GITHUB_RUN_ID}"
+      - name: Release candidate dependency sandbox
+        if: ${{ always() }}
+        run: |
+          set +e
+          python3 zeroth/release/app_certification/dependency_sandbox.py \
+            cleanup-dependency-sandbox --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK"
       - name: Upload unprivileged certification handoff
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -389,6 +405,12 @@ jobs:
       provenance_path: ${{ steps.validate.outputs.provenance_path }}
       verdict_sha256: ${{ steps.validate.outputs.verdict_sha256 }}
     steps:
+      - name: Checkout exact application commit for source-tree verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
       - name: Checkout pinned Zeroth verifier only
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -418,6 +440,7 @@ jobs:
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
             validate-handoff --report evidence/report.json --root evidence/root \
             --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-repository app \
             --app-commit "$APP_COMMIT" \
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
             --certifier-wheel evidence/materials/zeroth-core.whl \
@@ -443,6 +466,12 @@ jobs:
       id-token: write
       artifact-metadata: write
     steps:
+      - name: Checkout exact application commit for source-tree verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
       - name: Checkout pinned Zeroth verifier only
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -493,6 +522,7 @@ jobs:
           zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
             --bundle "$BUNDLE" --report evidence/report.json --root evidence/root \
             --image-archive evidence/image.tar --source-archive evidence/source.tar \
+            --app-repository app \
             --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" \
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
             --certifier-wheel evidence/materials/zeroth-core.whl \

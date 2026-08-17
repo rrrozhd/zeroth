@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.13] - 2026-08-17
+
+### Security
+
+- Treat candidate evidence as provisional data, reject direct process and
+  descriptor control in declared targets, verify retained source against an
+  external Git commit tree, and contain dependency hooks inside bounded,
+  unconditionally cleaned container scopes.
+
 ## [0.23.9.12] - 2026-08-17
 
 ### Security

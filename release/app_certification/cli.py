@@ -22,6 +22,7 @@ from .evidence import (
 from .http_process import probe_readiness as _probe_readiness
 from .http_process import run_http_exchange
 from .models import (
+    CandidateIdentity,
     SmokeSpec,
     file_digest,
     identity_digest,
@@ -116,6 +117,7 @@ def _add_handoff_arguments(command: argparse.ArgumentParser) -> None:
     command.add_argument("--root", type=Path, required=True)
     command.add_argument("--image-archive", type=Path, required=True)
     command.add_argument("--source-archive", type=Path, required=True)
+    command.add_argument("--app-repository", type=Path, required=True)
     command.add_argument("--app-commit", required=True)
     command.add_argument("--zeroth-version", required=True)
     command.add_argument("--zeroth-commit", required=True)
@@ -217,6 +219,7 @@ def _run(args: argparse.Namespace) -> int:
         declaration_path=args.declaration,
         check_python=args.check_python,
         evidence_root=args.evidence_root,
+        untrusted_user=args.untrusted_user,
     ).run(
         expected_commit=args.app_commit,
         image_digest=args.image_digest,
@@ -288,6 +291,19 @@ def _retain_build_materials(root: Path, args: argparse.Namespace) -> None:
     shutil.copyfile(args.image_config, materials / "image-config.json")
 
 
+def _handoff_material_digests(
+    args: argparse.Namespace, candidate: CandidateIdentity, sbom: Path
+) -> dict[str, str]:
+    return build_material_digests(
+        candidate,
+        sbom,
+        args.certifier_wheel,
+        args.requirements_lock,
+        args.wheel_installation,
+        args.image_config,
+    )
+
+
 def _validate_handoff(args: argparse.Namespace) -> int:
     report = validate_report(args.report, root=args.root)
     candidate = report.candidate
@@ -301,14 +317,7 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         raise ValueError("trusted certifier commit must be a full commit SHA")
     sbom = _destination(args.root, report.evidence.sbom.path)
     provenance = _destination(args.root, report.evidence.provenance.path)
-    materials = build_material_digests(
-        candidate,
-        sbom,
-        args.certifier_wheel,
-        args.requirements_lock,
-        args.wheel_installation,
-        args.image_config,
-    )
+    materials = _handoff_material_digests(args, candidate, sbom)
     validate_evidence_subject(
         "provenance",
         provenance,
@@ -318,10 +327,13 @@ def _validate_handoff(args: argparse.Namespace) -> int:
         build_material_digests=materials,
     )
     validate_image_archive(args.image_archive, candidate)
-    validate_source_archive(args.source_archive, candidate)
+    app_tree = validate_source_archive(
+        args.source_archive, candidate, repository=args.app_repository
+    )
     verdict = {
         "schema_version": 1,
         "app_commit": candidate.app_commit,
+        "app_tree": app_tree,
         "zeroth_commit": args.zeroth_commit,
         "zeroth_version": candidate.zeroth_version,
         "image_reference": candidate.image_reference,

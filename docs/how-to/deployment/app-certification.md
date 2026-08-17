@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.12 \
+  --zeroth-version 0.23.9.13 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -47,21 +47,26 @@ synced `.venv` and apply the same semantic boundaries used for publication:
   candidate containers.
 
 Each host-side check runs in a bounded subprocess without an ambient shell.
-Candidate imports run in a low-privilege child whose stdout is diagnostic only;
-a separate supervisor validates semantic evidence after that child exits, and
-the trusted runner validates it again before recording a pass. Docker state and
-the locked frontend tool tree are checked on the trusted path. Container
+Candidate imports run in a low-privilege child whose ordinary output is never
+authoritative. The certifier-owned supervisor sequences each operation, treats
+the child's JSON as provisional data, and validates it again before recording a
+pass. A source check also rejects direct process termination and raw descriptor
+messaging in declared target modules. This check is defense in depth, not a
+general Python sandbox: dynamically constructed, native, or transitive behavior
+remains constrained by the low-privilege process and trusted finalization.
+Docker state and the locked frontend tool tree are checked on the trusted path. Container
 readiness requires a parsed JSON body with `status: ok`; HTTP 200 by itself is
 not sufficient. Smoke requests refuse redirects, and frontend targets must
 remain below the app checkout after symlink resolution.
 
 ## Identity, evidence, and privileges
 
-The `certify` job has only `contents: read`. App dependency hooks and semantic
-imports run as a dedicated local user that can write only its isolated virtual
-environment and frontend copy. The locked frontend dependencies are copied to
-a runner-owned read-only tool tree; the pinned certifier and handoff remain
-runner-owned. The job builds from an exact Git archive and measures its SHA-256
+The `certify` job has only `contents: read`. App dependency hooks run inside a
+digest-pinned, read-only container with bounded CPU, memory, processes, output,
+temporary storage, and a fixed-size virtual-environment filesystem. The full
+container cgroup is removed after every outcome. Semantic imports use a dedicated
+local user; the pinned certifier and handoff remain runner-owned. The job builds
+from an exact Git archive and measures its SHA-256
 alongside the app commit and local image descriptor, generates an SPDX SBOM, and
 writes a canonical report even when preparation, build, startup, or health
 fails. Jobs, candidate process trees, containers, archives, HTTP exchanges, and
@@ -72,15 +77,16 @@ archive. The measured image must also retain the isolated absolute-interpreter
 runtime command emitted by the scaffold; both candidate modes import Zeroth from
 the verified wheel location before starting the application module.
 
-A fresh, unprivileged `verify` job downloads that handoff and uses a clean
-pinned Zeroth checkout to validate its source archive, hashes, Docker/OCI
+A fresh, unprivileged `verify` job downloads that handoff and uses clean,
+exact app and pinned Zeroth checkouts to validate the source archive against the
+externally resolved commit tree, plus its hashes and Docker/OCI
 descriptor tree, config, and layers. It emits a digest-bound verdict that
 candidate code cannot rewrite. Only after verification succeeds does the
 separate `attest` job
 receive `id-token: write`, `attestations: write`, and
 `artifact-metadata: write`; it authenticates the verdict before signing the
-exact image subject. Candidate code is never checked out or executed in either
-post-certification job.
+exact image subject. The app tree is checked out only as immutable comparison
+material and is never executed in either post-certification job.
 
 The final report cross-binds the app commit, source archive digest, exact Zeroth
 version and commit, image name and digest, SPDX package inventory and subject,
