@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.4] - 2026-08-18
+
+### Fixed
+
+- Fail closed on measured baseline source identity, per-deployment executor fairness,
+  drain and cancellation lifecycles, and local service readiness.
+
 ## [0.23.10.3] - 2026-08-18
 
 ### Fixed

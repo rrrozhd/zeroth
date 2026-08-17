@@ -20,6 +20,14 @@ if str(ROOT) not in sys.path:
 from release.load.environment import observation_digest, runtime_environment  # noqa: E402
 
 REVISION = re.compile(r"[0-9a-f]{40}")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+SOURCE_IDENTITY_KEYS = {
+    "schema_version",
+    "commit",
+    "tree",
+    "package_version",
+    "source_digest",
+}
 
 
 def source_digest(root: Path) -> str:
@@ -35,10 +43,47 @@ def source_digest(root: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
-def build_receipt(source: Path, raw: Path, commit: str, tree: str) -> dict:
+def load_source_identity(path: Path) -> tuple[dict, str]:
+    """Load the retained exact-source identity and bind its bytes."""
+    raw = path.read_bytes()
+    identity = json.loads(raw)
+    valid = (
+        isinstance(identity, dict)
+        and set(identity) == SOURCE_IDENTITY_KEYS
+        and identity.get("schema_version") == 1
+        and REVISION.fullmatch(str(identity.get("commit", ""))) is not None
+        and REVISION.fullmatch(str(identity.get("tree", ""))) is not None
+        and DIGEST.fullmatch(str(identity.get("source_digest", ""))) is not None
+        and isinstance(identity.get("package_version"), str)
+        and bool(identity["package_version"].strip())
+    )
+    if not valid:
+        raise ValueError("baseline source identity is malformed")
+    return identity, "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def source_identity(source: Path, identity_path: Path) -> dict[str, str]:
+    """Verify the mounted source against its retained Git-derived identity."""
+    identity, identity_digest = load_source_identity(identity_path)
+    measured_digest = source_digest(source)
+    package = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))
+    if measured_digest != identity["source_digest"]:
+        raise ValueError("receipt source does not match the exact-base identity")
+    if package["project"]["version"] != identity["package_version"]:
+        raise ValueError("receipt package version does not match the exact-base identity")
+    return {
+        "commit": identity["commit"],
+        "tree": identity["tree"],
+        "source_digest": measured_digest,
+        "source_identity_digest": identity_digest,
+    }
+
+
+def build_receipt(source: Path, raw: Path, identity_path: Path) -> dict:
     """Derive the receipt inside the same environment that executed the probe."""
-    if REVISION.fullmatch(commit) is None or REVISION.fullmatch(tree) is None:
-        raise ValueError("receipt commit/tree is malformed")
+    identity = source_identity(source, identity_path)
+    if any(REVISION.fullmatch(identity[name]) is None for name in ("commit", "tree")):
+        raise ValueError("measured receipt commit/tree is malformed")
     observations = json.loads(raw.read_text(encoding="utf-8"))
     if not isinstance(observations, list) or not observations:
         raise ValueError("receipt observations are empty")
@@ -48,11 +93,9 @@ def build_receipt(source: Path, raw: Path, commit: str, tree: str) -> dict:
     origin.relative_to(source.resolve())
     package = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))
     return {
-        "commit": commit,
-        "tree": tree,
+        **identity,
         "package_version": package["project"]["version"],
         "product_import_origin": str(origin),
-        "source_digest": source_digest(source),
         "observation_digest": observation_digest(observations),
         "environment": runtime_environment(),
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -62,12 +105,11 @@ def build_receipt(source: Path, raw: Path, commit: str, tree: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--source-identity", type=Path, required=True)
     parser.add_argument("--raw", type=Path, required=True)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--tree", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    receipt = build_receipt(args.source, args.raw, args.commit, args.tree)
+    receipt = build_receipt(args.source, args.raw, args.source_identity)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(args.output.suffix + ".tmp")
     temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
