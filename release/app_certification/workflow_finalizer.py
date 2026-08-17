@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
+from .dependency_sandbox import certification_resources
 from .models import (
     MANDATORY_CHECKS,
     CertificationReport,
@@ -25,6 +27,7 @@ _STAGE_NAMES = (
     "EVIDENCE",
     "CONTAINERS",
     "HEALTH",
+    "RUNTIME",
     "CERTIFY",
     "CLEANUP",
 )
@@ -32,11 +35,13 @@ _REQUIRED_STAGES = tuple(name.lower() for name in _STAGE_NAMES)
 _CHECK_STAGES = {
     "container-startup": "containers",
     "health": "health",
+    "optional-extras": "runtime",
     "packaged-smoke": "certify",
     "ephemeral-smoke": "certify",
     "sbom": "sbom",
     "provenance": "evidence",
 }
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _workflow_stages() -> dict[str, str]:
@@ -55,25 +60,61 @@ def _existing_report_is_valid(report_path: Path, root: Path, stages: dict[str, s
     return all(stages[name] == "success" for name in _REQUIRED_STAGES)
 
 
+def _cleanup_resource_succeeded(item: object, expected: tuple[str, str]) -> bool:
+    kind, name = expected
+    if (
+        not isinstance(item, dict)
+        or set(item) != {"absent", "created_id", "kind", "name"}
+        or item.get("absent") is not True
+        or item.get("kind") != kind
+        or item.get("name") != name
+    ):
+        return False
+    created_id = item.get("created_id")
+    if kind == "image":
+        return isinstance(created_id, str) and _DIGEST.fullmatch(created_id) is not None
+    return created_id is None or isinstance(created_id, str) and bool(created_id.strip())
+
+
 def _cleanup_succeeded(path: Path) -> bool:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
-    resources = document.get("resources") if isinstance(document, dict) else None
-    return (
-        document.get("schema_version") == 1
-        and document.get("status") == "passed"
-        and isinstance(resources, list)
-        and all(isinstance(item, dict) and item.get("absent") is True for item in resources)
+    if not isinstance(document, dict) or set(document) != {
+        "daemon_id",
+        "errors",
+        "resources",
+        "run_id",
+        "schema_version",
+        "status",
+    }:
+        return False
+    run_id = document.get("run_id")
+    resources = document.get("resources")
+    if (
+        document.get("schema_version") != 1
+        or document.get("status") != "passed"
+        or document.get("errors") != []
+        or not isinstance(document.get("daemon_id"), str)
+        or not document["daemon_id"]
+        or not isinstance(run_id, str)
+        or not isinstance(resources, list)
+    ):
+        return False
+    try:
+        expected = certification_resources(run_id)
+    except ValueError:
+        return False
+    return len(resources) == len(expected) and all(
+        _cleanup_resource_succeeded(item, resource)
+        for item, resource in zip(resources, expected, strict=True)
     )
 
 
 def _write_json(path: Path, document: dict[str, object]) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    temporary.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(temporary, path)
 
 
@@ -134,9 +175,7 @@ def validate_workflow_evidence(
     return evidence
 
 
-def _failed_checks(
-    stages: dict[str, str], *, forced_stage: str | None = None
-) -> list[CheckResult]:
+def _failed_checks(stages: dict[str, str], *, forced_stage: str | None = None) -> list[CheckResult]:
     failed_stage = forced_stage or next(
         (name for name in _REQUIRED_STAGES if stages[name] != "success"), "prepare"
     )
@@ -167,8 +206,10 @@ def finalize_workflow(root: Path) -> int:
         _write_json(
             cleanup_path,
             {
+                "daemon_id": None,
                 "errors": ["cleanup stage produced no retained evidence"],
                 "resources": [],
+                "run_id": None,
                 "schema_version": 1,
                 "status": "failed",
             },

@@ -26,6 +26,7 @@ from release.app_certification.wheel_installation import (
 )
 from release.app_certification.workflow_finalizer import finalize_workflow
 from tests.app_certification.test_engine import declaration_data, write_semantic_inputs
+from tests.app_certification.workflow_fixtures import successful_cleanup_document
 
 
 WORKFLOW = Path(".github/workflows/app-certification.yml")
@@ -133,7 +134,7 @@ def test_workflow_finalizer_preserves_valid_failed_certifier_report(
     )
     write_report(report, root / "report.json")
     (root / "cleanup.json").write_text(
-        json.dumps({"schema_version": 1, "status": "passed", "resources": []}) + "\n",
+        json.dumps(successful_cleanup_document()) + "\n",
         encoding="utf-8",
     )
     for stage in (
@@ -146,6 +147,7 @@ def test_workflow_finalizer_preserves_valid_failed_certifier_report(
         "EVIDENCE",
         "CONTAINERS",
         "HEALTH",
+        "RUNTIME",
         "CERTIFY",
         "CLEANUP",
     ):
@@ -240,9 +242,11 @@ def test_exact_wheel_contents_are_verified_outside_the_candidate(tmp_path: Path)
 def test_workflow_extracts_and_binds_installed_wheel_without_execution() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "docker create --name app-cert-wheel-inspect" in workflow
-    assert "docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/." in workflow
+    assert 'docker create --name "$WHEEL_INSPECT_CONTAINER"' in workflow
+    assert (
+        'docker cp "$WHEEL_INSPECT_CONTAINER":/usr/local/lib/python3.12/site-packages/.' in workflow
+    )
     assert "verify-wheel-installation" in workflow
     assert '--wheel-installation "$HANDOFF_ROOT/installed-wheel.json"' in workflow
     assert "--wheel-installation evidence/materials/installed-wheel.json" in workflow
-    assert "docker rm app-cert-wheel-inspect" in workflow
+    assert 'docker rm "$WHEEL_INSPECT_CONTAINER"' in workflow

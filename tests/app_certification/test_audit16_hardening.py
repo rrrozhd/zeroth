@@ -19,6 +19,7 @@ from release.app_certification import (
     write_report,
 )
 from release.app_certification.workflow_finalizer import finalize_workflow
+from tests.app_certification.workflow_fixtures import successful_cleanup_document
 
 
 ROOT = Path(__file__).parents[2]
@@ -187,7 +188,7 @@ def test_cleanup_is_a_retained_hashed_workflow_stage(
 ) -> None:
     cleanup = tmp_path / "cleanup.json"
     cleanup.write_text(
-        json.dumps({"schema_version": 1, "status": "passed", "resources": []}) + "\n",
+        json.dumps(successful_cleanup_document()) + "\n",
         encoding="utf-8",
     )
     report = tmp_path / "report.json"
@@ -202,6 +203,7 @@ def test_cleanup_is_a_retained_hashed_workflow_stage(
         "EVIDENCE",
         "CONTAINERS",
         "HEALTH",
+        "RUNTIME",
         "CERTIFY",
         "CLEANUP",
     ):
@@ -228,9 +230,7 @@ def test_cleanup_precedes_finalization_and_is_verified_from_retained_hashes() ->
     cleanup_indices = [index for index, name in enumerate(names) if name.startswith("Clean up ")]
     finalizer = certify[finalizer_index]
     verify = next(
-        step["run"]
-        for step in workflow["jobs"]["verify"]["steps"]
-        if step.get("id") == "validate"
+        step["run"] for step in workflow["jobs"]["verify"]["steps"] if step.get("id") == "validate"
     )
 
     assert cleanup_indices and max(cleanup_indices) < finalizer_index

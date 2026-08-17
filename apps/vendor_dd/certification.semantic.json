@@ -1,7 +1,14 @@
 {
   "capabilities": {
+    "external_api_call": "external_api_call",
+    "filesystem_read": "filesystem_read",
+    "filesystem_write": "filesystem_write",
     "memory_read": "memory_read",
-    "process_spawn": "process_spawn"
+    "memory_write": "memory_write",
+    "network_read": "network_read",
+    "network_write": "network_write",
+    "process_spawn": "process_spawn",
+    "secret_access": "secret_access"
   },
   "contracts": {
     "contract://vendor-dd/assessment": {
@@ -1059,7 +1066,7 @@
   },
   "graphs": [
     {
-      "created_at": "2026-08-17T13:09:07.606806Z",
+      "created_at": "1970-01-01T00:00:00Z",
       "deployment_settings": {
         "tenant_id": "tenant-acme"
       },
@@ -1678,12 +1685,12 @@
       "policy_bindings": [],
       "status": "draft",
       "tenant_id": "default",
-      "updated_at": "2026-08-17T13:09:07.606809Z",
+      "updated_at": "1970-01-01T00:00:00Z",
       "version": 1,
       "workspace_id": null
     },
     {
-      "created_at": "2026-08-17T13:09:07.606830Z",
+      "created_at": "1970-01-01T00:00:00Z",
       "deployment_settings": {
         "tenant_id": "tenant-acme"
       },
@@ -1783,12 +1790,12 @@
       "policy_bindings": [],
       "status": "draft",
       "tenant_id": "default",
-      "updated_at": "2026-08-17T13:09:07.606831Z",
+      "updated_at": "1970-01-01T00:00:00Z",
       "version": 1,
       "workspace_id": null
     },
     {
-      "created_at": "2026-08-17T13:09:07.606843Z",
+      "created_at": "1970-01-01T00:00:00Z",
       "deployment_settings": {
         "tenant_id": "tenant-acme"
       },
@@ -1888,7 +1895,7 @@
       "policy_bindings": [],
       "status": "draft",
       "tenant_id": "default",
-      "updated_at": "2026-08-17T13:09:07.606844Z",
+      "updated_at": "1970-01-01T00:00:00Z",
       "version": 1,
       "workspace_id": null
     }
@@ -1933,12 +1940,12 @@
   },
   "target_sources": {
     "apps.vendor_dd.contracts:CONTRACTS": "sha256:5a3e5844ec4722199e6d52ef694b56d77e6b08fcd760c696b72398fb6852425e",
-    "apps.vendor_dd.entrypoint:build_auth_config": "sha256:9e7e21502c0b5a29290cfd1696c1b998c3b8003cf238f42f055873c28cfc2d1c",
-    "apps.vendor_dd.entrypoint:build_policy_guard": "sha256:9e7e21502c0b5a29290cfd1696c1b998c3b8003cf238f42f055873c28cfc2d1c",
+    "apps.vendor_dd.entrypoint:build_auth_config": "sha256:5b3eaea9393857a1ca15e5a84ce2a944b6ba2ca2b71434e1078608f2a37c4ccd",
+    "apps.vendor_dd.entrypoint:build_policy_guard": "sha256:5b3eaea9393857a1ca15e5a84ce2a944b6ba2ca2b71434e1078608f2a37c4ccd",
     "apps.vendor_dd.graphs:build_chat_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
     "apps.vendor_dd.graphs:build_dimension_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
     "apps.vendor_dd.graphs:build_main_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
     "apps.vendor_dd.migrations:migrate": "sha256:2f88aa566e7edb8ba3a51b1ebafcb509068c93a43f7a552b06d66a5b390ba2d8"
   },
-  "zeroth_version": "0.23.9.14"
+  "zeroth_version": "0.23.9.15"
 }

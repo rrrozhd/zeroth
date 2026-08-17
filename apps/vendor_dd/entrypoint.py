@@ -32,10 +32,18 @@ APP_DIR = Path(__file__).resolve().parent
 
 PORT = int(os.environ.get("PORT", "8730"))
 HOST = os.environ.get("HOST", "127.0.0.1")
+CONNECT_HOST = "127.0.0.1" if HOST in {"0.0.0.0", "::"} else HOST
+TENANT_ID = os.environ.get("VENDOR_DD_TENANT", "tenant-acme")
 
 os.environ.setdefault("ZEROTH_DATABASE__SQLITE_PATH", str(APP_DIR / "vendor_dd.sqlite"))
 os.environ.setdefault("ZEROTH_REGULUS__ENABLED", "true")
-os.environ.setdefault("ZEROTH_REGULUS__BASE_URL", f"http://{HOST}:{PORT}/regulus/v1")
+os.environ.setdefault("ZEROTH_REGULUS__BASE_URL", f"http://{CONNECT_HOST}:{PORT}/regulus/v1")
+# Bind econ_plane's import-time settings only for direct module execution. The
+# certification wrapper binds them before importing this module; ordinary library
+# importers must retain their parent process's Regulus tenant.
+if __name__ == "__main__":
+    os.environ.setdefault("ECP_BASE_URL", f"http://{CONNECT_HOST}:{PORT}/regulus/v1")
+    os.environ.setdefault("ECP_SERVICE_PRINCIPAL_TENANT_ID", TENANT_ID)
 # Short budget cache so cap changes take effect promptly in the runbook.
 os.environ.setdefault("ZEROTH_REGULUS__BUDGET_CACHE_TTL", "2")
 os.environ.setdefault("ECP_ALLOW_INSECURE_JWT_SECRET", "1")  # local dev only
@@ -82,7 +90,6 @@ from zeroth.service.bootstrap.factory import bootstrap_scoped_service  # noqa: E
 from zeroth.service.deployments import Deployment, SQLiteDeploymentRepository  # noqa: E402
 
 API_KEY = os.environ.get("VENDOR_DD_API_KEY", "vendor-dd-ops-key")
-TENANT_ID = os.environ.get("VENDOR_DD_TENANT", "tenant-acme")
 
 ALL_DEPLOYMENT_REFS = (MAIN_DEPLOYMENT_REF, DIMENSION_DEPLOYMENT_REF, CHAT_DEPLOYMENT_REF)
 

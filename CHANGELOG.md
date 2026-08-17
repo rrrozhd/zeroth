@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.15] - 2026-08-17
+
+### Security
+
+- Isolate certification images behind collision-checked run tags, remove only
+  exact created image identities, and authenticate a canonical fail-closed
+  cleanup inventory.
+- Probe the exact runtime's Regulus imports, capabilities, authenticated budget,
+  and instrumentation paths in both candidate modes, and generate complete
+  deterministic semantic manifests from scaffold inputs.
+
 ## [0.23.9.14] - 2026-08-17
 
 ### Security

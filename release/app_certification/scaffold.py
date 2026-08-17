@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import os
 import re
+import sys
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+from pydantic import BaseModel
+
+from zeroth.contracts.graph import Graph
+from zeroth.governance.policy import PolicyGuard
+from zeroth.service.api.authentication import ServiceAuthConfig
+
+from .checks import target_source_digests
 from .models import AppDeclaration
 from .wheel_installation import RUNTIME_BOOTSTRAP
 
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _caller(zeroth_ref: str) -> str:
@@ -136,6 +150,119 @@ def _declaration(app_name: str, module: str, version: str) -> dict:
     }
 
 
+def _load_target(reference: str) -> Any:
+    module_name, _, attribute_path = reference.partition(":")
+    value: Any = importlib.import_module(module_name)
+    for attribute in attribute_path.split("."):
+        value = getattr(value, attribute)
+    return value
+
+
+def _contract_schemas(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("contracts target must be a nonempty mapping")
+    schemas: dict[str, dict[str, Any]] = {}
+    for name, contract in sorted(value.items()):
+        if not isinstance(name, str) or not name:
+            raise ValueError("contract names must be nonempty strings")
+        if isinstance(contract, type) and issubclass(contract, BaseModel):
+            schemas[name] = contract.model_json_schema()
+        elif isinstance(contract, dict):
+            schemas[name] = contract
+        else:
+            raise ValueError(f"contract {name!r} is not a Pydantic model or JSON schema")
+    return schemas
+
+
+def _generated_graphs(declaration: AppDeclaration) -> list[dict[str, Any]]:
+    graphs: list[dict[str, Any]] = []
+    for reference in declaration.targets.graph_builders:
+        builder = _load_target(reference)
+        graph = builder() if callable(builder) else None
+        if not isinstance(graph, Graph):
+            raise ValueError(f"graph builder {reference!r} did not return Graph")
+        if any(node.parallel_config and node.parallel_config.reducer_ref for node in graph.nodes):
+            raise ValueError("dynamic reducers are outside the static scaffold contract")
+        graphs.append(
+            graph.model_copy(update={"created_at": _EPOCH, "updated_at": _EPOCH}).model_dump(
+                mode="json"
+            )
+        )
+    return graphs
+
+
+def _generated_policy(declaration: AppDeclaration) -> tuple[dict[str, Any], dict[str, str]]:
+    policy_factory = _load_target(declaration.targets.policy_guard)
+    policy_guard = policy_factory() if callable(policy_factory) else None
+    if not isinstance(policy_guard, PolicyGuard):
+        raise ValueError("policy_guard target did not return PolicyGuard")
+    policies = getattr(policy_guard.policy_registry, "_policies", None)
+    capabilities = getattr(policy_guard.capability_registry, "_refs", None)
+    if not isinstance(policies, dict) or not isinstance(capabilities, dict):
+        raise ValueError("policy guard registries are not inspectable")
+    return (
+        {name: policy.model_dump(mode="json") for name, policy in sorted(policies.items())},
+        {name: capability.value for name, capability in sorted(capabilities.items())},
+    )
+
+
+def _semantic_document(
+    root: Path, declaration: AppDeclaration, database_backend: str
+) -> dict[str, Any]:
+    sys.path.insert(0, str(root))
+    try:
+        graphs = _generated_graphs(declaration)
+        contracts = _contract_schemas(_load_target(declaration.targets.contracts))
+        auth_factory = _load_target(declaration.targets.auth_config)
+        auth_config = auth_factory() if callable(auth_factory) else None
+        if not isinstance(auth_config, ServiceAuthConfig):
+            raise ValueError("auth_config target did not return ServiceAuthConfig")
+        policies, capabilities = _generated_policy(declaration)
+        return {
+            "capabilities": capabilities,
+            "contracts": contracts,
+            "graphs": graphs,
+            "policies": policies,
+            "reducers": [],
+            "schema_version": 1,
+            "service_config": {
+                "auth_config": auth_config.model_dump(mode="json"),
+                "database_backend": database_backend,
+            },
+            "target_sources": target_source_digests("optional-extras", root, declaration),
+            "zeroth_version": declaration.zeroth_version,
+        }
+    finally:
+        sys.path.pop(0)
+
+
+def generate_semantic_manifest(
+    root: Path,
+    declaration: AppDeclaration,
+    output: Path,
+    *,
+    database_backend: str = "sqlite",
+) -> Path:
+    """Generate one canonical semantic manifest from app-owned target objects."""
+    root = root.resolve()
+    output = output.resolve()
+    output.relative_to(root)
+    if output.is_symlink() or database_backend not in {"sqlite", "postgres"}:
+        raise ValueError("semantic output or database backend is invalid")
+    document = _semantic_document(root, declaration, database_backend)
+    temporary = output.with_name(f".{output.name}.tmp")
+    if temporary.exists() or temporary.is_symlink():
+        raise ValueError("semantic temporary output already exists")
+    try:
+        temporary.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return output
+
+
 def scaffold_checkout(
     root: Path,
     *,
@@ -150,25 +277,10 @@ def scaffold_checkout(
     if re.fullmatch(r"[0-9a-f]{40}", zeroth_ref) is None:
         raise ValueError("zeroth_ref must be a full lowercase Git commit SHA")
     declaration = AppDeclaration.model_validate(_declaration(app_name, module, zeroth_version))
+    semantic = root / declaration.semantic_path
     files = {
         root / "certification.json": json.dumps(
             declaration.model_dump(mode="json"), indent=2, sort_keys=True
-        )
-        + "\n",
-        root / "certification.semantic.json": json.dumps(
-            {
-                "capabilities": {},
-                "contracts": {},
-                "graphs": [],
-                "policies": {},
-                "reducers": [],
-                "schema_version": 1,
-                "service_config": {},
-                "target_sources": {},
-                "zeroth_version": zeroth_version,
-            },
-            indent=2,
-            sort_keys=True,
         )
         + "\n",
         root / "Dockerfile.certification": _dockerfile(module, zeroth_version),
@@ -176,10 +288,20 @@ def scaffold_checkout(
         root / module.replace(".", "/") / "certification_healthcheck.py": _HEALTHCHECK,
         root / module.replace(".", "/") / "migrations.py": _MIGRATIONS,
     }
-    existing = [path for path in files if path.exists() or path.is_symlink()]
+    existing = [path for path in (*files, semantic) if path.exists() or path.is_symlink()]
     if existing:
         raise ValueError("refusing to overwrite scaffold assets: " + ", ".join(map(str, existing)))
-    for path, content in files.items():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-    return list(files)
+    created: list[Path] = []
+    try:
+        for path, content in files.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            created.append(path)
+            with path.open("x", encoding="utf-8") as stream:
+                stream.write(content)
+        created.append(semantic)
+        generate_semantic_manifest(root, declaration, semantic)
+    except Exception:
+        for path in reversed(created):
+            path.unlink(missing_ok=True)
+        raise
+    return [*files, semantic]

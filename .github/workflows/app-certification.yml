@@ -29,12 +29,21 @@ jobs:
     permissions:
       contents: read
     env:
-      HANDOFF_ROOT: ${{ runner.temp }}/app-certification-handoff-${{ github.run_id }}
-      CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}
-      CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}.img
+      CERTIFICATION_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      HANDOFF_ROOT: ${{ runner.temp }}/app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}-${{ github.run_attempt }}.img
       CANDIDATE_BUILD_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
-      CANDIDATE_BUILDER: app-cert-builder-${{ github.run_id }}
-      CANDIDATE_BUILDER_DISK: ${{ runner.temp }}/app-cert-builder-${{ github.run_id }}.img
+      CANDIDATE_BUILDER: app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_BUILDER_DISK: ${{ runner.temp }}/app-cert-builder-${{ github.run_id }}-${{ github.run_attempt }}.img
+      CANDIDATE_IMAGE_REFERENCE: app-cert-candidate:${{ github.run_id }}-${{ github.run_attempt }}
+      RUNTIME_IMAGE_REFERENCE: app-cert-runtime:${{ github.run_id }}-${{ github.run_attempt }}
+      WHEEL_INSPECT_CONTAINER: app-cert-wheel-inspect-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_CONTAINER: app-cert-packaged-${{ github.run_id }}-${{ github.run_attempt }}
+      EPHEMERAL_CONTAINER: app-cert-ephemeral-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_NETWORK: app-cert-packaged-net-${{ github.run_id }}-${{ github.run_attempt }}
+      EPHEMERAL_NETWORK: app-cert-ephemeral-net-${{ github.run_id }}-${{ github.run_attempt }}
+      PACKAGED_VOLUME: app-cert-packaged-data-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Initialize certifier-owned handoff
         id: handoff
@@ -95,6 +104,11 @@ jobs:
           }
           timeout 10m uv sync --directory zeroth --frozen --all-extras
           timeout 5m npm ci --prefix zeroth/frontend
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            check-certification-collisions --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" --run-id "$CERTIFICATION_RUN_ID" \
+            --ownership "$HANDOFF_ROOT/resource-ownership.json"
           mkdir trusted-certifier
           timeout 5m uv build --directory zeroth --wheel --out-dir trusted-certifier
           cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
@@ -165,13 +179,28 @@ jobs:
             exit 1
           }
           DOCKERFILE=${DOCKERFILE_FILE#"$GITHUB_WORKSPACE/build-context/"}
-          IMAGE_REFERENCE=$("$ZEROTH_PYTHON" -c \
+          DECLARED_IMAGE_REFERENCE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
             "$DECLARATION_FILE")
+          SEMANTIC_PATH=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["semantic_path"])' \
+            "$DECLARATION_FILE")
+          SEMANTIC_FILE=$(realpath -e "build-context/$SEMANTIC_PATH")
+          [[ "$SEMANTIC_FILE" == "$GITHUB_WORKSPACE/build-context/"* && \
+             -f "$SEMANTIC_FILE" ]] || {
+            echo "declared semantic manifest resolves outside committed source" >&2
+            exit 1
+          }
+          RUNTIME_TENANT=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; d=json.load(open(sys.argv[1])); t={k.get("tenant_id") for k in d["service_config"]["auth_config"]["api_keys"]}; assert len(t)==1 and None not in t; print(t.pop())' \
+            "$SEMANTIC_FILE")
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
-          echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "declared_image_reference=$DECLARED_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "image_reference=$RUNTIME_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "runtime_tenant=$RUNTIME_TENANT" >> "$GITHUB_OUTPUT"
+          echo "zeroth_version=$DECLARED_VERSION" >> "$GITHUB_OUTPUT"
           APP_CERTIFICATION_API_KEY=$("$ZEROTH_PYTHON" -c \
             'import secrets; print(secrets.token_hex(32))')
           echo "::add-mask::$APP_CERTIFICATION_API_KEY"
@@ -186,7 +215,6 @@ jobs:
           shopt -s nullglob
           CERTIFIER_WHEELS=(trusted-certifier/*.whl)
           [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
-          CANDIDATE_IMAGE_REFERENCE="app-cert-candidate:${GITHUB_RUN_ID}"
           zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
             run-build-sandbox --app-root app \
             --container-name "$CANDIDATE_BUILD_CONTAINER" \
@@ -196,6 +224,12 @@ jobs:
             --tag "$CANDIDATE_IMAGE_REFERENCE" \
             --cpus 2 --memory 2g --pids-limit 256 --timeout 900 \
             --output-limit 1048576 --log "$HANDOFF_ROOT/logs/candidate-build.log"
+          CANDIDATE_IMAGE_DIGEST=$(docker image inspect \
+            "$CANDIDATE_IMAGE_REFERENCE" --format '{{.Id}}')
+          [[ "$CANDIDATE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "docker returned a non-immutable candidate image digest" >&2
+            exit 1
+          }
           docker image inspect "$CANDIDATE_IMAGE_REFERENCE" --format '{{json .Config}}' \
             > "$HANDOFF_ROOT/candidate-image-config.json"
           RUNTIME_CONTEXT=$(mktemp -d "$RUNNER_TEMP/app-cert-runtime.XXXXXX")
@@ -217,6 +251,7 @@ jobs:
           docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config}}' \
             > "$HANDOFF_ROOT/image-config.json"
           timeout 5m docker save --output "$HANDOFF_ROOT/image.tar" "$IMAGE_REFERENCE"
+          echo "candidate_digest=$CANDIDATE_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           rm -rf "$RUNTIME_CONTEXT"
           trap - EXIT
@@ -231,15 +266,15 @@ jobs:
           CERTIFIER_WHEELS=(trusted-certifier/*.whl)
           [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
           WHEEL_SITE=$(mktemp -d "$RUNNER_TEMP/app-cert-wheel-site.XXXXXX")
-          trap 'docker rm -f app-cert-wheel-inspect >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
-          docker create --name app-cert-wheel-inspect "$IMAGE_REFERENCE" >/dev/null
-          docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
+          trap 'docker rm -f "$WHEEL_INSPECT_CONTAINER" >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
+          docker create --name "$WHEEL_INSPECT_CONTAINER" "$IMAGE_REFERENCE" >/dev/null
+          docker cp "$WHEEL_INSPECT_CONTAINER":/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
           zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
             --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
             --image-config "$HANDOFF_ROOT/image-config.json" \
             --image-digest "$IMAGE_DIGEST" \
             --output "$HANDOFF_ROOT/installed-wheel.json"
-          docker rm app-cert-wheel-inspect >/dev/null
+          docker rm "$WHEEL_INSPECT_CONTAINER" >/dev/null
           rm -rf "$WHEEL_SITE"
           trap - EXIT
       - name: Generate SPDX image SBOM
@@ -269,6 +304,7 @@ jobs:
             --declaration "$HANDOFF_ROOT/declaration.json" \
             --root app \
             --app-commit "$APP_COMMIT" \
+            --image-reference "${{ steps.prepare.outputs.image_reference }}" \
             --image-digest "$IMAGE_DIGEST" \
             --source-digest "$SOURCE_DIGEST" \
             --raw-sbom "$HANDOFF_ROOT/image.spdx.json" \
@@ -284,24 +320,32 @@ jobs:
           IMAGE_ID: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          docker network create app-cert-packaged-net
-          docker network create app-cert-ephemeral-net
-          docker volume create app-cert-packaged-data
-          docker run --detach --name app-cert-packaged \
+          docker network create "$PACKAGED_NETWORK"
+          docker network create "$EPHEMERAL_NETWORK"
+          docker volume create "$PACKAGED_VOLUME"
+          docker run --detach --name "$PACKAGED_CONTAINER" \
             --cpus 2 --memory 2g --pids-limit 256 \
             --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-            --network app-cert-packaged-net \
-            --mount type=volume,source=app-cert-packaged-data,target=/data \
+            --network "$PACKAGED_NETWORK" \
+            --mount type=volume,source="$PACKAGED_VOLUME",target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
+            --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ZEROTH_REGULUS__ENABLED=true \
             "$IMAGE_ID"
-          docker run --detach --name app-cert-ephemeral \
+          docker run --detach --name "$EPHEMERAL_CONTAINER" \
             --cpus 2 --memory 2g --pids-limit 256 \
             --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
-            --network app-cert-ephemeral-net \
+            --network "$EPHEMERAL_NETWORK" \
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
+            --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
+            --env ZEROTH_REGULUS__ENABLED=true \
             "$IMAGE_ID"
       - name: Require healthy container state and readiness payload
         id: health
@@ -321,12 +365,36 @@ jobs:
             done
             return 1
           }
-          wait_healthy app-cert-packaged
-          wait_healthy app-cert-ephemeral
+          wait_healthy "$PACKAGED_CONTAINER"
+          wait_healthy "$EPHEMERAL_CONTAINER"
           zeroth/.venv/bin/python -m release.app_certification probe-readiness \
             --url http://127.0.0.1:18080/health/ready
           zeroth/.venv/bin/python -m release.app_certification probe-readiness \
             --url http://127.0.0.1:18081/health/ready
+      - name: Probe exact runtime optional extras
+        id: runtime
+        env:
+          PACKAGED_CONTAINER: ${{ env.PACKAGED_CONTAINER }}
+          EPHEMERAL_CONTAINER: ${{ env.EPHEMERAL_CONTAINER }}
+          RUNTIME_TENANT: ${{ steps.prepare.outputs.runtime_tenant }}
+          ZEROTH_VERSION: ${{ steps.prepare.outputs.zeroth_version }}
+        run: |
+          set -euo pipefail
+          probe_mode() {
+            local mode="$1" container="$2" url="$3" token
+            docker exec -i "$container" /usr/local/bin/python -I -s - \
+              "$ZEROTH_VERSION" \
+              < zeroth/release/app_certification/runtime_probe_worker.py
+            token=$(docker exec "$container" /usr/local/bin/python -I -s -c \
+              'from zeroth.econ.analytics.service_auth import mint_econ_service_token as mint; token=mint(); assert token; print(token)')
+            echo "::add-mask::$token"
+            APP_CERTIFICATION_REGULUS_TOKEN="$token" \
+              zeroth/.venv/bin/python -m release.app_certification probe-regulus \
+              --url "$url/regulus/v1" --tenant "$RUNTIME_TENANT" \
+              --probe-id "$CERTIFICATION_RUN_ID" --mode "$mode"
+          }
+          probe_mode packaged "$PACKAGED_CONTAINER" http://127.0.0.1:18080
+          probe_mode ephemeral "$EPHEMERAL_CONTAINER" http://127.0.0.1:18081
       - name: Run fail-closed certification
         id: certify
         env:
@@ -340,6 +408,7 @@ jobs:
             --declaration "$HANDOFF_ROOT/declaration.json" \
             --root app \
             --app-commit "$APP_COMMIT" \
+            --image-reference "${{ steps.prepare.outputs.image_reference }}" \
             --image-digest "$IMAGE_DIGEST" \
             --source-digest "$SOURCE_DIGEST" \
             --packaged-url http://127.0.0.1:18080 \
@@ -353,16 +422,13 @@ jobs:
         run: |
           set +e
           mkdir -p "$HANDOFF_ROOT/logs"
-          docker logs --tail 2000 app-cert-packaged > "$HANDOFF_ROOT/logs/packaged.log" 2>&1
-          docker logs --tail 2000 app-cert-ephemeral > "$HANDOFF_ROOT/logs/ephemeral.log" 2>&1
-          docker inspect app-cert-packaged app-cert-ephemeral \
+          docker logs --tail 2000 "$PACKAGED_CONTAINER" > "$HANDOFF_ROOT/logs/packaged.log" 2>&1
+          docker logs --tail 2000 "$EPHEMERAL_CONTAINER" > "$HANDOFF_ROOT/logs/ephemeral.log" 2>&1
+          docker inspect "$PACKAGED_CONTAINER" "$EPHEMERAL_CONTAINER" \
             > "$HANDOFF_ROOT/logs/container-inspect.json" 2>&1
       - name: Clean up certification resources
         id: cleanup
         if: ${{ always() }}
-        env:
-          CANDIDATE_IMAGE_REFERENCE: app-cert-candidate:${{ github.run_id }}
-          RUNTIME_IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
         run: |
           set -euo pipefail
           python3 zeroth/release/app_certification/dependency_sandbox.py \
@@ -371,8 +437,10 @@ jobs:
             --disk "$CANDIDATE_BUILD_DISK" \
             --builder-name "$CANDIDATE_BUILDER" \
             --builder-disk "$CANDIDATE_BUILDER_DISK" \
-            --candidate-image "$CANDIDATE_IMAGE_REFERENCE" \
-            --runtime-image "$RUNTIME_IMAGE_REFERENCE" \
+            --run-id "$CERTIFICATION_RUN_ID" \
+            --candidate-image-id "${{ steps.image.outputs.candidate_digest }}" \
+            --runtime-image-id "${{ steps.image.outputs.digest }}" \
+            --ownership "$HANDOFF_ROOT/resource-ownership.json" \
             --output "$HANDOFF_ROOT/cleanup.json"
       - name: Finalize canonical report and stage diagnostics
         if: ${{ always() }}
@@ -386,18 +454,19 @@ jobs:
           EVIDENCE: ${{ steps.evidence.outcome }}
           CONTAINERS: ${{ steps.containers.outcome }}
           HEALTH: ${{ steps.health.outcome }}
+          RUNTIME: ${{ steps.runtime.outcome }}
           CERTIFY: ${{ steps.certify.outcome }}
           CLEANUP: ${{ steps.cleanup.outcome }}
         run: |
           set -euo pipefail
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
             -m release.app_certification finalize-workflow \
-            --root "$HANDOFF_ROOT" || python3 -c 'import hashlib,json,os,pathlib; r=pathlib.Path(os.environ["HANDOFF_ROOT"]); r.is_symlink() and (_ for _ in ()).throw(ValueError("handoff root must not be a symlink")); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY","CLEANUP")}; w=r/"workflow-stages.json"; w.write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p); d=lambda x:"sha256:"+hashlib.sha256(x.read_bytes()).hexdigest(); q=r/"cleanup.json"; q.exists() or q.write_text(json.dumps({"errors":["cleanup stage produced no retained evidence"],"resources":[],"schema_version":1,"status":"failed"},indent=2,sort_keys=True)+"\n"); (r/"workflow-evidence.json").write_text(json.dumps({"schema_version":1,"cleanup_sha256":d(q),"report_sha256":d(p),"workflow_stages_sha256":d(w)},indent=2,sort_keys=True)+"\n")'
+            --root "$HANDOFF_ROOT" || python3 -c 'import hashlib,json,os,pathlib; r=pathlib.Path(os.environ["HANDOFF_ROOT"]); r.is_symlink() and (_ for _ in ()).throw(ValueError("handoff root must not be a symlink")); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","RUNTIME","CERTIFY","CLEANUP")}; w=r/"workflow-stages.json"; w.write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"optional-extras":"runtime","container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p); d=lambda x:"sha256:"+hashlib.sha256(x.read_bytes()).hexdigest(); q=r/"cleanup.json"; q.exists() or q.write_text(json.dumps({"daemon_id":None,"errors":["cleanup stage produced no retained evidence"],"resources":[],"run_id":None,"schema_version":1,"status":"failed"},indent=2,sort_keys=True)+"\n"); (r/"workflow-evidence.json").write_text(json.dumps({"schema_version":1,"cleanup_sha256":d(q),"report_sha256":d(p),"workflow_stages_sha256":d(w)},indent=2,sort_keys=True)+"\n")'
       - name: Upload unprivileged certification handoff
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-certification-handoff-${{ github.run_id }}
+          name: app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.HANDOFF_ROOT }}
           include-hidden-files: true
           if-no-files-found: error
@@ -432,7 +501,7 @@ jobs:
       - name: Download immutable unprivileged handoff
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: app-certification-handoff-${{ github.run_id }}
+          name: app-certification-handoff-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence
       - name: Validate and authenticate handoff without candidate execution
         id: validate
@@ -464,7 +533,7 @@ jobs:
       - name: Upload authenticated unprivileged verdict
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-certification-verified-${{ github.run_id }}
+          name: app-certification-verified-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence
           if-no-files-found: error
           retention-days: 14
@@ -497,7 +566,7 @@ jobs:
       - name: Download authenticated unprivileged verdict
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: app-certification-verified-${{ github.run_id }}
+          name: app-certification-verified-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence
       - name: Authenticate verifier verdict before OIDC
         id: authenticate
@@ -552,7 +621,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-certification-final-${{ github.run_id }}
+          name: app-certification-final-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence
           if-no-files-found: error
           retention-days: 14
