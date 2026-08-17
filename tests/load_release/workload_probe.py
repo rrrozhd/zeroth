@@ -31,6 +31,7 @@ class Scope:
     secrets: dict[str, str]
     surface: str
     replica: str
+    accepts_requests: bool = True
 
 
 @dataclass(slots=True)
@@ -152,6 +153,9 @@ async def _tenant_scopes(database: Any, tenant_number: int, surfaces: list[str])
         install_runner(first, surface)
         scopes.append(Scope(first, auth, secrets, surface, "replica-1"))
         scopes.append(await _replica(database, deployment, auth, secrets, surface, 2))
+        executor = await _replica(database, deployment, auth, secrets, surface, 3)
+        executor.accepts_requests = False
+        scopes.append(executor)
     return scopes
 
 
@@ -387,8 +391,11 @@ async def collect_workload(scopes: list[Scope], profiles: dict) -> list[dict]:
         targets = []
         for scope in scopes:
             origin = await stack.enter_async_context(serve(create_app(scope.service)))
-            client = await stack.enter_async_context(httpx.AsyncClient(base_url=origin, timeout=10))
-            targets.append(Target(scope, client))
+            if scope.accepts_requests:
+                client = await stack.enter_async_context(
+                    httpx.AsyncClient(base_url=origin, timeout=10)
+                )
+                targets.append(Target(scope, client))
         for name, settings in profiles.items():
             rows.extend(await _run_profile(targets, name, settings))
     return rows

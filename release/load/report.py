@@ -24,6 +24,7 @@ from release.load.profiles import (
 from release.load.profiles import (
     validate_profiles as _validate_profiles,
 )
+from release.load.receipt import load_source_identity
 
 METRIC_NAMES = frozenset(
     {
@@ -72,7 +73,8 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:d1c2edbfa92a6e9efe296a4f5592880ec0eb627cc81a31c20b30d41a91292aa4"
+BASELINE_DIGEST = "sha256:75a9bf6ed423fb56f4604286e7d8a2f8e7571a09c8626b917e71ac01ff4db57d"
+BASELINE_SOURCE_IDENTITY = Path(__file__).with_name("baseline-source-v1.json")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 ENVIRONMENT_KEYS = frozenset(
@@ -196,6 +198,10 @@ def _baseline_source_errors(value: dict) -> list[str]:
             receipt.get("package_version") != source.get("package_version") for receipt in receipts
         )
         or any(receipt.get("environment") != value.get("environment") for receipt in receipts)
+        or any(
+            receipt.get("source_identity_digest") != source.get("source_identity_digest")
+            for receipt in receipts
+        )
         or len(source_digests) != 1
         or source.get("source_digest") not in source_digests
         or any(DIGEST_PATTERN.fullmatch(str(digest)) is None for digest in source_digests)
@@ -211,6 +217,18 @@ def _baseline_source_errors(value: dict) -> list[str]:
     ):
         return ["baseline requires measured source receipts"]
     return []
+
+
+def _baseline_identity_errors(source: dict) -> list[str]:
+    try:
+        identity, identity_digest = load_source_identity(BASELINE_SOURCE_IDENTITY)
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        return [f"baseline source identity is unreadable: {error}"]
+    bound = source.get("source_identity_digest") == identity_digest and all(
+        source.get(name) == identity[name]
+        for name in ("commit", "tree", "package_version", "source_digest")
+    )
+    return [] if bound else ["baseline source does not match its retained identity"]
 
 
 def validate_baseline(path: Path) -> list[str]:
@@ -229,6 +247,7 @@ def validate_baseline(path: Path) -> list[str]:
     errors.extend(_baseline_distribution_errors(value))
     errors.extend(_environment_errors(value.get("environment")))
     errors.extend(_baseline_source_errors(value))
+    errors.extend(_baseline_identity_errors(value.get("source", {})))
     return errors
 
 
@@ -353,7 +372,7 @@ def _derived_report_values(
     if raw_digest != observation_digest(rows):
         errors.append("candidate observation digest does not match raw_requests")
     try:
-        measured = recompute(rows, profiles["profiles"]) if rows else {}
+        measured = recompute(rows, profiles["profiles"], profiles["matrix"]) if rows else {}
     except (AttributeError, KeyError, TypeError, ValueError) as error:
         measured = {}
         errors.append(f"measurements cannot be recomputed: {error}")

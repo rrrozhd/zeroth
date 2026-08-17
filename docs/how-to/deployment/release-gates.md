@@ -198,13 +198,26 @@ runtime are immutable inputs; replace `load-gate` only with another isolated
 network name:
 
 ```bash
+set -euo pipefail
 RUNTIME='python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2'
 POSTGRES='postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 REDIS='redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2'
 docker network create load-gate
 docker run -d --rm --platform linux/arm64 --name load-gate-postgres --network load-gate \
+  --health-cmd 'pg_isready -U zeroth -d zeroth' --health-interval 1s \
+  --health-timeout 5s --health-retries 60 \
   -e POSTGRES_USER=zeroth -e POSTGRES_PASSWORD=zeroth -e POSTGRES_DB=zeroth "$POSTGRES"
-docker run -d --rm --platform linux/arm64 --name load-gate-redis --network load-gate "$REDIS"
+docker run -d --rm --platform linux/arm64 --name load-gate-redis --network load-gate \
+  --health-cmd 'redis-cli ping' --health-interval 1s --health-timeout 5s --health-retries 60 \
+  "$REDIS"
+for service in load-gate-postgres load-gate-redis; do
+  for attempt in $(seq 1 60); do
+    health_state=$(docker inspect --format '{{.State.Health.Status}}' "$service")
+    [ "$health_state" = healthy ] && break
+    [ "$attempt" -eq 60 ] && exit 1
+    sleep 1
+  done
+done
 uv build
 WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
 SDIST=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)

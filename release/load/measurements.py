@@ -74,6 +74,7 @@ def _fairness(
     field: str,
     *,
     scope: str | None = None,
+    expected_count: int | None = None,
     expected_from: str | None = None,
 ) -> float:
     workload = [row for row in rows if row["fault"] is None]
@@ -88,9 +89,11 @@ def _fairness(
         if "accepted" in states and states & {"completed", "failed"}:
             counts[identity(row)] += 1
     values = [counts[identity] for identity in identities]
-    if scope and expected_from:
+    if scope and (expected_count or expected_from):
         for owner in {row[scope] for row in workload}:
-            expected = len({row[expected_from] for row in workload if row[scope] == owner})
+            expected = expected_count or len(
+                {row[expected_from] for row in workload if row[scope] == owner}
+            )
             observed = sum(identity[0] == owner for identity in identities)
             values.extend([0] * max(0, expected - observed))
     squared = sum(value * value for value in values)
@@ -105,7 +108,9 @@ def _throughput(rows: list[dict]) -> float:
     return len(workload) / elapsed
 
 
-def recompute(rows: list[dict], profiles: dict) -> dict[str, dict[str, float | int]]:
+def recompute(
+    rows: list[dict], profiles: dict, matrix: dict | None = None
+) -> dict[str, dict[str, float | int]]:
     """Derive every release metric only from retained per-request rows."""
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -125,13 +130,22 @@ def recompute(rows: list[dict], profiles: dict) -> dict[str, dict[str, float | i
             "queue_depth_max": max(row["queue_depth"] for row in group),
             "tenant_fairness": round(_fairness(group, "tenant_id"), 6),
             "deployment_fairness": round(_fairness(group, "deployment_ref"), 6),
-            "replica_fairness": round(_fairness(group, "replica", scope="deployment_ref"), 6),
+            "replica_fairness": round(
+                _fairness(
+                    group,
+                    "replica",
+                    scope="deployment_ref",
+                    expected_count=matrix["replicas"] if matrix else None,
+                ),
+                6,
+            ),
             "worker_fairness": round(
                 _fairness(
                     group,
                     "worker",
                     scope="deployment_ref",
-                    expected_from="replica",
+                    expected_count=matrix["workers"] if matrix else None,
+                    expected_from=None if matrix else "replica",
                 ),
                 6,
             ),
@@ -236,6 +250,43 @@ def _event_identity(
     )
 
 
+def _signal_errors(request_id: Any, events: list[dict]) -> list[str]:
+    errors = []
+    required_terminal = {"draining": TERMINAL_STATES, "cancel-requested": {"cancelled"}}
+    for signal_index, signal in enumerate(events):
+        state = signal.get("state") if isinstance(signal, dict) else None
+        if state not in required_terminal:
+            continue
+        run_id = signal.get("run_id")
+        accepted = [
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("state") == "accepted"
+            and event.get("run_id") == run_id
+        ]
+        terminal = [
+            (index, event.get("state"))
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("state") in TERMINAL_STATES
+            and event.get("run_id") == run_id
+        ]
+        valid = (
+            isinstance(run_id, str)
+            and bool(run_id.strip())
+            and len(accepted) == len(terminal) == 1
+            and accepted[0] < signal_index < terminal[0][0]
+            and terminal[0][1] in required_terminal[state]
+        )
+        if not valid:
+            errors.append(
+                f"request {request_id!r} {state} must be an ordered matching "
+                "accepted-to-terminal lifecycle"
+            )
+    return errors
+
+
 def _lifecycle_errors(request_id: Any, events: Any) -> list[str]:
     if not isinstance(events, list) or not events:
         return [f"request {request_id!r} has no lifecycle"]
@@ -268,6 +319,7 @@ def _lifecycle_errors(request_id: Any, events: Any) -> list[str]:
             errors.append(
                 f"request {request_id!r} duplicate accepted run identifier or terminal mismatch"
             )
+    errors.extend(_signal_errors(request_id, events))
     return errors
 
 
@@ -280,10 +332,12 @@ def _matrix_errors(rows: list[dict], matrix: dict, prefix: str) -> list[str]:
         deployments = {row["deployment_ref"] for row in rows if row["tenant_id"] == tenant}
         if len(deployments) < matrix["deployments_per_tenant"]:
             errors.append(f"{prefix} tenant {tenant} deployment matrix is incomplete")
-    if len({row["replica"] for row in rows}) < matrix["replicas"]:
-        errors.append(f"{prefix} replica matrix is incomplete")
-    if len({row["worker"] for row in rows}) < matrix["workers"]:
-        errors.append(f"{prefix} worker matrix is incomplete")
+    for deployment in {row["deployment_ref"] for row in rows}:
+        scoped = [row for row in rows if row["deployment_ref"] == deployment]
+        if len({row["replica"] for row in scoped}) < matrix["replicas"]:
+            errors.append(f"{prefix} deployment {deployment} replica matrix is incomplete")
+        if len({row["worker"] for row in scoped}) < matrix["workers"]:
+            errors.append(f"{prefix} deployment {deployment} worker matrix is incomplete")
     return errors
 
 
