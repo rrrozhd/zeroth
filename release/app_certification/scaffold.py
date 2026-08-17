@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from .models import AppDeclaration
+from .wheel_installation import RUNTIME_BOOTSTRAP
 
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
@@ -36,6 +37,19 @@ jobs:
 
 def _dockerfile(module: str, version: str) -> str:
     module_path = module.replace(".", "/")
+    runtime_command = json.dumps(
+        [
+            "/usr/local/bin/python",
+            "-I",
+            "-S",
+            "-c",
+            RUNTIME_BOOTSTRAP,
+            "run-certified-runtime",
+            "/usr/local/lib/python3.12/site-packages",
+            "/opt/app",
+            f"{module}.entrypoint",
+        ]
+    )
     return f"""FROM python:3.12.13-slim-bookworm
 
 LABEL org.opencontainers.image.version={version}
@@ -53,7 +67,7 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=5s --timeout=4s --start-period=30s --retries=12 \\
     CMD ["python", "-m", "{module}.certification_healthcheck"]
-CMD ["python", "-m", "{module}.entrypoint"]
+CMD {runtime_command}
 """
 
 

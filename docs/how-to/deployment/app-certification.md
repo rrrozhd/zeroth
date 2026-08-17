@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.9 \
+  --zeroth-version 0.23.9.10 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -66,6 +66,11 @@ alongside the app commit and local image descriptor, generates an SPDX SBOM, and
 writes a canonical report even when preparation, build, startup, or health
 fails. Jobs, candidate process trees, containers, archives, HTTP exchanges, and
 retained logs all have explicit bounds.
+
+The declared Dockerfile must resolve to a regular file inside that exact Git
+archive. The measured image must also retain the isolated absolute-interpreter
+runtime command emitted by the scaffold; both candidate modes import Zeroth from
+the verified wheel location before starting the application module.
 
 A fresh, unprivileged `verify` job downloads that handoff and uses a clean
 pinned Zeroth checkout to validate its source archive, hashes, Docker/OCI

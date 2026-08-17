@@ -114,7 +114,7 @@ jobs:
           cp "$DECLARATION_FILE" app/.app-certification/declaration.json
           ZEROTH_PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
           "$ZEROTH_PYTHON" -m release.app_certification validate-declaration \
-            --declaration "$DECLARATION_FILE"
+            --declaration "$DECLARATION_FILE" --root build-context
           DECLARED_VERSION=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["zeroth_version"])' \
             "$DECLARATION_FILE")
@@ -128,6 +128,13 @@ jobs:
           DOCKERFILE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["dockerfile"])' \
             "$DECLARATION_FILE")
+          DOCKERFILE_FILE=$(realpath -e "build-context/$DOCKERFILE")
+          [[ "$DOCKERFILE_FILE" == "$GITHUB_WORKSPACE/build-context/"* && \
+             -f "$DOCKERFILE_FILE" ]] || {
+            echo "declared dockerfile resolves outside the committed build context" >&2
+            exit 1
+          }
+          DOCKERFILE=${DOCKERFILE_FILE#"$GITHUB_WORKSPACE/build-context/"}
           IMAGE_REFERENCE=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
             "$DECLARATION_FILE")
@@ -159,6 +166,7 @@ jobs:
         id: wheel
         env:
           IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -168,8 +176,12 @@ jobs:
           trap 'docker rm -f app-cert-wheel-inspect >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
           docker create --name app-cert-wheel-inspect "$IMAGE_REFERENCE" >/dev/null
           docker cp app-cert-wheel-inspect:/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
+          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config}}' \
+            > app/.app-certification/image-config.json
           zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
             --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
+            --image-config app/.app-certification/image-config.json \
+            --image-digest "$IMAGE_DIGEST" \
             --output app/.app-certification/installed-wheel.json
           docker rm app-cert-wheel-inspect >/dev/null
           rm -rf "$WHEEL_SITE"
@@ -207,6 +219,7 @@ jobs:
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
             --certifier-wheel "${CERTIFIER_WHEELS[0]}" \
             --requirements-lock trusted-certifier/requirements-image.txt \
+            --image-config app/.app-certification/image-config.json \
             --wheel-installation app/.app-certification/installed-wheel.json
       - name: Start isolated packaged and ephemeral containers
         id: containers
@@ -214,6 +227,15 @@ jobs:
           IMAGE_ID: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          RUNTIME_BOOTSTRAP=$(zeroth/.venv/bin/python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][4])' \
+            app/.app-certification/image-config.json)
+          RUNTIME_APP_ROOT=$(zeroth/.venv/bin/python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][7])' \
+            app/.app-certification/image-config.json)
+          RUNTIME_MODULE=$(zeroth/.venv/bin/python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["Cmd"][8])' \
+            app/.app-certification/image-config.json)
           docker network create app-cert-packaged-net
           docker network create app-cert-ephemeral-net
           docker volume create app-cert-packaged-data
@@ -224,7 +246,9 @@ jobs:
             --mount type=volume,source=app-cert-packaged-data,target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            "$IMAGE_ID"
+            --env PYTHONSAFEPATH=1 --entrypoint /usr/local/bin/python \
+            "$IMAGE_ID" -I -S -c "$RUNTIME_BOOTSTRAP" run-certified-runtime \
+            /usr/local/lib/python3.12/site-packages "$RUNTIME_APP_ROOT" "$RUNTIME_MODULE"
           docker run --detach --name app-cert-ephemeral \
             --cpus 2 --memory 2g --pids-limit 256 \
             --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
@@ -232,7 +256,9 @@ jobs:
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            "$IMAGE_ID"
+            --env PYTHONSAFEPATH=1 --entrypoint /usr/local/bin/python \
+            "$IMAGE_ID" -I -S -c "$RUNTIME_BOOTSTRAP" run-certified-runtime \
+            /usr/local/lib/python3.12/site-packages "$RUNTIME_APP_ROOT" "$RUNTIME_MODULE"
       - name: Require healthy container state and readiness payload
         id: health
         env:
@@ -367,6 +393,7 @@ jobs:
             --zeroth-version "$VERSION" --zeroth-commit "$ZEROTH_REF" \
             --certifier-wheel evidence/materials/zeroth-core.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
+            --image-config evidence/materials/image-config.json \
             --wheel-installation evidence/materials/installed-wheel.json \
             --verdict evidence/verdict.json >> "$GITHUB_OUTPUT"
       - name: Upload authenticated unprivileged verdict
@@ -441,6 +468,7 @@ jobs:
             --zeroth-commit '${{ inputs.zeroth_ref }}' \
             --certifier-wheel evidence/materials/zeroth-core.whl \
             --requirements-lock evidence/materials/requirements-image.txt \
+            --image-config evidence/materials/image-config.json \
             --wheel-installation evidence/materials/installed-wheel.json \
             --repository '${{ github.repository }}' --signer-repo rrrozhd/zeroth \
             --signer-workflow rrrozhd/zeroth/.github/workflows/app-certification.yml \
