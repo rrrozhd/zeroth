@@ -114,11 +114,11 @@ def test_workflow_runs_the_gate_in_an_isolated_service_matrix() -> None:
     script = "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
 
     assert job["needs"] == ["candidate"]
-    assert job["services"]["redis"]["image"] == "redis:7.4-alpine"
+    assert job["services"]["redis"]["image"].startswith("redis:7.4-alpine@sha256:")
     assert job["services"]["postgres"]["image"].startswith("postgres:")
     assert "pg_isready" in job["services"]["postgres"]["options"]
-    assert job["env"]["ZEROTH_LOAD_REDIS_URL"] == "redis://localhost:6379/14"
-    assert job["env"]["ZEROTH_TEST_REDIS_URL"] == "redis://localhost:6379/15"
+    assert job["env"]["ZEROTH_LOAD_REDIS_URL"] == "redis://redis:6379/14"
+    assert job["env"]["ZEROTH_TEST_REDIS_URL"] == "redis://redis:6379/15"
     assert job["env"]["ZEROTH_LOAD_POSTGRES_DSN"].startswith("postgresql://")
     assert "release/load/harness.py run" in script
     assert "--profiles release/load/profiles-v1.json" in script

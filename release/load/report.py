@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from release.load.environment import observation_digest
 from release.load.measurements import evidence_errors, is_number, percentile, recompute
 from release.load.profiles import (
     PROFILE_NAMES,
@@ -57,6 +58,8 @@ REPORT_KEYS = frozenset(
         "schema_version",
         "profile_version",
         "candidate_identity",
+        "environment",
+        "observation_digest",
         "baseline",
         "profiles",
         "raw_requests",
@@ -66,8 +69,21 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:6fcf36a648300cef5574059beb4f8031e3c6705bf7f26253534c4cbdf55ff267"
+BASELINE_DIGEST = "sha256:74f7e60539bfa1ab8e6e3617d3370488de4d30fed8af4c290b7a7ddbf9485982"
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+ENVIRONMENT_KEYS = frozenset(
+    {
+        "system",
+        "machine",
+        "python",
+        "cpu_limit",
+        "memory_limit_bytes",
+        "runtime_image",
+        "postgres",
+        "redis",
+    }
+)
 
 
 def validate_profiles(value: Any) -> None:
@@ -137,6 +153,33 @@ def _baseline_distribution_errors(value: dict) -> list[str]:
     return errors
 
 
+def _environment_errors(value: Any) -> list[str]:
+    if not isinstance(value, dict) or set(value) != ENVIRONMENT_KEYS:
+        return ["load environment identity is malformed"]
+    text = ("system", "machine", "python", "runtime_image", "postgres", "redis")
+    if any(not isinstance(value[name], str) or not value[name].strip() for name in text):
+        return ["load environment identity is incomplete"]
+    if not isinstance(value["cpu_limit"], int) or value["cpu_limit"] < 1:
+        return ["load environment CPU limit is invalid"]
+    if not isinstance(value["memory_limit_bytes"], int) or value["memory_limit_bytes"] < 1:
+        return ["load environment memory limit is invalid"]
+    return []
+
+
+def _baseline_source_errors(value: dict) -> list[str]:
+    source = value.get("source", {})
+    digests = source.get("run_digests")
+    if (
+        not isinstance(digests, list)
+        or len(digests) != source.get("sample_run_count")
+        or len(digests) < 3
+        or len(set(digests)) != len(digests)
+        or any(DIGEST_PATTERN.fullmatch(str(digest)) is None for digest in digests)
+    ):
+        return ["baseline requires distinct source run digests"]
+    return []
+
+
 def validate_baseline(path: Path) -> list[str]:
     """Return errors for a mutated or structurally incomplete baseline."""
     try:
@@ -151,6 +194,8 @@ def validate_baseline(path: Path) -> list[str]:
         return errors
     errors.extend(_baseline_profile_errors(value))
     errors.extend(_baseline_distribution_errors(value))
+    errors.extend(_environment_errors(value.get("environment")))
+    errors.extend(_baseline_source_errors(value))
     return errors
 
 
@@ -207,13 +252,25 @@ def derive_threshold(baseline: dict, name: str, derivation: dict) -> dict:
     return {str(derivation["kind"]): derivation["limit"]}
 
 
-def build_report(profiles: dict, baseline: dict, identity: dict, rows: list[dict]) -> dict:
+def build_report(
+    profiles: dict,
+    baseline: dict,
+    identity: dict,
+    rows: list[dict],
+    *,
+    environment: dict,
+    observation_digest: str,
+) -> dict:
     """Build a report that retains failures instead of raising them away."""
-    errors, measurements, evaluation = _derived_report_values(rows, profiles, baseline, identity)
+    errors, measurements, evaluation = _derived_report_values(
+        rows, profiles, baseline, identity, environment, observation_digest
+    )
     return {
         "schema_version": 1,
         "profile_version": profiles["profile_version"],
         "candidate_identity": identity,
+        "environment": environment,
+        "observation_digest": observation_digest,
         "baseline": baseline,
         "profiles": profiles["profiles"],
         "raw_requests": rows,
@@ -234,15 +291,34 @@ def _candidate_identity_errors(identity: Any) -> list[str]:
         and isinstance(package.get("version"), str)
         and bool(package["version"].strip())
         and isinstance(package.get("artifacts"), dict)
+        and bool(package["artifacts"])
     )
     return [] if valid else ["candidate identity is malformed"]
 
 
 def _derived_report_values(
-    rows: Any, profiles: dict, baseline: dict, identity: Any
+    rows: Any,
+    profiles: dict,
+    baseline: dict,
+    identity: Any,
+    environment: Any,
+    raw_digest: Any,
 ) -> tuple[list[str], dict, dict]:
     errors = evidence_errors(rows, profiles)
     errors.extend(_candidate_identity_errors(identity))
+    errors.extend(_environment_errors(environment))
+    if environment != baseline.get("environment"):
+        errors.append("candidate environment does not match the pinned baseline environment")
+    if isinstance(identity, dict) and identity.get("commit") == baseline.get("source", {}).get(
+        "commit"
+    ):
+        errors.append("candidate commit overlaps the pinned baseline source")
+    if DIGEST_PATTERN.fullmatch(str(raw_digest)) is None:
+        errors.append("candidate observation digest is malformed")
+    elif raw_digest in baseline.get("source", {}).get("run_digests", []):
+        errors.append("candidate observations overlap a pinned baseline run")
+    if raw_digest != observation_digest(rows):
+        errors.append("candidate observation digest does not match raw_requests")
     try:
         measured = recompute(rows, profiles["profiles"]) if rows else {}
     except (AttributeError, KeyError, TypeError, ValueError) as error:
@@ -274,6 +350,10 @@ def _report_contract_errors(
             report["candidate_identity"] == identity,
             "report candidate identity does not match the measured candidate identity",
         ),
+        (
+            report["environment"] == baseline["environment"],
+            "report environment does not match the pinned baseline environment",
+        ),
         (report["baseline"] == baseline, "report baseline does not match the pinned baseline"),
         (report["errors"] == raw_errors, "report reported errors do not match raw evidence"),
         (
@@ -301,7 +381,12 @@ def validate_report(
     except ProfileError as error:
         return [f"report contract cannot be loaded: {error}"]
     raw_errors, measured, evaluation = _derived_report_values(
-        report["raw_requests"], profiles, baseline, report["candidate_identity"]
+        report["raw_requests"],
+        profiles,
+        baseline,
+        report["candidate_identity"],
+        report["environment"],
+        report["observation_digest"],
     )
     errors = list(raw_errors)
     errors.extend(

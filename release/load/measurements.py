@@ -179,27 +179,63 @@ def _rejection_errors(row: dict, profiles: dict, request_id: Any) -> list[str]:
     return errors
 
 
+def _event_identity(
+    request_id: Any, event: Any, index: int
+) -> tuple[list[str], float | None, tuple[int, str] | None, tuple[int, str] | None]:
+    error = f"request {request_id!r} has malformed lifecycle event"
+    if not isinstance(event, dict):
+        return [error], None, None, None
+    state = event.get("state")
+    at_ms = event.get("at_ms")
+    if not isinstance(state, str) or not state.strip() or not is_number(at_ms) or at_ms < 0:
+        return [error], None, None, None
+    if state not in {"accepted", *TERMINAL_STATES}:
+        return [], at_ms, None, None
+    run_id = event.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        kind = "acceptance" if state == "accepted" else "terminal"
+        return [f"request {request_id!r} {kind} has no run identifier"], at_ms, None, None
+    identity = (index, run_id)
+    return (
+        [],
+        at_ms,
+        identity if state == "accepted" else None,
+        identity if state in TERMINAL_STATES else None,
+    )
+
+
 def _lifecycle_errors(request_id: Any, events: Any) -> list[str]:
     if not isinstance(events, list) or not events:
         return [f"request {request_id!r} has no lifecycle"]
     errors = []
     previous = -1.0
-    for event in events:
-        if not isinstance(event, dict):
-            errors.append(f"request {request_id!r} has malformed lifecycle event")
-            continue
-        state = event.get("state")
-        at_ms = event.get("at_ms")
-        if not isinstance(state, str) or not state.strip() or not is_number(at_ms) or at_ms < 0:
-            errors.append(f"request {request_id!r} has malformed lifecycle event")
+    accepted: list[tuple[int, str]] = []
+    terminal: list[tuple[int, str]] = []
+    for index, event in enumerate(events):
+        event_errors, at_ms, accepted_event, terminal_event = _event_identity(
+            request_id, event, index
+        )
+        errors.extend(event_errors)
+        if at_ms is None:
             continue
         if at_ms < previous:
             errors.append(f"request {request_id!r} lifecycle is not chronological")
         previous = at_ms
-        if state == "accepted" and (
-            not isinstance(event.get("run_id"), str) or not event["run_id"].strip()
+        accepted.extend(() if accepted_event is None else (accepted_event,))
+        terminal.extend(() if terminal_event is None else (terminal_event,))
+    if accepted or terminal:
+        if len(accepted) != 1:
+            errors.append(f"request {request_id!r} must have exactly one acceptance")
+        if len(terminal) != 1:
+            errors.append(
+                f"request {request_id!r} lost accepted run or has duplicate terminal states"
+            )
+        if len(accepted) == len(terminal) == 1 and (
+            accepted[0][1] != terminal[0][1] or accepted[0][0] >= terminal[0][0]
         ):
-            errors.append(f"request {request_id!r} acceptance has no run identifier")
+            errors.append(
+                f"request {request_id!r} duplicate accepted run identifier or terminal mismatch"
+            )
     return errors
 
 
