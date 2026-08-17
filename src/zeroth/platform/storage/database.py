@@ -26,6 +26,16 @@ def validate_coordination_timeout(timeout_seconds: float) -> float:
     return timeout_seconds
 
 
+def database_now_text_expression(backend: Literal["sqlite", "postgres"]) -> str:
+    """Return statement-time as the UTC ISO text stored by lease columns."""
+    if backend == "postgres":
+        return (
+            "(TO_CHAR(clock_timestamp() AT TIME ZONE 'UTC', "
+            "'YYYY-MM-DD\"T\"HH24:MI:SS.US') || '+00:00')"
+        )
+    return "STRFTIME('%Y-%m-%dT%H:%M:%f+00:00', 'now')"
+
+
 @runtime_checkable
 class AsyncConnection(Protocol):
     """Abstraction over a database connection within a transaction."""

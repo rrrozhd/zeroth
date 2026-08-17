@@ -133,6 +133,63 @@ class TestLeaseFencingDualBackend:
         assert run is not None
         assert run.current_step == "live-step"
 
+    async def test_expired_worker_cannot_write_after_different_run_reuses_slot(
+        self,
+        dual_database,
+    ) -> None:
+        """An expired owner cannot outlive the capacity slot it surrendered."""
+        from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+        repository = RunRepository.for_default_compatibility(dual_database)
+        manager = LeaseManager(dual_database)
+        expired_run = await _pending_run(dual_database)
+        replacement_run = await _pending_run(dual_database)
+        scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+        assert await manager.claim_pending(DEPLOYMENT, WORKER_A, **scope) == expired_run
+        await repository.transition(expired_run, RunStatus.RUNNING)
+        generation = await manager.current_generation(expired_run)
+        assert generation == 1
+        stale = await repository.get(expired_run)
+        assert stale is not None
+        repository.install_fence(expired_run, WORKER_A, generation)
+
+        replacement_claimed = asyncio.Event()
+
+        async def stale_write() -> None:
+            await replacement_claimed.wait()
+            stale.current_step = "expired-worker-step"
+            await repository.put(stale)
+
+        write = asyncio.create_task(stale_write())
+        try:
+            await _expire_lease(dual_database, expired_run)
+            assert await manager.claim_pending(DEPLOYMENT, WORKER_B, **scope) == replacement_run
+            replacement_claimed.set()
+            with pytest.raises(FencedRunWriteRejectedError):
+                await write
+            assert (
+                await manager.commit_fenced(
+                    expired_run,
+                    WORKER_A,
+                    generation=generation,
+                    current_step="expired-direct-step",
+                )
+                is False
+            )
+        finally:
+            replacement_claimed.set()
+            if not write.done():
+                write.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await write
+            repository.clear_fence(expired_run, WORKER_A, generation)
+
+        persisted = await repository.get(expired_run)
+        assert persisted is not None
+        assert persisted.current_step not in {"expired-worker-step", "expired-direct-step"}
+        assert await manager.current_holder(replacement_run) == WORKER_B
+
     async def test_orphan_reclaim_advances_the_generation(self, dual_database) -> None:
         manager = LeaseManager(dual_database)
         run_id = await _pending_run(dual_database)

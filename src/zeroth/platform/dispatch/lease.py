@@ -19,7 +19,11 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from zeroth.platform.storage import AsyncConnection, AsyncDatabase
-from zeroth.platform.storage.database import CoordinationTimeoutError, database_now
+from zeroth.platform.storage.database import (
+    CoordinationTimeoutError,
+    database_now,
+    database_now_text_expression,
+)
 
 try:
     from zeroth.platform.storage.async_postgres import AsyncPostgresDatabase
@@ -99,17 +103,17 @@ def _scope_sql(
 
 
 class FencedRunWriteRejectedError(RuntimeError):
-    """A fenced run-state write was refused because lease ownership moved.
+    """A fenced run-state write was refused because its lease is no longer live.
 
     Raised by the run store when a save carries a fence (worker id plus lease
-    generation) that no longer matches the row. The write did not land; the
-    caller has been displaced and must stop, not retry.
+    generation) that no longer matches an unexpired row. The write did not
+    land; the caller has been displaced or expired and must stop, not retry.
     """
 
     def __init__(self, run_id: str, worker_id: str, generation: int) -> None:
         super().__init__(
             f"run {run_id}: state write fenced out — worker {worker_id} no longer "
-            f"holds lease generation {generation}"
+            f"holds live lease generation {generation}"
         )
         self.run_id = run_id
         self.worker_id = worker_id
@@ -767,8 +771,8 @@ class LeaseManager:
         because a check-then-write leaves a window in which ownership can move
         between the two statements -- precisely the race this exists to close.
 
-        Returns True when the write landed, False when a newer generation (or a
-        different owner) has superseded the caller.
+        Returns True when the write landed, False when the lease expired or a
+        newer generation (or a different owner) superseded the caller.
         """
         if not columns:
             raise ValueError("commit_fenced requires at least one column to write")
@@ -792,6 +796,7 @@ class LeaseManager:
         # like SQL from ever being read as SQL if that list is widened.
         assignments = ", ".join(f'"{name}" = ?' for name in columns)
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
+        database_now_sql = database_now_text_expression(self.database.backend)
         async with self.database.transaction() as conn:
             written = await conn.fetch_one(
                 f"""
@@ -801,6 +806,7 @@ class LeaseManager:
                   {scope_sql}
                   AND lease_worker_id = ?
                   AND lease_generation = ?
+                  AND lease_expires_at >= {database_now_sql}
                 RETURNING run_id
                 """,
                 (
