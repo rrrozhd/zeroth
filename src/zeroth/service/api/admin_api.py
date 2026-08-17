@@ -129,7 +129,10 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             manager = await _token_interrupt_manager(bootstrap, run_id)
             if manager is not None:
                 await manager.pause_run(run_id)
-            run = await bootstrap.run_repository.transition(run_id, RunStatus.WAITING_INTERRUPT)
+            run = await bootstrap.run_repository.interrupt(
+                run_id,
+                bootstrap.deployment.deployment_ref,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return _serialize_run(run)

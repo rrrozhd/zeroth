@@ -332,6 +332,7 @@ async def test_interrupt_run_returns_waiting_interrupt_status(sqlite_db) -> None
         "graph-admin-interrupt",
         DEPLOYMENT + "-interrupt",
     )
+    service.worker = None
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -357,6 +358,7 @@ async def test_interrupt_run_pauses_existing_token_snapshot(sqlite_db) -> None:
         "graph-admin-token-interrupt",
         DEPLOYMENT + "-token-interrupt",
     )
+    service.worker = None
 
     with TestClient(app) as client:
         created = client.post(

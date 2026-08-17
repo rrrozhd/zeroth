@@ -14,7 +14,7 @@ vi.mock("@/app/lib/api", async () => ({
   ...api,
 }));
 
-import { GuardrailsPanel } from "./GuardrailsPanel";
+import { DeploymentGuardrailsPanel, GuardrailsPanel } from "./GuardrailsPanel";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -98,6 +98,15 @@ afterEach(async () => {
 });
 
 describe("deployment guardrail controls", () => {
+  it("does not load controls for a registered non-serving deployment", async () => {
+    await act(async () =>
+      root.render(<DeploymentGuardrailsPanel refId="peer-prod" serving={false} />),
+    );
+
+    expect(container.textContent).toContain("managed by the serving deployment");
+    expect(api.getDeploymentGuardrails).not.toHaveBeenCalled();
+  });
+
   it("shows effective settings and appends only explicit deployment overrides", async () => {
     await act(async () => root.render(<GuardrailsPanel refId="support-prod" />));
     await waitFor(() => expect(container.textContent).toContain("Effective settings"));

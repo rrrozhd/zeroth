@@ -281,7 +281,8 @@ async def test_renewal_task_failure_does_not_leak_semaphore(sqlite_db) -> None:
         max_concurrency=1,
     )
 
-    async def _raising_renewal(run_id: str) -> None:
+    async def _raising_renewal(run_id: str, generation: int, drive_task) -> None:
+        del run_id, generation, drive_task
         raise RuntimeError("database is locked")
 
     worker._renewal_loop = _raising_renewal  # renewal dies by raising, not cancel
@@ -633,7 +634,11 @@ async def test_worker_recovers_orphan_after_initial_shared_capacity_saturation(
     await asyncio.sleep(0)
     recovery_finished_while_saturated = recovery_task.done()
 
-    await lease_manager.release_lease(occupying.run_id, "occupying-worker")
+    await lease_manager.release_lease(
+        occupying.run_id,
+        "occupying-worker",
+        generation=1,
+    )
     final = await _wait_for_status(run_repo, orphan.run_id, RunStatus.COMPLETED, timeout=2)
 
     assert recovery_finished_while_saturated is False

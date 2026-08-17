@@ -50,6 +50,7 @@ def _worker(
     worker.max_concurrency = max_concurrency
     worker._semaphore = asyncio.Semaphore(max_concurrency)
     worker._active_tasks = set()
+    worker._lease_generations = {}
     worker._stopping = False
     worker.poll_interval = 0.01
 
@@ -276,7 +277,8 @@ async def test_shutdown_during_recovery_releases_only_real_orphans() -> None:
     worker.shutdown_timeout = 0.0
     released: list[str] = []
 
-    async def _release(run_id: str) -> None:
+    async def _release(run_id: str, *, generation: int | None = None) -> None:
+        del generation
         released.append(run_id)
 
     async def _no_snapshot(run_id: str) -> None:

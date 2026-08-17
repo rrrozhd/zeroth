@@ -188,7 +188,12 @@ async def test_duplicate_run_id_lease_lifecycle_is_scope_isolated(
     assert (await _row(dual_database, foreign_tenant, foreign_workspace))["current_step"] is None
 
     await _lease_both(dual_database)
-    await manager.release_lease(RUN_ID, WORKER_A, **_scope(TENANT_A, WORKSPACE_A))
+    await manager.release_lease(
+        RUN_ID,
+        WORKER_A,
+        generation=1,
+        **_scope(TENANT_A, WORKSPACE_A),
+    )
     assert (await _row(dual_database, TENANT_A, WORKSPACE_A))["lease_worker_id"] is None
     assert (await _row(dual_database, foreign_tenant, foreign_workspace))[
         "lease_worker_id"
@@ -223,7 +228,7 @@ async def test_ambiguous_legacy_run_id_lifecycle_fails_closed(
         is False
     )
     assert await manager.get_recovery_checkpoint_id(RUN_ID) is None
-    await manager.release_lease(RUN_ID, WORKER_A)
+    await manager.release_lease(RUN_ID, WORKER_A, generation=1)
     await manager.clear_lease(RUN_ID)
 
     owner = await _row(dual_database, TENANT_A, WORKSPACE_A)
@@ -265,7 +270,7 @@ async def test_omitted_or_partial_scope_cannot_select_unique_workspace_run(
         is False
     )
     assert await manager.get_recovery_checkpoint_id(RUN_ID, **legacy_scope) is None
-    await manager.release_lease(RUN_ID, WORKER_A, **legacy_scope)
+    await manager.release_lease(RUN_ID, WORKER_A, generation=1, **legacy_scope)
     await manager.clear_lease(RUN_ID, **legacy_scope)
     row = await _row(dual_database, TENANT_A, WORKSPACE_A)
     assert row["lease_worker_id"] == WORKER_A

@@ -155,6 +155,7 @@ zeroth.integrations.persistence.runs.run_repository|RunRepository|get_latest_che
 zeroth.integrations.persistence.runs.run_repository|RunRepository|get_latest_run_id|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|get_token_snapshot|R
 zeroth.integrations.persistence.runs.run_repository|RunRepository|increment_failure_count|U
+zeroth.integrations.persistence.runs.run_repository|RunRepository|interrupt|RU
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_checkpoints|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_dead_letter_runs|N
 zeroth.integrations.persistence.runs.run_repository|RunRepository|list_erasable_run_ids|N
@@ -281,7 +282,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 195
+    assert len(METHOD_METADATA_ORACLE) == 196
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

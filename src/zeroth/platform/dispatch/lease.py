@@ -821,13 +821,14 @@ class LeaseManager:
         run_id: str,
         worker_id: str,
         *,
+        generation: int,
         tenant_id: str | None = None,
         workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
-    ) -> None:
-        """Clear the lease columns after a run finishes (success or failure)."""
+    ) -> bool:
+        """Clear only the exact owned lease generation after execution."""
         scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
         async with self.database.transaction() as conn:
-            await conn.execute(
+            written = await conn.fetch_one(
                 f"""
                 UPDATE runs
                 SET lease_worker_id = NULL,
@@ -837,9 +838,53 @@ class LeaseManager:
                 WHERE run_id = ?
                   {scope_sql}
                   AND lease_worker_id = ?
+                  AND lease_generation = ?
+                RETURNING run_id
                 """,
-                (run_id, *scope_params, worker_id),
+                (run_id, *scope_params, worker_id, generation),
             )
+        return written is not None
+
+    async def hand_back_to_pending(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        generation: int,
+        tenant_id: str | None = None,
+        workspace_id: str | None | object = _UNSCOPED_WORKSPACE,
+    ) -> bool:
+        """Atomically return one exact RUNNING lease generation to PENDING."""
+        scope_sql, scope_params = _scope_sql(tenant_id, workspace_id)
+        async with self.database.transaction() as conn:
+            now = await _database_now(conn, postgres=self._is_postgres())
+            written = await conn.fetch_one(
+                f"""
+                UPDATE runs
+                SET status = ?,
+                    lease_worker_id = NULL,
+                    lease_acquired_at = NULL,
+                    lease_expires_at = NULL,
+                    recovery_checkpoint_id = NULL,
+                    updated_at = ?
+                WHERE run_id = ?
+                  {scope_sql}
+                  AND status = ?
+                  AND lease_worker_id = ?
+                  AND lease_generation = ?
+                RETURNING run_id
+                """,
+                (
+                    _STATUS_PENDING,
+                    now.isoformat(),
+                    run_id,
+                    *scope_params,
+                    _STATUS_RUNNING,
+                    worker_id,
+                    generation,
+                ),
+            )
+        return written is not None
 
     async def expire_recovery_lease(
         self,

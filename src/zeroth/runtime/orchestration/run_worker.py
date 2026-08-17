@@ -113,7 +113,7 @@ class RunWorker:
         # The in-flight drive task per run, so the renewal loop can stop the
         # work when ownership is lost rather than only logging it.
         self._active_drives: dict[str, asyncio.Task] = {}
-        self._lost_leases: set[str] = set()
+        self._lost_leases: set[tuple[str, int | None]] = set()
         self._lease_generations: dict[str, int | None] = {}
         self._stopping = False
         self._token_lifecycle = (
@@ -332,7 +332,9 @@ class RunWorker:
         drive_task: asyncio.Task | None = None
         renewal_task: asyncio.Task | None = None
         generation: int | None = None
+        generation_registered = False
         setup_complete = False
+        shutdown_cancelled = False
         if not slot_reserved:
             await self._semaphore.acquire()
             acquired_here = True
@@ -341,7 +343,20 @@ class RunWorker:
             # lease that was released and re-acquired is detected even when the same
             # worker id ends up holding it again.
             generation = await self.lease_manager.current_generation(run_id, **self._lease_scope())
+            active_drive = self._active_drives.get(run_id)
+            active_generation = self._lease_generations.get(run_id)
+            if active_drive is not None and not active_drive.done():
+                logger.info(
+                    "worker %s refused duplicate local execution for run %s "
+                    "(active generation %s, claimed generation %s)",
+                    self.worker_id,
+                    run_id,
+                    active_generation,
+                    generation,
+                )
+                return
             self._lease_generations[run_id] = generation
+            generation_registered = True
             if not await self._lease_allows_execution(run_id, generation):
                 logger.info(
                     "worker %s refused stale lease execution for run %s",
@@ -365,7 +380,7 @@ class RunWorker:
             )
             self._active_drives[run_id] = drive_task
             renewal_task = asyncio.create_task(
-                self._renewal_loop(run_id),
+                self._renewal_loop(run_id, generation, drive_task),
                 name=f"renew-{run_id}",
             )
             setup_complete = True
@@ -376,7 +391,10 @@ class RunWorker:
             # that terminal write unfenced, which is exactly what ZER-26/AUD-004
             # forbids. Setup throws propagate untouched; only the cleanup below
             # is now guaranteed.
-            await self._await_drive_outcome(run_id, drive_task, started_at)
+            await self._await_drive_outcome(run_id, generation, drive_task, started_at)
+        except asyncio.CancelledError:
+            shutdown_cancelled = self._stopping
+            raise
         finally:
             # Stop the drive BEFORE the fence comes down and the lease goes
             # back — the same ordering graceful_shutdown relies on. On the
@@ -386,8 +404,8 @@ class RunWorker:
                 drive_task.cancel()
                 with contextlib.suppress(Exception, asyncio.CancelledError):
                     await drive_task
-            if fence_installed:
-                self.run_repository.clear_fence(run_id)
+            if fence_installed and generation is not None:
+                self.run_repository.clear_fence(run_id, self.worker_id, generation)
             # Suppress ANY outcome of the renewal task (audit B4). The normal path
             # raises CancelledError (a BaseException, so it is listed explicitly —
             # `suppress(Exception)` alone would let it through). But if
@@ -402,19 +420,24 @@ class RunWorker:
                 renewal_task.cancel()
                 with contextlib.suppress(Exception, asyncio.CancelledError):
                     await renewal_task
-            self._active_drives.pop(run_id, None)
-            self._lost_leases.discard(run_id)
-            self._lease_generations.pop(run_id, None)
-            if is_recovery and not setup_complete:
-                await self._hand_back_failed_recovery_setup(run_id, generation)
-            else:
-                # release_lease is owner-qualified, so a displaced worker calling it
-                # cannot clear the new owner's lease.
-                await self.lease_manager.release_lease(
-                    run_id,
-                    self.worker_id,
-                    **self._lease_scope(),
-                )
+            if self._active_drives.get(run_id) is drive_task:
+                self._active_drives.pop(run_id, None)
+            lease_identity = (run_id, generation)
+            if generation_registered and self._lease_generations.get(run_id) == generation:
+                self._lost_leases.discard(lease_identity)
+                self._lease_generations.pop(run_id, None)
+            if not shutdown_cancelled:
+                if is_recovery and not setup_complete:
+                    await self._hand_back_failed_recovery_setup(run_id, generation)
+                elif generation is not None:
+                    # Exact generation ownership prevents stale cleanup from
+                    # clearing a same-worker replay's newer lease.
+                    await self.lease_manager.release_lease(
+                        run_id,
+                        self.worker_id,
+                        generation=generation,
+                        **self._lease_scope(),
+                    )
             if slot_reserved or acquired_here:
                 self._semaphore.release()
 
@@ -457,7 +480,11 @@ class RunWorker:
         )
 
     async def _await_drive_outcome(
-        self, run_id: str, drive_task: asyncio.Task, started_at: float
+        self,
+        run_id: str,
+        generation: int | None,
+        drive_task: asyncio.Task,
+        started_at: float,
     ) -> None:
         """Await the drive and convert ONLY the drive's own outcome.
 
@@ -481,12 +508,16 @@ class RunWorker:
                 self.metrics_collector.increment("zeroth_runs_completed_total")
                 self.metrics_collector.observe("zeroth_run_duration_seconds", elapsed)
         except asyncio.CancelledError:
-            if run_id not in self._lost_leases:
+            if (run_id, generation) not in self._lost_leases:
                 raise
             self._record_lease_loss(run_id)
-            await self._record_worker_audit(run_id, reason_code="lease_lost")
+            await self._record_worker_audit(
+                run_id,
+                reason_code="lease_lost",
+                generation=generation,
+            )
         except FencedRunWriteRejectedError:
-            await self._handle_fencing_rejection(run_id)
+            await self._handle_fencing_rejection(run_id, generation)
         except Exception:
             await self._handle_run_exception(run_id)
 
@@ -507,14 +538,22 @@ class RunWorker:
         self.run_repository.install_fence(run_id, self.worker_id, generation)
         return True
 
-    async def _handle_fencing_rejection(self, run_id: str) -> None:
+    async def _handle_fencing_rejection(
+        self,
+        run_id: str,
+        generation: int | None,
+    ) -> None:
         """Handle a fence that fired before the renewal loop noticed ownership moved.
 
         The refused write is the proof. The run is the new owner's, so no run
         state is written — only the durable evidence and the metric.
         """
         self._record_lease_loss(run_id)
-        await self._record_worker_audit(run_id, reason_code="lease_fencing_rejected")
+        await self._record_worker_audit(
+            run_id,
+            reason_code="lease_fencing_rejected",
+            generation=generation,
+        )
         if self.metrics_collector is not None:
             self.metrics_collector.increment("zeroth_lease_fencing_rejected_total")
 
@@ -528,7 +567,13 @@ class RunWorker:
         if self.metrics_collector is not None:
             self.metrics_collector.increment("zeroth_lease_lost_total")
 
-    async def _record_worker_audit(self, run_id: str, *, reason_code: str) -> None:
+    async def _record_worker_audit(
+        self,
+        run_id: str,
+        *,
+        reason_code: str,
+        generation: int | None,
+    ) -> None:
         """ZER-26/AUD-008: leave a durable record of a worker-level lease event.
 
         Fencing rejections and lease losses previously left only a log line and
@@ -559,7 +604,7 @@ class RunWorker:
                     execution_metadata={
                         "reason_code": reason_code,
                         "worker_id": self.worker_id,
-                        "lease_generation": self._lease_generations.get(run_id),
+                        "lease_generation": generation,
                     },
                 )
             )
@@ -687,7 +732,12 @@ class RunWorker:
         except Exception:
             logger.exception("worker %s: failed to mark run %s as FAILED", self.worker_id, run_id)
 
-    async def _renewal_loop(self, run_id: str) -> None:
+    async def _renewal_loop(
+        self,
+        run_id: str,
+        generation: int | None,
+        drive_task: asyncio.Task,
+    ) -> None:
         """Renew the lease every half-interval; stop the run if we lose it.
 
         Observing the loss is not enough. Until this cancelled the drive task,
@@ -697,7 +747,6 @@ class RunWorker:
         interval = max(1, self.lease_manager.lease_duration_seconds // 2)
         while True:
             await asyncio.sleep(interval)
-            generation = self._lease_generations.get(run_id)
             if not await self.lease_manager.renew_lease(
                 run_id,
                 self.worker_id,
@@ -705,8 +754,7 @@ class RunWorker:
                 **self._lease_scope(),
             ):
                 logger.warning("worker %s lost lease on run %s", self.worker_id, run_id)
-                self._lost_leases.add(run_id)
-                drive_task = self._active_drives.get(run_id)
+                self._lost_leases.add((run_id, generation))
                 if drive_task is not None and not drive_task.done():
                     drive_task.cancel()
                 return
@@ -772,13 +820,14 @@ class RunWorker:
         # the lease while the drive task was still alive, reopening exactly the
         # displaced-writer window the fence exists to close (ZER-26/AUD-004).
         for task in pending:
+            run_id = self._extract_run_id(task)
+            generation = None if run_id is None else self._lease_generations.get(run_id)
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            run_id = self._extract_run_id(task)
             if run_id:
                 await self._stop_token_snapshot(run_id)
-                await self._release_to_pending(run_id)
+                await self._release_to_pending(run_id, generation=generation)
 
     def _extract_run_id(self, task: asyncio.Task) -> str | None:
         """Extract run_id from a task name like 'run-abc123' or 'wakeup-abc123'."""
@@ -788,20 +837,27 @@ class RunWorker:
                 return name[len(prefix) :]
         return None
 
-    async def _release_to_pending(self, run_id: str) -> None:
-        """Release lease and revert run to PENDING for another worker."""
+    async def _release_to_pending(
+        self,
+        run_id: str,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        """Atomically hand this exact lease generation back to PENDING."""
         try:
-            # A voluntary release is the one write that legitimately happens
-            # after giving up the lease: the fence must come down first, or the
-            # PENDING hand-back below fences *ourselves* out.
+            if generation is None:
+                generation = self._lease_generations.get(run_id)
+            if generation is None:
+                return
+            handed_back = await self.lease_manager.hand_back_to_pending(
+                run_id,
+                self.worker_id,
+                generation=generation,
+                **self._lease_scope(),
+            )
             if hasattr(self.run_repository, "clear_fence"):
-                self.run_repository.clear_fence(run_id)
-            await self.lease_manager.release_lease(run_id, self.worker_id, **self._lease_scope())
-            run = await self.run_repository.get(run_id)
-            if run is not None and run.status == RunStatus.RUNNING:
-                run.status = RunStatus.PENDING
-                run.touch()
-                await self.run_repository.put(run)
+                self.run_repository.clear_fence(run_id, self.worker_id, generation)
+            if handed_back:
                 logger.info(
                     "worker %s released run %s back to PENDING on shutdown",
                     self.worker_id,

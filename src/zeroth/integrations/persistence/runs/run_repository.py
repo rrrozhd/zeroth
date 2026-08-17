@@ -350,9 +350,12 @@ class _RunThreadStore:
         """Fence every subsequent save of this run on (worker_id, generation)."""
         self._fences[run_id] = (worker_id, generation)
 
-    def clear_fence(self, run_id: str) -> None:
-        """Remove the write fence for a run, restoring unfenced saves."""
-        self._fences.pop(run_id, None)
+    def clear_fence(self, run_id: str, worker_id: str, generation: int) -> bool:
+        """Remove only the exact generation's write fence."""
+        if self._fences.get(run_id) != (worker_id, generation):
+            return False
+        del self._fences[run_id]
+        return True
 
     async def save_run(self, run: Run) -> None:
         """Insert or update a run record in the database.
@@ -376,6 +379,7 @@ class _RunThreadStore:
         fence: tuple[str, int] | None,
         *,
         insert_only: bool = False,
+        expected_status: RunStatus | None = None,
     ) -> None:
         values = _run_values(run)
         if insert_only:
@@ -384,6 +388,14 @@ class _RunThreadStore:
                 conflict_columns=("tenant_id", "workspace_scope", "run_id"),
             )
         else:
+            update_where: dict[str, object] = {}
+            if fence is not None:
+                update_where.update(
+                    lease_worker_id=fence[0],
+                    lease_generation=fence[1],
+                )
+            if expected_status is not None:
+                update_where["status"] = expected_status.value
             written = await runs.upsert(
                 values,
                 conflict_columns=("tenant_id", "workspace_scope", "run_id"),
@@ -391,17 +403,15 @@ class _RunThreadStore:
                     column for column in values if column not in {"run_id", "workspace_scope"}
                 ),
                 returning="run_id",
-                update_where=(
-                    None
-                    if fence is None
-                    else {"lease_worker_id": fence[0], "lease_generation": fence[1]}
-                ),
+                update_where=update_where or None,
             )
         if insert_only and not written:
             raise KeyError(f"run already exists: {run.run_id}")
         if fence is not None and not written:
             worker_id, generation = fence
             raise FencedRunWriteRejectedError(run.run_id, worker_id, generation)
+        if expected_status is not None and not written:
+            raise ValueError(f"run {run.run_id!r} no longer has status {expected_status.value}")
 
     async def create_run(
         self,
@@ -717,7 +727,21 @@ class _RunThreadStore:
         # An unfenced put touches twice, so the checkpoint's created_at stays
         # strictly older than the runs row it precedes; the fenced put has
         # always touched once. Sharing a transaction must not change either.
-        await self._put_run_atomic(run, fence, touch_before_run_save=fence is None)
+        await self._put_run_atomic(
+            run,
+            fence,
+            touch_before_run_save=fence is None,
+        )
+
+    async def put_run_if_status(self, run: Run, expected_status: RunStatus) -> None:
+        """Atomically save a transition only while its observed status is current."""
+        fence = self._fences.get(run.run_id)
+        await self._put_run_atomic(
+            run,
+            fence,
+            touch_before_run_save=fence is None,
+            expected_status=expected_status,
+        )
 
     async def _put_run_atomic(
         self,
@@ -725,6 +749,7 @@ class _RunThreadStore:
         fence: tuple[str, int] | None,
         *,
         touch_before_run_save: bool,
+        expected_status: RunStatus | None = None,
     ) -> None:
         """Write the thread, the checkpoint and the runs row in ONE transaction.
 
@@ -776,7 +801,12 @@ class _RunThreadStore:
             )
             if touch_before_run_save:
                 run.touch()
-            await self._save_run_bound(runs, run, fence)
+            await self._save_run_bound(
+                runs,
+                run,
+                fence,
+                expected_status=expected_status,
+            )
 
     async def _ensure_thread(self, thread_id: str) -> Thread:
         """Load a thread by ID, raising KeyError if it doesn't exist."""
@@ -934,6 +964,7 @@ class _RunThreadStore:
             "record_condition_result",
             "increment_failure_count",
             "replay_failed",
+            "interrupt",
             "cancel",
             "delete",
             "count_pending",
@@ -1060,9 +1091,9 @@ class RunRepository:
         """
         self._store.install_fence(run_id, worker_id, generation)
 
-    def clear_fence(self, run_id: str) -> None:
-        """Remove the write fence installed for a run."""
-        self._store.clear_fence(run_id)
+    def clear_fence(self, run_id: str, worker_id: str, generation: int) -> bool:
+        """Remove only the exact generation's write fence."""
+        return self._store.clear_fence(run_id, worker_id, generation)
 
     @persistence_operation(ResourceOperation.READ)
     async def get(
@@ -1177,7 +1208,8 @@ class RunRepository:
         run = await self.get(run_id)
         if run is None:
             raise KeyError(run_id)
-        _validate_transition(run.status, new_status)
+        expected_status = run.status
+        _validate_transition(expected_status, new_status)
         run.status = new_status
         if current_node_ids is not None:
             run.current_node_ids = list(current_node_ids)
@@ -1198,7 +1230,10 @@ class RunRepository:
         if error is not None:
             run.error = error
         run.touch()
-        return await self.put(run)
+        await self._store.put_run_if_status(run, expected_status)
+        stored = await self.get(run_id)
+        assert stored is not None
+        return stored
 
     @persistence_operation(ResourceOperation.UPDATE)
     async def replay_failed(self, run_id: str, deployment_ref: str) -> bool:
@@ -1221,6 +1256,30 @@ class RunRepository:
                 },
                 returning="run_id",
             )
+
+    @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
+    async def interrupt(self, run_id: str, deployment_ref: str) -> Run:
+        """Atomically interrupt one RUNNING run inside the bound scope."""
+        async with self._store.runs.transaction(write_lock=True) as runs:
+            written = await runs.update_if_matches(
+                {
+                    "status": RunStatus.WAITING_INTERRUPT.value,
+                    "updated_at": utc_now().isoformat(),
+                },
+                where={
+                    "run_id": run_id,
+                    "deployment_ref": deployment_ref,
+                    "status": RunStatus.RUNNING.value,
+                },
+                returning="run_id",
+            )
+            row = await runs.select_one(where={"run_id": run_id})
+        if row is None or row["deployment_ref"] != deployment_ref:
+            raise KeyError(run_id)
+        run = row_to_run(row)
+        if written or run.status is RunStatus.WAITING_INTERRUPT:
+            return run
+        raise ValueError("only running runs can be interrupted")
 
     @persistence_operation(ResourceOperation.READ, ResourceOperation.UPDATE)
     async def cancel(

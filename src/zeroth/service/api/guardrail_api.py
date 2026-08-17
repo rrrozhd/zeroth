@@ -150,6 +150,8 @@ async def _require_tenant_authority(request: Request) -> AuthenticatedPrincipal:
 
 
 async def _require_deployment(bootstrap, deployment_ref: str, principal) -> None:
+    if deployment_ref != bootstrap.deployment.deployment_ref:
+        raise HTTPException(status_code=404, detail="deployment not found")
     deployment = await bootstrap.deployment_service.get(
         deployment_ref,
         tenant_id=principal.tenant_id,
