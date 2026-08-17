@@ -52,11 +52,11 @@ def test_candidate_startup_ignores_tracked_sitecustomize_before_safe_import(
     )
     data = _migration_declaration(tmp_path)
     declaration_path = tmp_path / "certification.json"
-    declaration_path.write_text(json.dumps(data), encoding="utf-8")
+    declaration = write_semantic_inputs(tmp_path, data)
     monkeypatch.setenv("PYTHONPATH", str(tmp_path))
     runner = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(data),
+        declaration,
         declaration_path=declaration_path,
         check_python=Path(sys.executable),
     )
@@ -71,6 +71,7 @@ def test_candidate_startup_does_not_execute_candidate_interpreter(tmp_path: Path
     candidate_python = tmp_path / ".venv/bin/python"
     observed: dict[str, list[str]] = {}
     data = _migration_declaration(tmp_path)
+    declaration = write_semantic_inputs(tmp_path, data)
 
     def capture(argv: list[str], cwd: Path) -> CommandResult:
         observed["argv"] = argv
@@ -82,7 +83,7 @@ def test_candidate_startup_does_not_execute_candidate_interpreter(tmp_path: Path
 
     runner = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(data),
+        declaration,
         executor=capture,
         check_python=candidate_python,
     )

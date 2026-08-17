@@ -122,10 +122,7 @@ def test_production_migration_route_propagates_declared_runner_failure(tmp_path:
     )
     data = declaration_data()
     data["targets"]["migration_runner"] = "candidate_migration:run"
-    declaration = AppDeclaration.model_validate(data)
-    declaration_path = tmp_path / "certification.json"
-    declaration_path.write_text(json.dumps(data), encoding="utf-8")
-    result = CertificationRunner(tmp_path, declaration, declaration_path=declaration_path)._command(
+    result = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))._command(
         "migrations"
     )
     assert result.status == "failed" and "app migration sentinel" in result.detail

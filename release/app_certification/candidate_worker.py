@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -45,6 +46,8 @@ def finalize_candidate_evidence(
         raise ValueError("candidate migration evidence is malformed")
     if evidence.get("backend") not in {"sqlite", "postgres"}:
         raise ValueError("candidate migration backend evidence is unsupported")
+    if evidence.get("backend") != checks.validated_database_backend(root, declaration):
+        raise ValueError("candidate migration backend does not match the semantic declaration")
     if evidence.get("runner") != declaration.targets.migration_runner:
         raise ValueError("candidate migration runner does not match the declaration")
     if not isinstance(evidence.get("object_count"), int) or evidence["object_count"] <= 0:
@@ -71,6 +74,15 @@ def _supervise_migration(
     candidate_venv: Path,
     untrusted_user: str | None,
 ) -> dict[str, Any]:
+    backend = checks.validated_database_backend(root, declaration)
+    runtime_backend = os.environ.get("ZEROTH_DATABASE__BACKEND", "sqlite")
+    if runtime_backend != backend:
+        raise ValueError(
+            f"declared database backend {backend} does not match runtime backend "
+            f"{runtime_backend}"
+        )
+    postgres_dsn = os.environ.get("ZEROTH_DATABASE__POSTGRES_DSN")
+
     def run_candidate(reference: str, database_url: str) -> None:
         probe_candidate(
             "run-migration",
@@ -81,7 +93,16 @@ def _supervise_migration(
             untrusted_user=untrusted_user,
         )
 
-    return _supervised_payload(inspect_migration(declaration, run_candidate), root, declaration)
+    return _supervised_payload(
+        inspect_migration(
+            declaration,
+            run_candidate,
+            backend=backend,
+            postgres_dsn=postgres_dsn,
+        ),
+        root,
+        declaration,
+    )
 
 
 def _supervise_candidate(

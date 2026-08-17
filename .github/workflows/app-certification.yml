@@ -194,13 +194,22 @@ jobs:
           RUNTIME_TENANT=$("$ZEROTH_PYTHON" -c \
             'import json,sys; d=json.load(open(sys.argv[1])); t={k.get("tenant_id") for k in d["service_config"]["auth_config"]["api_keys"]}; assert len(t)==1 and None not in t; print(t.pop())' \
             "$SEMANTIC_FILE")
+          DATABASE_BACKEND=$("$ZEROTH_PYTHON" -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["service_config"]["database_backend"])' \
+            "$SEMANTIC_FILE")
+          [[ "$DATABASE_BACKEND" == "sqlite" ]] || {
+            echo "callable workflow does not provision a fresh PostgreSQL database" >&2
+            exit 1
+          }
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "declared_image_reference=$DECLARED_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           echo "image_reference=$RUNTIME_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           echo "runtime_tenant=$RUNTIME_TENANT" >> "$GITHUB_OUTPUT"
+          echo "database_backend=$DATABASE_BACKEND" >> "$GITHUB_OUTPUT"
           echo "zeroth_version=$DECLARED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ZEROTH_DATABASE__BACKEND=$DATABASE_BACKEND" >> "$GITHUB_ENV"
           APP_CERTIFICATION_API_KEY=$("$ZEROTH_PYTHON" -c \
             'import secrets; print(secrets.token_hex(32))')
           echo "::add-mask::$APP_CERTIFICATION_API_KEY"
@@ -330,6 +339,8 @@ jobs:
             --mount type=volume,source="$PACKAGED_VOLUME",target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ZEROTH_DATABASE__BACKEND="${{ steps.prepare.outputs.database_backend }}" \
+            --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
             --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
             --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
             --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
@@ -342,6 +353,8 @@ jobs:
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
+            --env ZEROTH_DATABASE__BACKEND="${{ steps.prepare.outputs.database_backend }}" \
+            --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
             --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
             --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
             --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.16] - 2026-08-18
+
+### Security
+
+- Bind migrations and runtime containers to the validated semantic database
+  backend, and fail the reusable workflow closed when PostgreSQL is unprovisioned.
+- Emit an executable environment-authenticated certification runtime and retain
+  original certifier diagnostics when cleanup also fails.
+
 ## [0.23.9.15] - 2026-08-17
 
 ### Security

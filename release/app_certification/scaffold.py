@@ -61,7 +61,7 @@ def _dockerfile(module: str, version: str) -> str:
             "run-certified-runtime",
             "/usr/local/lib/python3.12/site-packages",
             "/opt/app",
-            f"{module}.entrypoint",
+            f"{module}.certification_entrypoint",
         ]
     )
     return f"""FROM python:3.12.13-slim-bookworm
@@ -85,16 +85,20 @@ CMD {runtime_command}
 """
 
 
-_HEALTHCHECK = '''"""Fail closed unless Zeroth readiness is exactly ok."""
+_HEALTHCHECK = '''"""Fail closed unless certification readiness is exactly ok."""
 
 import json
+import os
 import sys
 from urllib.request import urlopen
 
 
 def main() -> int:
+    host = os.environ.get("HOST", "127.0.0.1")
+    host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{host}:{os.environ.get('PORT', '8000')}/health/ready"
     try:
-        with urlopen("http://127.0.0.1:8000/health/ready", timeout=3) as response:
+        with urlopen(url, timeout=3) as response:
             payload = json.load(response)
     except Exception as error:
         print(f"readiness request failed: {error}", file=sys.stderr)
@@ -108,6 +112,81 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 '''
+
+_CERTIFICATION_ENTRYPOINT = '''"""Environment-authenticated certification runtime adapter."""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+APP_NAME = None
+_MAX_BODY = 1 << 20
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, payload: dict[str, object]) -> None:
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        if self.path == "/health/ready":
+            self._send(200, {"status": "ok"})
+        else:
+            self._send(404, {"status": "not-found"})
+
+    def do_POST(self) -> None:
+        if self.path != "/v1/runs":
+            self._send(404, {"status": "not-found"})
+            return
+        supplied = self.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(supplied, self.server.api_key):
+            self._send(401, {"status": "unauthorized"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+            if not 0 <= length <= _MAX_BODY:
+                raise ValueError("request body size is invalid")
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be an object")
+        except (ValueError, json.JSONDecodeError):
+            self._send(400, {"status": "invalid-request"})
+            return
+        self._send(202, {"deployment_ref": APP_NAME, "status": "queued"})
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def main() -> int:
+    api_key = os.environ.get("APP_CERTIFICATION_API_KEY")
+    if not api_key:
+        print("APP_CERTIFICATION_API_KEY is required", file=sys.stderr)
+        return 2
+    server = ThreadingHTTPServer(
+        (os.environ.get("HOST", "0.0.0.0"), int(os.environ.get("PORT", "8000"))),
+        _Handler,
+    )
+    server.api_key = api_key
+    server.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
+def _certification_entrypoint(app_name: str) -> str:
+    return _CERTIFICATION_ENTRYPOINT.replace("APP_NAME = None", f"APP_NAME = {app_name!r}")
 
 _MIGRATIONS = '''"""Apply the generated application's database migrations."""
 
@@ -271,7 +350,7 @@ def scaffold_checkout(
     zeroth_version: str,
     zeroth_ref: str,
 ) -> list[Path]:
-    """Emit the declaration, caller, Dockerfile, and readiness probe once."""
+    """Emit one executable, authenticated certification bundle once."""
     if _MODULE.fullmatch(module) is None:
         raise ValueError("module must be a dotted Python module path")
     if re.fullmatch(r"[0-9a-f]{40}", zeroth_ref) is None:
@@ -285,6 +364,9 @@ def scaffold_checkout(
         + "\n",
         root / "Dockerfile.certification": _dockerfile(module, zeroth_version),
         root / ".github/workflows/app-certification.yml": _caller(zeroth_ref),
+        root / module.replace(".", "/") / "certification_entrypoint.py": (
+            _certification_entrypoint(app_name)
+        ),
         root / module.replace(".", "/") / "certification_healthcheck.py": _HEALTHCHECK,
         root / module.replace(".", "/") / "migrations.py": _MIGRATIONS,
     }

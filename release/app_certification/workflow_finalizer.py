@@ -215,7 +215,7 @@ def finalize_workflow(root: Path) -> int:
             },
         )
     report_path = root / "report.json"
-    if not (_existing_report_is_valid(report_path, root, stages) and cleanup_succeeded):
+    if not _existing_report_is_valid(report_path, root, stages):
         write_report(
             CertificationReport(
                 status="failed",

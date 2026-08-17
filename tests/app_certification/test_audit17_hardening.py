@@ -405,13 +405,13 @@ def test_exact_runtime_probe_imports_installed_regulus_capabilities(
             )
         ]
     )
-    distribution = SimpleNamespace(version="0.23.9.15", locate_file=lambda _name: site_packages)
+    distribution = SimpleNamespace(version="0.23.9.16", locate_file=lambda _name: site_packages)
     monkeypatch.setattr(
         runtime_probe_worker.importlib.metadata, "distribution", lambda _name: distribution
     )
     monkeypatch.setattr(runtime_probe_worker.importlib, "import_module", modules.__getitem__)
 
-    runtime_probe_worker.probe_runtime_extras("0.23.9.15")
+    runtime_probe_worker.probe_runtime_extras("0.23.9.16")
 
 
 def test_regulus_probe_requires_authenticated_budget_and_instrumentation_success(
@@ -532,7 +532,7 @@ def test_scaffold_generates_a_complete_repeatable_semantic_manifest(
         tmp_path,
         app_name="generated",
         module="generated_app",
-        zeroth_version="0.23.9.15",
+        zeroth_version="0.23.9.16",
         zeroth_ref="a" * 40,
     )
     declaration = AppDeclaration.model_validate_json(
@@ -576,7 +576,7 @@ def test_scaffold_generation_failure_does_not_leave_partial_assets(tmp_path: Pat
             tmp_path,
             app_name="broken",
             module="missing_app",
-            zeroth_version="0.23.9.15",
+            zeroth_version="0.23.9.16",
             zeroth_ref="a" * 40,
         )
 
@@ -584,5 +584,6 @@ def test_scaffold_generation_failure_does_not_leave_partial_assets(tmp_path: Pat
     assert not (tmp_path / "certification.semantic.json").exists()
     assert not (tmp_path / "Dockerfile.certification").exists()
     assert not (tmp_path / ".github/workflows/app-certification.yml").exists()
+    assert not (tmp_path / "missing_app/certification_entrypoint.py").exists()
     assert not (tmp_path / "missing_app/certification_healthcheck.py").exists()
     assert not (tmp_path / "missing_app/migrations.py").exists()

@@ -10,8 +10,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zeroth.platform.config import get_settings
-
 from .models import AppDeclaration, file_digest
 
 MigrationProcess = Callable[[str, str], None]
@@ -52,17 +50,18 @@ def _sqlite_tables(database: Path) -> list[str]:
 
 
 def inspect_migration(
-    declaration: AppDeclaration, run_candidate: MigrationProcess
+    declaration: AppDeclaration,
+    run_candidate: MigrationProcess,
+    *,
+    backend: str,
+    postgres_dsn: str | None = None,
 ) -> dict[str, Any]:
     """Measure schema state in this process around only the candidate migration."""
-    settings = get_settings()
-    backend = settings.database.backend
     reference = declaration.targets.migration_runner
     if backend == "postgres":
-        dsn = settings.database.postgres_dsn
-        if dsn is None:
+        if not postgres_dsn:
             raise ValueError("postgres migration certification requires a DSN")
-        database_url = dsn.get_secret_value()
+        database_url = postgres_dsn
         if _postgres_tables(database_url):
             raise ValueError("postgres migration certification requires a fresh database")
         run_candidate(reference, _postgres_migration_url(database_url))
@@ -73,7 +72,7 @@ def inspect_migration(
             "sha256:"
             + hashlib.sha256(json.dumps(objects, separators=(",", ":")).encode()).hexdigest()
         )
-    else:
+    elif backend == "sqlite":
         with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
             database = Path(directory) / "migration.sqlite"
             run_candidate(reference, f"sqlite:///{database}")
@@ -81,6 +80,8 @@ def inspect_migration(
             if not objects:
                 raise ValueError("app migration did not create SQLite tables")
             digest = file_digest(database)
+    else:
+        raise ValueError(f"declared database backend {backend!r} is unsupported")
     return {
         "backend": backend,
         "object_count": len(objects),

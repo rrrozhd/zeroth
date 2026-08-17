@@ -314,7 +314,7 @@ def test_failure_injection_propagates_broken_migration(
     )
     data = declaration_data()
     data["targets"]["migration_runner"] = "broken_migration:migrate"
-    result = CertificationRunner(tmp_path, AppDeclaration.model_validate(data))._command(
+    result = CertificationRunner(tmp_path, write_semantic_inputs(tmp_path, data))._command(
         "migrations"
     )
     assert result.status == "failed"

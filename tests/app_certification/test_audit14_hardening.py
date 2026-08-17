@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import uuid
@@ -50,6 +51,13 @@ def _runner(
         write_semantic_inputs(root, data, updates=semantic_updates),
         check_python=Path(sys.executable),
     )
+
+
+def _postgres_service_config() -> dict:
+    manifest = json.loads(
+        (ROOT / "apps/vendor_dd/certification.semantic.json").read_text(encoding="utf-8")
+    )
+    return {**manifest["service_config"], "database_backend": "postgres"}
 
 
 @pytest.mark.parametrize("recovery", ["frame", "gc"])
@@ -107,6 +115,7 @@ def test_candidate_cannot_forge_noop_postgres_migration(
     postgres_container,
     recovery: str,
 ) -> None:
+    shutil.copytree(ROOT / "apps/vendor_dd", tmp_path / "apps/vendor_dd")
     (tmp_path / "candidate.py").write_text(
         "import gc, sys, types\n"
         + _recovery(recovery)
@@ -122,7 +131,11 @@ def test_candidate_cannot_forge_noop_postgres_migration(
     data = declaration_data()
     data["targets"]["migration_runner"] = "candidate:migrate"
 
-    result = _runner(tmp_path, data)._command("migrations")
+    result = _runner(
+        tmp_path,
+        data,
+        semantic_updates={"service_config": _postgres_service_config()},
+    )._command("migrations")
 
     assert result.status == "failed"
     assert "did not create postgresql tables" in result.detail.lower()

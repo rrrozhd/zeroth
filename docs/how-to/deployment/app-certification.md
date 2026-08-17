@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.15 \
+  --zeroth-version 0.23.9.16 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -23,6 +23,7 @@ The command refuses to overwrite existing files and emits:
 - `certification.json`;
 - `certification.semantic.json`;
 - `Dockerfile.certification`;
+- `<module>/certification_entrypoint.py`;
 - `<module>/certification_healthcheck.py`;
 - `<module>/migrations.py`.
 
@@ -41,6 +42,12 @@ The generation command normalizes volatile graph timestamps and writes the
 canonical JSON atomically, so identical inputs produce identical bytes. Adjust
 only the structured `targets` references if the app uses different names.
 Neither declaration can provide commands or shell text.
+
+The reusable workflow binds the validated semantic backend to the certification
+process and both runtime containers. It provisions isolated SQLite storage; a
+manifest declaring PostgreSQL fails closed because that workflow does not own a
+fresh PostgreSQL database or DSN. Direct certification of PostgreSQL requires an
+explicit matching backend and fresh DSN.
 
 ## What is checked
 
