@@ -482,15 +482,21 @@ jobs:
   load-recovery:
     name: Gate — load and recovery
     needs: [candidate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      options: --cpus 2 --memory 8g
     env:
-      ZEROTH_LOAD_POSTGRES_DSN: postgresql://zeroth:zeroth@localhost:5432/zeroth
-      ZEROTH_LOAD_REDIS_URL: redis://localhost:6379/14
+      ZEROTH_LOAD_POSTGRES_DSN: postgresql://zeroth:zeroth@postgres:5432/zeroth
+      ZEROTH_LOAD_REDIS_URL: redis://redis:6379/14
       ZEROTH_LOAD_OBSERVATIONS: release/evidence/load-recovery-raw.json
-      ZEROTH_TEST_REDIS_URL: redis://localhost:6379/15
+      ZEROTH_TEST_REDIS_URL: redis://redis:6379/15
+      ZEROTH_LOAD_RUNTIME_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      ZEROTH_LOAD_POSTGRES_VERSION: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+      ZEROTH_LOAD_REDIS_VERSION: redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
         env:
           POSTGRES_USER: zeroth
           POSTGRES_PASSWORD: zeroth
@@ -503,7 +509,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       redis:
-        image: redis:7.4-alpine
+        image: redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
         ports:
           - 6379:6379
         options: >-
@@ -517,11 +523,6 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Download candidate identity
         uses: actions/download-artifact@v4

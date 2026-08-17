@@ -253,7 +253,7 @@ async def network_delay(database: Any, anchor: tuple[Any, Any, dict[str, str]]) 
             assert (await recovered.get("/health/ready")).status_code == 200
             states.extend(
                 [
-                    {"state": "completed", "at_ms": elapsed_ms(started)},
+                    {"state": "request-completed", "at_ms": elapsed_ms(started)},
                     {"state": "transport-restored", "at_ms": elapsed_ms(started)},
                 ]
             )

@@ -19,7 +19,7 @@ def _identity() -> dict:
     return {
         "schema_version": 1,
         "commit": "a" * 40,
-        "package": {"version": "0.23.10", "artifacts": {}},
+        "package": {"version": "0.23.10.1", "artifacts": {"wheel": "sha256:" + "a" * 64}},
     }
 
 
@@ -131,13 +131,18 @@ def _rows(*, overload_status: int = 429, retry_after: int | None = 2) -> list[di
 
 
 def _report(rows: list[dict] | None = None) -> dict:
-    from release.load.report import build_report, load_baseline, load_profiles
+    from release.load.report import build_report, load_baseline, load_profiles, observation_digest
+
+    baseline = load_baseline(BASELINE)
+    observations = rows or _rows()
 
     return build_report(
         load_profiles(PROFILES),
-        load_baseline(BASELINE),
+        baseline,
         _identity(),
-        rows or _rows(),
+        observations,
+        environment=baseline["environment"],
+        observation_digest=observation_digest(observations),
     )
 
 
@@ -318,9 +323,18 @@ def test_baseline_raw_distributions_recompute_its_performance_metrics() -> None:
 
 
 def test_report_rejects_a_malformed_candidate_identity() -> None:
-    from release.load.report import build_report, load_baseline, load_profiles
+    from release.load.report import build_report, load_baseline, load_profiles, observation_digest
 
-    report = build_report(load_profiles(PROFILES), load_baseline(BASELINE), {}, _rows())
+    baseline = load_baseline(BASELINE)
+    rows = _rows()
+    report = build_report(
+        load_profiles(PROFILES),
+        baseline,
+        {},
+        rows,
+        environment=baseline["environment"],
+        observation_digest=observation_digest(rows),
+    )
 
     assert report["passed"] is False
     assert any("candidate identity" in error for error in report["errors"])

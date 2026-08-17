@@ -12,7 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from release.load.report import build_report, load_baseline, load_profiles  # noqa: E402
+from release.load.environment import observation_digest, runtime_environment  # noqa: E402
+from release.load.report import (  # noqa: E402
+    build_report,
+    load_baseline,
+    load_profiles,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -39,11 +44,14 @@ def _write(path: Path, report: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        observations = _read(args.observations)
         report = build_report(
             load_profiles(args.profiles),
             load_baseline(args.baseline),
             _read(args.identity),
-            _read(args.observations),
+            observations,
+            environment=runtime_environment(),
+            observation_digest=observation_digest(observations),
         )
     except (OSError, TypeError, ValueError) as error:
         report = {"schema_version": 1, "passed": False, "errors": [str(error)]}

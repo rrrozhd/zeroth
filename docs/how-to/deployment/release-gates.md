@@ -145,12 +145,13 @@ and persisted webhook-delivery paths; the linked LangGraph gate exercises the
 streaming routes. A surface label therefore cannot replace the native product
 behavior it names.
 
-The environment is isolated but production-representative: loopback HTTP
-servers run the real ASGI application and durable workers against PostgreSQL
-17 and Redis 7.4. It excludes external network and model-provider latency. The
-committed baseline records its operating system, architecture, CPU count,
-Python version, exact prior commit and package version; compare results only
-within that declared capacity assumption.
+The environment is isolated but production-representative: an
+`ubuntu-24.04-arm` runner uses a digest-pinned Python 3.12 container limited to
+2 CPUs and 8 GiB, with digest-pinned PostgreSQL 17 and Redis 7.4 services. The
+real ASGI application and durable workers run inside that boundary; external
+network and model-provider latency are excluded. The committed baseline records
+the same operating system, architecture, limits and images plus the exact prior
+commit and package version. A different environment fails closed.
 
 ### Candidate safe envelope
 
@@ -179,11 +180,13 @@ are pinned in `release/load/report.py`. Runtime evaluation never derives a new
 threshold from a mutable baseline: editing the baseline fails validation.
 
 A legitimate baseline refresh is deliberate: run the full profiles at least
-three isolated times against the exact previous release, review every raw
-distribution and hardware field, then update the combined baseline, pinned
-digest and independently declared threshold derivation together. The tests
+three isolated times against the exact previous release in the pinned capacity
+environment, review every raw distribution and hardware field, then update the
+combined baseline, pinned digest and independently declared threshold
+derivation together. Every source run has a distinct observation digest, and a
+candidate observation digest may not overlap those baseline runs. The tests
 recompute throughput, p50/p95/p99, rejection, queue, resource and recovery
-values from those distributions.
+values from the retained distributions.
 
 ### Reproducing the gate
 
