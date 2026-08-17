@@ -25,7 +25,7 @@ from release.app_certification.wheel_installation import (
     TRUSTED_RUNTIME_IMAGE,
 )
 from release.app_certification.workflow_finalizer import finalize_workflow
-from tests.app_certification.test_engine import declaration_data
+from tests.app_certification.test_engine import declaration_data, write_semantic_inputs
 
 
 WORKFLOW = Path(".github/workflows/app-certification.yml")
@@ -53,11 +53,14 @@ def test_trusted_supervisors_exclude_candidate_site_packages(tmp_path: Path) -> 
 
     runner._command("dependency-lock")
     runner._command("contracts")
+    runner._command("migrations")
 
-    assert len(trusted) == len(candidate) == 1
+    assert len(trusted) == 2
+    assert len(candidate) == 1
     certifier_venv = str(Path(sys.executable).parent.parent.resolve())
-    assert trusted[0][6] == candidate[0][6] == certifier_venv
-    assert str(app_python.parent.parent) not in trusted[0]
+    assert all(argv[6] == certifier_venv for argv in trusted)
+    assert candidate[0][6] == certifier_venv
+    assert all(str(app_python.parent.parent) not in argv for argv in trusted)
     assert candidate[0].count(str(app_python.parent.parent)) == 1
 
 
@@ -71,34 +74,43 @@ def test_candidate_supervisor_receives_app_venv_only_as_untrusted_input(tmp_path
         check_python=app_venv / "bin/python",
     )
 
-    runner._command("contracts")
+    runner._command("migrations")
 
     argv = calls[0]
     assert argv[argv.index("--candidate-venv") + 1] == str(app_venv)
 
 
-def test_production_service_route_rejects_shape_compatible_auth_config(tmp_path: Path) -> None:
+def test_production_service_route_validates_static_auth_config_without_import(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "candidate-ran"
     (tmp_path / "fake_auth.py").write_text(
-        "class FakeAuth:\n"
-        "    def model_dump(self, mode='json'):\n"
-        "        return {'api_keys': [{'credential_id': 'fake', 'secret': 'fake', "
-        "'subject': 'fake', 'roles': ['admin'], 'tenant_id': 'tenant', "
-        "'workspace_id': None}], 'bearer': None, 'custom_roles': {}, "
-        "'revoked_credential_ids': []}\n"
+        f"open({str(marker)!r}, 'w').write('executed')\n"
         "def build_auth_config():\n"
-        "    return FakeAuth()\n",
+        "    return object()\n",
         encoding="utf-8",
     )
     data = declaration_data()
     data["targets"]["auth_config"] = "fake_auth:build_auth_config"
+    declaration = write_semantic_inputs(
+        tmp_path,
+        data,
+        updates={
+            "service_config": {
+                "auth_config": {"api_keys": "not-a-list"},
+                "database_backend": "sqlite",
+            }
+        },
+    )
     result = CertificationRunner(
         tmp_path,
-        AppDeclaration.model_validate(data),
+        declaration,
         check_python=Path(sys.executable),
     )._command("service-config")
 
     assert result.status == "failed"
-    assert "ServiceAuthConfig" in result.detail
+    assert "validation" in result.detail.lower()
+    assert not marker.exists()
 
 
 def test_workflow_finalizer_preserves_valid_failed_certifier_report(
@@ -120,16 +132,22 @@ def test_workflow_finalizer_preserves_valid_failed_certifier_report(
         ],
     )
     write_report(report, root / "report.json")
+    (root / "cleanup.json").write_text(
+        json.dumps({"schema_version": 1, "status": "passed", "resources": []}) + "\n",
+        encoding="utf-8",
+    )
     for stage in (
         "APP_CHECKOUT",
         "CERTIFIER_CHECKOUT",
         "PREPARE",
         "IMAGE",
+        "WHEEL",
         "SBOM",
         "EVIDENCE",
         "CONTAINERS",
         "HEALTH",
         "CERTIFY",
+        "CLEANUP",
     ):
         monkeypatch.setenv(stage, "failure" if stage == "CERTIFY" else "success")
 

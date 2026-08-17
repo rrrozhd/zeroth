@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from release.app_certification import AppDeclaration, CertificationRunner, validate_source_archive
-from tests.app_certification.test_engine import declaration_data
+from tests.app_certification.test_engine import declaration_data, write_semantic_inputs
 from tests.app_certification.test_hardening import identity
 
 
@@ -36,7 +36,7 @@ def _descriptor_forgery(payload: str) -> str:
     )
 
 
-def test_descriptor_scan_cannot_forge_candidate_serialization(tmp_path: Path) -> None:
+def test_descriptor_scan_has_no_candidate_serialization_channel(tmp_path: Path) -> None:
     source = tmp_path / "candidate_attack.py"
     source.write_text(
         "import hashlib, json, os\n"
@@ -54,12 +54,12 @@ def test_descriptor_scan_cannot_forge_candidate_serialization(tmp_path: Path) ->
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
 
+    declaration = write_semantic_inputs(tmp_path, data)
     result = CertificationRunner(
-        tmp_path, AppDeclaration.model_validate(data), check_python=Path(sys.executable)
+        tmp_path, declaration, check_python=Path(sys.executable)
     )._command("contracts")
 
-    assert result.status == "failed"
-    assert "candidate" in result.detail.lower()
+    assert result.status == "passed", result.detail
 
 
 def test_candidate_cannot_forge_result_capability_then_exit_zero(tmp_path: Path) -> None:
@@ -138,15 +138,16 @@ def test_candidate_source_policy_allows_guarded_cli_exit(tmp_path: Path) -> None
     )
     data = declaration_data()
     data["targets"]["contracts"] = "candidate:CONTRACTS"
+    declaration = write_semantic_inputs(tmp_path, data)
 
     result = CertificationRunner(
-        tmp_path, AppDeclaration.model_validate(data), check_python=Path(sys.executable)
+        tmp_path, declaration, check_python=Path(sys.executable)
     )._command("contracts")
 
     assert result.status == "passed", result.detail
 
 
-def test_descriptor_scan_cannot_forge_candidate_imports(tmp_path: Path) -> None:
+def test_optional_contract_does_not_offer_a_candidate_import_channel(tmp_path: Path) -> None:
     source = tmp_path / "candidate_attack.py"
     source.write_text(
         "import json, os, sys\n"
@@ -168,12 +169,12 @@ def test_descriptor_scan_cannot_forge_candidate_imports(tmp_path: Path) -> None:
         }
     )
 
+    declaration = write_semantic_inputs(tmp_path, data)
     result = CertificationRunner(
-        tmp_path, AppDeclaration.model_validate(data), check_python=Path(sys.executable)
+        tmp_path, declaration, check_python=Path(sys.executable)
     )._command("optional-extras")
 
-    assert result.status == "failed"
-    assert "candidate" in result.detail.lower()
+    assert result.status == "passed", result.detail
 
 
 def test_descriptor_scan_cannot_forge_reducer_resolution(tmp_path: Path) -> None:
@@ -210,9 +211,12 @@ def test_descriptor_scan_cannot_forge_reducer_resolution(tmp_path: Path) -> None
     data = declaration_data()
     data["targets"]["graph_builders"] = ["candidate:build_graph"]
     data["targets"]["contracts"] = "candidate:CONTRACTS"
+    declaration = write_semantic_inputs(
+        tmp_path, data, updates={"reducers": ["reducer_attack.merge"]}
+    )
 
     result = CertificationRunner(
-        tmp_path, AppDeclaration.model_validate(data), check_python=Path(sys.executable)
+        tmp_path, declaration, check_python=Path(sys.executable)
     )._command("graph")
 
     assert result.status == "failed"
@@ -270,7 +274,7 @@ def test_dependency_hooks_use_bounded_container_and_always_cleanup() -> None:
     job = workflow["jobs"]["certify"]
     prepare = next(step["run"] for step in job["steps"] if step.get("id") == "prepare")
     cleanup = next(
-        step for step in job["steps"] if step["name"] == "Release candidate dependency sandbox"
+        step for step in job["steps"] if step["name"] == "Clean up certification resources"
     )
 
     assert "run-dependency-sandbox" in prepare
@@ -278,7 +282,7 @@ def test_dependency_hooks_use_bounded_container_and_always_cleanup() -> None:
     for boundary in ("--cpus", "--memory", "--pids-limit", "--disk-bytes", "--timeout"):
         assert boundary in prepare
     assert cleanup["if"] == "${{ always() }}"
-    assert "cleanup-dependency-sandbox" in cleanup["run"]
+    assert "cleanup-certification" in cleanup["run"]
 
 
 def test_dependency_sandbox_kills_detached_descendant_and_caps_output(tmp_path: Path) -> None:

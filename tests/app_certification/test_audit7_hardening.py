@@ -19,6 +19,7 @@ from release.app_certification.cli import _probe_readiness
 from tests.app_certification.test_engine import (
     declaration_data,
     run_certification,
+    write_semantic_inputs,
     write_inputs,
 )
 
@@ -130,7 +131,7 @@ def _write_candidate_import_attack(root: Path, marker: Path) -> None:
     )
 
 
-def test_candidate_import_cannot_replace_certifier_collectors(
+def test_candidate_import_is_not_executed_by_static_certifier(
     tmp_path: Path,
 ) -> None:
     marker = tmp_path / "invalid-target-executed"
@@ -138,20 +139,17 @@ def test_candidate_import_cannot_replace_certifier_collectors(
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_attack:CONTRACTS"
     data["targets"]["graph_builders"] = ["invalid_target:build_graph"]
-    runner = certification_cli.CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+    runner = certification_cli.CertificationRunner(
+        tmp_path, write_semantic_inputs(tmp_path, data)
+    )
 
     result = runner._command("graph")
 
-    assert result.status == "failed"
-    assert "declared invalid target executed" in result.detail
-    assert marker.read_text(encoding="utf-8") == "executed"
+    assert result.status == "passed", result.detail
+    assert not marker.exists()
 
 
-@pytest.mark.parametrize("recovery", ["frame", "gc"])
-def test_candidate_reflection_cannot_replace_certifier_collectors(
-    tmp_path: Path, recovery: str
-) -> None:
-    marker = tmp_path / "invalid-target-executed"
+def _write_reflection_attack(tmp_path: Path, marker: Path, recovery: str) -> None:
     recover = (
         "frame = sys._getframe()\n"
         "while frame is not None:\n"
@@ -188,16 +186,25 @@ def test_candidate_reflection_cannot_replace_certifier_collectors(
         "    raise RuntimeError('declared invalid target executed')\n",
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize("recovery", ["frame", "gc"])
+def test_candidate_reflection_is_not_executed_by_static_certifier(
+    tmp_path: Path, recovery: str
+) -> None:
+    marker = tmp_path / "invalid-target-executed"
+    _write_reflection_attack(tmp_path, marker, recovery)
     data = declaration_data()
     data["targets"]["contracts"] = "candidate_frame_attack:CONTRACTS"
     data["targets"]["graph_builders"] = ["invalid_target:build_graph"]
-    runner = certification_cli.CertificationRunner(tmp_path, AppDeclaration.model_validate(data))
+    runner = certification_cli.CertificationRunner(
+        tmp_path, write_semantic_inputs(tmp_path, data)
+    )
 
     result = runner._command("graph")
 
-    assert result.status == "failed"
-    assert "declared invalid target executed" in result.detail
-    assert marker.read_text(encoding="utf-8") == "executed"
+    assert result.status == "passed", result.detail
+    assert not marker.exists()
 
 
 def _write_frontend_toolchain(root: Path, *, handoff: Path | None = None) -> None:

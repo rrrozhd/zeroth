@@ -33,6 +33,8 @@ jobs:
       CANDIDATE_BUILD_CONTAINER: app-cert-dependencies-${{ github.run_id }}
       CANDIDATE_BUILD_DISK: ${{ runner.temp }}/app-cert-dependencies-${{ github.run_id }}.img
       CANDIDATE_BUILD_IMAGE: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+      CANDIDATE_BUILDER: app-cert-builder-${{ github.run_id }}
+      CANDIDATE_BUILDER_DISK: ${{ runner.temp }}/app-cert-builder-${{ github.run_id }}.img
     steps:
       - name: Initialize certifier-owned handoff
         id: handoff
@@ -185,8 +187,15 @@ jobs:
           CERTIFIER_WHEELS=(trusted-certifier/*.whl)
           [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
           CANDIDATE_IMAGE_REFERENCE="app-cert-candidate:${GITHUB_RUN_ID}"
-          timeout 15m docker build --file "build-context/$DOCKERFILE" \
-            --tag "$CANDIDATE_IMAGE_REFERENCE" build-context
+          zeroth/.venv/bin/python -m release.app_certification.dependency_sandbox \
+            run-build-sandbox --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --builder-name "$CANDIDATE_BUILDER" \
+            --disk "$CANDIDATE_BUILDER_DISK" --disk-bytes 4294967296 \
+            --context build-context --dockerfile "build-context/$DOCKERFILE" \
+            --tag "$CANDIDATE_IMAGE_REFERENCE" \
+            --cpus 2 --memory 2g --pids-limit 256 --timeout 900 \
+            --output-limit 1048576 --log "$HANDOFF_ROOT/logs/candidate-build.log"
           docker image inspect "$CANDIDATE_IMAGE_REFERENCE" --format '{{json .Config}}' \
             > "$HANDOFF_ROOT/candidate-image-config.json"
           RUNTIME_CONTEXT=$(mktemp -d "$RUNNER_TEMP/app-cert-runtime.XXXXXX")
@@ -339,6 +348,32 @@ jobs:
             --check-python app/.venv/bin/python \
             --evidence-root "$HANDOFF_ROOT/root" \
             --untrusted-user app-cert-candidate
+      - name: Capture container diagnostics
+        if: ${{ always() }}
+        run: |
+          set +e
+          mkdir -p "$HANDOFF_ROOT/logs"
+          docker logs --tail 2000 app-cert-packaged > "$HANDOFF_ROOT/logs/packaged.log" 2>&1
+          docker logs --tail 2000 app-cert-ephemeral > "$HANDOFF_ROOT/logs/ephemeral.log" 2>&1
+          docker inspect app-cert-packaged app-cert-ephemeral \
+            > "$HANDOFF_ROOT/logs/container-inspect.json" 2>&1
+      - name: Clean up certification resources
+        id: cleanup
+        if: ${{ always() }}
+        env:
+          CANDIDATE_IMAGE_REFERENCE: app-cert-candidate:${{ github.run_id }}
+          RUNTIME_IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          python3 zeroth/release/app_certification/dependency_sandbox.py \
+            cleanup-certification --app-root app \
+            --container-name "$CANDIDATE_BUILD_CONTAINER" \
+            --disk "$CANDIDATE_BUILD_DISK" \
+            --builder-name "$CANDIDATE_BUILDER" \
+            --builder-disk "$CANDIDATE_BUILDER_DISK" \
+            --candidate-image "$CANDIDATE_IMAGE_REFERENCE" \
+            --runtime-image "$RUNTIME_IMAGE_REFERENCE" \
+            --output "$HANDOFF_ROOT/cleanup.json"
       - name: Finalize canonical report and stage diagnostics
         if: ${{ always() }}
         env:
@@ -352,38 +387,12 @@ jobs:
           CONTAINERS: ${{ steps.containers.outcome }}
           HEALTH: ${{ steps.health.outcome }}
           CERTIFY: ${{ steps.certify.outcome }}
+          CLEANUP: ${{ steps.cleanup.outcome }}
         run: |
           set -euo pipefail
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" zeroth/.venv/bin/python \
             -m release.app_certification finalize-workflow \
-            --root "$HANDOFF_ROOT" || python3 -c 'import json,os,pathlib; r=pathlib.Path(os.environ["HANDOFF_ROOT"]); r.is_symlink() and (_ for _ in ()).throw(ValueError("handoff root must not be a symlink")); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY")}; (r/"workflow-stages.json").write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p)'
-      - name: Capture container diagnostics
-        if: ${{ always() }}
-        run: |
-          set +e
-          mkdir -p "$HANDOFF_ROOT/logs"
-          docker logs --tail 2000 app-cert-packaged > "$HANDOFF_ROOT/logs/packaged.log" 2>&1
-          docker logs --tail 2000 app-cert-ephemeral > "$HANDOFF_ROOT/logs/ephemeral.log" 2>&1
-          docker inspect app-cert-packaged app-cert-ephemeral \
-            > "$HANDOFF_ROOT/logs/container-inspect.json" 2>&1
-      - name: Stop and remove certification containers
-        if: ${{ always() }}
-        run: |
-          set +e
-          docker rm -f app-cert-wheel-inspect
-          docker stop app-cert-packaged app-cert-ephemeral
-          docker rm app-cert-packaged app-cert-ephemeral
-          docker network rm app-cert-packaged-net app-cert-ephemeral-net
-          docker volume rm app-cert-packaged-data
-          docker image rm -f "app-cert-candidate:${GITHUB_RUN_ID}"
-      - name: Release candidate dependency sandbox
-        if: ${{ always() }}
-        run: |
-          set +e
-          python3 zeroth/release/app_certification/dependency_sandbox.py \
-            cleanup-dependency-sandbox --app-root app \
-            --container-name "$CANDIDATE_BUILD_CONTAINER" \
-            --disk "$CANDIDATE_BUILD_DISK"
+            --root "$HANDOFF_ROOT" || python3 -c 'import hashlib,json,os,pathlib; r=pathlib.Path(os.environ["HANDOFF_ROOT"]); r.is_symlink() and (_ for _ in ()).throw(ValueError("handoff root must not be a symlink")); r.mkdir(parents=True,exist_ok=True); s={k.lower():os.environ.get(k,"skipped") for k in ("APP_CHECKOUT","CERTIFIER_CHECKOUT","PREPARE","IMAGE","WHEEL","SBOM","EVIDENCE","CONTAINERS","HEALTH","CERTIFY","CLEANUP")}; w=r/"workflow-stages.json"; w.write_text(json.dumps(s,indent=2,sort_keys=True)+"\n"); p=r/"report.json"; t=r/".report.json.tmp"; c=("graph","service-config","contracts","dependency-lock","optional-extras","migrations","container-startup","health","policies","frontend-api","packaged-smoke","ephemeral-smoke","sbom","provenance"); m={"container-startup":"containers","health":"health","packaged-smoke":"certify","ephemeral-smoke":"certify","sbom":"sbom","provenance":"evidence"}; f=next((k for k,v in s.items() if v=="failure"),"prepare"); t.write_text(json.dumps({"schema_version":1,"status":"failed","candidate":None,"checks":[{"name":n,"status":"failed","detail":n+": workflow finalizer fallback; workflow stage "+(q if s.get(q:=m.get(n,"certify"))!="skipped" else f)+" outcome="+s[q if s.get(q)!="skipped" else f]} for n in c],"evidence":None},indent=2,sort_keys=True)+"\n"); os.replace(t,p); d=lambda x:"sha256:"+hashlib.sha256(x.read_bytes()).hexdigest(); q=r/"cleanup.json"; q.exists() or q.write_text(json.dumps({"errors":["cleanup stage produced no retained evidence"],"resources":[],"schema_version":1,"status":"failed"},indent=2,sort_keys=True)+"\n"); (r/"workflow-evidence.json").write_text(json.dumps({"schema_version":1,"cleanup_sha256":d(q),"report_sha256":d(p),"workflow_stages_sha256":d(w)},indent=2,sort_keys=True)+"\n")'
       - name: Upload unprivileged certification handoff
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -434,11 +443,15 @@ jobs:
           set -euo pipefail
           uv sync --directory zeroth --frozen
           [[ "$(git -C zeroth rev-parse HEAD)" == "$ZEROTH_REF" ]]
+          [[ "$(git -C app rev-parse HEAD)" == "$APP_COMMIT" ]]
           PYTHON="$GITHUB_WORKSPACE/zeroth/.venv/bin/python"
           VERSION=$("$PYTHON" -c \
             'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
           PYTHONPATH="$GITHUB_WORKSPACE/zeroth" "$PYTHON" -m release.app_certification \
             validate-handoff --report evidence/report.json --root evidence/root \
+            --workflow-evidence evidence/workflow-evidence.json \
+            --workflow-stages evidence/workflow-stages.json \
+            --cleanup evidence/cleanup.json \
             --image-archive evidence/image.tar --source-archive evidence/source.tar \
             --app-repository app \
             --app-commit "$APP_COMMIT" \
@@ -521,6 +534,9 @@ jobs:
           VERSION=$(zeroth/.venv/bin/python -c 'import tomllib; print(tomllib.load(open("zeroth/pyproject.toml","rb"))["project"]["version"])')
           zeroth/.venv/bin/python -m release.app_certification finalize-attestation \
             --bundle "$BUNDLE" --report evidence/report.json --root evidence/root \
+            --workflow-evidence evidence/workflow-evidence.json \
+            --workflow-stages evidence/workflow-stages.json \
+            --cleanup evidence/cleanup.json \
             --image-archive evidence/image.tar --source-archive evidence/source.tar \
             --app-repository app \
             --app-commit '${{ github.sha }}' --zeroth-version "$VERSION" \

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
-import importlib.metadata
 import json
 import subprocess
 import sys
@@ -14,27 +12,27 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from jsonschema.exceptions import SchemaError
+from pydantic import ValidationError
 
 from zeroth.contracts.graph import Graph
 from zeroth.contracts.graph.validation_errors import ValidationCode
 from zeroth.contracts.registry import ContractRegistry, contract_scope_context
-from zeroth.governance.policy import PolicyDecision, PolicyGuard
-from zeroth.platform.config import get_settings
+from zeroth.contracts.registry.schema_model import check_json_schema
+from zeroth.governance.policy import (
+    Capability,
+    CapabilityRegistry,
+    PolicyDecision,
+    PolicyDefinition,
+    PolicyGuard,
+    PolicyRegistry,
+)
 from zeroth.platform.storage.async_sqlite import AsyncSQLiteDatabase
 from zeroth.runtime.graph_validation import GraphValidator
 from zeroth.service.api.authentication import ServiceAuthConfig
 from zeroth.service.bootstrap import run_migrations
 
-from .models import AppDeclaration, file_digest, load_declaration
-
-
-def _load_target(reference: str) -> Any:
-    module_name, _, attribute_path = reference.partition(":")
-    value: Any = importlib.import_module(module_name)
-    for attribute in attribute_path.split("."):
-        value = getattr(value, attribute)
-    return value
+from .models import AppDeclaration, _read_json, file_digest, load_declaration
 
 
 def candidate_target_references(name: str, declaration: AppDeclaration) -> list[str]:
@@ -79,29 +77,64 @@ def target_source_digests(name: str, root: Path, declaration: AppDeclaration) ->
     return bindings
 
 
-def _contracts(declaration: AppDeclaration) -> dict[str, type[BaseModel]]:
-    value = _load_target(declaration.targets.contracts)
-    if not isinstance(value, Mapping) or not value:
-        raise ValueError("contracts target must be a non-empty mapping")
-    contracts = dict(value)
-    for name, model in contracts.items():
-        if not isinstance(name, str) or not name or not isinstance(model, type):
-            raise ValueError("contracts must map non-empty names to Pydantic model types")
-        if not issubclass(model, BaseModel):
-            raise ValueError(f"contract {name!r} is not a Pydantic model type")
-        model.model_json_schema()
-    return contracts
+def _semantic_manifest(root: Path, declaration: AppDeclaration) -> dict[str, Any]:
+    candidate = root / declaration.semantic_path
+    if candidate.is_symlink():
+        raise ValueError("semantic manifest must not be a symlink")
+    path = candidate.resolve()
+    path.relative_to(root.resolve())
+    document = _read_json(path)
+    required = {
+        "capabilities",
+        "contracts",
+        "graphs",
+        "policies",
+        "reducers",
+        "schema_version",
+        "service_config",
+        "target_sources",
+        "zeroth_version",
+    }
+    if not isinstance(document, dict) or set(document) != required:
+        raise ValueError("semantic manifest fields do not match schema version 1")
+    if document.get("schema_version") != 1:
+        raise ValueError("semantic manifest schema_version must be 1")
+    return document
 
 
-def _graphs(declaration: AppDeclaration) -> list[Graph]:
-    graphs: list[Graph] = []
-    for reference in declaration.targets.graph_builders:
-        builder = _load_target(reference)
-        graph = builder()
-        if not isinstance(graph, Graph):
-            raise ValueError(f"graph builder {reference!r} did not return a Graph")
-        graphs.append(graph)
-    return graphs
+def _manifest_sources(
+    name: str, root: Path, declaration: AppDeclaration, manifest: dict[str, Any]
+) -> None:
+    sources = manifest.get("target_sources")
+    expected = target_source_digests(name, root, declaration)
+    if not isinstance(sources, dict) or any(
+        sources.get(key) != value for key, value in expected.items()
+    ):
+        raise ValueError("semantic manifest does not match the declared target sources")
+
+
+def _trusted_schemas(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("semantic manifest has no contract schemas")
+    schemas: dict[str, dict[str, Any]] = {}
+    for name, schema in raw.items():
+        if not isinstance(name, str) or not name or not isinstance(schema, dict):
+            raise ValueError("semantic manifest contract schemas are malformed")
+        try:
+            check_json_schema(schema)
+        except SchemaError as error:
+            raise ValueError(f"semantic manifest contract schema {name!r} is invalid") from error
+        schemas[name] = schema
+    return schemas
+
+
+def _trusted_graphs(raw: Any, expected: int) -> list[Graph]:
+    if not isinstance(raw, list) or len(raw) != expected:
+        raise ValueError("semantic manifest graph count does not match the declaration")
+    try:
+        return [Graph.model_validate(item) for item in raw]
+    except ValidationError as error:
+        raise ValueError("semantic manifest Graph is invalid") from error
 
 
 async def _registered_validation(
@@ -165,26 +198,38 @@ async def _resolve_graph_contracts(registry: ContractRegistry, graph: Graph) -> 
 
 
 def _check_graph(root: Path, declaration: AppDeclaration) -> None:
-    del root
-    schemas = {name: model.model_json_schema() for name, model in _contracts(declaration).items()}
-    asyncio.run(validate_serialized_graphs(schemas, _graphs(declaration)))
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("graph", root, declaration, manifest)
+    schemas = _trusted_schemas(manifest["contracts"])
+    graphs = _trusted_graphs(manifest["graphs"], len(declaration.targets.graph_builders))
+    reducers = manifest["reducers"]
+    if reducers not in ([], None):
+        raise ValueError("dynamic reducer code is outside the static certification contract")
+    asyncio.run(validate_serialized_graphs(schemas, graphs))
 
 
 def _check_service_config(root: Path, declaration: AppDeclaration) -> None:
-    del root
-    settings = get_settings()
-    if settings.database.backend not in {"sqlite", "postgres"}:
-        raise ValueError(f"unsupported database backend {settings.database.backend!r}")
-    config = _load_target(declaration.targets.auth_config)()
-    if not isinstance(config, ServiceAuthConfig):
-        raise ValueError("auth_config target must return ServiceAuthConfig")
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("service-config", root, declaration, manifest)
+    validate_serialized_service_config(manifest["service_config"])
+
+
+def validate_serialized_service_config(evidence: Any) -> None:
+    """Validate certifier-owned service configuration JSON."""
+    if not isinstance(evidence, dict) or evidence.get("database_backend") not in {
+        "sqlite",
+        "postgres",
+    }:
+        raise ValueError("semantic manifest database backend is unsupported")
+    config = ServiceAuthConfig.model_validate(evidence.get("auth_config"))
     if not config.api_keys:
-        raise ValueError("ServiceAuthConfig must contain at least one API key")
+        raise ValueError("semantic manifest auth configuration has no API keys")
 
 
 def _check_contracts(root: Path, declaration: AppDeclaration) -> None:
-    del root
-    schemas = {name: model.model_json_schema() for name, model in _contracts(declaration).items()}
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("contracts", root, declaration, manifest)
+    schemas = _trusted_schemas(manifest["contracts"])
     asyncio.run(validate_serialized_graphs(schemas, []))
 
 
@@ -214,21 +259,10 @@ def _check_dependency_lock(root: Path, declaration: AppDeclaration) -> None:
 
 
 def _check_optional_extras(root: Path, declaration: AppDeclaration) -> None:
-    app_venv = (root / ".venv").resolve()
-    if Path(sys.prefix).resolve() != app_venv:
-        raise ValueError(f"optional extras check must run with {app_venv}/bin/python")
-    installed = importlib.metadata.version("zeroth-core")
-    if installed != declaration.zeroth_version:
-        raise ValueError(
-            f"installed Zeroth {installed!r} does not match {declaration.zeroth_version!r}"
-        )
-    for reference in (
-        *declaration.targets.graph_builders,
-        declaration.targets.contracts,
-        declaration.targets.auth_config,
-        declaration.targets.policy_guard,
-    ):
-        _load_target(reference)
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("optional-extras", root, declaration, manifest)
+    if manifest.get("zeroth_version") != declaration.zeroth_version:
+        raise ValueError("semantic manifest Zeroth version does not match the declaration")
 
 
 def _container_states(root: Path) -> list[dict[str, Any]]:
@@ -291,12 +325,23 @@ def _validate_graph_policies(guard: PolicyGuard, graph: Graph) -> int:
 
 
 def _check_policies(root: Path, declaration: AppDeclaration) -> None:
-    del root
-    guard = _load_target(declaration.targets.policy_guard)()
-    if not isinstance(guard, PolicyGuard):
-        raise ValueError("policy_guard target must return PolicyGuard")
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("policies", root, declaration, manifest)
+    graphs = _trusted_graphs(manifest["graphs"], len(declaration.targets.graph_builders))
+    policies, capabilities = manifest["policies"], manifest["capabilities"]
+    if not isinstance(policies, dict) or not isinstance(capabilities, dict):
+        raise ValueError("semantic manifest policies or capabilities are malformed")
+    policy_registry, capability_registry = PolicyRegistry(), CapabilityRegistry()
+    for reference, raw in policies.items():
+        policy = PolicyDefinition.model_validate(raw)
+        if policy.policy_id != reference:
+            raise ValueError("semantic manifest policy identifier does not match its binding")
+        policy_registry.register(policy)
+    for reference, raw in capabilities.items():
+        capability_registry.register(reference, Capability(raw))
+    guard = PolicyGuard(policy_registry=policy_registry, capability_registry=capability_registry)
     try:
-        bindings = sum(_validate_graph_policies(guard, graph) for graph in _graphs(declaration))
+        bindings = sum(_validate_graph_policies(guard, graph) for graph in graphs)
     except KeyError as error:
         raise ValueError(f"policy or capability reference is not registered: {error}") from error
     if not bindings:
@@ -326,13 +371,7 @@ def run_owned_check(name: str, root: Path, declaration: AppDeclaration) -> None:
     check = _CHECKS.get(name)
     if check is None:
         raise ValueError(f"no certifier-owned host check named {name!r}")
-    root = root.resolve()
-    sys.path.insert(0, str(root))
-    try:
-        check(root, declaration)
-    finally:
-        if sys.path[0] == str(root):
-            sys.path.pop(0)
+    check(root.resolve(), declaration)
 
 
 def main(argv: list[str] | None = None) -> int:

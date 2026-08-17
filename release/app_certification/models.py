@@ -153,6 +153,7 @@ class AppDeclaration(BaseModel):
     image_reference: str = Field(min_length=1, max_length=255)
     sbom_path: str
     provenance_path: str
+    semantic_path: str = "certification.semantic.json"
     targets: CertificationTargets
     smoke: SmokeSpec
 
@@ -177,7 +178,7 @@ class AppDeclaration(BaseModel):
             raise ValueError("zeroth_version must be an exact numeric version without a range")
         return value
 
-    @field_validator("lock_path", "dockerfile", "sbom_path", "provenance_path")
+    @field_validator("lock_path", "dockerfile", "sbom_path", "provenance_path", "semantic_path")
     @classmethod
     def _safe_path(cls, value: str, info) -> str:
         return _relative_path(value, info.field_name)

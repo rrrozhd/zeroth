@@ -15,7 +15,7 @@ import yaml
 from psycopg import sql
 
 from release.app_certification import AppDeclaration, CertificationRunner
-from tests.app_certification.test_engine import declaration_data
+from tests.app_certification.test_engine import declaration_data, write_semantic_inputs
 from tests.conftest import requires_docker
 
 
@@ -42,10 +42,12 @@ def _recovery(mode: str) -> str:
     )
 
 
-def _runner(root: Path, data: dict) -> CertificationRunner:
+def _runner(
+    root: Path, data: dict, *, semantic_updates: dict | None = None
+) -> CertificationRunner:
     return CertificationRunner(
         root,
-        AppDeclaration.model_validate(data),
+        write_semantic_inputs(root, data, updates=semantic_updates),
         check_python=Path(sys.executable),
     )
 
@@ -76,7 +78,11 @@ def test_candidate_cannot_skip_invalid_reducer_resolution(tmp_path: Path, recove
     data["targets"]["graph_builders"] = ["candidate:build_graph"]
     data["targets"]["contracts"] = "candidate:CONTRACTS"
 
-    result = _runner(tmp_path, data)._command("graph")
+    result = _runner(
+        tmp_path,
+        data,
+        semantic_updates={"reducers": ["candidate.missing_reducer"]},
+    )._command("graph")
 
     assert result.status == "failed"
     assert "reducer" in result.detail.lower()
@@ -137,7 +143,9 @@ def _write_import_attack(root: Path, recovery: str) -> None:
 
 
 @pytest.mark.parametrize("recovery", ["frame", "gc"])
-def test_candidate_cannot_skip_later_optional_imports(tmp_path: Path, recovery: str) -> None:
+def test_static_optional_contract_never_imports_candidate_targets(
+    tmp_path: Path, recovery: str
+) -> None:
     _write_import_attack(tmp_path, recovery)
     data = declaration_data()
     data["zeroth_version"] = __import__("importlib.metadata").metadata.version("zeroth-core")
@@ -153,8 +161,7 @@ def test_candidate_cannot_skip_later_optional_imports(tmp_path: Path, recovery: 
 
     result = _runner(tmp_path, data)._command("optional-extras")
 
-    assert result.status == "failed"
-    assert "invalid contracts import executed" in result.detail.lower()
+    assert result.status == "passed", result.detail
 
 
 def test_committed_reserved_symlink_cannot_block_report_or_upload(tmp_path: Path) -> None:
