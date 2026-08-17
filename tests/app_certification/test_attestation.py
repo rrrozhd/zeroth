@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import json
 import os
-import tarfile
+import subprocess
 from pathlib import Path
 
 from release.app_certification import (
@@ -22,10 +21,45 @@ from release.app_certification.wheel_installation import (
     TRUSTED_RUNTIME_IMAGE,
     _runtime_configuration,
 )
-from tests.app_certification.test_hardening import COMMIT, _write_archive, identity
+from tests.app_certification.test_hardening import _write_archive, identity
 
 
-def _candidate_archives(tmp_path: Path) -> tuple[Path, Path, CandidateIdentity]:
+def _git(repository: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repository), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _source_archive(tmp_path: Path) -> tuple[Path, Path, str]:
+    repository = tmp_path / "app-repository"
+    repository.mkdir()
+    _git(repository, "init", "--quiet")
+    (repository / "app.py").write_bytes(b"committed source")
+    _git(repository, "add", "app.py")
+    _git(
+        repository,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    )
+    app_commit = _git(repository, "rev-parse", "HEAD")
+    source = tmp_path / "source.tar"
+    _git(repository, "archive", "--format=tar", f"--output={source}", app_commit)
+    return source, repository, app_commit
+
+
+def _candidate_archives(
+    tmp_path: Path,
+) -> tuple[Path, Path, Path, CandidateIdentity]:
     layer = b"candidate-layer"
     layer_digest = "sha256:" + hashlib.sha256(layer).hexdigest()
     config = json.dumps({"rootfs": {"diff_ids": [layer_digest]}}).encode()
@@ -47,18 +81,15 @@ def _candidate_archives(tmp_path: Path) -> tuple[Path, Path, CandidateIdentity]:
             "layer.tar": layer,
         },
     )
-    source = tmp_path / "source.tar"
-    with tarfile.open(
-        source, "w", format=tarfile.PAX_FORMAT, pax_headers={"comment": COMMIT}
-    ) as archive:
-        content = b"committed source"
-        info = tarfile.TarInfo("app.py")
-        info.size = len(content)
-        archive.addfile(info, io.BytesIO(content))
+    source, repository, app_commit = _source_archive(tmp_path)
     candidate = identity().model_copy(
-        update={"image_digest": image_digest, "source_digest": file_digest(source)}
+        update={
+            "app_commit": app_commit,
+            "image_digest": image_digest,
+            "source_digest": file_digest(source),
+        }
     )
-    return image, source, candidate
+    return image, source, repository, candidate
 
 
 def _runtime_evidence(
@@ -155,6 +186,7 @@ def _handoff_args(
     root: Path,
     image: Path,
     source: Path,
+    app_repository: Path,
     candidate: CandidateIdentity,
     wheel: Path,
     requirements: Path,
@@ -171,8 +203,10 @@ def _handoff_args(
         str(image),
         "--source-archive",
         str(source),
+        "--app-repository",
+        str(app_repository),
         "--app-commit",
-        COMMIT,
+        candidate.app_commit,
         "--zeroth-version",
         candidate.zeroth_version,
         "--zeroth-commit",
@@ -210,7 +244,7 @@ def _attestation_args(bundle: Path, handoff: list[str]) -> list[str]:
 def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
     tmp_path: Path, monkeypatch
 ) -> None:
-    image, source, candidate = _candidate_archives(tmp_path)
+    image, source, app_repository, candidate = _candidate_archives(tmp_path)
     (
         root,
         report,
@@ -230,6 +264,7 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
         root=root,
         image=image,
         source=source,
+        app_repository=app_repository,
         candidate=candidate,
         wheel=wheel,
         requirements=requirements,
@@ -238,7 +273,11 @@ def test_finalize_attestation_reissues_digest_bound_handoff_verdict(
         verdict=verdict,
     )
     assert app_certification_main(["validate-handoff", *handoff]) == 0
-    unsigned_digest = json.loads(verdict.read_text())["report_sha256"]
+    unsigned_verdict = json.loads(verdict.read_text())
+    unsigned_digest = unsigned_verdict["report_sha256"]
+    assert unsigned_verdict["app_tree"] == _git(
+        app_repository, "rev-parse", f"{candidate.app_commit}^{{tree}}"
+    )
     assert app_certification_main(_attestation_args(bundle, handoff)) == 0
     assert json.loads(verdict.read_text())["report_sha256"] == file_digest(report)
     assert file_digest(report) != unsigned_digest

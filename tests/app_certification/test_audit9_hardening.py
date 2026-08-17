@@ -21,7 +21,7 @@ from release.app_certification import (
     CommandResult,
     SmokeSpec,
 )
-from release.app_certification.candidate_process import run_importer
+from release.app_certification.candidate_supervisor import run_importer
 from release.app_certification.cli import UrlHttpBoundary
 from tests.app_certification.test_engine import (
     declaration_data,

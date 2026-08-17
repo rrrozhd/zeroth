@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
+import subprocess
 import sys
-import tarfile
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,7 @@ from tests.app_certification.test_engine import (
     passing_executor,
     provenance_kwargs,
 )
-from tests.app_certification.test_hardening import COMMIT, SOURCE_DIGEST, identity
+from tests.app_certification.test_hardening import SOURCE_DIGEST, identity
 
 
 def _migration_declaration(root: Path) -> dict:
@@ -208,23 +207,59 @@ def test_source_identity_is_bound_into_provenance(tmp_path: Path) -> None:
     assert predicate["source_digest"] == SOURCE_DIGEST
 
 
-def test_source_identity_validation_rejects_tampered_build_context(tmp_path: Path) -> None:
+def _committed_source_archive(tmp_path: Path) -> tuple[Path, Path, str]:
+    repository = tmp_path / "app-repository"
+    repository.mkdir()
+    subprocess.run(["git", "-C", str(repository), "init", "--quiet"], check=True)
+    (repository / "app.py").write_bytes(b"committed source")
+    subprocess.run(["git", "-C", str(repository), "add", "app.py"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+    )
+    app_commit = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     archive_path = tmp_path / "source.tar"
-    with tarfile.open(
-        archive_path,
-        "w",
-        format=tarfile.PAX_FORMAT,
-        pax_headers={"comment": COMMIT},
-    ) as archive:
-        content = b"committed source"
-        info = tarfile.TarInfo("app.py")
-        info.size = len(content)
-        archive.addfile(info, io.BytesIO(content))
-    source_digest = "sha256:" + hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    candidate = identity().model_copy(update={"source_digest": source_digest})
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "archive",
+            "--format=tar",
+            f"--output={archive_path}",
+            app_commit,
+        ],
+        check=True,
+    )
+    return repository, archive_path, app_commit
 
-    validate_source_archive(archive_path, candidate)
+
+def test_source_identity_validation_rejects_tampered_build_context(tmp_path: Path) -> None:
+    repository, archive_path, app_commit = _committed_source_archive(tmp_path)
+    source_digest = "sha256:" + hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    candidate = identity().model_copy(
+        update={"app_commit": app_commit, "source_digest": source_digest}
+    )
+
+    validate_source_archive(archive_path, candidate, repository=repository)
     archive_path.write_bytes(archive_path.read_bytes() + b"ambient bytes")
 
     with pytest.raises(ValueError, match="source archive digest"):
-        validate_source_archive(archive_path, candidate)
+        validate_source_archive(archive_path, candidate, repository=repository)
