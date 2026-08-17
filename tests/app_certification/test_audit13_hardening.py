@@ -52,7 +52,7 @@ def _handoff_arguments() -> list[str]:
         "--app-commit",
         "a" * 40,
         "--zeroth-version",
-        "0.23.9.15",
+        "0.23.9.16",
         "--zeroth-commit",
         "b" * 40,
         "--certifier-wheel",
@@ -144,7 +144,7 @@ def _replaced_runtime_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Pa
     from release.app_certification import wheel_installation
 
     source = tmp_path / "source"
-    wheel = tmp_path / "zeroth_core-0.23.9.15-py3-none-any.whl"
+    wheel = tmp_path / "zeroth_core-0.23.9.16-py3-none-any.whl"
     requirements = tmp_path / "requirements-image.txt"
     candidate_root = tmp_path / "candidate-root"
     source.mkdir()
@@ -200,10 +200,10 @@ def test_replaced_candidate_runtime_is_excluded_from_certifier_context(tmp_path:
     dockerfile = (context / "Dockerfile.certification-runtime").read_text(encoding="utf-8")
     assert dockerfile.startswith(f"FROM {trusted_image}\n")
     assert (
-        "COPY zeroth_core-0.23.9.15-py3-none-any.whl "
-        "/opt/zeroth/zeroth_core-0.23.9.15-py3-none-any.whl"
+        "COPY zeroth_core-0.23.9.16-py3-none-any.whl "
+        "/opt/zeroth/zeroth_core-0.23.9.16-py3-none-any.whl"
     ) in dockerfile
-    assert "/opt/zeroth/zeroth_core-0.23.9.15-py3-none-any.whl" in dockerfile
+    assert "/opt/zeroth/zeroth_core-0.23.9.16-py3-none-any.whl" in dockerfile
     assert "COPY requirements-image.txt /tmp/requirements-image.txt" in dockerfile
     assert "COPY app/ /opt/app/" in dockerfile
     assert "LD_PRELOAD" not in dockerfile
@@ -214,7 +214,12 @@ def test_replaced_candidate_runtime_is_excluded_from_certifier_context(tmp_path:
     assert not any(path.name == fake_loader.name for path in context.rglob(fake_loader.name))
 
 
-def _candidate_root(tmp_path: Path, migration_source: str | None = None) -> CertificationRunner:
+def _candidate_root(
+    tmp_path: Path,
+    migration_source: str | None = None,
+    *,
+    database_backend: str = "sqlite",
+) -> CertificationRunner:
     shutil.copytree(ROOT / "apps/vendor_dd", tmp_path / "apps/vendor_dd")
     if migration_source is not None:
         (tmp_path / "apps/vendor_dd/migrations.py").write_text(migration_source, encoding="utf-8")
@@ -222,6 +227,10 @@ def _candidate_root(tmp_path: Path, migration_source: str | None = None) -> Cert
     declaration = AppDeclaration.model_validate(data)
     declaration_path = tmp_path / "certification.json"
     declaration_path.write_text(json.dumps(data), encoding="utf-8")
+    semantic_path = tmp_path / declaration.semantic_path
+    semantic = json.loads(semantic_path.read_text(encoding="utf-8"))
+    semantic["service_config"]["database_backend"] = database_backend
+    semantic_path.write_text(json.dumps(semantic), encoding="utf-8")
     return CertificationRunner(
         tmp_path,
         declaration,
@@ -293,6 +302,7 @@ def migrate(database_url: str) -> None:
         raise RuntimeError("broken PostgreSQL migration sentinel")
     run_migrations(database_url)
 """,
+        database_backend="postgres",
     )
 
     result = runner._command("migrations")
@@ -308,7 +318,7 @@ def test_real_postgres_service_and_fresh_migration_route(
     dsn = _fresh_postgres_dsn(postgres_container)
     monkeypatch.setenv("ZEROTH_DATABASE__BACKEND", "postgres")
     monkeypatch.setenv("ZEROTH_DATABASE__POSTGRES_DSN", dsn)
-    runner = _candidate_root(tmp_path)
+    runner = _candidate_root(tmp_path, database_backend="postgres")
 
     service = runner._command("service-config")
     migration = runner._command("migrations")

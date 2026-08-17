@@ -215,6 +215,14 @@ def _check_service_config(root: Path, declaration: AppDeclaration) -> None:
     validate_serialized_service_config(manifest["service_config"])
 
 
+def validated_database_backend(root: Path, declaration: AppDeclaration) -> str:
+    """Return the backend selected by the validated semantic manifest."""
+    manifest = _semantic_manifest(root, declaration)
+    service_config = manifest["service_config"]
+    validate_serialized_service_config(service_config)
+    return service_config["database_backend"]
+
+
 def validate_serialized_service_config(evidence: Any) -> None:
     """Validate certifier-owned service configuration JSON."""
     if not isinstance(evidence, dict) or evidence.get("database_backend") not in {
