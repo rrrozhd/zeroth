@@ -114,16 +114,33 @@ def test_candidate_user_cleanup_sweeps_detached_descendants(
 
     calls: list[list[str]] = []
 
+    inventory = iter(
+        (
+            subprocess.CompletedProcess([], 0, stdout="123\n456\n"),
+            subprocess.CompletedProcess([], 1, stdout=""),
+        )
+    )
+
     def run(argv: list[str], **_kwargs) -> subprocess.CompletedProcess:
         calls.append(argv)
-        return subprocess.CompletedProcess(argv, 1 if argv[-2:-1] == ["-u"] else 0)
+        if argv[0] == "pgrep":
+            return next(inventory)
+        return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr(candidate_supervisor.subprocess, "run", run)
 
     candidate_supervisor._terminate_candidate_user("app-cert-candidate")
 
-    assert ["sudo", "--non-interactive", "pkill", "-KILL", "-u", "app-cert-candidate"] in calls
     assert ["pgrep", "-u", "app-cert-candidate"] in calls
+    assert [
+        "sudo",
+        "--non-interactive",
+        "kill",
+        "-KILL",
+        "--",
+        "123",
+        "456",
+    ] in calls
 
 
 def test_candidate_build_and_dependency_logs_have_hard_resource_boundaries() -> None:
