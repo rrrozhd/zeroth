@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.17 \
+  --zeroth-version 0.23.9.18 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -75,17 +75,21 @@ declared migration, and its output is ignored: the trusted supervisor accepts
 only the independently inspected fresh-database effect.
 
 Each host-side check runs in a bounded subprocess without an ambient shell.
-The migration runs as a dedicated low-privilege user, and the supervisor kills
-and verifies every process owned by that user before returning. Docker state
+The migration runs as a dedicated low-privilege user. The supervisor first
+terminates its certifier-owned process group, then inventories and targets only
+detached surviving process IDs before returning. Docker state
 and the locked frontend tool tree are checked on the trusted path. Container
 readiness requires a parsed JSON body with `status: ok`; HTTP 200 by itself is
 not sufficient. Smoke requests refuse redirects, and frontend targets must
 remain below the app checkout after symlink resolution.
 
 The public `run` command requires `--untrusted-user` to name an existing,
-non-root account distinct from the certifier. The candidate root, report
-directory, and `--evidence-root` must not be writable by that account; omitted,
-same-user, or writable-result configurations fail before candidate execution.
+non-root account distinct from the certifier. It must have a `nologin` or
+`false` login shell, only its non-privileged primary group, and no pre-existing
+processes. The declaration, candidate root, report directory, and
+`--evidence-root`, including both resolved and lexical ancestor chains, must
+not be writable or replaceable by that account. Omitted, shared, active,
+privileged, or writable-result configurations fail before candidate execution.
 
 ## Identity, evidence, and privileges
 

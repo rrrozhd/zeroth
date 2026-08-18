@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import grp
 import json
 import os
 import pwd
@@ -59,6 +60,12 @@ from .workflow_finalizer import (
 )
 
 _HTTP_TIMEOUT_SECONDS = 30.0
+_DISABLED_LOGIN_SHELLS = frozenset(
+    {"/bin/false", "/bin/nologin", "/sbin/nologin", "/usr/bin/false", "/usr/sbin/nologin"}
+)
+_PRIVILEGED_GROUPS = frozenset(
+    {"admin", "docker", "incus", "kvm", "libvirt", "lxd", "podman", "root", "sudo", "wheel"}
+)
 
 
 class UrlHttpBoundary:
@@ -115,15 +122,23 @@ def _candidate_can_write(path: Path, user: str, account: pwd.struct_passwd) -> b
     metadata = path.stat()
     mode = metadata.st_mode
     if metadata.st_uid == account.pw_uid:
-        return bool(mode & stat.S_IWUSR)
+        return True
     if metadata.st_gid in os.getgrouplist(user, account.pw_gid):
         return bool(mode & stat.S_IWGRP)
     return bool(mode & stat.S_IWOTH)
 
 
-def _candidate_writable_path(
-    root: Path, user: str, account: pwd.struct_passwd
-) -> Path | None:
+def _candidate_can_search(path: Path, user: str, account: pwd.struct_passwd) -> bool:
+    metadata = path.stat()
+    mode = metadata.st_mode
+    if metadata.st_uid == account.pw_uid:
+        return True
+    if metadata.st_gid in os.getgrouplist(user, account.pw_gid):
+        return bool(mode & stat.S_IXGRP)
+    return bool(mode & stat.S_IXOTH)
+
+
+def _candidate_writable_path(root: Path, user: str, account: pwd.struct_passwd) -> Path | None:
     for path in (root, *root.rglob("*")):
         try:
             if _candidate_can_write(path.resolve(strict=True), user, account):
@@ -133,11 +148,89 @@ def _candidate_writable_path(
     return None
 
 
+def _candidate_replaceable_ancestor(
+    path: Path, user: str, account: pwd.struct_passwd
+) -> Path | None:
+    child = path
+    for ancestor in path.parents:
+        try:
+            writable = _candidate_can_write(ancestor, user, account)
+            searchable = _candidate_can_search(ancestor, user, account)
+            metadata = ancestor.stat()
+            child_metadata = child.lstat()
+        except OSError:
+            return ancestor
+        sticky_protected = bool(metadata.st_mode & stat.S_ISVTX) and account.pw_uid not in {
+            metadata.st_uid,
+            child_metadata.st_uid,
+        }
+        if writable and searchable and not sticky_protected:
+            return ancestor
+        child = ancestor
+    return None
+
+
+def _validate_candidate_account(user: str, account: pwd.struct_passwd) -> None:
+    shell = getattr(account, "pw_shell", "")
+    if shell not in _DISABLED_LOGIN_SHELLS:
+        raise ValueError(
+            "untrusted isolation user must be a dedicated account with a disabled login shell"
+        )
+    group_ids = set(os.getgrouplist(user, account.pw_gid))
+    if 0 in group_ids:
+        raise ValueError("untrusted isolation user belongs to privileged group root")
+    supplementary = group_ids - {account.pw_gid}
+    for group_id in group_ids:
+        try:
+            group_name = grp.getgrgid(group_id).gr_name
+        except KeyError as error:
+            raise ValueError(f"cannot resolve untrusted isolation user group {group_id}") from error
+        if group_name.casefold() in _PRIVILEGED_GROUPS:
+            raise ValueError(f"untrusted isolation user belongs to privileged group {group_name}")
+        if group_id in supplementary:
+            raise ValueError(
+                f"untrusted isolation user belongs to supplementary group {group_name}; "
+                "a dedicated account must have only its primary group"
+            )
+    processes = subprocess.run(
+        ["pgrep", "-u", str(account.pw_uid)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if processes.returncode == 0:
+        raise ValueError(
+            "untrusted isolation user must be inactive before certification; "
+            f"found processes {processes.stdout.strip() or 'unknown'}"
+        )
+    if processes.returncode != 1:
+        raise ValueError("cannot inventory untrusted isolation user processes")
+
+
+def _validate_protected_path(label: str, path: Path, user: str, account: pwd.struct_passwd) -> None:
+    if not path.exists():
+        raise ValueError(
+            f"{label} contains {path}: missing or writable by the untrusted isolation user"
+        )
+    raw = path.absolute()
+    resolved = path.resolve()
+    writable = _candidate_writable_path(resolved, user, account)
+    if writable is not None:
+        raise ValueError(
+            f"{label} contains {writable}: missing or writable by the untrusted isolation user"
+        )
+    for anchored in dict.fromkeys((raw, resolved)):
+        replaceable = _candidate_replaceable_ancestor(anchored, user, account)
+        if replaceable is not None:
+            raise ValueError(f"{label} ancestor {replaceable} can replace the protected path")
+
+
 def _validate_direct_run_isolation(
     user: str | None,
     root: Path,
     report: Path,
     evidence_root: Path | None,
+    declaration: Path | None = None,
 ) -> str:
     """Require a distinct account and candidate-inaccessible result boundaries."""
     if user is None or re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) is None:
@@ -155,16 +248,13 @@ def _validate_direct_run_isolation(
         "report directory": report.parent,
         "evidence root": evidence_root,
     }
+    if declaration is not None:
+        protected["declaration"] = declaration
     if report.exists():
         protected["report"] = report
     for label, path in protected.items():
-        writable = None if path.exists() else path
-        if writable is None:
-            writable = _candidate_writable_path(path.resolve(), user, account)
-        if writable is not None:
-            raise ValueError(
-                f"{label} contains {writable}: missing or writable by the untrusted isolation user"
-            )
+        _validate_protected_path(label, path, user, account)
+    _validate_candidate_account(user, account)
     return user
 
 
@@ -313,6 +403,7 @@ def _run(args: argparse.Namespace) -> int:
         args.root,
         args.report,
         args.evidence_root,
+        args.declaration,
     )
     declaration = load_declaration(args.declaration)
     headers = resolve_smoke_headers(declaration.smoke)

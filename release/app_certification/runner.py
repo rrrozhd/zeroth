@@ -6,8 +6,10 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,7 @@ from .models import (
     SmokeSpec,
     file_digest,
     identity_digest,
+    load_declaration,
 )
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -58,6 +61,59 @@ class HttpResult:
 
     status_code: int
     json_body: Any
+
+
+@dataclass(frozen=True)
+class _PathIdentity:
+    """Filesystem object identity retained across untrusted candidate execution."""
+
+    label: str
+    path: Path
+    device: int
+    inode: int
+    file_type: int
+    owner: int
+    group: int
+    permissions: int
+
+    @classmethod
+    def capture(cls, label: str, path: Path) -> _PathIdentity:
+        metadata = path.lstat()
+        return cls(
+            label=label,
+            path=path,
+            device=metadata.st_dev,
+            inode=metadata.st_ino,
+            file_type=stat.S_IFMT(metadata.st_mode),
+            owner=metadata.st_uid,
+            group=metadata.st_gid,
+            permissions=stat.S_IMODE(metadata.st_mode),
+        )
+
+    def error(self) -> str | None:
+        try:
+            metadata = self.path.lstat()
+        except OSError as error:
+            return f"{self.label} identity changed or became unavailable: {error}"
+        actual = (
+            metadata.st_dev,
+            metadata.st_ino,
+            stat.S_IFMT(metadata.st_mode),
+            metadata.st_uid,
+            metadata.st_gid,
+            stat.S_IMODE(metadata.st_mode),
+        )
+        expected = (
+            self.device,
+            self.inode,
+            self.file_type,
+            self.owner,
+            self.group,
+            self.permissions,
+        )
+        if actual != expected:
+            return f"{self.label} identity, ownership, or permissions changed"
+        return None
 
 
 Executor = Callable[[list[str], Path], CommandResult]
@@ -177,10 +233,53 @@ class CertificationRunner:
         self.candidate_executor = candidate_executor or executor
         self.http = http
         self.commit_reader = commit_reader
+        explicit_declaration = declaration_path is not None
         self.declaration_path = (declaration_path or self.root / "certification.json").resolve()
+        self._declaration_json = declaration.model_dump_json()
         self.check_python = (check_python or Path(sys.executable)).absolute()
         self.evidence_root = (evidence_root or self.root).resolve()
         self.untrusted_user = untrusted_user
+        self._boundary_setup_error: str | None = None
+        self._declaration_digest: str | None = None
+        self._path_identities: tuple[_PathIdentity, ...] = ()
+        try:
+            identities: dict[Path, _PathIdentity] = {}
+            self._capture_path_chain(identities, "candidate root", self.root)
+            if self.evidence_root.exists():
+                self._capture_path_chain(identities, "evidence root", self.evidence_root)
+            if self.declaration_path.exists():
+                self._capture_path_chain(identities, "declaration source", self.declaration_path)
+                if load_declaration(self.declaration_path) != declaration:
+                    raise ValueError("declaration source does not match the validated declaration")
+                self._declaration_digest = file_digest(self.declaration_path)
+            elif explicit_declaration:
+                raise ValueError("declaration source is missing")
+            self._path_identities = tuple(identities.values())
+        except (OSError, ValueError) as error:
+            self._boundary_setup_error = str(error)
+
+    @staticmethod
+    def _capture_path_chain(identities: dict[Path, _PathIdentity], label: str, path: Path) -> None:
+        for index, candidate in enumerate((path, *path.parents)):
+            if candidate in identities:
+                continue
+            candidate_label = label if index == 0 else f"{label} ancestor"
+            identities[candidate] = _PathIdentity.capture(candidate_label, candidate)
+
+    def _boundary_error(self) -> str | None:
+        if self._boundary_setup_error is not None:
+            return f"certifier boundary is invalid: {self._boundary_setup_error}"
+        for identity in self._path_identities:
+            if error := identity.error():
+                return error
+        if self._declaration_digest is not None:
+            try:
+                digest = file_digest(self.declaration_path)
+            except OSError as error:
+                return f"declaration source identity changed or became unreadable: {error}"
+            if digest != self._declaration_digest:
+                return "declaration source changed after validation"
+        return None
 
     def run(
         self,
@@ -236,6 +335,8 @@ class CertificationRunner:
         identity: CandidateIdentity | None,
         identity_error: str | None,
     ) -> tuple[CheckResult, EvidenceFile | None]:
+        if boundary_error := self._boundary_error():
+            return self._failed(name, boundary_error), None
         if name in {"packaged-smoke", "ephemeral-smoke"}:
             return self._smoke(name), None
         if name in {"sbom", "provenance"}:
@@ -252,9 +353,15 @@ class CertificationRunner:
     def _command(self, name: str) -> CheckResult:
         from .candidate_worker import CANDIDATE_CHECKS
 
+        if boundary_error := self._boundary_error():
+            return self._failed(name, boundary_error)
         if name in CANDIDATE_CHECKS:
-            return self._candidate_command(name)
-        return self._trusted_command(name)
+            result = self._candidate_command(name)
+        else:
+            result = self._trusted_command(name)
+        if boundary_error := self._boundary_error():
+            return self._failed(name, boundary_error)
+        return result
 
     def _command_result(
         self, name: str, argv: list[str], executor: Executor
@@ -270,21 +377,25 @@ class CertificationRunner:
         return result
 
     def _trusted_command(self, name: str) -> CheckResult:
-        argv = [
-            str(Path(sys.executable).absolute()),
-            "-I",
-            "-S",
-            "-c",
-            _CHECK_BOOTSTRAP,
-            str(Path(__file__).parents[2].resolve()),
-            str(Path(sys.executable).parent.parent.resolve()),
-            name,
-            "--root",
-            str(self.root),
-            "--declaration",
-            str(self.declaration_path),
-        ]
-        result = self._command_result(name, argv, self.executor)
+        with tempfile.TemporaryDirectory(prefix="zeroth-certifier-declaration-") as directory:
+            snapshot = Path(directory) / "certification.json"
+            snapshot.write_text(self._declaration_json, encoding="utf-8")
+            snapshot.chmod(0o400)
+            argv = [
+                str(Path(sys.executable).absolute()),
+                "-I",
+                "-S",
+                "-c",
+                _CHECK_BOOTSTRAP,
+                str(Path(__file__).parents[2].resolve()),
+                str(Path(sys.executable).parent.parent.resolve()),
+                name,
+                "--root",
+                str(self.root),
+                "--declaration",
+                str(snapshot),
+            ]
+            result = self._command_result(name, argv, self.executor)
         if isinstance(result, CheckResult):
             return result
         try:
@@ -311,7 +422,7 @@ class CertificationRunner:
             "--root",
             str(self.root),
             "--declaration-json",
-            self.declaration.model_dump_json(),
+            self._declaration_json,
             "--candidate-venv",
             str(self.check_python.parent.parent),
         ]
@@ -321,6 +432,8 @@ class CertificationRunner:
         result = self._command_result(name, argv, executor)
         if isinstance(result, CheckResult):
             return result
+        if boundary_error := self._boundary_error():
+            return self._failed(name, boundary_error)
         try:
             payload = json.loads(result.stdout.splitlines()[-1])
             finalize_candidate_evidence(name, payload, self.declaration, self.root)

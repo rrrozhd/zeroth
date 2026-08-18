@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.18] - 2026-08-18
+
+### Security
+
+- Bind every certification check to one certifier-owned declaration snapshot
+  and fail closed when candidate execution changes protected path identities.
+- Require an inactive, login-disabled, privilege-free candidate account and
+  target cleanup only at surviving candidate process IDs.
+
 ## [0.23.9.17] - 2026-08-18
 
 ### Security

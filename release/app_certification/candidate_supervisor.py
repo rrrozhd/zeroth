@@ -62,28 +62,33 @@ def _terminate_process(process: subprocess.Popen[bytes]) -> None:
 
 
 def _terminate_candidate_user(user: str) -> None:
-    """Kill and verify every process owned by the workflow's dedicated account."""
+    """Kill only survivors left after the candidate process-group boundary."""
     if _USER.fullmatch(user) is None:
         raise ValueError("untrusted user must be a simple local account name")
-    for _ in range(3):
+    for attempt in range(4):
+        remaining = subprocess.run(
+            ["pgrep", "-u", user],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if remaining.returncode == 1:
+            return
+        if remaining.returncode not in (0, 1):
+            raise RuntimeError("candidate-user process inventory failed")
+        process_ids = (remaining.stdout or "").split()
+        if not process_ids or any(not process_id.isdecimal() for process_id in process_ids):
+            raise RuntimeError("candidate-user process inventory was malformed")
+        if attempt == 3:
+            break
         killed = subprocess.run(
-            ["sudo", "--non-interactive", "pkill", "-KILL", "-u", user],
+            ["sudo", "--non-interactive", "kill", "-KILL", "--", *process_ids],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         if killed.returncode not in (0, 1):
             raise RuntimeError("candidate-user process cleanup failed")
-        remaining = subprocess.run(
-            ["pgrep", "-u", user],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if remaining.returncode == 1:
-            return
-        if remaining.returncode not in (0, 1):
-            raise RuntimeError("candidate-user process inventory failed")
     raise RuntimeError("detached candidate-user processes survived cleanup")
 
 
@@ -115,9 +120,7 @@ def _wait_process(
     return process.returncode, diagnostics, timed_out
 
 
-def run_importer(
-    argv: list[str], *, candidate_user: str | None = None
-) -> tuple[int, str, str]:
+def run_importer(argv: list[str], *, candidate_user: str | None = None) -> tuple[int, str, str]:
     """Run a bounded subprocess and retain only bounded diagnostic output."""
     with tempfile.TemporaryFile() as stdout:
         returncode, diagnostics, timed_out = _wait_process(
