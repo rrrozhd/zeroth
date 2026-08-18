@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from release.app_certification import AppDeclaration, load_declaration
+from release.app_certification import cli as certification_cli_module
 from release.app_certification.cli import main as certification_main
 from release.app_certification.cli import resolve_smoke_headers
 from tests.app_certification.test_engine import COMMIT, DIGEST, declaration_data
@@ -58,6 +59,13 @@ def test_cli_fails_closed_when_smoke_header_environment_is_missing(
     declaration.write_text(json.dumps(data), encoding="utf-8")
     monkeypatch.delenv("MISSING_CERTIFICATION_KEY", raising=False)
     report = tmp_path / "report.json"
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setattr(
+        certification_cli_module,
+        "_validate_direct_run_isolation",
+        lambda *_args: "app-cert-candidate",
+    )
     result = certification_main(
         [
             "run",
@@ -77,6 +85,10 @@ def test_cli_fails_closed_when_smoke_header_environment_is_missing(
             "http://127.0.0.1:18081",
             "--report",
             str(report),
+            "--untrusted-user",
+            "app-cert-candidate",
+            "--evidence-root",
+            str(evidence),
         ]
     )
     assert result == 2

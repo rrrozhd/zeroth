@@ -74,8 +74,15 @@ def inspect_migration(
         )
     elif backend == "sqlite":
         with tempfile.TemporaryDirectory(prefix="zeroth-app-migration-") as directory:
-            database = Path(directory) / "migration.sqlite"
-            run_candidate(reference, f"sqlite:///{database}")
+            migration_root = Path(directory)
+            database = migration_root / "migration.sqlite"
+            migration_root.chmod(0o733)
+            try:
+                run_candidate(reference, f"sqlite:///{database}")
+            finally:
+                migration_root.chmod(0o700)
+            if database.is_symlink():
+                raise ValueError("app migration database must not be a symlink")
             objects = _sqlite_tables(database)
             if not objects:
                 raise ValueError("app migration did not create SQLite tables")

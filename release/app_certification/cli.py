@@ -5,13 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pwd
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+from .checks import validated_runtime_settings
 from .evidence import (
     bind_sbom,
     finalize_attestation,
@@ -108,6 +111,63 @@ def _untrusted_executor(user: str) -> Executor:
     return run
 
 
+def _candidate_can_write(path: Path, user: str, account: pwd.struct_passwd) -> bool:
+    metadata = path.stat()
+    mode = metadata.st_mode
+    if metadata.st_uid == account.pw_uid:
+        return bool(mode & stat.S_IWUSR)
+    if metadata.st_gid in os.getgrouplist(user, account.pw_gid):
+        return bool(mode & stat.S_IWGRP)
+    return bool(mode & stat.S_IWOTH)
+
+
+def _candidate_writable_path(
+    root: Path, user: str, account: pwd.struct_passwd
+) -> Path | None:
+    for path in (root, *root.rglob("*")):
+        try:
+            if _candidate_can_write(path.resolve(strict=True), user, account):
+                return path
+        except OSError:
+            return path
+    return None
+
+
+def _validate_direct_run_isolation(
+    user: str | None,
+    root: Path,
+    report: Path,
+    evidence_root: Path | None,
+) -> str:
+    """Require a distinct account and candidate-inaccessible result boundaries."""
+    if user is None or re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user) is None:
+        raise ValueError("direct certification requires a simple untrusted isolation user")
+    try:
+        account = pwd.getpwnam(user)
+    except KeyError as error:
+        raise ValueError(f"untrusted isolation user {user!r} does not exist") from error
+    if account.pw_uid in {0, os.geteuid()}:
+        raise ValueError("untrusted isolation user must be distinct from root and the certifier")
+    if evidence_root is None:
+        raise ValueError("direct certification requires a protected evidence root")
+    protected = {
+        "candidate root": root,
+        "report directory": report.parent,
+        "evidence root": evidence_root,
+    }
+    if report.exists():
+        protected["report"] = report
+    for label, path in protected.items():
+        writable = None if path.exists() else path
+        if writable is None:
+            writable = _candidate_writable_path(path.resolve(), user, account)
+        if writable is not None:
+            raise ValueError(
+                f"{label} contains {writable}: missing or writable by the untrusted isolation user"
+            )
+    return user
+
+
 def resolve_smoke_headers(
     smoke: SmokeSpec,
     environ: Mapping[str, str] = os.environ,
@@ -183,6 +243,10 @@ def _add_semantic_commands(commands: argparse._SubParsersAction) -> None:
     semantic.add_argument("--declaration", type=Path, required=True)
     semantic.add_argument("--output", type=Path, required=True)
     semantic.add_argument("--database-backend", choices=("sqlite", "postgres"), default="sqlite")
+    settings = commands.add_parser("validate-runtime-settings")
+    settings.add_argument("--root", type=Path, required=True)
+    settings.add_argument("--declaration", type=Path, required=True)
+    settings.add_argument("--output", type=Path, required=True)
     _add_scaffold_arguments(commands.add_parser("scaffold"))
 
 
@@ -213,8 +277,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--ephemeral-url", required=True)
     run.add_argument("--report", type=Path, required=True)
     run.add_argument("--check-python", type=Path)
-    run.add_argument("--untrusted-user")
-    run.add_argument("--evidence-root", type=Path)
+    run.add_argument("--untrusted-user", required=True)
+    run.add_argument("--evidence-root", type=Path, required=True)
     report = commands.add_parser("validate-report")
     report.add_argument("--report", type=Path, required=True)
     report.add_argument("--root", type=Path)
@@ -244,6 +308,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> int:
+    untrusted_user = _validate_direct_run_isolation(
+        args.untrusted_user,
+        args.root,
+        args.report,
+        args.evidence_root,
+    )
     declaration = load_declaration(args.declaration)
     headers = resolve_smoke_headers(declaration.smoke)
     http = UrlHttpBoundary(args.packaged_url, args.ephemeral_url, headers)
@@ -251,14 +321,11 @@ def _run(args: argparse.Namespace) -> int:
         args.root,
         declaration,
         executor=execute_command,
-        candidate_executor=_untrusted_executor(args.untrusted_user)
-        if args.untrusted_user
-        else execute_command,
         http=http,
         declaration_path=args.declaration,
         check_python=args.check_python,
         evidence_root=args.evidence_root,
-        untrusted_user=args.untrusted_user,
+        untrusted_user=untrusted_user,
     ).run(
         expected_commit=args.app_commit,
         image_reference=args.image_reference,
@@ -512,6 +579,15 @@ def _generate_semantic_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_runtime_settings_command(args: argparse.Namespace) -> int:
+    if args.output.is_symlink():
+        raise ValueError("runtime settings output must not be a symlink")
+    settings = validated_runtime_settings(args.root, load_declaration(args.declaration))
+    args.output.write_text(json.dumps(settings, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.chmod(0o600)
+    return 0
+
+
 def _scaffold_command(args: argparse.Namespace) -> int:
     scaffold_checkout(
         args.root,
@@ -538,6 +614,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "probe-regulus": _probe_regulus_command,
         "finalize-workflow": _finalize_workflow_command,
         "generate-semantic": _generate_semantic_command,
+        "validate-runtime-settings": _validate_runtime_settings_command,
         "scaffold": _scaffold_command,
     }
     return handlers[args.command](args)
