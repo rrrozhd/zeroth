@@ -183,34 +183,47 @@ threshold from a mutable baseline: editing the baseline fails validation.
 
 A legitimate baseline refresh is deliberate: run the full profiles at least
 three isolated times against the exact previous release in the pinned capacity
-environment, review every raw distribution and hardware field, then update the
+environment, using one fresh service pair per sample. Create, inspect, and
+remove separately named PostgreSQL and Redis containers for every run; never
+substitute a new logical database or `FLUSHDB` inside reused service processes.
+Each receipt binds both container IDs, start timestamps, and digest-pinned
+images. Review every raw distribution and hardware field, then update the
 combined baseline, pinned digest and independently declared threshold
-derivation together. Every source run has a distinct observation digest, and a
-candidate observation digest may not overlap those baseline runs. The tests
-recompute throughput, p50/p95/p99, rejection, queue, resource and recovery
-values from the retained distributions.
+derivation together. Every source run has a distinct observation digest and
+service pair, and a candidate may overlap neither those observations nor those
+service instances. The tests recompute throughput, p50/p95/p99, rejection,
+queue, resource and recovery values from the retained distributions.
 
 ### Reproducing the gate
 
 Build the artifacts used by the candidate identity, then run the same pinned
-ARM capacity envelope used by the workflow. The service images and the Python
-runtime are immutable inputs; replace `load-gate` only with another isolated
-network name:
+ARM capacity envelope used by the workflow. Set a new `SAMPLE_ID` and execute
+the whole create-through-cleanup block once per baseline sample and once for the
+candidate. Reusing a service pair is invalid even when its databases are reset.
 
 ```bash
 set -euo pipefail
+SAMPLE_ID=${SAMPLE_ID:?set a unique sample ID}
 RUNTIME='python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2'
 POSTGRES='postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 REDIS='redis:7.4-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2'
-docker network create load-gate
-docker run -d --rm --platform linux/arm64 --name load-gate-postgres --network load-gate \
+NETWORK="load-gate-${SAMPLE_ID}"
+POSTGRES_NAME="${NETWORK}-postgres"
+REDIS_NAME="${NETWORK}-redis"
+cleanup() {
+  docker rm -f "$POSTGRES_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
+  docker network rm "$NETWORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+docker network create "$NETWORK"
+docker run -d --rm --platform linux/arm64 --name "$POSTGRES_NAME" --network "$NETWORK" \
   --health-cmd 'pg_isready -U zeroth -d zeroth' --health-interval 1s \
   --health-timeout 5s --health-retries 60 \
   -e POSTGRES_USER=zeroth -e POSTGRES_PASSWORD=zeroth -e POSTGRES_DB=zeroth "$POSTGRES"
-docker run -d --rm --platform linux/arm64 --name load-gate-redis --network load-gate \
+docker run -d --rm --platform linux/arm64 --name "$REDIS_NAME" --network "$NETWORK" \
   --health-cmd 'redis-cli ping' --health-interval 1s --health-timeout 5s --health-retries 60 \
   "$REDIS"
-for service in load-gate-postgres load-gate-redis; do
+for service in "$POSTGRES_NAME" "$REDIS_NAME"; do
   for attempt in $(seq 1 60); do
     health_state=$(docker inspect --format '{{.State.Health.Status}}' "$service")
     [ "$health_state" = healthy ] && break
@@ -218,6 +231,15 @@ for service in load-gate-postgres load-gate-redis; do
     sleep 1
   done
 done
+mkdir -p release/evidence
+docker inspect "$POSTGRES_NAME" "$REDIS_NAME" \
+  > "release/evidence/${SAMPLE_ID}-service-inspect.json"
+docker image inspect "$POSTGRES" "$REDIS" \
+  > "release/evidence/${SAMPLE_ID}-image-inspect.json"
+POSTGRES_INSTANCE_ID=$(docker inspect --format '{{.Id}}' "$POSTGRES_NAME")
+POSTGRES_STARTED_AT=$(docker inspect --format '{{.State.StartedAt}}' "$POSTGRES_NAME")
+REDIS_INSTANCE_ID=$(docker inspect --format '{{.Id}}' "$REDIS_NAME")
+REDIS_STARTED_AT=$(docker inspect --format '{{.State.StartedAt}}' "$REDIS_NAME")
 uv build
 WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
 SDIST=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
@@ -226,38 +248,36 @@ uv run python release/gates/cli.py identity \
   --artifact "zeroth-core-sdist=$SDIST" \
   --compatibility release/langgraph/compatibility.json \
   --output release/evidence/candidate-identity.json
-docker run --rm --platform linux/arm64 --network load-gate --cpus 2 --memory 8g \
+docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g \
   -v "$PWD:/work" -w /work \
-  -e ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@load-gate-postgres:5432/zeroth \
-  -e ZEROTH_LOAD_REDIS_URL=redis://load-gate-redis:6379/14 \
-  -e ZEROTH_TEST_REDIS_URL=redis://load-gate-redis:6379/15 \
+  -e "ZEROTH_LOAD_POSTGRES_DSN=postgresql://zeroth:zeroth@${POSTGRES_NAME}:5432/zeroth" \
+  -e "ZEROTH_LOAD_REDIS_URL=redis://${REDIS_NAME}:6379/14" \
+  -e "ZEROTH_TEST_REDIS_URL=redis://${REDIS_NAME}:6379/15" \
   -e ZEROTH_LOAD_OBSERVATIONS=release/evidence/load-recovery-raw.json \
   -e ZEROTH_LOAD_RUNTIME_IMAGE="$RUNTIME" \
   -e ZEROTH_LOAD_POSTGRES_VERSION="$POSTGRES" \
   -e ZEROTH_LOAD_REDIS_VERSION="$REDIS" \
+  -e ZEROTH_LOAD_POSTGRES_INSTANCE_ID="$POSTGRES_INSTANCE_ID" \
+  -e ZEROTH_LOAD_POSTGRES_STARTED_AT="$POSTGRES_STARTED_AT" \
+  -e ZEROTH_LOAD_REDIS_INSTANCE_ID="$REDIS_INSTANCE_ID" \
+  -e ZEROTH_LOAD_REDIS_STARTED_AT="$REDIS_STARTED_AT" \
   "$RUNTIME" sh -c 'python -m pip install uv==0.11.6 && \
   uv sync --frozen --all-groups --all-extras && uv run pytest -q \
-  tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence'
-```
-
-Bind the raw observations to the measured candidate and evaluate them:
-
-```bash
-uv run python release/load/harness.py run \
+  tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence && \
+  uv run python release/load/harness.py run \
   --profiles release/load/profiles-v1.json \
   --baseline release/load/baseline-v1.json \
   --identity release/evidence/candidate-identity.json \
   --observations release/evidence/load-recovery-raw.json \
-  --output release/evidence/load-recovery-benchmark.json
-docker rm -f load-gate-postgres load-gate-redis
-docker network rm load-gate
+  --output release/evidence/load-recovery-benchmark.json'
 ```
 
-The report retains the candidate identity and every raw per-request timestamp,
-lifecycle/run ID, tenant, deployment, replica, worker, surface, fault, status,
-`Retry-After`, latency, queue, CPU and memory value. This is sufficient to
-independently recompute throughput, p50/p95/p99, fairness, recovery time and
-lost/duplicate accepted IDs instead of trusting the report summaries.
+The report retains the candidate and service-instance identities and every raw
+per-request timestamp, lifecycle/run ID, tenant, deployment, replica, worker,
+surface, fault, status, `Retry-After`, latency, queue, CPU and memory value. This
+is sufficient to independently recompute throughput, p50/p95/p99, fairness,
+recovery time and lost/duplicate accepted IDs instead of trusting the report
+summaries.
 
 CI uploads `release/evidence/load-recovery*`: the raw rows, benchmark report,
 JUnit output and gate record. They are retained for at least 30 days even when

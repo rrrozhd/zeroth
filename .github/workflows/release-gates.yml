@@ -486,6 +486,8 @@ jobs:
     container:
       image: python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
       options: --cpus 2 --memory 8g
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
     env:
       ZEROTH_LOAD_POSTGRES_DSN: postgresql://zeroth:zeroth@postgres:5432/zeroth
       ZEROTH_LOAD_REDIS_URL: redis://redis:6379/14
@@ -529,6 +531,42 @@ jobs:
         with:
           name: candidate-identity
           path: release/evidence
+
+      - name: Bind fresh service instances
+        shell: bash
+        env:
+          POSTGRES_INSTANCE_ID: ${{ job.services.postgres.id }}
+          REDIS_INSTANCE_ID: ${{ job.services.redis.id }}
+        run: |
+          set -euo pipefail
+          test -n "${POSTGRES_INSTANCE_ID}"
+          test -n "${REDIS_INSTANCE_ID}"
+          service_started_at() {
+            python - "$1" <<'PY'
+          import http.client
+          import json
+          import socket
+          import sys
+
+          class DockerConnection(http.client.HTTPConnection):
+              def connect(self) -> None:
+                  self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  self.sock.connect("/var/run/docker.sock")
+
+          connection = DockerConnection("localhost")
+          connection.request("GET", f"/containers/{sys.argv[1]}/json")
+          response = connection.getresponse()
+          if response.status != 200:
+              raise SystemExit(f"Docker inspect failed: HTTP {response.status}")
+          print(json.loads(response.read())["State"]["StartedAt"])
+          PY
+          }
+          POSTGRES_STARTED_AT=$(service_started_at "${POSTGRES_INSTANCE_ID}")
+          REDIS_STARTED_AT=$(service_started_at "${REDIS_INSTANCE_ID}")
+          echo "ZEROTH_LOAD_POSTGRES_INSTANCE_ID=${POSTGRES_INSTANCE_ID}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_POSTGRES_STARTED_AT=${POSTGRES_STARTED_AT}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_REDIS_INSTANCE_ID=${REDIS_INSTANCE_ID}" >> "${GITHUB_ENV}"
+          echo "ZEROTH_LOAD_REDIS_STARTED_AT=${REDIS_STARTED_AT}" >> "${GITHUB_ENV}"
 
       - name: Run product profiles and record every independent result
         shell: bash
