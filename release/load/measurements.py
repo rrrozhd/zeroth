@@ -29,12 +29,12 @@ ROW_KEYS = frozenset(
 )
 TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "drained"})
 FAULT_RECOVERY_STATES = {
-    "database-contention": frozenset({"coordination-timeout", "query-restored"}),
-    "redis-loss": frozenset({"artifact-unavailable", "artifact-restored"}),
-    "worker-loss": frozenset({"worker-withdrawn", "worker-replaced"}),
-    "service-restart": frozenset({"service-stopped", "service-started"}),
-    "network-delay": frozenset({"transport-delayed", "transport-restored"}),
-    "downstream-throttling": frozenset({"downstream-429", "delivery-retried", "delivered"}),
+    "database-contention": ("coordination-timeout", "query-restored"),
+    "redis-loss": ("artifact-unavailable", "artifact-restored"),
+    "worker-loss": ("worker-withdrawn", "worker-replaced"),
+    "service-restart": ("service-stopped", "service-started"),
+    "network-delay": ("transport-delayed", "transport-restored"),
+    "downstream-throttling": ("downstream-429", "delivery-retried", "delivered"),
 }
 
 
@@ -63,7 +63,10 @@ def _lifecycle_accounting(rows: list[dict]) -> tuple[int, int, float]:
         injected = next((event for event in events if event.get("state") == "fault-injected"), None)
         recovered = next((event for event in events if event.get("state") == "recovered"), None)
         if injected and recovered:
-            recoveries.append(max(0.0, (recovered["at_ms"] - injected["at_ms"]) / 1000))
+            interval = recovered["at_ms"] - injected["at_ms"]
+            if interval < 0:
+                raise ValueError("recovery precedes fault injection")
+            recoveries.append(interval / 1000)
     lost = sum(count for run_id, count in accepted.items() if terminal[run_id] == 0)
     duplicates = sum(max(0, count - 1) for count in accepted.values())
     return lost, duplicates, max(recoveries, default=0.0)
@@ -380,18 +383,11 @@ def _fault_errors(rows: list[dict], profiles: dict) -> list[str]:
     errors = []
     for fault in profiles["faults"]:
         matching = [row for row in rows if row["fault"] == fault]
-        recovered = any(
-            any(event.get("state") == "fault-injected" for event in row["lifecycle"])
-            and any(
-                event.get("state") == "recovered" and event.get("repair") == "automatic"
-                for event in row["lifecycle"]
-            )
-            for row in matching
-        )
+        recovered = any(_has_recovery_chain(row["lifecycle"], fault) for row in matching)
         if not recovered:
-            errors.append(f"{fault}: no observed automatic recovery")
+            errors.append(f"{fault}: no ordered same-row automatic recovery chain")
         observed = {event.get("state") for row in matching for event in row["lifecycle"]}
-        missing = FAULT_RECOVERY_STATES[fault] - observed
+        missing = set(FAULT_RECOVERY_STATES[fault]) - observed
         if missing:
             errors.append(f"{fault}: missing observed {', '.join(sorted(missing))}")
         if fault == "service-restart" and not any(
@@ -399,6 +395,20 @@ def _fault_errors(rows: list[dict], profiles: dict) -> list[str]:
         ):
             errors.append("service-restart: no successful durable run after service restart")
     return errors
+
+
+def _has_recovery_chain(events: list[dict], fault: str) -> bool:
+    required = ("fault-injected", *FAULT_RECOVERY_STATES[fault], "recovered")
+    position = 0
+    for event in events:
+        if event.get("state") != required[position]:
+            continue
+        if required[position] == "recovered" and event.get("repair") != "automatic":
+            continue
+        position += 1
+        if position == len(required):
+            return True
+    return False
 
 
 def _successful_restart_recovery(events: list[dict]) -> bool:

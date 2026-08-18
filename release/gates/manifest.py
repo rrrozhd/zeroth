@@ -42,6 +42,7 @@ REQUIRED_KINDS = frozenset(
         "junit",
         "compatibility",
         "benchmark",
+        "source-receipt",
         "security",
         "deployment",
         "ui",

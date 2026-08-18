@@ -41,8 +41,14 @@ def test_manifest_requires_one_candidate_bound_load_recovery_gate() -> None:
         ),
         "binds": ["commit", "package"],
         "record": "release/evidence/load-recovery.json",
-        "requires": ["profiles", "thresholds", "recovery", "accepted-run-integrity"],
-        "kinds": ["benchmark", "junit"],
+        "requires": [
+            "profiles",
+            "thresholds",
+            "recovery",
+            "accepted-run-integrity",
+            "source-receipt",
+        ],
+        "kinds": ["benchmark", "junit", "source-receipt"],
         "triggers": ["nightly", "release-candidate"],
     }
 
