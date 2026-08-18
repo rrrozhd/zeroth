@@ -584,6 +584,12 @@ jobs:
             tests/security/distributed/test_redis_artifact_isolation.py \
             --junitxml=release/evidence/load-recovery-junit.xml
           PRODUCT=$?
+          uv run python release/load/receipt.py candidate \
+            --source . \
+            --identity release/evidence/candidate-identity.json \
+            --raw release/evidence/load-recovery-raw.json \
+            --output release/evidence/load-recovery-source-receipt.json
+          RECEIPT=$?
           uv run python release/load/harness.py run \
             --profiles release/load/profiles-v1.json \
             --baseline release/load/baseline-v1.json \
@@ -598,12 +604,15 @@ jobs:
             --result "thresholds=$(status ${REPORT})" \
             --result "recovery=$(status ${PRODUCT})" \
             --result "accepted-run-integrity=$(status ${REPORT})" \
+            --result "source-receipt=$(status ${RECEIPT})" \
             --kind benchmark=release/evidence/load-recovery-benchmark.json \
             --kind junit=release/evidence/load-recovery-junit.xml \
+            --kind source-receipt=release/evidence/load-recovery-source-receipt.json \
             --output release/evidence/load-recovery.json
           RECORD=$?
           cat release/evidence/load-recovery.json
-          if [ "${PRODUCT}" -ne 0 ] || [ "${REPORT}" -ne 0 ] || [ "${RECORD}" -ne 0 ]; then
+          if [ "${PRODUCT}" -ne 0 ] || [ "${RECEIPT}" -ne 0 ] || \
+             [ "${REPORT}" -ne 0 ] || [ "${RECORD}" -ne 0 ]; then
             exit 1
           fi
 

@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
+import subprocess
 import sys
+import tarfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from release.gates.identity import identity_digest  # noqa: E402
 from release.load.environment import (  # noqa: E402
     observation_digest,
     runtime_environment,
@@ -46,6 +50,60 @@ def source_digest(root: Path) -> str:
         digest.update(b"\0")
         digest.update(hashlib.sha256(path.read_bytes()).digest())
     return "sha256:" + digest.hexdigest()
+
+
+def _git(root: Path, *args: str, binary: bool = False) -> bytes | str:
+    result = subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=not binary
+    ).stdout
+    return result if binary else result.strip()
+
+
+def archive_source_digest(root: Path, revision: str) -> str:
+    """Hash the immutable Git archive with the canonical source algorithm."""
+    archive = _git(root, "archive", "--format=tar", revision, binary=True)
+    digest = hashlib.sha256()
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        for member in sorted(
+            (member for member in source.getmembers() if member.isfile()),
+            key=lambda member: member.name,
+        ):
+            content = source.extractfile(member)
+            if content is None:  # pragma: no cover - tarfile guarantees regular files are readable
+                raise ValueError(f"cannot read archived source member {member.name}")
+            digest.update(member.name.encode())
+            digest.update(b"\0")
+            digest.update(hashlib.sha256(content.read()).digest())
+    return "sha256:" + digest.hexdigest()
+
+
+def build_candidate_receipt(root: Path, raw: Path, identity_path: Path) -> dict:
+    """Bind raw observations to the immutable exact-HEAD source tree."""
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    head = _git(root, "rev-parse", "HEAD")
+    commit = identity.get("commit") if isinstance(identity, dict) else None
+    package = identity.get("package") if isinstance(identity, dict) else None
+    version = package.get("version") if isinstance(package, dict) else None
+    if commit != head or REVISION.fullmatch(str(commit)) is None:
+        raise ValueError("candidate identity does not match exact HEAD source")
+    declared = tomllib.loads(str(_git(root, "show", f"{commit}:pyproject.toml")))["project"][
+        "version"
+    ]
+    if version != declared:
+        raise ValueError("candidate identity does not match exact HEAD source")
+    observations = json.loads(raw.read_text(encoding="utf-8"))
+    if not isinstance(observations, list) or not observations:
+        raise ValueError("candidate receipt observations are empty")
+    return {
+        "schema_version": 1,
+        "commit": commit,
+        "tree": str(_git(root, "rev-parse", f"{commit}^{{tree}}")),
+        "package_version": version,
+        "source_digest": archive_source_digest(root, commit),
+        "candidate_identity_digest": identity_digest(identity),
+        "observation_digest": observation_digest(observations),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
 
 
 def load_source_identity(path: Path) -> tuple[dict, str]:
@@ -109,14 +167,24 @@ def build_receipt(source: Path, raw: Path, identity_path: Path) -> dict:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    candidate = bool(arguments and arguments[0] == "candidate")
+    if candidate:
+        arguments.pop(0)
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--source-identity", type=Path, required=True)
+    parser.add_argument(
+        "--identity" if candidate else "--source-identity", type=Path, required=True
+    )
     parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    receipt = build_receipt(args.source, args.raw, args.source_identity)
+    args = parser.parse_args(arguments)
+    receipt = (
+        build_candidate_receipt(args.source, args.raw, args.identity)
+        if candidate
+        else build_receipt(args.source, args.raw, args.source_identity)
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(args.output.suffix + ".tmp")
     temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")

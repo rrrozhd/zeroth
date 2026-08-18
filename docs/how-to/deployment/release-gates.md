@@ -264,6 +264,11 @@ docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g
   "$RUNTIME" sh -c 'python -m pip install uv==0.11.6 && \
   uv sync --frozen --all-groups --all-extras && uv run pytest -q \
   tests/load_release/test_product_profiles.py::test_real_product_fairness_fault_and_overload_evidence && \
+  uv run python release/load/receipt.py candidate \
+  --source . \
+  --identity release/evidence/candidate-identity.json \
+  --raw release/evidence/load-recovery-raw.json \
+  --output release/evidence/load-recovery-source-receipt.json && \
   uv run python release/load/harness.py run \
   --profiles release/load/profiles-v1.json \
   --baseline release/load/baseline-v1.json \
@@ -272,7 +277,9 @@ docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g
   --output release/evidence/load-recovery-benchmark.json'
 ```
 
-The report retains the candidate and service-instance identities and every raw
+The atomic source receipt binds the raw observation digest to the candidate
+identity, exact commit and tree, package version, and canonical `git archive`
+source digest. The report retains the candidate and service-instance identities and every raw
 per-request timestamp, lifecycle/run ID, tenant, deployment, replica, worker,
 surface, fault, status, `Retry-After`, latency, queue, CPU and memory value. This
 is sufficient to independently recompute throughput, p50/p95/p99, fairness,

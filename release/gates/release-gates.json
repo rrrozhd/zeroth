@@ -79,8 +79,14 @@
       "description": "Versioned burst, sustained, soak, overload, and fault profiles hold their candidate-versus-baseline thresholds without losing or duplicating accepted runs.",
       "binds": ["commit", "package"],
       "record": "release/evidence/load-recovery.json",
-      "requires": ["profiles", "thresholds", "recovery", "accepted-run-integrity"],
-      "kinds": ["benchmark", "junit"],
+      "requires": [
+        "profiles",
+        "thresholds",
+        "recovery",
+        "accepted-run-integrity",
+        "source-receipt"
+      ],
+      "kinds": ["benchmark", "junit", "source-receipt"],
       "triggers": ["nightly", "release-candidate"]
     },
     {
@@ -142,6 +148,11 @@
       "applicable": true,
       "producer": "ci",
       "description": "Governed-tool overhead measured against the recorded baseline release."
+    },
+    "source-receipt": {
+      "applicable": true,
+      "producer": "ci",
+      "description": "Atomic binding from exact candidate source and identity to retained raw observations."
     },
     "security": {
       "applicable": true,
