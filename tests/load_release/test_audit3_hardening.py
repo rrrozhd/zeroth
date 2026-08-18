@@ -127,6 +127,30 @@ async def test_completed_claim_remains_attributable_after_lease_release() -> Non
     assert await workload_probe._observed_worker(service, "run-completed") == "executor-worker"
 
 
+@pytest.mark.asyncio
+async def test_worker_observation_allows_the_existing_run_settlement_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.load_release import workload_probe
+
+    observed_times = iter((0.0, 0.0, 2.1))
+    monkeypatch.setattr(workload_probe.time, "perf_counter", lambda: next(observed_times))
+
+    class LeaseManager:
+        calls = 0
+
+        async def current_holder(self, _run_id, **_scope):
+            self.calls += 1
+            return None if self.calls == 1 else "delayed-worker"
+
+    service = SimpleNamespace(
+        deployment=SimpleNamespace(tenant_id="tenant", workspace_id=None),
+        worker=SimpleNamespace(lease_manager=LeaseManager()),
+    )
+
+    assert await workload_probe._observed_worker(service, "run-delayed") == "delayed-worker"
+
+
 def test_fault_rows_can_retain_their_exact_request_window_and_serving_worker() -> None:
     from tests.load_release.backend_fault_probe import fault_row
 

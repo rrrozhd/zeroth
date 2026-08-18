@@ -394,7 +394,28 @@ def _fault_errors(rows: list[dict], profiles: dict) -> list[str]:
         missing = FAULT_RECOVERY_STATES[fault] - observed
         if missing:
             errors.append(f"{fault}: missing observed {', '.join(sorted(missing))}")
+        if fault == "service-restart" and not any(
+            _successful_restart_recovery(row["lifecycle"]) for row in matching
+        ):
+            errors.append("service-restart: no successful durable run after service restart")
     return errors
+
+
+def _successful_restart_recovery(events: list[dict]) -> bool:
+    for accepted_index, accepted in enumerate(events):
+        run_id = accepted.get("run_id")
+        if accepted.get("state") != "accepted" or not run_id:
+            continue
+        if not any(event.get("state") == "service-started" for event in events[:accepted_index]):
+            continue
+        for terminal_index, terminal in enumerate(events[accepted_index + 1 :], accepted_index + 1):
+            if terminal.get("state") != "completed" or terminal.get("run_id") != run_id:
+                continue
+            return any(
+                event.get("state") == "recovered" and event.get("repair") == "automatic"
+                for event in events[terminal_index + 1 :]
+            )
+    return False
 
 
 def _lost_ids(rows: list[dict]) -> list[str]:

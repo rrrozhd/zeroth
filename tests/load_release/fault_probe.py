@@ -186,12 +186,14 @@ async def worker_loss(database: Any, anchor: tuple[Any, Any, dict[str, str]]) ->
 
 async def _submit_for_restart(
     service: Any, secrets: dict[str, str], started: float, states: list[dict]
-) -> str:
+) -> tuple[str, tuple[float, float]]:
     async with serve(create_app(service)) as origin:
         async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
+            accepted_started = time.perf_counter()
             accepted = await client.post(
                 "/runs", json={"input_payload": {"value": 1}}, headers=headers(secrets["operator"])
             )
+            accepted_finished = time.perf_counter()
             accepted.raise_for_status()
             run_id = str(accepted.json()["run_id"])
             states.append({"state": "accepted", "at_ms": elapsed_ms(started), "run_id": run_id})
@@ -204,7 +206,7 @@ async def _submit_for_restart(
                     "worker_id": worker,
                 }
             )
-    return run_id
+    return run_id, (accepted_started, accepted_finished)
 
 
 async def _resume_run(
@@ -213,15 +215,39 @@ async def _resume_run(
     run_id: str,
     started: float,
     states: list[dict],
-) -> None:
+) -> tuple[list[dict], tuple[float, float], str]:
+    recovery = [states[0], states[-1]]
     async with serve(create_app(replacement)) as origin:
-        states.append({"state": "service-started", "at_ms": elapsed_ms(started)})
+        service_started = {"state": "service-started", "at_ms": elapsed_ms(started)}
+        states.append(service_started)
+        recovery.append(service_started)
         async with httpx.AsyncClient(base_url=origin, timeout=10) as client:
             terminal = await _wait_terminal(client, run_id, secrets["operator"])
             states.append({"state": terminal, "at_ms": elapsed_ms(started), "run_id": run_id})
+            accepted_started = time.perf_counter()
+            accepted = await client.post(
+                "/runs", json={"input_payload": {"value": 2}}, headers=headers(secrets["operator"])
+            )
+            accepted_finished = time.perf_counter()
+            accepted.raise_for_status()
+            recovery_id = str(accepted.json()["run_id"])
+            recovery.append(
+                {"state": "accepted", "at_ms": elapsed_ms(started), "run_id": recovery_id}
+            )
+            worker = await _observed_worker(replacement, recovery_id)
+            recovery_terminal = await _wait_terminal(client, recovery_id, secrets["operator"])
+            assert recovery_terminal == "completed"
+            recovery.append(
+                {
+                    "state": recovery_terminal,
+                    "at_ms": elapsed_ms(started),
+                    "run_id": recovery_id,
+                }
+            )
+    return recovery, (accepted_started, accepted_finished), worker
 
 
-async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]) -> dict:
+async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]) -> list[dict]:
     """Restart a real service around durable accepted work and settle it once."""
     deployment_ref = f"{anchor[0].deployment.tenant_id}-service-restart"
     service, secrets = await _scoped_service(
@@ -235,7 +261,7 @@ async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]
     service.worker.shutdown_timeout = 0
     started = time.perf_counter()
     states = [{"state": "fault-injected", "at_ms": 0.0}]
-    run_id = await _submit_for_restart(service, secrets, started, states)
+    run_id, request_window = await _submit_for_restart(service, secrets, started, states)
     drained = await service.run_repository.get(run_id)
     assert drained is not None and drained.status is RunStatus.PENDING
     states.append({"state": "service-stopped", "at_ms": elapsed_ms(started)})
@@ -247,16 +273,39 @@ async def service_restart(database: Any, anchor: tuple[Any, Any, dict[str, str]]
         deploy=False,
         runner_surface="slow-script",
     )
-    await _resume_run(replacement, secrets, run_id, started, states)
-    return fault_row(
-        "service-restart",
-        "slow-script",
-        started,
-        states,
-        status=202,
-        retry_after=None,
-        service=replacement,
+    recovery, recovery_window, recovery_worker = await _resume_run(
+        replacement, secrets, run_id, started, states
     )
+    drained_worker = next(state["worker_id"] for state in states if state["state"] == "draining")
+    return [
+        fault_row(
+            "service-restart",
+            "slow-script",
+            started,
+            states,
+            status=202,
+            retry_after=None,
+            service=replacement,
+            request_id="fault-service-restart-drained",
+            request_started=request_window[0],
+            request_finished=request_window[1],
+            worker_id=drained_worker,
+            recovered=False,
+        ),
+        fault_row(
+            "service-restart",
+            "slow-script",
+            started,
+            recovery,
+            status=202,
+            retry_after=None,
+            service=replacement,
+            request_id="fault-service-restart-recovered",
+            request_started=recovery_window[0],
+            request_finished=recovery_window[1],
+            worker_id=recovery_worker,
+        ),
+    ]
 
 
 class _DelayedTransport(httpx.AsyncBaseTransport):
@@ -396,7 +445,7 @@ async def collect_fault_observations(
         await postgres_contention(postgres_dsn),
         await redis_loss(redis_url),
         *await worker_loss(database, anchors["failing-script"]),
-        await service_restart(database, anchors["slow-script"]),
+        *await service_restart(database, anchors["slow-script"]),
         await network_delay(database, anchors["langgraph-streams"]),
         await downstream_throttling(database, anchors["webhooks"]),
     ]

@@ -115,6 +115,20 @@ def _fault_row(sequence: int, offset: int, status: int, retry_after: int | None)
     }
 
 
+def _restart_recovery_row(sequence: int) -> dict:
+    run_id = f"run-{sequence}"
+    row = _fault_row(sequence, FAULTS.index("service-restart"), 202, None)
+    row["lifecycle"] = [
+        {"state": "fault-injected", "at_ms": 0.0},
+        {"state": "service-stopped", "at_ms": 1.0},
+        {"state": "service-started", "at_ms": 2.0},
+        {"state": "accepted", "at_ms": 3.0, "run_id": run_id},
+        {"state": "completed", "at_ms": 4.0, "run_id": run_id},
+        {"state": "recovered", "at_ms": 10.0, "repair": "automatic"},
+    ]
+    return row
+
+
 def _rows(*, overload_status: int = 429, retry_after: int | None = 2) -> list[dict]:
     profiles = json.loads(PROFILES.read_text(encoding="utf-8"))["profiles"]
     rows = []
@@ -127,6 +141,9 @@ def _rows(*, overload_status: int = 429, retry_after: int | None = 2) -> list[di
     for offset in range(len(FAULTS)):
         sequence += 1
         rows.append(_fault_row(sequence, offset, overload_status, retry_after))
+        if FAULTS[offset] == "service-restart":
+            sequence += 1
+            rows.append(_restart_recovery_row(sequence))
     return rows
 
 

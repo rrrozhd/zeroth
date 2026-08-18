@@ -275,7 +275,7 @@ async def _accepted_row(
 
 
 async def _observed_worker(service: Any, run_id: str) -> str:
-    deadline = time.perf_counter() + 2
+    deadline = time.perf_counter() + 20
     deployment = service.deployment
     while time.perf_counter() < deadline:
         if worker := _CLAIMED_BY.get(run_id):

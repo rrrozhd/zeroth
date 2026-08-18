@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.5] - 2026-08-18
+
+### Fixed
+
+- Bind the load baseline to the canonical exact-base archive, keep executor
+  attribution within the run settlement bound, and require observed successful
+  work before a service restart is reported as recovered.
+
 ## [0.23.10.4] - 2026-08-18
 
 ### Fixed
