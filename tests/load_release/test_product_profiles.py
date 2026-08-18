@@ -176,6 +176,26 @@ def test_fault_evidence_requires_the_fault_specific_recovery_observation(
     assert any(fault in error and required_state in error for error in errors)
 
 
+def test_service_restart_recovery_requires_a_successful_durable_run() -> None:
+    from release.load.report import evidence_errors
+
+    row = _accounting_row("accepted-1", "tenant-1", "replica-1", "service-restart")
+    row["surface"] = "slow-script"
+    row["lifecycle"].extend(
+        [
+            {"state": "draining", "at_ms": 1.0, "run_id": "accepted-1"},
+            {"state": "service-stopped", "at_ms": 2.0},
+            {"state": "service-started", "at_ms": 3.0},
+            {"state": "failed", "at_ms": 4.0, "run_id": "accepted-1"},
+            {"state": "recovered", "at_ms": 5.0, "repair": "automatic"},
+        ]
+    )
+
+    errors = evidence_errors([row], _profiles())
+
+    assert any("service-restart" in error and "successful durable run" in error for error in errors)
+
+
 @pytest.mark.parametrize("status", [200, 202, 400, 500, 504])
 def test_overload_rejections_are_only_429_or_503_with_retry_after(status: int) -> None:
     from release.load.report import evidence_errors

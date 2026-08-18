@@ -31,9 +31,10 @@ SOURCE_IDENTITY_KEYS = {
 
 
 def source_digest(root: Path) -> str:
-    """Hash the extracted Git source tree without trusting checkout metadata."""
+    """Hash extracted Git source in canonical relative POSIX path order."""
     digest = hashlib.sha256()
-    for path in sorted(path for path in root.rglob("*") if path.is_file()):
+    files = (path for path in root.rglob("*") if path.is_file())
+    for path in sorted(files, key=lambda path: path.relative_to(root).as_posix()):
         relative = path.relative_to(root)
         if relative.parts[0] == ".git":
             continue

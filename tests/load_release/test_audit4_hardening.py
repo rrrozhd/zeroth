@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import subprocess
@@ -26,6 +27,27 @@ def _extract_revision(revision: str, target: Path) -> None:
         source.extractall(target, filter="data")
 
 
+def _archive_source_digest(revision: str) -> str:
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", revision],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    digest = hashlib.sha256()
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        for member in sorted(
+            (member for member in source.getmembers() if member.isfile()),
+            key=lambda member: member.name,
+        ):
+            content = source.extractfile(member)
+            assert content is not None
+            digest.update(member.name.encode())
+            digest.update(b"\0")
+            digest.update(hashlib.sha256(content.read()).digest())
+    return "sha256:" + digest.hexdigest()
+
+
 def test_baseline_source_digest_matches_the_exact_base_archive(tmp_path: Path) -> None:
     from release.load.receipt import load_source_identity, source_digest
 
@@ -34,6 +56,7 @@ def test_baseline_source_digest_matches_the_exact_base_archive(tmp_path: Path) -
     identity, identity_digest = load_source_identity(ROOT / "release/load/baseline-source-v1.json")
     _extract_revision(source["commit"], tmp_path)
 
+    assert _archive_source_digest(source["commit"]) == source["source_digest"]
     assert source_digest(tmp_path) == source["source_digest"]
     assert source["source_identity_digest"] == identity_digest
     assert all(

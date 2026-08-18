@@ -73,7 +73,7 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:75a9bf6ed423fb56f4604286e7d8a2f8e7571a09c8626b917e71ac01ff4db57d"
+BASELINE_DIGEST = "sha256:ba876c8b178af7b20a87f5e753fa64f075254a10a05c2ee088e0ff23ee95b5d3"
 BASELINE_SOURCE_IDENTITY = Path(__file__).with_name("baseline-source-v1.json")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
