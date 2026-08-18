@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,7 @@ REPORT_KEYS = frozenset(
         "profile_version",
         "candidate_identity",
         "environment",
+        "service_instances",
         "observation_digest",
         "baseline",
         "profiles",
@@ -73,10 +75,12 @@ REPORT_KEYS = frozenset(
         "passed",
     }
 )
-BASELINE_DIGEST = "sha256:ba876c8b178af7b20a87f5e753fa64f075254a10a05c2ee088e0ff23ee95b5d3"
+BASELINE_DIGEST = "sha256:7097072ab8e3369f4554fa7d3e1e7c5ff5821b845f92a74a068a9fcbbd82d712"
 BASELINE_SOURCE_IDENTITY = Path(__file__).with_name("baseline-source-v1.json")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+INSTANCE_PATTERN = re.compile(r"[0-9a-f]{64}")
+IMAGE_PATTERN = re.compile(r".+@sha256:[0-9a-f]{64}")
 ENVIRONMENT_KEYS = frozenset(
     {
         "system",
@@ -171,6 +175,62 @@ def _environment_errors(value: Any) -> list[str]:
     return []
 
 
+def _service_instance_errors(value: Any, environment: Any, prefix: str) -> list[str]:
+    if not isinstance(value, dict) or set(value) != {"postgres", "redis"}:
+        return [f"{prefix} service instances are malformed"]
+    errors = []
+    for service, instance in value.items():
+        valid = (
+            isinstance(instance, dict)
+            and set(instance) == {"instance_id", "started_at", "image"}
+            and INSTANCE_PATTERN.fullmatch(str(instance.get("instance_id", ""))) is not None
+            and _is_utc_timestamp(instance.get("started_at"))
+            and IMAGE_PATTERN.fullmatch(str(instance.get("image", ""))) is not None
+            and isinstance(environment, dict)
+            and instance.get("image") == environment.get(service)
+        )
+        if not valid:
+            errors.append(f"{prefix} {service} service instance is malformed or unpinned")
+    if not errors and value["postgres"]["instance_id"] == value["redis"]["instance_id"]:
+        errors.append(f"{prefix} service instance IDs are not distinct")
+    return errors
+
+
+def _is_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return False
+    try:
+        return (
+            datetime.fromisoformat(value.removesuffix("Z") + "+00:00").utcoffset().total_seconds()
+            == 0
+        )
+    except (AttributeError, ValueError):
+        return False
+
+
+def _baseline_service_errors(value: dict) -> list[str]:
+    environment = value.get("environment")
+    receipts = value.get("source", {}).get("run_receipts")
+    if not isinstance(receipts, list):
+        return ["baseline requires measured fresh service instances"]
+    pairs = [receipt.get("service_instances") for receipt in receipts]
+    errors = [
+        error for pair in pairs for error in _service_instance_errors(pair, environment, "baseline")
+    ]
+    if errors:
+        return errors
+    instance_ids = [
+        pair[service]["instance_id"] for pair in pairs for service in ("postgres", "redis")
+    ]
+    if len(set(instance_ids)) != len(instance_ids):
+        return ["baseline requires distinct fresh service instances"]
+    for service in ("postgres", "redis"):
+        started_at = [pair[service]["started_at"] for pair in pairs]
+        if len(set(started_at)) != len(started_at):
+            return ["baseline requires distinct fresh service instances"]
+    return []
+
+
 def _baseline_source_errors(value: dict) -> list[str]:
     source = value.get("source", {})
     digests = source.get("run_digests")
@@ -247,6 +307,7 @@ def validate_baseline(path: Path) -> list[str]:
     errors.extend(_baseline_distribution_errors(value))
     errors.extend(_environment_errors(value.get("environment")))
     errors.extend(_baseline_source_errors(value))
+    errors.extend(_baseline_service_errors(value))
     errors.extend(_baseline_identity_errors(value.get("source", {})))
     return errors
 
@@ -311,17 +372,19 @@ def build_report(
     rows: list[dict],
     *,
     environment: dict,
+    service_instances: dict,
     observation_digest: str,
 ) -> dict:
     """Build a report that retains failures instead of raising them away."""
     errors, measurements, evaluation = _derived_report_values(
-        rows, profiles, baseline, identity, environment, observation_digest
+        rows, profiles, baseline, identity, environment, service_instances, observation_digest
     )
     return {
         "schema_version": 1,
         "profile_version": profiles["profile_version"],
         "candidate_identity": identity,
         "environment": environment,
+        "service_instances": service_instances,
         "observation_digest": observation_digest,
         "baseline": baseline,
         "profiles": profiles["profiles"],
@@ -354,17 +417,34 @@ def _derived_report_values(
     baseline: dict,
     identity: Any,
     environment: Any,
+    service_instances: Any,
     raw_digest: Any,
 ) -> tuple[list[str], dict, dict]:
     errors = evidence_errors(rows, profiles)
     errors.extend(_candidate_identity_errors(identity))
     errors.extend(_environment_errors(environment))
+    errors.extend(_service_instance_errors(service_instances, environment, "candidate"))
     if environment != baseline.get("environment"):
         errors.append("candidate environment does not match the pinned baseline environment")
     if isinstance(identity, dict) and identity.get("commit") == baseline.get("source", {}).get(
         "commit"
     ):
         errors.append("candidate commit overlaps the pinned baseline source")
+    baseline_pairs = [
+        receipt.get("service_instances", {})
+        for receipt in baseline.get("source", {}).get("run_receipts", [])
+    ]
+    if not _service_instance_errors(service_instances, environment, "candidate"):
+        baseline_ids = {
+            pair.get(service, {}).get("instance_id")
+            for pair in baseline_pairs
+            for service in ("postgres", "redis")
+        }
+        candidate_ids = {
+            service_instances[service]["instance_id"] for service in ("postgres", "redis")
+        }
+        if candidate_ids & baseline_ids:
+            errors.append("candidate service instances overlap the pinned baseline")
     if DIGEST_PATTERN.fullmatch(str(raw_digest)) is None:
         errors.append("candidate observation digest is malformed")
     elif raw_digest in baseline.get("source", {}).get("run_digests", []):
@@ -438,6 +518,7 @@ def validate_report(
         baseline,
         report["candidate_identity"],
         report["environment"],
+        report["service_instances"],
         report["observation_digest"],
     )
     errors = list(raw_errors)

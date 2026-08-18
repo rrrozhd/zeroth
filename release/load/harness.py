@@ -12,7 +12,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from release.load.environment import observation_digest, runtime_environment  # noqa: E402
+from release.load.environment import (  # noqa: E402
+    observation_digest,
+    runtime_environment,
+    runtime_service_instances,
+)
 from release.load.report import (  # noqa: E402
     build_report,
     load_baseline,
@@ -45,12 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         observations = _read(args.observations)
+        environment = runtime_environment()
         report = build_report(
             load_profiles(args.profiles),
             load_baseline(args.baseline),
             _read(args.identity),
             observations,
-            environment=runtime_environment(),
+            environment=environment,
+            service_instances=runtime_service_instances(environment),
             observation_digest=observation_digest(observations),
         )
     except (OSError, TypeError, ValueError) as error:

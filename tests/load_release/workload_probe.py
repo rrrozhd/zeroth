@@ -66,6 +66,12 @@ def credentials(tenant: str) -> tuple[Any, dict[str, str]]:
     return auth, secrets
 
 
+def _server_shutdown_timeout(app: Any) -> float:
+    """Let the worker exhaust its configured drain before timing out Uvicorn."""
+    worker = getattr(app.state.bootstrap, "worker", None)
+    return max(20.0, float(getattr(worker, "shutdown_timeout", 0.0)) + 5.0)
+
+
 @asynccontextmanager
 async def serve(app: Any):
     listener = socket.socket()
@@ -85,7 +91,7 @@ async def serve(app: Any):
         yield f"http://127.0.0.1:{listener.getsockname()[1]}"
     finally:
         server.should_exit = True
-        await asyncio.wait_for(task, timeout=20)
+        await asyncio.wait_for(task, timeout=_server_shutdown_timeout(app))
 
 
 def headers(secret: str) -> dict[str, str]:

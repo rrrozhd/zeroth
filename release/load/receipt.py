@@ -17,7 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from release.load.environment import observation_digest, runtime_environment  # noqa: E402
+from release.load.environment import (  # noqa: E402
+    observation_digest,
+    runtime_environment,
+    runtime_service_instances,
+)
 
 REVISION = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -93,12 +97,14 @@ def build_receipt(source: Path, raw: Path, identity_path: Path) -> dict:
     origin = Path(app.__file__).resolve()
     origin.relative_to(source.resolve())
     package = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))
+    environment = runtime_environment()
     return {
         **identity,
         "package_version": package["project"]["version"],
         "product_import_origin": str(origin),
         "observation_digest": observation_digest(observations),
-        "environment": runtime_environment(),
+        "environment": environment,
+        "service_instances": runtime_service_instances(environment),
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
 

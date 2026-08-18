@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.load_release.test_report import _identity, _rows
+from tests.load_release.test_report import _candidate_services, _identity, _rows
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +52,7 @@ def test_report_rejects_self_overlap_and_environment_mismatch() -> None:
         identity,
         _rows(),
         environment=candidate_environment,
+        service_instances=_candidate_services(candidate_environment),
         observation_digest=baseline["source"]["run_digests"][0],
     )
 

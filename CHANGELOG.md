@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.6] - 2026-08-18
+
+### Fixed
+
+- Bind baseline and candidate load measurements to distinct fresh PostgreSQL
+  and Redis service instances.
+
 ## [0.23.10.5] - 2026-08-18
 
 ### Fixed

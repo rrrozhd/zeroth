@@ -36,6 +36,19 @@ def runtime_environment() -> dict[str, str | int]:
     }
 
 
+def runtime_service_instances(environment: dict[str, str | int]) -> dict[str, dict[str, str]]:
+    """Bind the report to the service processes used for this measurement."""
+    instances = {}
+    for service in ("postgres", "redis"):
+        prefix = f"ZEROTH_LOAD_{service.upper()}"
+        instances[service] = {
+            "instance_id": os.environ.get(f"{prefix}_INSTANCE_ID", ""),
+            "started_at": os.environ.get(f"{prefix}_STARTED_AT", ""),
+            "image": str(environment[service]),
+        }
+    return instances
+
+
 def observation_digest(rows: Any) -> str:
     """Hash canonical raw observations independently of report summaries."""
     raw = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()

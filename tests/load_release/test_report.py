@@ -23,6 +23,21 @@ def _identity() -> dict:
     }
 
 
+def _candidate_services(environment: dict) -> dict:
+    return {
+        "postgres": {
+            "instance_id": "f" * 64,
+            "started_at": "2099-01-01T00:00:00Z",
+            "image": environment["postgres"],
+        },
+        "redis": {
+            "instance_id": "e" * 64,
+            "started_at": "2099-01-01T00:00:01Z",
+            "image": environment["redis"],
+        },
+    }
+
+
 SURFACES = (
     "langgraph-streams",
     "slow-script",
@@ -159,6 +174,7 @@ def _report(rows: list[dict] | None = None) -> dict:
         _identity(),
         observations,
         environment=baseline["environment"],
+        service_instances=_candidate_services(baseline["environment"]),
         observation_digest=observation_digest(observations),
     )
 
@@ -353,6 +369,7 @@ def test_report_rejects_a_malformed_candidate_identity() -> None:
         {},
         rows,
         environment=baseline["environment"],
+        service_instances=_candidate_services(baseline["environment"]),
         observation_digest=observation_digest(rows),
     )
 
