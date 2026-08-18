@@ -179,9 +179,6 @@ jobs:
             exit 1
           }
           DOCKERFILE=${DOCKERFILE_FILE#"$GITHUB_WORKSPACE/build-context/"}
-          DECLARED_IMAGE_REFERENCE=$("$ZEROTH_PYTHON" -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["image_reference"])' \
-            "$DECLARATION_FILE")
           SEMANTIC_PATH=$("$ZEROTH_PYTHON" -c \
             'import json,sys; print(json.load(open(sys.argv[1]))["semantic_path"])' \
             "$DECLARATION_FILE")
@@ -191,12 +188,15 @@ jobs:
             echo "declared semantic manifest resolves outside committed source" >&2
             exit 1
           }
+          "$ZEROTH_PYTHON" -m release.app_certification validate-runtime-settings \
+            --root build-context --declaration "$DECLARATION_FILE" \
+            --output "$HANDOFF_ROOT/runtime-settings.json"
           RUNTIME_TENANT=$("$ZEROTH_PYTHON" -c \
-            'import json,sys; d=json.load(open(sys.argv[1])); t={k.get("tenant_id") for k in d["service_config"]["auth_config"]["api_keys"]}; assert len(t)==1 and None not in t; print(t.pop())' \
-            "$SEMANTIC_FILE")
+            'import json,sys; print(json.load(open(sys.argv[1]))["runtime_tenant"])' \
+            "$HANDOFF_ROOT/runtime-settings.json")
           DATABASE_BACKEND=$("$ZEROTH_PYTHON" -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["service_config"]["database_backend"])' \
-            "$SEMANTIC_FILE")
+            'import json,sys; print(json.load(open(sys.argv[1]))["database_backend"])' \
+            "$HANDOFF_ROOT/runtime-settings.json")
           [[ "$DATABASE_BACKEND" == "sqlite" ]] || {
             echo "callable workflow does not provision a fresh PostgreSQL database" >&2
             exit 1
@@ -204,8 +204,6 @@ jobs:
           echo "app_commit=$APP_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
-          echo "declared_image_reference=$DECLARED_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
-          echo "image_reference=$RUNTIME_IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           echo "runtime_tenant=$RUNTIME_TENANT" >> "$GITHUB_OUTPUT"
           echo "database_backend=$DATABASE_BACKEND" >> "$GITHUB_OUTPUT"
           echo "zeroth_version=$DECLARED_VERSION" >> "$GITHUB_OUTPUT"
@@ -218,7 +216,6 @@ jobs:
         id: image
         env:
           DOCKERFILE: ${{ steps.prepare.outputs.dockerfile }}
-          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -251,15 +248,15 @@ jobs:
             --output "$RUNTIME_CONTEXT"
           timeout 15m docker build \
             --file "$RUNTIME_CONTEXT/Dockerfile.certification-runtime" \
-            --tag "$IMAGE_REFERENCE" "$RUNTIME_CONTEXT"
-          IMAGE_DIGEST=$(docker image inspect "$IMAGE_REFERENCE" --format '{{.Id}}')
+            --tag "$RUNTIME_IMAGE_REFERENCE" "$RUNTIME_CONTEXT"
+          IMAGE_DIGEST=$(docker image inspect "$RUNTIME_IMAGE_REFERENCE" --format '{{.Id}}')
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "docker returned a non-immutable image digest" >&2
             exit 1
           }
-          docker image inspect "$IMAGE_REFERENCE" --format '{{json .Config}}' \
+          docker image inspect "$RUNTIME_IMAGE_REFERENCE" --format '{{json .Config}}' \
             > "$HANDOFF_ROOT/image-config.json"
-          timeout 5m docker save --output "$HANDOFF_ROOT/image.tar" "$IMAGE_REFERENCE"
+          timeout 5m docker save --output "$HANDOFF_ROOT/image.tar" "$RUNTIME_IMAGE_REFERENCE"
           echo "candidate_digest=$CANDIDATE_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           rm -rf "$RUNTIME_CONTEXT"
@@ -267,7 +264,6 @@ jobs:
       - name: Verify exact trusted wheel installation
         id: wheel
         env:
-          IMAGE_REFERENCE: ${{ steps.prepare.outputs.image_reference }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
@@ -276,7 +272,7 @@ jobs:
           [[ "${#CERTIFIER_WHEELS[@]}" -eq 1 ]]
           WHEEL_SITE=$(mktemp -d "$RUNNER_TEMP/app-cert-wheel-site.XXXXXX")
           trap 'docker rm -f "$WHEEL_INSPECT_CONTAINER" >/dev/null 2>&1 || true; rm -rf "$WHEEL_SITE"' EXIT
-          docker create --name "$WHEEL_INSPECT_CONTAINER" "$IMAGE_REFERENCE" >/dev/null
+          docker create --name "$WHEEL_INSPECT_CONTAINER" "$RUNTIME_IMAGE_REFERENCE" >/dev/null
           docker cp "$WHEEL_INSPECT_CONTAINER":/usr/local/lib/python3.12/site-packages/. "$WHEEL_SITE/"
           zeroth/.venv/bin/python -m release.app_certification verify-wheel-installation \
             --wheel "${CERTIFIER_WHEELS[0]}" --site-packages "$WHEEL_SITE" \
@@ -290,7 +286,7 @@ jobs:
         id: sbom
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: ${{ steps.prepare.outputs.image_reference }}
+          image: ${{ env.RUNTIME_IMAGE_REFERENCE }}
           format: spdx-json
           output-file: ${{ env.HANDOFF_ROOT }}/image.spdx.json
           upload-artifact: "false"
@@ -313,7 +309,7 @@ jobs:
             --declaration "$HANDOFF_ROOT/declaration.json" \
             --root app \
             --app-commit "$APP_COMMIT" \
-            --image-reference "${{ steps.prepare.outputs.image_reference }}" \
+            --image-reference "$RUNTIME_IMAGE_REFERENCE" \
             --image-digest "$IMAGE_DIGEST" \
             --source-digest "$SOURCE_DIGEST" \
             --raw-sbom "$HANDOFF_ROOT/image.spdx.json" \
@@ -326,7 +322,9 @@ jobs:
       - name: Start isolated packaged and ephemeral containers
         id: containers
         env:
+          DATABASE_BACKEND: ${{ steps.prepare.outputs.database_backend }}
           IMAGE_ID: ${{ steps.image.outputs.digest }}
+          RUNTIME_TENANT: ${{ steps.prepare.outputs.runtime_tenant }}
         run: |
           set -euo pipefail
           docker network create "$PACKAGED_NETWORK"
@@ -339,10 +337,10 @@ jobs:
             --mount type=volume,source="$PACKAGED_VOLUME",target=/data \
             --publish 127.0.0.1:18080:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            --env ZEROTH_DATABASE__BACKEND="${{ steps.prepare.outputs.database_backend }}" \
+            --env ZEROTH_DATABASE__BACKEND="$DATABASE_BACKEND" \
             --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
             --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
-            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="$RUNTIME_TENANT" \
             --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
             --env ZEROTH_REGULUS__ENABLED=true \
             "$IMAGE_ID"
@@ -353,10 +351,10 @@ jobs:
             --tmpfs /data:rw,noexec,nosuid,size=256m,uid=10001,gid=10001 \
             --publish 127.0.0.1:18081:8000 \
             --env APP_CERTIFICATION_API_KEY="$APP_CERTIFICATION_API_KEY" \
-            --env ZEROTH_DATABASE__BACKEND="${{ steps.prepare.outputs.database_backend }}" \
+            --env ZEROTH_DATABASE__BACKEND="$DATABASE_BACKEND" \
             --env ZEROTH_DATABASE__SQLITE_PATH=/data/zeroth.sqlite \
             --env ECP_BASE_URL=http://127.0.0.1:8000/regulus/v1 \
-            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="${{ steps.prepare.outputs.runtime_tenant }}" \
+            --env ECP_SERVICE_PRINCIPAL_TENANT_ID="$RUNTIME_TENANT" \
             --env ZEROTH_REGULUS__BASE_URL=http://127.0.0.1:8000/regulus/v1 \
             --env ZEROTH_REGULUS__ENABLED=true \
             "$IMAGE_ID"
@@ -421,7 +419,7 @@ jobs:
             --declaration "$HANDOFF_ROOT/declaration.json" \
             --root app \
             --app-commit "$APP_COMMIT" \
-            --image-reference "${{ steps.prepare.outputs.image_reference }}" \
+            --image-reference "$RUNTIME_IMAGE_REFERENCE" \
             --image-digest "$IMAGE_DIGEST" \
             --source-digest "$SOURCE_DIGEST" \
             --packaged-url http://127.0.0.1:18080 \

@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.16 \
+  --zeroth-version 0.23.9.17 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -81,6 +81,11 @@ and the locked frontend tool tree are checked on the trusted path. Container
 readiness requires a parsed JSON body with `status: ok`; HTTP 200 by itself is
 not sufficient. Smoke requests refuse redirects, and frontend targets must
 remain below the app checkout after symlink resolution.
+
+The public `run` command requires `--untrusted-user` to name an existing,
+non-root account distinct from the certifier. The candidate root, report
+directory, and `--evidence-root` must not be writable by that account; omitted,
+same-user, or writable-result configurations fail before candidate execution.
 
 ## Identity, evidence, and privileges
 

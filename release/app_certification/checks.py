@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,8 @@ from zeroth.service.api.authentication import ServiceAuthConfig
 from zeroth.service.bootstrap import run_migrations
 
 from .models import AppDeclaration, _read_json, file_digest, load_declaration
+
+_RUNTIME_TENANT = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 
 def candidate_target_references(name: str, declaration: AppDeclaration) -> list[str]:
@@ -223,7 +226,7 @@ def validated_database_backend(root: Path, declaration: AppDeclaration) -> str:
     return service_config["database_backend"]
 
 
-def validate_serialized_service_config(evidence: Any) -> None:
+def validate_serialized_service_config(evidence: Any) -> ServiceAuthConfig:
     """Validate certifier-owned service configuration JSON."""
     if not isinstance(evidence, dict) or evidence.get("database_backend") not in {
         "sqlite",
@@ -233,6 +236,22 @@ def validate_serialized_service_config(evidence: Any) -> None:
     config = ServiceAuthConfig.model_validate(evidence.get("auth_config"))
     if not config.api_keys:
         raise ValueError("semantic manifest auth configuration has no API keys")
+    return config
+
+
+def validated_runtime_settings(root: Path, declaration: AppDeclaration) -> dict[str, str]:
+    """Return shell-safe runtime settings from the trusted semantic contract."""
+    manifest = _semantic_manifest(root, declaration)
+    _manifest_sources("service-config", root, declaration, manifest)
+    service_config = manifest["service_config"]
+    auth_config = validate_serialized_service_config(service_config)
+    tenants = {credential.tenant_id for credential in auth_config.api_keys}
+    if len(tenants) != 1:
+        raise ValueError("semantic manifest auth configuration must use one tenant")
+    tenant = tenants.pop()
+    if _RUNTIME_TENANT.fullmatch(tenant) is None:
+        raise ValueError("semantic manifest tenant must use lowercase letters, digits, or hyphens")
+    return {"database_backend": service_config["database_backend"], "runtime_tenant": tenant}
 
 
 def _check_contracts(root: Path, declaration: AppDeclaration) -> None:

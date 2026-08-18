@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.17] - 2026-08-18
+
+### Security
+
+- Validate the source-bound runtime tenant before workflow output and shell use,
+  and keep the physical runtime image tag certifier-owned.
+- Require a distinct low-privilege identity and candidate-inaccessible result
+  paths for every direct certification run.
+
 ## [0.23.9.16] - 2026-08-18
 
 ### Security
