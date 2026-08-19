@@ -112,7 +112,8 @@ jobs:
           mkdir trusted-certifier
           timeout 5m uv build --directory zeroth --wheel --out-dir trusted-certifier
           cp zeroth/requirements-image.txt trusted-certifier/requirements-image.txt
-          sudo useradd --system --create-home --home-dir /home/app-cert-candidate \
+          sudo useradd --system --user-group --password '!' --create-home \
+            --home-dir /home/app-cert-candidate \
             --shell /usr/sbin/nologin app-cert-candidate
           chmod -R go-w zeroth app
           CANDIDATE_UID=$(id -u app-cert-candidate)

@@ -30,9 +30,7 @@ WORKFLOW = ROOT / ".github/workflows/app-certification.yml"
 
 def _certify_step(step_id: str) -> dict:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    return next(
-        step for step in workflow["jobs"]["certify"]["steps"] if step.get("id") == step_id
-    )
+    return next(step for step in workflow["jobs"]["certify"]["steps"] if step.get("id") == step_id)
 
 
 @pytest.mark.parametrize(
@@ -69,7 +67,7 @@ def test_workflow_never_promotes_candidate_tenant_or_tag_into_trusted_shell() ->
 
     assert "validate-runtime-settings" in prepare
     assert prepare.index("validate-runtime-settings") < prepare.index("runtime_tenant=")
-    assert '${{ steps.prepare.outputs.runtime_tenant }}' not in scripts
+    assert "${{ steps.prepare.outputs.runtime_tenant }}" not in scripts
     assert "steps.prepare.outputs.image_reference" not in WORKFLOW.read_text(encoding="utf-8")
     assert 'echo "image_reference=$RUNTIME_IMAGE_REFERENCE"' not in prepare
     assert containers["env"]["RUNTIME_TENANT"] == "${{ steps.prepare.outputs.runtime_tenant }}"
@@ -107,10 +105,14 @@ def _install_fake_run_boundary(monkeypatch: pytest.MonkeyPatch, marker: Path) ->
             subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
             return SimpleNamespace(status="passed")
 
-    monkeypatch.setattr(certification_cli, "load_declaration", lambda _path: SimpleNamespace(smoke=None))
+    monkeypatch.setattr(
+        certification_cli, "load_declaration", lambda _path: SimpleNamespace(smoke=None)
+    )
     monkeypatch.setattr(certification_cli, "resolve_smoke_headers", lambda _smoke: {})
     monkeypatch.setattr(certification_cli, "CertificationRunner", FakeRunner)
-    monkeypatch.setattr(certification_cli, "write_report", lambda _report, path: path.write_text("ok"))
+    monkeypatch.setattr(
+        certification_cli, "write_report", lambda _report, path: path.write_text("ok")
+    )
 
 
 def test_direct_run_without_isolation_stops_before_detached_child_can_tamper(
@@ -151,6 +153,12 @@ def test_direct_run_rejects_candidate_writable_evidence_root(
     fake_user = SimpleNamespace(pw_gid=os.getegid() + 1000, pw_uid=os.geteuid() + 1000)
     monkeypatch.setattr(certification_cli.pwd, "getpwnam", lambda _user: fake_user)
     monkeypatch.setattr(certification_cli.os, "getgrouplist", lambda _user, gid: [gid])
+    monkeypatch.setattr(certification_cli, "_validate_candidate_account", lambda *_args: None)
+    monkeypatch.setattr(
+        certification_cli,
+        "_candidate_access",
+        lambda path, _user, mode: mode == "-w" and bool(path.stat().st_mode & stat.S_IWOTH),
+    )
 
     with pytest.raises(ValueError, match="evidence.*writable"):
         validate("isolated-candidate", tmp_path, tmp_path / "report.json", evidence)
@@ -167,13 +175,21 @@ def test_candidate_supervisor_sweeps_a_detached_session(
         f"p=subprocess.Popen([sys.executable,'-c',{child!r}],start_new_session=True); "
         f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid))"
     )
-    swept: list[str] = []
+    owned_cleanup: list[int] = []
+    verified: list[str] = []
 
-    def sweep(user: str) -> None:
-        swept.append(user)
-        os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGKILL)
+    def cleanup() -> None:
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        owned_cleanup.append(pid)
+        os.kill(pid, signal.SIGKILL)
 
-    monkeypatch.setattr(candidate_supervisor, "_terminate_candidate_user", sweep)
+    monkeypatch.setattr(candidate_supervisor, "_enable_subreaper", lambda: None)
+    monkeypatch.setattr(candidate_supervisor, "_terminate_run_children", cleanup)
+    monkeypatch.setattr(
+        candidate_supervisor,
+        "_terminate_candidate_user",
+        lambda user: verified.append(user),
+    )
     returncode, _, _ = candidate_supervisor._wait_process(
         [sys.executable, "-c", parent],
         stdout=subprocess.DEVNULL,
@@ -182,7 +198,8 @@ def test_candidate_supervisor_sweeps_a_detached_session(
 
     time.sleep(0.5)
     assert returncode == 0
-    assert swept == ["isolated-candidate"]
+    assert len(owned_cleanup) == 1
+    assert verified == ["isolated-candidate"]
     assert not marker.exists()
 
 
@@ -204,9 +221,7 @@ def test_sqlite_migration_opens_only_its_supervised_directory(
         return inspect(database)
 
     monkeypatch.setattr(migration_supervisor, "_sqlite_tables", inspect_protected)
-    evidence = migration_supervisor.inspect_migration(
-        declaration, run_candidate, backend="sqlite"
-    )
+    evidence = migration_supervisor.inspect_migration(declaration, run_candidate, backend="sqlite")
 
     assert evidence["object_count"] == 1
     assert inspected_modes == [0o700]

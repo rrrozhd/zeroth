@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "app_name": "vendor-dd",
-  "zeroth_version": "0.23.9.18",
+  "zeroth_version": "0.23.9.19",
   "lock_path": "uv.lock",
   "dockerfile": "apps/vendor_dd/Dockerfile.certification",
   "image_reference": "vendor-dd:certification",

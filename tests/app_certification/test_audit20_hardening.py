@@ -4,6 +4,7 @@ import grp
 import json
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,10 +59,20 @@ def _install_candidate_account(
     monkeypatch.setattr(
         grp,
         "getgrgid",
-        lambda _gid: SimpleNamespace(gr_name=account.pw_name),
+        lambda _gid: SimpleNamespace(gr_name=account.pw_name, gr_mem=[]),
     )
 
     def inventory(argv: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        if "/usr/bin/test" in argv:
+            path = Path(argv[-1])
+            mode = argv[-2]
+            metadata = path.stat()
+            allowed = bool(metadata.st_mode & (stat.S_IWOTH if mode == "-w" else stat.S_IXOTH))
+            return subprocess.CompletedProcess(argv, 0 if allowed else 1, stdout="", stderr="")
+        if "passwd" in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout=f"{account.pw_name} L\n", stderr="")
+        if argv[-3:] == ["sudo", "--non-interactive", "--list"]:
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
         assert argv == ["pgrep", "-u", str(account.pw_uid)]
         return subprocess.CompletedProcess(
             argv,
@@ -256,27 +267,19 @@ def test_candidate_cleanup_avoids_account_wide_kill_without_survivors(
     assert calls == [["pgrep", "-u", "app-cert-candidate"]]
 
 
-def test_candidate_cleanup_verifies_the_final_targeted_kill(
+def test_candidate_cleanup_reports_survivors_without_targeting_the_uid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    inventories = iter(
-        (
-            subprocess.CompletedProcess([], 0, stdout="101\n"),
-            subprocess.CompletedProcess([], 0, stdout="102\n"),
-            subprocess.CompletedProcess([], 0, stdout="103\n"),
-            subprocess.CompletedProcess([], 1, stdout=""),
-        )
-    )
-    killed: list[str] = []
+    calls: list[list[str]] = []
 
     def run(argv: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        if argv[0] == "pgrep":
-            return next(inventories)
-        killed.append(argv[-1])
-        return subprocess.CompletedProcess(argv, 0, stdout="")
+        calls.append(argv)
+        assert argv[0] == "pgrep"
+        return subprocess.CompletedProcess(argv, 0, stdout="101\n")
 
     monkeypatch.setattr(candidate_supervisor.subprocess, "run", run)
 
-    candidate_supervisor._terminate_candidate_user("app-cert-candidate")
+    with pytest.raises(RuntimeError, match="leak|survived"):
+        candidate_supervisor._terminate_candidate_user("app-cert-candidate")
 
-    assert killed == ["101", "102", "103"]
+    assert calls == [["pgrep", "-u", "app-cert-candidate"]]

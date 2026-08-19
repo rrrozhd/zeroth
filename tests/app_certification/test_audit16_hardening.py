@@ -107,40 +107,24 @@ def test_reflective_candidate_code_has_no_authoritative_result_channel(tmp_path:
     assert not marker.exists(), "certification executed candidate Python for a trusted verdict"
 
 
-def test_candidate_user_cleanup_sweeps_detached_descendants(
+def test_candidate_user_inventory_never_kills_detached_descendants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from release.app_certification import candidate_supervisor
 
     calls: list[list[str]] = []
 
-    inventory = iter(
-        (
-            subprocess.CompletedProcess([], 0, stdout="123\n456\n"),
-            subprocess.CompletedProcess([], 1, stdout=""),
-        )
-    )
-
     def run(argv: list[str], **_kwargs) -> subprocess.CompletedProcess:
         calls.append(argv)
-        if argv[0] == "pgrep":
-            return next(inventory)
-        return subprocess.CompletedProcess(argv, 0)
+        assert argv[0] == "pgrep"
+        return subprocess.CompletedProcess(argv, 0, stdout="123\n456\n")
 
     monkeypatch.setattr(candidate_supervisor.subprocess, "run", run)
 
-    candidate_supervisor._terminate_candidate_user("app-cert-candidate")
+    with pytest.raises(RuntimeError, match="leak|survived"):
+        candidate_supervisor._terminate_candidate_user("app-cert-candidate")
 
-    assert ["pgrep", "-u", "app-cert-candidate"] in calls
-    assert [
-        "sudo",
-        "--non-interactive",
-        "kill",
-        "-KILL",
-        "--",
-        "123",
-        "456",
-    ] in calls
+    assert calls == [["pgrep", "-u", "app-cert-candidate"]]
 
 
 def test_candidate_build_and_dependency_logs_have_hard_resource_boundaries() -> None:
