@@ -1947,5 +1947,5 @@
     "apps.vendor_dd.graphs:build_main_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
     "apps.vendor_dd.migrations:migrate": "sha256:2f88aa566e7edb8ba3a51b1ebafcb509068c93a43f7a552b06d66a5b390ba2d8"
   },
-  "zeroth_version": "0.23.9.18"
+  "zeroth_version": "0.23.9.19"
 }

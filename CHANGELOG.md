@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.19] - 2026-08-18
+
+### Security
+
+- Validate the candidate account's locked, private, privilege-free identity and
+  effective POSIX access before direct certification.
+- Contain migration descendants behind a stable run-owned pidfd boundary and
+  treat account-wide process inventory only as a fail-closed leak signal.
+
 ## [0.23.9.18] - 2026-08-18
 
 ### Security

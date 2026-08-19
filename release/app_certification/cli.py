@@ -120,22 +120,37 @@ def _untrusted_executor(user: str) -> Executor:
 
 def _candidate_can_write(path: Path, user: str, account: pwd.struct_passwd) -> bool:
     metadata = path.stat()
-    mode = metadata.st_mode
     if metadata.st_uid == account.pw_uid:
         return True
-    if metadata.st_gid in os.getgrouplist(user, account.pw_gid):
-        return bool(mode & stat.S_IWGRP)
-    return bool(mode & stat.S_IWOTH)
+    return _candidate_access(path, user, "-w")
 
 
 def _candidate_can_search(path: Path, user: str, account: pwd.struct_passwd) -> bool:
     metadata = path.stat()
-    mode = metadata.st_mode
     if metadata.st_uid == account.pw_uid:
         return True
-    if metadata.st_gid in os.getgrouplist(user, account.pw_gid):
-        return bool(mode & stat.S_IXGRP)
-    return bool(mode & stat.S_IXOTH)
+    return _candidate_access(path, user, "-x")
+
+
+def _candidate_access(path: Path, user: str, mode: str) -> bool:
+    checked = subprocess.run(
+        [
+            "sudo",
+            "--non-interactive",
+            "--user",
+            user,
+            "--",
+            "/usr/bin/test",
+            mode,
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if checked.returncode not in (0, 1):
+        raise OSError(f"cannot verify effective candidate access to {path}")
+    return checked.returncode == 0
 
 
 def _candidate_writable_path(root: Path, user: str, account: pwd.struct_passwd) -> Path | None:
@@ -170,21 +185,20 @@ def _candidate_replaceable_ancestor(
     return None
 
 
-def _validate_candidate_account(user: str, account: pwd.struct_passwd) -> None:
-    shell = getattr(account, "pw_shell", "")
-    if shell not in _DISABLED_LOGIN_SHELLS:
-        raise ValueError(
-            "untrusted isolation user must be a dedicated account with a disabled login shell"
-        )
+def _validate_candidate_groups(user: str, account: pwd.struct_passwd) -> None:
     group_ids = set(os.getgrouplist(user, account.pw_gid))
     if 0 in group_ids:
         raise ValueError("untrusted isolation user belongs to privileged group root")
+    shared = {entry.pw_name for entry in pwd.getpwall() if entry.pw_gid == account.pw_gid} - {user}
+    if shared:
+        raise ValueError("untrusted isolation user requires an exclusive private primary group")
     supplementary = group_ids - {account.pw_gid}
     for group_id in group_ids:
         try:
-            group_name = grp.getgrgid(group_id).gr_name
+            group = grp.getgrgid(group_id)
         except KeyError as error:
             raise ValueError(f"cannot resolve untrusted isolation user group {group_id}") from error
+        group_name = group.gr_name
         if group_name.casefold() in _PRIVILEGED_GROUPS:
             raise ValueError(f"untrusted isolation user belongs to privileged group {group_name}")
         if group_id in supplementary:
@@ -192,6 +206,13 @@ def _validate_candidate_account(user: str, account: pwd.struct_passwd) -> None:
                 f"untrusted isolation user belongs to supplementary group {group_name}; "
                 "a dedicated account must have only its primary group"
             )
+        if group_id == account.pw_gid and (
+            group_name != user or set(getattr(group, "gr_mem", ())) - {user}
+        ):
+            raise ValueError("untrusted isolation user requires a dedicated private primary group")
+
+
+def _validate_candidate_inactive(account: pwd.struct_passwd) -> None:
     processes = subprocess.run(
         ["pgrep", "-u", str(account.pw_uid)],
         check=False,
@@ -205,6 +226,47 @@ def _validate_candidate_account(user: str, account: pwd.struct_passwd) -> None:
         )
     if processes.returncode != 1:
         raise ValueError("cannot inventory untrusted isolation user processes")
+
+
+def _validate_candidate_privileges(user: str) -> None:
+    password = subprocess.run(
+        ["sudo", "--non-interactive", "--", "passwd", "--status", user],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    fields = (password.stdout or "").split()
+    if password.returncode or len(fields) < 2 or fields[0] != user or fields[1] not in {"L", "LK"}:
+        raise ValueError("untrusted isolation user must have a locked password")
+    privileges = subprocess.run(
+        [
+            "sudo",
+            "--non-interactive",
+            "--user",
+            user,
+            "--",
+            "sudo",
+            "--non-interactive",
+            "--list",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if privileges.returncode == 0:
+        raise ValueError("untrusted isolation user has sudo privileges")
+    if privileges.returncode != 1:
+        raise ValueError("cannot verify untrusted isolation user sudo privileges")
+
+
+def _validate_candidate_account(user: str, account: pwd.struct_passwd) -> None:
+    if getattr(account, "pw_shell", "") not in _DISABLED_LOGIN_SHELLS:
+        raise ValueError(
+            "untrusted isolation user must be a dedicated account with a disabled login shell"
+        )
+    _validate_candidate_groups(user, account)
+    _validate_candidate_inactive(account)
+    _validate_candidate_privileges(user)
 
 
 def _validate_protected_path(label: str, path: Path, user: str, account: pwd.struct_passwd) -> None:
@@ -243,6 +305,7 @@ def _validate_direct_run_isolation(
         raise ValueError("untrusted isolation user must be distinct from root and the certifier")
     if evidence_root is None:
         raise ValueError("direct certification requires a protected evidence root")
+    _validate_candidate_account(user, account)
     protected = {
         "candidate root": root,
         "report directory": report.parent,
@@ -254,7 +317,6 @@ def _validate_direct_run_isolation(
         protected["report"] = report
     for label, path in protected.items():
         _validate_protected_path(label, path, user, account)
-    _validate_candidate_account(user, account)
     return user
 
 

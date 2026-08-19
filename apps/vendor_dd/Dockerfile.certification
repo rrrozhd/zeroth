@@ -1,14 +1,14 @@
 FROM python:3.12.13-slim-bookworm
 
-LABEL org.opencontainers.image.version=0.23.9.18
+LABEL org.opencontainers.image.version=0.23.9.19
 
 RUN useradd --create-home --uid 10001 vendor-dd
 COPY .zeroth-certifier/requirements-image.txt /tmp/requirements-image.txt
-COPY .zeroth-certifier/zeroth_core-0.23.9.18-py3-none-any.whl /opt/zeroth/
+COPY .zeroth-certifier/zeroth_core-0.23.9.19-py3-none-any.whl /opt/zeroth/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/requirements-image.txt \
     && pip install --no-cache-dir --no-deps \
-        /opt/zeroth/zeroth_core-0.23.9.18-py3-none-any.whl \
+        /opt/zeroth/zeroth_core-0.23.9.19-py3-none-any.whl \
     && rm /tmp/requirements-image.txt
 
 WORKDIR /opt/vendor/app
