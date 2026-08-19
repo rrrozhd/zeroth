@@ -158,8 +158,8 @@ commit and package version. A different environment fails closed.
 A candidate is inside the safe envelope only when all of these remain true:
 
 - observed throughput is at least 80% of the pinned baseline for every profile;
-- p50, p95 and p99 latency, maximum queue depth, CPU, memory and recovery time
-  are no more than 150% of their baseline values;
+- p50, p95 and p99 HTTP request-response latency, maximum queue depth, CPU,
+  memory and recovery time are no more than 150% of their baseline values;
 - rejection rate grows by no more than 0.10; tenant and deployment Jain
   fairness remain at least 0.90, while replica and worker fairness remain at
   least 80% of the pinned baseline; no accepted run ID is lost or accepted
@@ -276,6 +276,11 @@ docker run --rm --platform linux/arm64 --network "$NETWORK" --cpus 2 --memory 8g
   --observations release/evidence/load-recovery-raw.json \
   --output release/evidence/load-recovery-benchmark.json'
 ```
+
+The latency window ends when the HTTP admission or rejection response arrives;
+accepted-run settlement remains a separate ordered lifecycle observation. This
+keeps `202` and `429`/`503` latency percentiles comparable without dropping the
+terminal accounting evidence.
 
 The atomic source receipt binds the raw observation digest to the candidate
 identity, exact commit and tree, package version, and canonical `git archive`

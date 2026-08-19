@@ -250,17 +250,17 @@ async def _accepted_row(
     cpu_started: float,
     response: httpx.Response,
 ) -> dict:
-    accepted = time.perf_counter()
+    responded = time.perf_counter()
     run_id = str(response.json()["run_id"])
     worker = await _observed_worker(target.scope.service, run_id)
     queue_depth = await target.scope.service.run_repository.count_pending(
         target.scope.service.deployment.deployment_ref
     )
     terminal = await _settle_run(target, profile, sequence, run_id, profile_started)
-    finished = time.perf_counter()
+    settled = time.perf_counter()
     started_ms = (started - profile_started) * 1000
-    finished_ms = (finished - profile_started) * 1000
-    cpu = (time.process_time() - cpu_started) / max(finished - started, 1e-9) * 100
+    finished_ms = (responded - profile_started) * 1000
+    cpu = (time.process_time() - cpu_started) / max(settled - started, 1e-9) * 100
     return _row(
         target,
         profile,
@@ -274,7 +274,11 @@ async def _accepted_row(
         cpu,
         [
             {"state": "submitted", "at_ms": started_ms},
-            {"state": "accepted", "at_ms": (accepted - profile_started) * 1000, "run_id": run_id},
+            {
+                "state": "accepted",
+                "at_ms": (responded - profile_started) * 1000,
+                "run_id": run_id,
+            },
             *terminal,
         ],
     )
