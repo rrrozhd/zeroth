@@ -4482,6 +4482,16 @@
               }
             ]
           },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tool_ref": {
             "type": "string"
           }

@@ -28,6 +28,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._action_lifecycle import SQLiteActionExecutionRepository
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_configuration import (
     configuration_fingerprint,
@@ -192,6 +193,7 @@ class _Seams:
     actor: ActorIdentity | None = None
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None
     approval_lifecycle: SQLiteApprovalRepository | None = None
+    action_lifecycle: SQLiteActionExecutionRepository | None = None
     side_effect: Callable[[Any], Any] | None = None
     contract_ref: Callable[[Any], Any] | None = None
     capability_refs: Callable[[Any], Any] | None = None
@@ -2005,6 +2007,7 @@ def _enforcement_seams(plan: _GovernedPlan | _CallablePlan) -> dict[str, Any]:
         "actor": seams.actor,
         "interrupt": seams.interrupt,
         "approval_lifecycle": seams.approval_lifecycle,
+        "action_lifecycle": seams.action_lifecycle,
     }
 
 
@@ -2641,6 +2644,7 @@ def govern_tools(
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
+    action_lifecycle: SQLiteActionExecutionRepository | None = None,
     side_effect: Callable[[Any], Any] | None = None,
     contract_ref: Callable[[Any], Any] | None = None,
     capability_refs: Callable[[Any], Any] | None = None,
@@ -2675,6 +2679,7 @@ def govern_tools(
         actor: The authenticated actor to attribute records to, when there is one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
         approval_lifecycle: Durable approval storage used before an interrupt.
+        action_lifecycle: Durable first-claim-wins storage for side-effecting calls.
         side_effect: An optional per-tool classifier, reviewed when each wrapper
             is built and rechecked before every action. Only a
             real :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
@@ -2705,6 +2710,7 @@ def govern_tools(
         actor=actor,
         interrupt=interrupt,
         approval_lifecycle=approval_lifecycle,
+        action_lifecycle=action_lifecycle,
         side_effect=side_effect,
         contract_ref=contract_ref,
         capability_refs=capability_refs,

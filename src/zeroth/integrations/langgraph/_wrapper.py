@@ -19,6 +19,7 @@ from zeroth.integrations.langgraph._correlation import (
     set_reserved_context_token,
 )
 from zeroth.integrations.langgraph._handler import ZerothGovernanceCallbackHandler
+from zeroth.integrations.langgraph._usage import UsageObservation
 
 if TYPE_CHECKING:
     from zeroth.integrations.langgraph._gateway_client import LangGraphGatewayClient
@@ -205,6 +206,11 @@ class GovernedGraph:
             capability_id="zeroth.integrations.langgraph",
             implementation_id=self._graph_identity(graph),
         )
+
+    @property
+    def usage_observations(self) -> tuple[UsageObservation, ...]:
+        """Provider usage captured from this governed graph's LLM callbacks."""
+        return self._handler.usage_observations
 
     @staticmethod
     def _graph_identity(graph: Any) -> str:

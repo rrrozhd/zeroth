@@ -219,6 +219,7 @@ _ZEROTH_FAILURE_CODES: frozenset[str] = frozenset(
         "agent_runtime_error",
         "agent_timeout_error",
         "approval_requires_thread_error",
+        "duplicate_tool_execution_error",
         "artifact_not_found_error",
         "artifact_storage_error",
         "artifact_store_error",

@@ -79,6 +79,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "operation_state",
         "operation_support",
         "operation_target_ref",
+        "tool_call_id",
     ),
     "zeroth.governance.policy.models:PolicyDefinition": (
         "allowed_assistants",
@@ -501,7 +502,7 @@ def test_the_measured_totals_are_what_the_audit_reported() -> None:
 
     assert len(declared_fields(policy)) == 15
     assert len(inspect.signature(policy).parameters) == 8
-    assert len(hidden_fields(tool_call)) == 9
+    assert len(hidden_fields(tool_call)) == 10
 
 
 def test_two_assignments_with_the_same_target_name_are_two_sites() -> None:

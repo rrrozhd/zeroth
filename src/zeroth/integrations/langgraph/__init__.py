@@ -79,6 +79,11 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from zeroth.integrations.langgraph._action_lifecycle import (
+    ActionExecutionRecord,
+    ActionExecutionState,
+    SQLiteActionExecutionRepository,
+)
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalCoordinator,
     ApprovalDecision,
@@ -108,6 +113,7 @@ from zeroth.integrations.langgraph._tool_decisions import (
 )
 from zeroth.integrations.langgraph._tool_errors import (
     ApprovalRequiresThreadError,
+    DuplicateToolExecutionError,
     GovernanceContextError,
     PolicyViolation,
     ToolGovernanceError,
@@ -133,6 +139,7 @@ from zeroth.integrations.langgraph._tool_types import (
     ToolInventory,
     ToolInventoryEntry,
 )
+from zeroth.integrations.langgraph._usage import UsageObservation
 from zeroth.integrations.langgraph._wrapper import (
     GovernedGraph,
     OnRunStart,
@@ -195,6 +202,7 @@ __all__ = [
     "CausalSpan",
     "SpanKind",
     "SpanStatus",
+    "UsageObservation",
     "GENAI_CONVENTION_VERSION",
     "MappedGenAiSpan",
     "PerfCounterAnchor",
@@ -223,12 +231,16 @@ __all__ = [
     "ApprovalState",
     "ApprovalTransition",
     "SQLiteApprovalRepository",
+    "ActionExecutionRecord",
+    "ActionExecutionState",
+    "SQLiteActionExecutionRepository",
     # --- tool governance: the typed refusals a governed call can raise --------
     "ToolGovernanceError",
     "PolicyViolation",
     "GovernanceContextError",
     "UnstableToolIdentityError",
     "ApprovalRequiresThreadError",
+    "DuplicateToolExecutionError",
     # --- tool governance: what the governed surface holds and may claim -------
     "ToolInventory",
     "ToolInventoryEntry",

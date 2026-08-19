@@ -237,6 +237,38 @@ If a process dies after consuming a fenced delivery, the lifecycle does not
 retry the possibly executed side effect. Once its lease expires, reconciliation
 marks that uncertain delivery `orphaned` as a terminal, auditable outcome.
 
+### Fence duplicate side effects
+
+LangGraph runtimes may redeliver a long-running tool call. Approval durability
+does not by itself fence a tool that was allowed without approval. Install a
+shared action lifecycle for tools classified as `SIDE_EFFECTING`:
+
+```python
+from zeroth.integrations.langgraph import SQLiteActionExecutionRepository
+
+actions = SQLiteActionExecutionRepository(
+    "/var/lib/zeroth/langgraph-actions.sqlite3"
+)
+governed = govern_tools(
+    tools,
+    context=context,
+    client=gateway,
+    action_lifecycle=actions,
+    **tool_policy,
+)
+```
+
+The originating LangGraph `tool_call_id`, run identity, tool fingerprint, and
+argument fingerprint form one logical action. The first worker claims it. A
+concurrent duplicate raises `DuplicateToolExecutionError` and executes zero
+additional side effects; a completed duplicate receives the stored result. A
+body failure records `FAILED` and permits an explicit redelivery.
+
+This store is opt-in because it changes retry behavior and requires JSON-shaped
+tool results for durable replay. Its path must be stable and shared by every
+worker on one host. SQLite is not cross-host coordination; use an equivalent
+shared transactional repository before relying on this invariant across hosts.
+
 Edited `BaseTool` arguments pass through the original Pydantic schema, coercion,
 and field validators before fresh policy evaluation. The original
 `InjectedToolCallId` is preserved for native validation; framework-injected
@@ -272,7 +304,9 @@ than optional. The public surface is:
 | Describe a call | `ToolGovernanceContext`, `ToolIdentity`, `ToolAction`, `SideEffectClass` |
 | Decide a call | `ToolDecisionClient`, `ToolDecision`, `ToolDecisionKind`, `FailClosedToolDecisionClient`, `UnknownSideEffectPolicy`, `ToolAuditSubmitter` |
 | Resume approvals | `SQLiteApprovalRepository`, `ApprovalCoordinator`, `ApprovalIntent`, `ApprovalResolution`, `ApprovalDecision`, `ApprovalState`, `ApprovalRecord`, `ApprovalTransition` |
-| Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError` |
+| Fence side effects | `SQLiteActionExecutionRepository`, `ActionExecutionRecord`, `ActionExecutionState` |
+| Inspect usage | `UsageObservation`, `GovernedGraph.usage_observations` |
+| Typed refusals | `ToolGovernanceError`, `PolicyViolation`, `GovernanceContextError`, `UnstableToolIdentityError`, `ApprovalRequiresThreadError`, `DuplicateToolExecutionError` |
 | Read the surface | `ToolInventory`, `ToolInventoryEntry`, `InventoryCoverage`, `ToolInventoryMatch`, `ToolEnforcementReport`, `record_tool_inventory`, `report_tool_enforcement`, `match_tool_inventory`, `attest_complete_inventory` |
 
 Writing a decision client needs nothing beyond that group:

@@ -49,6 +49,7 @@ class ToolCallRecord(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     outcome: dict[str, Any] | None = None
     error: str | None = None
+    tool_call_id: str | None = None
     operation_key: str | None = None
     operation_target_ref: str | None = None
     operation_support: str | None = None
@@ -72,6 +73,7 @@ ToolCallRecord.__signature__ = inspect.signature(ToolCallRecord).replace(
         if name
         not in {
             "operation_key",
+            "tool_call_id",
             "operation_target_ref",
             "operation_support",
             "operation_state",
