@@ -79,6 +79,11 @@ from zeroth.governance.audit.models import (
     ToolCallRecord,
 )
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._action_lifecycle import (
+    ActionExecutionRecord,
+    SQLiteActionExecutionRepository,
+    result_fingerprint,
+)
 from zeroth.integrations.langgraph._approval_lifecycle import (
     ApprovalDecision,
     ApprovalRecord,
@@ -421,7 +426,13 @@ def _decision_metadata(decision: ToolDecision, decision_term: str | None = None)
     return metadata
 
 
-def _tool_call_record(action: ToolAction, decision: ToolDecision) -> ToolCallRecord:
+def _tool_call_record(
+    action: ToolAction,
+    decision: ToolDecision,
+    *,
+    result: Any = None,
+    result_observed: bool = False,
+) -> ToolCallRecord:
     """Project the decided call onto the typed field that survives capture.
 
     ``outcome`` is always absent: the record is written before the tool runs and
@@ -431,8 +442,13 @@ def _tool_call_record(action: ToolAction, decision: ToolDecision) -> ToolCallRec
         tool_ref=action.identity.fingerprint,
         alias=action.identity.name,
         arguments=dict(action.arguments),
-        outcome=None,
+        outcome=(
+            {"result_fingerprint": result_fingerprint(result)}
+            if result_observed
+            else None
+        ),
         error=_reason_term(decision) if decision.kind is ToolDecisionKind.DENY else None,
+        tool_call_id=action.tool_call_id if result_observed else None,
     )
 
 
@@ -457,6 +473,8 @@ def _project(
     approval_ref: str | None,
     decision_term: str | None = None,
     approval_action: str = _APPROVAL_REQUESTED,
+    result: Any = None,
+    result_observed: bool = False,
 ) -> NodeAuditRecord:
     """Build the record for one decided tool call.
 
@@ -484,7 +502,14 @@ def _project(
         status=_decision_status(decision.kind),
         actor=actor,
         execution_metadata=_decision_metadata(decision, decision_term),
-        tool_calls=[_tool_call_record(action, decision)],
+        tool_calls=[
+            _tool_call_record(
+                action,
+                decision,
+                result=result,
+                result_observed=result_observed,
+            )
+        ],
         approval_actions=_approval_records(approval_ref, actor, approval_action),
     )
 
@@ -499,6 +524,8 @@ def _emit_decision_audit(
     approval_ref: str | None,
     decision_term: str | None = None,
     approval_action: str = _APPROVAL_REQUESTED,
+    result: Any = None,
+    result_observed: bool = False,
 ) -> None:
     """Hand one decided tool call off for durable audit, without ever raising.
 
@@ -525,6 +552,8 @@ def _emit_decision_audit(
             approval_ref=approval_ref,
             decision_term=decision_term,
             approval_action=approval_action,
+            result=result,
+            result_observed=result_observed,
         )
     except Exception as error:
         logger.error(
@@ -797,6 +826,7 @@ def _complete_authorization(
     lifecycle: SQLiteApprovalRepository | None,
     audit: ToolAuditSubmitter | None,
     actor: ActorIdentity | None,
+    result: Any,
 ) -> None:
     if lifecycle is None or authorization.approval_ref is None or authorization.claim_token is None:
         return
@@ -810,7 +840,23 @@ def _complete_authorization(
         approval_ref=authorization.approval_ref,
         decision_term=_APPROVAL_APPROVE,
         approval_action=_APPROVAL_APPROVE,
+        result=result,
+        result_observed=True,
     )
+
+
+def _claim_action_execution(
+    authorization: _Authorization,
+    lifecycle: SQLiteActionExecutionRepository | None,
+) -> tuple[ActionExecutionRecord, bool] | None:
+    """Claim only side-effecting calls; read-only calls need no execution fence."""
+    if authorization.action.side_effect is not SideEffectClass.SIDE_EFFECTING:
+        return None
+    if lifecycle is None:
+        return None
+    if type(lifecycle) is not SQLiteActionExecutionRepository:
+        raise ToolGovernanceError("action execution needs its durable lifecycle store")
+    return lifecycle.begin_once(authorization.action, authorization.governance)
 
 
 def authorize_tool_call(
@@ -893,6 +939,7 @@ def guard_tool_call(
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
+    action_lifecycle: SQLiteActionExecutionRepository | None = None,
     invoke_with_arguments: Callable[[Mapping[str, Any]], Any] | None = None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
@@ -918,6 +965,7 @@ def guard_tool_call(
             calling surface has one.
         interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
         approval_lifecycle: Durable approval storage used before an interrupt.
+        action_lifecycle: Durable execution storage for side-effecting calls.
         invoke_with_arguments: Invocation seam for approved edited arguments.
         prepare_edited_arguments: Native validation seam for edited arguments.
 
@@ -939,8 +987,11 @@ def guard_tool_call(
         approval_lifecycle=approval_lifecycle,
         prepare_edited_arguments=prepare_edited_arguments,
     )
+    execution = _claim_action_execution(authorization, action_lifecycle)
     try:
-        if authorization.edited:
+        if execution is not None and not execution[1]:
+            result = action_lifecycle.replay_or_raise(execution[0])
+        elif authorization.edited:
             if invoke_with_arguments is None:
                 raise ToolGovernanceError(
                     "edited tool arguments cannot be reissued on this surface"
@@ -948,10 +999,15 @@ def guard_tool_call(
             result = invoke_with_arguments(authorization.action.arguments)
         else:
             result = invoke()
-    except BaseException:
+    except BaseException as error:
+        if execution is not None and execution[1]:
+            with suppress(Exception):
+                action_lifecycle.fail(execution[0].action_key, error)
         _fail_authorization(authorization, approval_lifecycle)
         raise
-    _complete_authorization(authorization, approval_lifecycle, audit, actor)
+    if execution is not None and execution[1]:
+        action_lifecycle.complete(execution[0].action_key, result)
+    _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 
 
@@ -966,6 +1022,7 @@ async def aguard_tool_call(
     actor: ActorIdentity | None = None,
     interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
     approval_lifecycle: SQLiteApprovalRepository | None = None,
+    action_lifecycle: SQLiteActionExecutionRepository | None = None,
     invoke_with_arguments: Callable[[Mapping[str, Any]], Awaitable[Any]] | None = None,
     prepare_edited_arguments: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
 ) -> Any:
@@ -991,8 +1048,17 @@ async def aguard_tool_call(
         with suppress(BaseException):
             await authorization_task
         raise
+    execution = (
+        None
+        if action_lifecycle is None
+        else await asyncio.to_thread(
+            _claim_action_execution, authorization, action_lifecycle
+        )
+    )
     try:
-        if authorization.edited:
+        if execution is not None and not execution[1]:
+            result = await asyncio.to_thread(action_lifecycle.replay_or_raise, execution[0])
+        elif authorization.edited:
             if invoke_with_arguments is None:
                 raise ToolGovernanceError(
                     "edited tool arguments cannot be reissued on this surface"
@@ -1000,10 +1066,17 @@ async def aguard_tool_call(
             result = await invoke_with_arguments(authorization.action.arguments)
         else:
             result = await invoke()
-    except BaseException:
+    except BaseException as error:
+        if execution is not None and execution[1]:
+            with suppress(Exception):
+                await asyncio.to_thread(
+                    action_lifecycle.fail, execution[0].action_key, error
+                )
         _fail_authorization(authorization, approval_lifecycle)
         raise
-    _complete_authorization(authorization, approval_lifecycle, audit, actor)
+    if execution is not None and execution[1]:
+        await asyncio.to_thread(action_lifecycle.complete, execution[0].action_key, result)
+    _complete_authorization(authorization, approval_lifecycle, audit, actor, result)
     return result
 
 

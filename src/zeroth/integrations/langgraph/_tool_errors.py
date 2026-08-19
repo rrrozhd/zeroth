@@ -94,8 +94,15 @@ class UnstableToolIdentityError(ToolGovernanceError):
     code: ClassVar[str] = "zeroth.unstable_tool_identity"
 
 
+class DuplicateToolExecutionError(ToolGovernanceError):
+    """A stable side-effecting call is already executing or has an unknown outcome."""
+
+    code: ClassVar[str] = "zeroth.duplicate_tool_execution"
+
+
 __all__ = [
     "ApprovalRequiresThreadError",
+    "DuplicateToolExecutionError",
     "GovernanceContextError",
     "PolicyViolation",
     "ToolGovernanceError",

@@ -39,6 +39,9 @@ from zeroth.governance.audit import AuditRepository, NodeAuditRecord
 from zeroth.governance.audit.delivery import AuditDeliveryQueue
 from zeroth.governance.identity import ActorIdentity, AuthMethod
 from zeroth.integrations.langgraph import _tool_guard
+from zeroth.integrations.langgraph._action_lifecycle import (
+    SQLiteActionExecutionRepository,
+)
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import UnknownSideEffectPolicy
 from zeroth.integrations.langgraph._tool_errors import (
@@ -235,6 +238,30 @@ def test_a_downstream_failure_propagates_unchanged_and_is_never_retried() -> Non
 
     assert raised.value is failure
     assert downstream.calls == 1
+
+
+def test_lifecycle_recording_failure_does_not_mask_the_tool_error(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failure = RuntimeError("the tool itself broke")
+    lifecycle = SQLiteActionExecutionRepository(tmp_path / "actions.sqlite3")
+    action = dataclasses.replace(ACTION, tool_call_id="call-error-1")
+
+    def fail_recording(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise ToolGovernanceError("storage unavailable")
+
+    monkeypatch.setattr(lifecycle, "fail", fail_recording)
+    with pytest.raises(RuntimeError) as raised:
+        guard_tool_call(
+            action,
+            THREADED,
+            Downstream(error=failure),
+            client=StubClient(ALLOW),
+            action_lifecycle=lifecycle,
+        )
+
+    assert raised.value is failure
 
 
 def test_authorizing_without_invoking_returns_the_allow_verdict() -> None:

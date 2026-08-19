@@ -28,6 +28,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 from zeroth.integrations.langgraph._correlation import current_correlation
 from zeroth.integrations.langgraph._spans import CausalSpan, SpanKind
+from zeroth.integrations.langgraph._usage import UsageObservation
 
 if TYPE_CHECKING:
     # Type-only imports (never evaluated at runtime under ``from __future__ import
@@ -107,6 +108,7 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         self._lock = threading.Lock()
         self._open: dict[str, CausalSpan] = {}
         self._completed: list[CausalSpan] = []
+        self._usage: list[UsageObservation] = []
         self._seen: set[str] = set()
         self._on_span_complete = on_span_complete
 
@@ -123,6 +125,30 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         """A snapshot of still-open spans, dangling-parent ones marked ``orphan``."""
         with self._lock:
             return [self._resolve(span) for span in self._open.values()]
+
+    @property
+    def usage_observations(self) -> tuple[UsageObservation, ...]:
+        """Snapshot provider usage seen at LLM completion, without message content."""
+        with self._lock:
+            return tuple(self._usage)
+
+    def _record_usage(self, response: Any, run_id: UUID) -> None:
+        observations: list[UsageObservation] = []
+        try:
+            generations = response.generations
+            for group in generations:
+                for generation in group:
+                    message = generation.message
+                    observation = UsageObservation.from_usage(
+                        str(run_id), getattr(message, "usage_metadata", None)
+                    )
+                    if observation is not None:
+                        observations.append(observation)
+        except Exception:
+            return
+        if observations:
+            with self._lock:
+                self._usage.extend(observations)
 
     # -- shared span machinery --------------------------------------------
 
@@ -330,7 +356,8 @@ class ZerothGovernanceCallbackHandler(BaseCallbackHandler):
         tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
-        """Terminate an LLM / chat-model span with ``ok``."""
+        """Capture provider usage, then terminate an LLM / chat-model span."""
+        self._record_usage(response, run_id)
         self._record_end(run_id, "ok")
 
     def on_llm_error(

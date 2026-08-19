@@ -123,6 +123,7 @@ from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
 from langchain_core.tools import BaseTool
 
 from zeroth.governance.identity import ActorIdentity
+from zeroth.integrations.langgraph._action_lifecycle import SQLiteActionExecutionRepository
 from zeroth.integrations.langgraph._approval_lifecycle import SQLiteApprovalRepository
 from zeroth.integrations.langgraph._tool_decisions import (
     ToolDecisionClient,
@@ -350,6 +351,7 @@ class ZerothMiddleware(AgentMiddleware):
         actor: ActorIdentity | None = None,
         interrupt: Callable[[Mapping[str, Any]], Any] | None = None,
         approval_lifecycle: SQLiteApprovalRepository | None = None,
+        action_lifecycle: SQLiteActionExecutionRepository | None = None,
         side_effect: Callable[[Any], Any] | None = None,
         contract_ref: Callable[[Any], Any] | None = None,
         capability_refs: Callable[[Any], Any] | None = None,
@@ -370,6 +372,7 @@ class ZerothMiddleware(AgentMiddleware):
                 is one.
             interrupt: The pause seam, defaulting to LangGraph's ``interrupt``.
             approval_lifecycle: Durable approval storage used before an interrupt.
+            action_lifecycle: Durable first-claim-wins storage for side-effecting calls.
             side_effect: An optional per-tool classifier. Only a real
                 :class:`~zeroth.integrations.langgraph._tool_types.SideEffectClass`
                 member classifies a tool; anything else leaves it unknown, and
@@ -398,6 +401,7 @@ class ZerothMiddleware(AgentMiddleware):
         self._actor = actor
         self._interrupt = interrupt
         self._approval_lifecycle = approval_lifecycle
+        self._action_lifecycle = action_lifecycle
         self._side_effect = side_effect
         self._contract_ref = contract_ref
         self._capability_refs = capability_refs
@@ -473,6 +477,7 @@ class ZerothMiddleware(AgentMiddleware):
             actor=self._actor,
             interrupt=self._interrupt,
             approval_lifecycle=self._approval_lifecycle,
+            action_lifecycle=self._action_lifecycle,
             side_effect=self._side_effect,
             contract_ref=self._contract_ref,
             capability_refs=self._capability_refs,

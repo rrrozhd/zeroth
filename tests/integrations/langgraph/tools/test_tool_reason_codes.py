@@ -86,11 +86,12 @@ async def _persisted_reason_code(database, error: BaseException, *, audit_id: st
     return match[0].execution_metadata["reason_code"]
 
 
-def test_the_tool_errors_module_exports_the_five_zer6_classes() -> None:
+def test_the_tool_errors_module_exports_the_six_zer6_classes() -> None:
     # Guards the walker below: if __all__ were emptied, every parametrized test
     # would vanish rather than fail.
     assert {error.__name__ for error in TOOL_ERRORS} == {
         "ApprovalRequiresThreadError",
+        "DuplicateToolExecutionError",
         "GovernanceContextError",
         "PolicyViolation",
         "ToolGovernanceError",
@@ -117,6 +118,7 @@ def test_the_denial_verdict_and_the_failures_are_registered_in_different_sets() 
     assert "policy_violation" not in _ZEROTH_FAILURE_CODES
     assert {
         "approval_requires_thread_error",
+        "duplicate_tool_execution_error",
         "governance_context_error",
         "tool_governance_error",
         "unstable_tool_identity_error",

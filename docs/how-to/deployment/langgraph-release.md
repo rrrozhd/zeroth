@@ -67,10 +67,12 @@ does not predict model or network resources.
 
 Approval interrupts need a durable LangGraph checkpointer and stable
 `thread_id`. Resume only through the original thread. The approval lifecycle
-uses a claim fence and argument fingerprint for idempotency: retries cannot run
-the approved tool body more than once. Arbitrary interrupts that do not use the
-Zeroth approval payload and durable coordinator are outside the supported
-resume contract.
+fences approval delivery. Configure `SQLiteActionExecutionRepository` as the
+separate execution fence when side-effecting tool calls must tolerate runtime
+redelivery and require execution idempotency; without it, an allowed call has
+the runtime's normal retry behavior.
+Arbitrary interrupts that do not use the Zeroth approval payload and durable
+coordinator are outside the supported resume contract.
 
 Upstream outages and unsupported compatibility fail gateway admission closed;
 readiness reports the dependency state. Audit delivery is bounded and drains on
@@ -83,6 +85,7 @@ approval arguments.
 Run the real governance demo, repeated benchmark, and fail-closed checklist:
 
 ```bash
+uv run pytest tests/integrations/langgraph/test_upstream_issue_scenarios.py -q
 python examples/27_langgraph_release.py --json
 python release/langgraph/harness.py benchmark --samples 20 --output /tmp/benchmark.json
 python release/langgraph/harness.py validate --phase source --manifest release/langgraph/release-manifest.json
