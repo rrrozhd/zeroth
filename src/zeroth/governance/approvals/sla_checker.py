@@ -67,8 +67,12 @@ class ApprovalSLAChecker:
                     "run_id": record.run_id,
                     "node_id": record.node_id,
                     "escalation_action": record.escalation_action or "alert",
+                    # An alert escalation clears the live sla_deadline column (it
+                    # latches the row out of the overdue sweep); the breached
+                    # deadline is preserved in urgency_metadata for this event.
                     "sla_deadline": (
-                        record.sla_deadline.isoformat() if record.sla_deadline else None
+                        record.urgency_metadata.get("escalated_sla_deadline")
+                        or (record.sla_deadline.isoformat() if record.sla_deadline else None)
                     ),
                 },
             )

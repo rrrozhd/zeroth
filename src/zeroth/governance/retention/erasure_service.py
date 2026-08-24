@@ -551,6 +551,19 @@ class RetentionErasureService:
                 )
             except LegalHoldError:
                 continue  # raced with a hold placed mid-sweep; leave it frozen
+            except ValueError as exc:
+                # One malformed/rejected run (e.g. a manifest that fails
+                # validation, or a run that resolves to a foreign tenant) must
+                # not abort the whole tenant sweep and strand every later run's
+                # erasure. Skip it, record the skip in the compliance log so the
+                # poisoned run is observable, and keep purging the rest.
+                await self._log.record(
+                    action="purge_skipped_run_error",
+                    run_id=run_id,
+                    reason="ttl",
+                    detail={"error": str(exc)},
+                )
+                continue
         return results
 
     async def purge_tenant(self, tenant_id: str) -> list[ErasureResult]:
