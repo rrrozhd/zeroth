@@ -2,7 +2,7 @@
 # path|stale text|current text; {project_version} is read from root pyproject.toml.
 CONTRIBUTING.md|import zeroth.core|from importlib.metadata import version
 SECURITY.md|src/econ_plane|src/zeroth/econ/plane
-docs/how-to/deployment/langgraph-release.md|zeroth-core[langgraph,langgraph-gateway]==0.20.1.2.1|zeroth-core[langgraph,langgraph-gateway]=={project_version}
+docs/how-to/deployment/langgraph-release.md|zeroth-core[langgraph,langgraph-gateway]==0.20.1.2.1|git checkout v{project_version}
 docs/how-to/deployment/langgraph-release.md|ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_URL|ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_URL
 docs/how-to/deployment/langgraph-release.md|ZEROTH_LANGGRAPH_GATEWAY_UPSTREAM_AUDIENCE|ZEROTH_LANGGRAPH_GATEWAY__UPSTREAM_AUDIENCE
 docs/how-to/deployment/local-dev.md|ZEROTH_SERVICE__PORT=8001|PORT=8001

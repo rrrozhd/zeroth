@@ -81,7 +81,11 @@ async def test_write_path_lands_cost_event_and_trips_cap_in_process(monkeypatch)
     from zeroth.econ.plane.config import settings as ecp_settings
     from zeroth.econ.plane.main import app as econ_plane_app
 
-    tenant = "default"
+    # A dedicated tenant: the econ-plane engine binds once per process, so this DB
+    # is shared with every later test in a full-suite run. Capping tenant "default"
+    # here would budget-deny every subsequent service test that actually runs an
+    # agent (the write path works now, so the cap really enforces).
+    tenant = "wp-e2e-tenant"
     monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant)
 
     app = create_app(_GatedBootstrap())
