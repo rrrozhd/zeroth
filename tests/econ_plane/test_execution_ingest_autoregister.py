@@ -72,7 +72,7 @@ def _execution_payload(execution_id: str, *, capability: str, implementation: st
         "compute_cost_usd": "0.0",
         "latency_ms": 10,
         "compute_time_ms": 5,
-        "tenant_id": "default",
+        "tenant_id": "ar-e2e-tenant",
         "metadata": {"run_id": "r1"},
     }
 
@@ -80,7 +80,7 @@ def _execution_payload(execution_id: str, *, capability: str, implementation: st
 def test_execution_ingest_autoregisters_unknown_capability(monkeypatch) -> None:
     from zeroth.econ.plane.config import settings as ecp_settings
 
-    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "default")
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "ar-e2e-tenant")
     assert ecp_settings.auto_register_ingest_capabilities is True  # default ON
 
     app = create_app(_GatedBootstrap())
@@ -106,7 +106,7 @@ def test_execution_ingest_autoregisters_unknown_capability(monkeypatch) -> None:
 def test_execution_ingest_strict_when_autoregister_disabled(monkeypatch) -> None:
     from zeroth.econ.plane.config import settings as ecp_settings
 
-    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "default")
+    monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "ar-e2e-tenant")
     monkeypatch.setattr(ecp_settings, "auto_register_ingest_capabilities", False)
 
     app = create_app(_GatedBootstrap())

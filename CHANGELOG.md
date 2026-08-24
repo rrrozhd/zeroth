@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.15.1]
+
+### Fixed
+
+- test-layer follow-ups surfaced by the first full-suite run (no runtime changes): the io-client
+  governance allowlist tracks the transport flush split (the relocated pre-factory `httpx.Client`
+  site plus the write-path ASGI `AsyncClient`, the mirror of the allowlisted read-path enforcer
+  client — the governed factory caches by running-loop id, which the throwaway-per-flush loop would
+  poison); the release-gate workflow pin tracks the deployed-profile contract; the docs-reference
+  correction record tracks the checkout-at-tag install form; and the two new econ e2e modules use
+  dedicated tenants so seeding a budget cap for tenant `default` in the process-shared econ-plane DB
+  no longer budget-denies later service e2e runs (the write path works now, so a seeded cap really
+  enforces).
+
 ## [0.23.15]
 
 ### Fixed

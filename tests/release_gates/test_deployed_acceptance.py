@@ -111,7 +111,11 @@ def test_release_candidate_runs_suite_and_records_its_report() -> None:
     assert "secrets.ZEROTH_ACCEPTANCE_REVIEWER_KEY" in str(job["env"])
     assert "secrets.ZEROTH_ACCEPTANCE_ADMIN_KEY" in str(job["env"])
     assert "python -m release.acceptance.cli" in script
-    assert "release/acceptance/contracts/zeroth-v1.json" in script
+    # The remote CLI run uses the deployed-profile contract: it installs an
+    # HttpLifecycleController whose stop_upstream raises, so the full contract's
+    # gateway_http lifecycle triad could never pass; the ephemeral leg keeps
+    # proving the 502 path against zeroth-v1.json.
+    assert "release/acceptance/contracts/zeroth-deployed-v1.json" in script
     assert '--result "deployed-suite=${DEPLOYED_ACCEPTANCE_STATUS}"' in script
     assert "--kind deployment=release/evidence/deployed-acceptance-report.json" in script
 
