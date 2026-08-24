@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.14]
+
+### Fixed
+
+- conditions engine (P1): (1) condition-less (unconditional) edges bypassed
+  `_would_exceed_visit_limits`, so `max_visits_per_node`/`max_visits_per_edge` were never enforced
+  on them and an unconditional loop ran to `max_total_steps`; the visit-limit check now runs for the
+  condition-less branch too (suppressing with reason `visit_limit`). (2) the evaluator's
+  Compare/BinOp/UnaryOp applied operators to possibly-None operands with no guard, so a missing-data
+  expression raised a raw `TypeError` that escaped `ConditionEvaluationError`-catching callers; the
+  operator-application regions are now wrapped into typed `ConditionEvaluationError`s, and BoolOp
+  short-circuits so the guard idiom `x is not None and x > n` returns False instead of raising.
+
 ## [0.23.13]
 
 ### Fixed
