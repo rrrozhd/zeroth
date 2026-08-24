@@ -130,63 +130,99 @@ class _SafeEvaluator:
             case ast.Set():
                 return {self._visit(element) for element in node.elts}
             case ast.BoolOp():
-                values = [self._visit(value) for value in node.values]
+                # Short-circuit like Python: ``all``/``any`` consume the
+                # generator lazily, so ``self._visit`` is called operand by
+                # operand and stops at the one that decides the result. This
+                # makes the guard idiom ``x is not None and x > n`` safe -- the
+                # right operand is never evaluated (so never raises on a missing
+                # ``x``) once the left is False. The pre-fix bug was
+                # materializing every operand up front. ``all``/``any`` still
+                # return a plain bool, so the expression's value stays
+                # ``True``/``False``.
                 if isinstance(node.op, ast.And):
-                    return all(_is_truthy(value) for value in values)
+                    return all(_is_truthy(self._visit(value)) for value in node.values)
                 if isinstance(node.op, ast.Or):
-                    return any(_is_truthy(value) for value in values)
+                    return any(_is_truthy(self._visit(value)) for value in node.values)
                 raise ConditionEvaluationError(f"unsupported boolean operator: {ast.dump(node.op)}")
             case ast.UnaryOp():
                 value = self._visit(node.operand)
                 if isinstance(node.op, ast.Not):
                     return not _is_truthy(value)
-                if isinstance(node.op, ast.UAdd):
-                    return +value
-                if isinstance(node.op, ast.USub):
-                    return -value
+                try:
+                    if isinstance(node.op, ast.UAdd):
+                        return +value
+                    if isinstance(node.op, ast.USub):
+                        return -value
+                except Exception as exc:
+                    # Applying +/- to missing data (None) raises a raw TypeError;
+                    # surface it as the subsystem's typed error instead.
+                    raise ConditionEvaluationError(
+                        f"unary operation failed on operand {value!r}: {exc}"
+                    ) from exc
                 raise ConditionEvaluationError(f"unsupported unary operator: {ast.dump(node.op)}")
             case ast.BinOp():
                 left = self._visit(node.left)
                 right = self._visit(node.right)
-                if isinstance(node.op, ast.Add):
-                    return left + right
-                if isinstance(node.op, ast.Sub):
-                    return left - right
-                if isinstance(node.op, ast.Mult):
-                    return left * right
-                if isinstance(node.op, ast.Div):
-                    return left / right
-                if isinstance(node.op, ast.Mod):
-                    return left % right
+                try:
+                    if isinstance(node.op, ast.Add):
+                        return left + right
+                    if isinstance(node.op, ast.Sub):
+                        return left - right
+                    if isinstance(node.op, ast.Mult):
+                        return left * right
+                    if isinstance(node.op, ast.Div):
+                        return left / right
+                    if isinstance(node.op, ast.Mod):
+                        return left % right
+                except Exception as exc:
+                    # Arithmetic on missing data (None) or incompatible types
+                    # raises a raw TypeError/ZeroDivisionError; re-raise as the
+                    # subsystem's typed error so callers catch one exception type.
+                    raise ConditionEvaluationError(
+                        f"binary operation failed on operands {left!r}, {right!r}: {exc}"
+                    ) from exc
                 raise ConditionEvaluationError(f"unsupported binary operator: {ast.dump(node.op)}")
             case ast.Compare():
                 left = self._visit(node.left)
                 for operator, comparator in zip(node.ops, node.comparators, strict=True):
                     right = self._visit(comparator)
-                    if isinstance(operator, ast.Eq):
-                        matched = left == right
-                    elif isinstance(operator, ast.NotEq):
-                        matched = left != right
-                    elif isinstance(operator, ast.Lt):
-                        matched = left < right
-                    elif isinstance(operator, ast.LtE):
-                        matched = left <= right
-                    elif isinstance(operator, ast.Gt):
-                        matched = left > right
-                    elif isinstance(operator, ast.GtE):
-                        matched = left >= right
-                    elif isinstance(operator, ast.In):
-                        matched = left in right
-                    elif isinstance(operator, ast.NotIn):
-                        matched = left not in right
-                    elif isinstance(operator, ast.Is):
-                        matched = left is right
-                    elif isinstance(operator, ast.IsNot):
-                        matched = left is not right
-                    else:  # pragma: no cover - defensive
+                    try:
+                        if isinstance(operator, ast.Eq):
+                            matched = left == right
+                        elif isinstance(operator, ast.NotEq):
+                            matched = left != right
+                        elif isinstance(operator, ast.Lt):
+                            matched = left < right
+                        elif isinstance(operator, ast.LtE):
+                            matched = left <= right
+                        elif isinstance(operator, ast.Gt):
+                            matched = left > right
+                        elif isinstance(operator, ast.GtE):
+                            matched = left >= right
+                        elif isinstance(operator, ast.In):
+                            matched = left in right
+                        elif isinstance(operator, ast.NotIn):
+                            matched = left not in right
+                        elif isinstance(operator, ast.Is):
+                            matched = left is right
+                        elif isinstance(operator, ast.IsNot):
+                            matched = left is not right
+                        else:  # pragma: no cover - defensive
+                            raise ConditionEvaluationError(
+                                f"unsupported comparison operator: {ast.dump(operator)}"
+                            )
+                    except ConditionEvaluationError:
+                        # The unsupported-operator error is already typed -- let it
+                        # through without wrapping its message a second time.
+                        raise
+                    except Exception as exc:
+                        # Ordering/containment on missing data (e.g. ``None > 5``
+                        # or ``x in None``) raises a raw TypeError; re-raise as the
+                        # subsystem's typed error so a missing-data expression does
+                        # not escape ConditionEvaluationError-catching callers.
                         raise ConditionEvaluationError(
-                            f"unsupported comparison operator: {ast.dump(operator)}"
-                        )
+                            f"comparison failed on operands {left!r}, {right!r}: {exc}"
+                        ) from exc
                     if not matched:
                         return False
                     left = right
