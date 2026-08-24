@@ -118,7 +118,16 @@ class BudgetEnforcer:
             elif self._transport is not None:
                 client_kwargs["transport"] = httpx.MockTransport(self._transport)
 
-            headers = self._headers_provider() if self._headers_provider is not None else None
+            headers = None
+            if self._headers_provider is not None:
+                try:
+                    # Per-tenant Bearer: claim the tenant being queried so a
+                    # multi-tenant deployment stops 403-degrading on non-default
+                    # tenants (require_claimed_tenant).
+                    headers = self._headers_provider(tenant_id)
+                except TypeError:
+                    # A strict zero-arg provider (e.g. a test double) still works.
+                    headers = self._headers_provider()
             async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(
                     f"{self._base_url}/budget/status",
@@ -127,14 +136,40 @@ class BudgetEnforcer:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                if data.get("measurement_complete") is not True:
-                    raise ValueError("budget spend contains unmeasured execution cost")
+                mc = data.get("measurement_complete")
+                if mc is None:
+                    # A malformed payload (no completeness signal at all) is still
+                    # treated as an outage — degrade.
+                    raise ValueError("budget response omitted measurement_complete")
                 if "total_cost_usd" not in data or data["total_cost_usd"] is None:
                     raise ValueError("budget response omitted total_cost_usd")
                 spend = float(data["total_cost_usd"])
                 # No configured cap comes back as null — unlimited, not an error.
                 cap_raw = data.get("budget_cap_usd")
                 cap = float(cap_raw) if cap_raw is not None else None
+                if mc is not True:
+                    # Partial measurement is a THIRD outcome, not a backend outage.
+                    # A single 'unmeasured' row anywhere in the tenant-month flips
+                    # this False, but unmeasured rows carry no cost (schema-enforced),
+                    # so `spend` is a sound FLOOR on true spend. Enforce the floor
+                    # instead of routing through the outage path, which would poison
+                    # every budget check for the rest of the month (fail-open: cap
+                    # silently unenforced; fail-closed: deny-all). Over the floor ->
+                    # deny in both modes; under it -> allow (fail-open, D-12) or deny
+                    # (fail_closed's uncertainty posture). This IS a valid read, so
+                    # it is cacheable.
+                    over_floor = cap is not None and spend >= cap
+                    allowed = False if over_floor else (not self._fail_closed)
+                    result = BudgetCheckResult(
+                        allowed=allowed,
+                        spend_usd=spend,
+                        cap_usd=cap,
+                        degraded=True,
+                        failure_mode="none",
+                        measurement_complete=False,
+                    )
+                    self._cache[tenant_id] = result
+                    return result
                 allowed = cap is None or spend < cap
                 result = BudgetCheckResult(
                     allowed=allowed,

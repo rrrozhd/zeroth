@@ -24,11 +24,21 @@ from datetime import UTC, datetime, timedelta
 
 _TOKEN_TTL_SECONDS = 300
 
-HeadersProvider = Callable[[], dict[str, str]]
+# Providers may be called with an optional tenant_id so a single deployment can
+# mint a Bearer that claims the tenant being queried (one budget check = one
+# tenant). Zero-arg callers (RegulusClient/InstrumentationClient) keep the
+# config-default token.
+HeadersProvider = Callable[..., dict[str, str]]
 
 
-def mint_econ_service_token() -> str | None:
+def mint_econ_service_token(tenant_id: str | None = None) -> str | None:
     """Mint a short-lived econ_plane Admin JWT, or ``None`` if unavailable.
+
+    ``tenant_id`` sets the token's ``tenant_id`` claim so a self-call can
+    authenticate as the tenant it is querying; when ``None`` the configured
+    ``service_principal_tenant_id`` is used (the historical default). Without
+    this, every non-default tenant's budget/ingest self-call 403s on
+    ``require_claimed_tenant`` and silently degrades.
 
     Returns ``None`` (rather than raising) when the ``regulus`` extra is not
     installed or token signing fails, so callers degrade to the fail-open path.
@@ -47,7 +57,7 @@ def mint_econ_service_token() -> str | None:
         "roles": [
             role.strip() for role in ecp_settings.service_principal_roles.split(",") if role.strip()
         ],
-        "tenant_id": ecp_settings.service_principal_tenant_id,
+        "tenant_id": tenant_id or ecp_settings.service_principal_tenant_id,
         "workspace_id": ecp_settings.service_principal_workspace_id,
         "iss": "econ-plane",
         "exp": int(exp.timestamp()),
@@ -67,11 +77,11 @@ def make_self_auth_headers_provider(api_key: str | None) -> HeadersProvider:
     request falls to the fail-open path if the mount is gated.
     """
 
-    def provider() -> dict[str, str]:
+    def provider(tenant_id: str | None = None) -> dict[str, str]:
         headers: dict[str, str] = {}
         if api_key:
             headers["X-API-Key"] = api_key
-        token = mint_econ_service_token()
+        token = mint_econ_service_token(tenant_id)
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return headers

@@ -513,3 +513,55 @@ async def test_runner_over_budget_raises_before_provider_call():
     assert exc_info.value.cap == 100.0
     # Provider was never called
     provider.ainvoke.assert_not_awaited()
+
+
+# -- Partial measurement is a THIRD outcome (floor), not an outage (audit P1) --
+
+
+@pytest.mark.asyncio
+async def test_incomplete_measurement_enforces_floor_not_poison():
+    # One 'unmeasured' row flips measurement_complete False for the whole month;
+    # pre-fix that routed through the outage path (fail-open: cap silently
+    # unenforced and spend reported 0.0). Now the floor is enforced.
+    handler = _mock_transport(
+        json_data={"measurement_complete": False, "total_cost_usd": 12.0, "budget_cap_usd": 20.0}
+    )
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    status = await enforcer.check_budget_status("t")
+    assert status.allowed is True  # floor 12 < cap 20 -> allow (fail-open, D-12)
+    assert status.degraded is True
+    assert status.measurement_complete is False
+    assert status.failure_mode == "none"  # partial measurement is NOT a backend outage
+    assert status.spend_usd == 12.0  # the floor is surfaced, NOT poisoned to 0.0
+
+
+@pytest.mark.asyncio
+async def test_incomplete_measurement_denies_when_floor_over_cap():
+    handler = _mock_transport(
+        json_data={"measurement_complete": False, "total_cost_usd": 25.0, "budget_cap_usd": 20.0}
+    )
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    status = await enforcer.check_budget_status("t")
+    assert status.allowed is False  # floor already over cap -> deny in both modes
+    assert status.spend_usd == 25.0
+
+
+@pytest.mark.asyncio
+async def test_incomplete_measurement_fail_closed_denies_under_floor():
+    handler = _mock_transport(
+        json_data={"measurement_complete": False, "total_cost_usd": 12.0, "budget_cap_usd": 20.0}
+    )
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler, fail_closed=True)
+    status = await enforcer.check_budget_status("t")
+    assert status.allowed is False  # strict uncertainty posture: deny under the floor
+
+
+@pytest.mark.asyncio
+async def test_omitted_measurement_field_still_degrades_as_outage():
+    # A payload with NO completeness signal is malformed -> outage/degrade, unchanged.
+    handler = _mock_transport(json_data={"total_cost_usd": 12.0, "budget_cap_usd": 20.0})
+    enforcer = BudgetEnforcer("http://regulus.test/v1", _transport=handler)
+    status = await enforcer.check_budget_status("t")
+    assert status.degraded is True
+    assert status.failure_mode == "fail_open"  # outage path, not the floor path
+    assert status.spend_usd == 0.0

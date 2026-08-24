@@ -632,6 +632,59 @@ async def test_cap_trips_by_default_no_env_flags(monkeypatch) -> None:
     assert exc_info.value.spend >= 0.02
 
 
+@pytest.mark.asyncio
+async def test_non_default_tenant_budget_without_monkeypatch(monkeypatch) -> None:
+    """Inverse of the rest of this file (audit P1): with
+    ``service_principal_tenant_id`` LEFT at its 'default' config value, a budget
+    check for a NON-default tenant must still authenticate (per-tenant Bearer) and
+    trip the cap. Pre-fix the self-auth token always claimed 'default', so the
+    check 403s on ``require_claimed_tenant`` and silently fails open (allowed=True).
+    """
+    from zeroth.econ.plane.config import settings as ecp_settings
+    from zeroth.econ.plane.main import app as econ_plane_app
+
+    tenant = "acme"
+    app = create_app(_GatedBootstrap())
+    with TestClient(app) as client:
+        # Seed acme's cap + over-cap spend with an acme-claiming token (a temporary
+        # monkeypatch for the WRITE only). The CHECK below runs with the config
+        # default restored, so it exercises per-tenant minting, not a persistent
+        # override.
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", tenant)
+        headers = app.state.regulus_self_auth_headers()
+        _seed_cap_and_spend(
+            client, headers, tenant, cap_usd=0.01, spend_usd=0.02, exec_id="acme_exec"
+        )
+        monkeypatch.setattr(ecp_settings, "service_principal_tenant_id", "default")
+
+    enforcer = BudgetEnforcer(
+        asgi_app=econ_plane_app,
+        headers_provider=make_self_auth_headers_provider(_ZEROTH_KEY),
+    )
+    allowed, spend, cap = await enforcer.check_budget(tenant)
+    assert allowed is False  # pre-fix: 403 -> fail-open -> True
+    assert cap == 0.01
+    assert spend >= 0.02
+
+
+def test_self_auth_token_claims_the_requested_tenant() -> None:
+    """mint_econ_service_token(tenant) claims that tenant; zero-arg falls back to
+    the configured default."""
+    from jose import jwt
+
+    from zeroth.econ.plane.config import settings as ecp_settings
+
+    acme = mint_econ_service_token("acme")
+    default = mint_econ_service_token()
+    assert acme is not None and default is not None
+    acme_claims = jwt.decode(acme, ecp_settings.jwt_secret, algorithms=[ecp_settings.jwt_algorithm])
+    default_claims = jwt.decode(
+        default, ecp_settings.jwt_secret, algorithms=[ecp_settings.jwt_algorithm]
+    )
+    assert acme_claims["tenant_id"] == "acme"
+    assert default_claims["tenant_id"] == ecp_settings.service_principal_tenant_id
+
+
 def test_costing_writes_require_econ_role() -> None:
     """Audit F7: the costing router must carry the econ RBAC gate every sibling
     router has. Passing only Zeroth's X-API-Key (through the mount gate) but no
