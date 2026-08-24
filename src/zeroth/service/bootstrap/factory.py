@@ -45,7 +45,14 @@ from zeroth.governance.policy import (
     PolicyRegistry,
     default_capability_registry,
 )
-from zeroth.integrations.execution import ExecutableUnitRunner
+from zeroth.integrations.execution import (
+    DockerSandboxConfig,
+    ExecutableUnitRunner,
+    SandboxBackendMode,
+    SandboxConfig,
+    SandboxManager,
+)
+from zeroth.integrations.execution.sidecar_client import SandboxSidecarClient
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.memory.factory import register_memory_connectors
 from zeroth.integrations.memory.registry import (
@@ -54,7 +61,7 @@ from zeroth.integrations.memory.registry import (
 )
 from zeroth.integrations.memory.runtime_configs import load_persisted_connectors
 from zeroth.integrations.persistence.runs import RunRepository, ThreadRepository
-from zeroth.platform.config.settings import get_settings
+from zeroth.platform.config.settings import SandboxSettings, get_settings
 from zeroth.platform.dispatch import LeaseManager
 from zeroth.platform.dispatch.operations import SideEffectOperationStore
 from zeroth.platform.observability.metrics import MetricsCollector
@@ -116,6 +123,31 @@ def _configured_policy_registry(
     for definition in definitions:
         registry.register(PolicyDefinition.model_validate(definition))
     return registry
+
+
+def _build_sandbox_manager(cfg: SandboxSettings) -> SandboxManager:
+    """Build a SandboxManager honouring the configured sandbox backend.
+
+    Under default settings (backend='local') the produced config is byte-equal to
+    a bare ``SandboxConfig()``, so existing default-settings behaviour is
+    unchanged. The sidecar client is constructed LAZILY, only for backend=sidecar
+    (its __init__ fail-closes when ZEROTH_SANDBOX_SIDECAR_SECRET is unset — the
+    intended boot error for a sidecar deployment, not a regression for
+    local/docker). ``sidecar_url`` is set only in the sidecar branch so a
+    non-sidecar config stays identical to the default.
+    """
+    backend = SandboxBackendMode(cfg.backend)
+    docker = DockerSandboxConfig(
+        container_name=cfg.docker_container_name,
+        docker_binary=cfg.docker_binary,
+    )
+    sidecar_client = None
+    sidecar_url = None
+    if backend is SandboxBackendMode.SIDECAR:
+        sidecar_url = cfg.sidecar_url
+        sidecar_client = SandboxSidecarClient(cfg.sidecar_url)
+    config = SandboxConfig(backend=backend, docker=docker, sidecar_url=sidecar_url)
+    return SandboxManager(config=config, sidecar_client=sidecar_client)
 
 
 async def bootstrap_scoped_service(
@@ -191,7 +223,13 @@ async def bootstrap_scoped_service(
     )
     contract_registry = deployment_service.contract_registry
     resolved_agent_runners = dict(agent_runners or {})
-    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner()
+    # Resolved here (memoized singleton) so the default executable-unit runner
+    # actually honours settings.sandbox instead of always running untrusted code
+    # on the bare LOCAL backend. An injected runner is left untouched.
+    settings = get_settings()
+    resolved_executable_unit_runner = executable_unit_runner or ExecutableUnitRunner(
+        sandbox_manager=_build_sandbox_manager(settings.sandbox),
+    )
     metrics_collector = MetricsCollector()
     # ZER-26: the durable receipt store is what turns the runtime's at-least-once
     # boundary into a recognisable repeat. Constructed here so live executions get
@@ -253,7 +291,6 @@ async def bootstrap_scoped_service(
         )
 
     # Phase 13: Regulus economics integration.
-    settings = get_settings()
     approval_service.notifier = build_approval_notifier(settings.approval_notifications)
     # OBS: enable OpenTelemetry tracing when configured (no-op when disabled).
     configure_tracing(settings.tracing)

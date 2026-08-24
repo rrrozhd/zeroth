@@ -666,6 +666,19 @@ class ExecutableUnitRunner:
     ) -> SandboxExecutionResult:
         """Dispatch execution through SandboxManager internals using a prepared sandbox root."""
         backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
+        if backend.value == "sidecar":
+            # A SIDECAR-configured manager must delegate to the sidecar, not fall
+            # through to _run_locally, which would execute untrusted code on the
+            # host. The sole caller is run_binding via asyncio.to_thread, so the
+            # asyncio.run() inside _run_via_sidecar runs on a loop-less worker
+            # thread; _resolve_backend already raises when SIDECAR has no client.
+            return sandbox_manager._run_via_sidecar(  # noqa: SLF001
+                command=command,
+                input_text=input_text,
+                timeout_seconds=timeout_seconds,
+                environment=environment,
+                resource_constraints=resource_constraints,
+            )
         if backend.value == "docker":
             return sandbox_manager._run_in_docker(  # noqa: SLF001
                 command=command,
