@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10]
+
+### Fixed
+
+- econ enforcement honesty (P1): (1) the self-auth Bearer hard-pinned its tenant claim to the
+  configured `service_principal_tenant_id`, so every non-default tenant's budget check and cost
+  ingest 403'd on `require_claimed_tenant` and silently fell open — the token is now minted
+  per-queried-tenant, and the gateway-only fallback enforcer (previously built unauthenticated
+  against the external default) is wired through the in-process mount like the primary path.
+  (2) a single `unmeasured` execution row flipped `measurement_complete` False for the whole
+  tenant-month and was routed through the outage path, poisoning every subsequent budget check
+  (fail-open: cap silently unenforced; fail-closed: deny-all) — partial measurement is now a third
+  outcome that enforces the measured spend as a sound floor. (3) approved `ApplyBudgetCap` /
+  `TriggerInvestigation` / `EscalateAlert` actions were marked `APPLIED` while enacting nothing;
+  they now stay `APPROVED` (applied_at unset) so only a concrete application (AdjustTrafficWeights)
+  records `APPLIED`.
+
 ## [0.23.9]
 
 ### Fixed

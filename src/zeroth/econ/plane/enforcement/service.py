@@ -200,22 +200,30 @@ def decide_action(
             policy.status = "APPROVED"
             policy.approved_by = approver_sub
             policy.approved_at = datetime.now(UTC)
+            # Only mark APPLIED when a concrete application branch actually ran.
+            # AdjustTrafficWeights is the only action type with an effect today;
+            # ApplyBudgetCap/TriggerInvestigation/EscalateAlert enact nothing, so
+            # they stay APPROVED (applied_at None) instead of the DB claiming an
+            # effect that never happened.
+            applied = False
             if row.action_type == "AdjustTrafficWeights":
                 _apply_traffic_policy(db, row.capability_id, row.after_config)
-            policy.status = "APPLIED"
-            policy.applied_at = datetime.now(UTC)
+                applied = True
+            if applied:
+                policy.status = "APPLIED"
+                policy.applied_at = datetime.now(UTC)
             if settings.connectors_enabled:
                 try:
                     enqueue_connector_event(
                         db,
                         tenant_id=policy.tenant_id,
                         event_type="policy_action.lifecycle",
-                        event_key=f"{policy.id}:APPLIED",
+                        event_key=f"{policy.id}:{policy.status}",
                         capability_id=policy.capability_id,
                         payload={
                             "policy_action_id": policy.id,
                             "action_type": policy.action_type,
-                            "status": "APPLIED",
+                            "status": policy.status,
                             "approved_by": approver_sub,
                             "approved_at": policy.approved_at.isoformat() if policy.approved_at else None,  # noqa: E501
                             "applied_at": policy.applied_at.isoformat() if policy.applied_at else None,  # noqa: E501

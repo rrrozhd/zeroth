@@ -260,32 +260,31 @@ async def bootstrap_scoped_service(
     regulus_client: RegulusClient | None = None
     budget_enforcer: object | None = None
     cost_estimator: object | None = None
-    if settings.regulus.enabled:
-        # Self-auth for calls to the bundled control plane: X-API-Key (Zeroth's
-        # own first service key, to pass the gated /regulus mount) + a fresh
-        # econ_plane Admin JWT. Degrades gracefully when no Zeroth key exists
-        # (Bearer only -> 401 -> fail-open). See econ.service_auth.
-        from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
+    # Self-auth + in-process mount resolved ONCE, before the regulus/gateway
+    # branches: X-API-Key (Zeroth's own first service key, to pass the gated
+    # /regulus mount) + a fresh econ_plane Admin JWT (per-tenant, minted at call
+    # time). A default bundled deploy points regulus.base_url at the EXTERNAL
+    # localhost:8000 topology, but the plane is mounted at /regulus on this
+    # service's own port, so the cost-event WRITE path (RegulusClient), the budget
+    # READ path (BudgetEnforcer), AND the gateway-only fallback enforcer must all
+    # dispatch straight into the mounted ASGI app; otherwise writes POST to a
+    # refused socket (spend stays 0, caps never trip) and reads/gateway checks hit
+    # an unauthenticated external socket and silently fail open. Degrades
+    # gracefully when no Zeroth key exists (Bearer only -> 401 -> fail-open).
+    # See econ.service_auth.
+    from zeroth.econ.analytics.service_auth import make_self_auth_headers_provider
 
-        _self_api_key = (
-            resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
-        )
-        regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
-
-        # Resolve the bundled in-process mount ONCE for both econ paths. A default
-        # bundled deploy points regulus.base_url at the EXTERNAL localhost:8000
-        # topology, but the plane is actually mounted at /regulus on this service's
-        # own port. Both the cost-event WRITE path (RegulusClient) and the budget
-        # READ path (BudgetEnforcer) must dispatch straight into the mounted ASGI
-        # app (guarded exactly like the /regulus mount in app.py); otherwise every
-        # write POSTs to a refused socket — retried, then dropped, so spend stays 0
-        # and caps never trip — and the read silently fails open.
+    _self_api_key = (
+        resolved_auth_config.api_keys[0].secret if resolved_auth_config.api_keys else None
+    )
+    regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
+    econ_plane_app = None
+    try:
+        from zeroth.econ.plane.main import app as econ_plane_app
+    except ImportError:
         econ_plane_app = None
-        try:
-            from zeroth.econ.plane.main import app as econ_plane_app
-        except ImportError:
-            econ_plane_app = None
 
+    if settings.regulus.enabled:
         regulus_client = RegulusClient(
             base_url=(
                 settings.regulus.base_url
@@ -715,11 +714,19 @@ async def bootstrap_scoped_service(
         if budget_enforcer is None:
             from zeroth.econ.analytics import BudgetEnforcer
 
+            # Gateway-only fallback: authenticate through the mounted plane in-process,
+            # exactly like the regulus-enabled path above. Built bare (no
+            # headers_provider, external base_url) it could never authenticate, so
+            # the gateway's budget check silently failed open.
             budget_enforcer = BudgetEnforcer(
-                regulus_base_url=settings.regulus.base_url,
+                regulus_base_url=(
+                    settings.regulus.base_url if econ_plane_app is None else None
+                ),
                 cache_ttl=settings.regulus.budget_cache_ttl,
                 timeout=settings.regulus.request_timeout,
+                headers_provider=regulus_self_auth,
                 fail_closed=settings.regulus.fail_closed,
+                asgi_app=econ_plane_app,
             )
             orchestrator.budget_enforcer = budget_enforcer
 
