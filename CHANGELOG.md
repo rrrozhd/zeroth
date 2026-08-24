@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.14.1]
+
+### Fixed
+
+- readiness regression from the in-process cost-event write path (v0.23.9): the factory pointed
+  `RegulusClient.base_url` at the unroutable placeholder `http://regulus.internal/v1` when dispatching
+  in-process, but `/health/ready` HTTP-GETs that base_url to probe Regulus — so the probe raised,
+  the regulus check reported `unavailable`, and readiness flipped to `degraded` (cascading approvals,
+  audit, artifacts, and restart-recovery failures in the ephemeral acceptance leg). base_url is now
+  the resolvable configured value; `httpx.ASGITransport` routes the write POST by path (host ignored),
+  so events still land in the mounted plane while the readiness probe reaches a real host. Caught by
+  `tests/acceptance/test_ephemeral_candidate.py`, which was outside every per-cluster targeted suite.
+
 ## [0.23.14]
 
 ### Fixed

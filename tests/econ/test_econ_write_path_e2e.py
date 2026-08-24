@@ -156,8 +156,12 @@ async def test_factory_wires_asgi_app_into_regulus_write_path(sqlite_db) -> None
         assert service.regulus_client is not None
         transport = service.regulus_client._client.transport
         assert transport._asgi_app is not None, "write path not wired to the in-process plane"
-        # And the base_url is the internal one, not the external localhost default.
-        assert service.regulus_client.base_url == "http://regulus.internal/v1"
+        # base_url stays the resolvable configured value (the readiness probe HTTP-GETs
+        # it); the in-process dispatch is proven by transport._asgi_app above, since
+        # ASGITransport routes by path and ignores the host.
+        from zeroth.platform.config.settings import get_settings
+
+        assert service.regulus_client.base_url == get_settings().regulus.base_url
     finally:
         if service.regulus_client is not None:
             service.regulus_client.stop()
