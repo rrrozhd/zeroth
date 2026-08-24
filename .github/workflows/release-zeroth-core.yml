@@ -374,7 +374,7 @@ jobs:
           PY
           if python -m release.acceptance.cli \
               --config release/evidence/deployed-acceptance-config.json \
-              --contract release/acceptance/contracts/zeroth-v1.json \
+              --contract release/acceptance/contracts/zeroth-deployed-v1.json \
               --output release/evidence/deployed-acceptance-report.json; then
             echo "DEPLOYED_ACCEPTANCE_STATUS=passed" >> "${GITHUB_ENV}"
           else
