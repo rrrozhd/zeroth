@@ -277,7 +277,10 @@ def test_container_docs_build_the_candidate_wheel_first() -> None:
         "version"
     ]
     assert f"Zeroth `{version}`" in deployment
-    assert f"=={version}" in deployment
+    # The guide installs from a checkout at the release tag (PyPI serves only a
+    # stale 0.1.0 placeholder), so the version is pinned via the tag, not an
+    # uninstallable pip pin.
+    assert f"git checkout v{version}" in deployment
 
 
 def test_release_image_consumes_and_compares_the_candidate_wheel() -> None:

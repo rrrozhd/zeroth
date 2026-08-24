@@ -10,18 +10,20 @@ A governed medium-code platform for building, running, and deploying production-
 
 ## Install
 
-Install the latest published release from
-[PyPI](https://pypi.org/project/zeroth-core/):
+Install from a source checkout — the documented, current path, with
+[uv](https://docs.astral.sh/uv/):
 
 ```bash
-pip install zeroth-core
+git clone https://github.com/rrrozhd/zeroth.git
+cd zeroth
+uv sync
 ```
 
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv add zeroth-core
-```
+!!! note "PyPI"
+    The published `zeroth-core` package is a stale `0.1.0` placeholder (verified
+    2026-08-24). Do not `pip install`/`uv add zeroth-core` for the version
+    documented here — use the source checkout above until a current release is
+    published.
 
 !!! note "Docs for the current source tree"
     This site is built from the repository's `main` branch, which can be ahead

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.15]
+
+### Fixed
+
+- release deployed-acceptance gate (P1): the CLI-driven deployed acceptance run installs an
+  `HttpLifecycleController` whose `stop_upstream` raises (a deployed platform exposes no
+  upstream-removal controller), while the required contract forced a `stop_upstream -> 502 ->
+  start_upstream` triad in `gateway_http` — so the remote gate could never pass. Added
+  `AcceptanceContract.profile` (`full` default / `deployed`); the 502 proof is required only for the
+  `full` profile. The shipped `zeroth-v1.json` is unchanged (the ephemeral leg still proves 502); a
+  new `zeroth-deployed-v1.json` omits only the lifecycle triad, and the deployed-acceptance
+  workflows now use it. (This makes `gateway_http` satisfiable; the remote gate still has separate
+  blockers — `/__acceptance/*` endpoints and a deploy-time deny policy — so it is not yet green.)
+- install docs funnel (P1): README/docs led with `pip install zeroth-core` and langgraph-release.md
+  pinned an exact `==` version, but PyPI serves only a stale `0.1.0` placeholder (verified
+  2026-08-24), so the documented install was uninstallable. Docs now lead with a source checkout,
+  label the stale PyPI placeholder, and install the release from a checkout at its tag; the
+  enforcing tests track the corrected form while keeping docs↔pyproject version coherence.
+
+### Security
+
+- (deferred) cryptography `46.0.6` carries a reachable advisory cluster (GHSA-537c-gmf6-5ccf plus
+  CVE-2026-69247/69248/69249, backing JOSE/JWT verify and provenance signing). The fix is only in
+  cryptography `50.0.0`, which the current resolver can reach only by downgrading `langchain-litellm`
+  0.6.4 → 0.5.1 — a core LLM dependency. That coordinated upgrade needs its own verification and is
+  tracked separately rather than bundled silently here.
+
 ## [0.23.14.1]
 
 ### Fixed
