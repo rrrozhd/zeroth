@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11.1]
+
+### Fixed
+
+- token-runtime per-run cap parity (P1): the token engine evaluated the per-run budget on every
+  loop iteration BEFORE the COMPLETED-state return, so a run whose FINAL node crossed
+  `per_run_cap_usd` was marked FAILED and its `final_output` discarded (and a completing run with an
+  unmeasured final-node cost was spuriously failed too). The cap check now fires only immediately
+  before claiming/recovering the next node — matching the legacy driver — so a run that completes
+  within its work stays COMPLETED while an intermediate crossing still halts the next dispatch.
+
 ## [0.23.11]
 
 ### Fixed
