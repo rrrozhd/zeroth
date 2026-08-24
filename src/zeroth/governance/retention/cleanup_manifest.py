@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from zeroth.platform.artifacts.models import artifact_key_owner
+
 CleanupKind = Literal["artifact_prefix", "artifact_key", "econ"]
 CleanupStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 ErasureReason = Literal["ttl", "rte", "manual"]
@@ -67,8 +69,14 @@ class CleanupManifest(BaseModel):
                     raise ValueError("artifact prefix operation has incompatible fields")
                 target = self.run_id
             elif operation.kind == "artifact_key":
-                if operation.artifact_key is None or not operation.artifact_key.startswith(
-                    f"{self.run_id}/"
+                # Ownership, not a string prefix: a slash-bearing run_id mints a
+                # FRAMED key (zeroth-run-v1/<enc>/<node>/<uuid>) that harvest
+                # accepts but never starts with "<run_id>/". artifact_key_owner
+                # decodes both grammars, so this fence matches exactly the keys
+                # _harvest_artifact_keys collected for this run.
+                if (
+                    operation.artifact_key is None
+                    or artifact_key_owner(operation.artifact_key) != self.run_id
                 ):
                     raise ValueError("artifact cleanup operation is outside run namespace")
                 if operation.join_keys:

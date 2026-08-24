@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.13]
+
+### Fixed
+
+- governance lifecycle unwedge (P1): (1) an alert SLA escalation flipped the approval
+  PENDING->ESCALATED, making it permanently unresolvable and wedging the run in WAITING_APPROVAL
+  forever; the alert path now keeps the approval PENDING and latches out of the overdue sweep by
+  nulling `sla_deadline` (added to `resolve_pending`'s write set) and recording the breach in
+  `urgency_metadata` — so resolve()/GET/list keep working and no webhook storm re-fires. A
+  graph-author latch-bypass (a node seeding `urgency_metadata.escalated`) is closed. (2) an SLA
+  auto-reject resolved the approval REJECT but never continued the run; it now drives the same
+  REJECT continuation as the HTTP path (run -> FAILED, reason `approval_rejected`, decision audit).
+  (3) retention erasure rejected framed-v1 artifact keys for slash-bearing run_ids that harvest
+  accepts (validate by `artifact_key_owner`), and `purge_runs` caught only `LegalHoldError` so one
+  poisoned run stalled the whole tenant sweep — it now isolates a failing run and logs the skip.
+
 ## [0.23.12]
 
 ### Fixed

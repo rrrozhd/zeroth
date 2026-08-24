@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from tests.retention.conftest import make_audit_record
+from tests.retention.conftest import FakeArtifactStore, make_audit_record
 from zeroth.governance.audit.erasure_schema import (
     AUDIT_CLEANUP_PAYLOAD_FIELDS,
     ERASED_PII_VALUES,
     pii_commitment_fields,
 )
-from zeroth.governance.retention import RetentionErasureService
+from zeroth.governance.retention import RetentionErasureService, RetentionPolicy
 from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.cleanup_manifest import (
     CleanupManifest,
@@ -27,6 +27,8 @@ from zeroth.governance.retention.erasure_service import (
     StaleCleanupClaimError,
     _harvest_artifact_keys,
 )
+from zeroth.governance.retention.manifests import build_cleanup_manifest
+from zeroth.governance.retention.models import ErasureResult
 from zeroth.platform.artifacts.models import generate_artifact_key
 from zeroth.platform.storage import NullWorkspaceScopeContext
 from zeroth.runtime.runs import Run
@@ -51,6 +53,44 @@ def test_artifact_harvest_understands_framed_run_owner() -> None:
     )
 
     assert harvested == {owned}
+
+
+def test_manifest_accepts_framed_artifact_key_for_slash_run() -> None:
+    """A framed key harvest accepts must survive manifest validation.
+
+    A slash-bearing run_id mints a FRAMED key (zeroth-run-v1/...) that never
+    starts with "<run_id>/". The manifest validator keys off artifact_key_owner
+    now, so the framed key is a valid artifact_key operation rather than an
+    "outside run namespace" rejection that would roll back the whole erasure.
+    """
+    framed = generate_artifact_key("slash/run", "node")
+    result = ErasureResult(run_id="slash/run", tenant_id="default", reason="rte")
+
+    manifest = build_cleanup_manifest(
+        result,
+        [framed],
+        ["slash/run"],
+        artifact_store=FakeArtifactStore(),
+        econ_eraser=None,
+    )
+
+    key_ops = [op for op in manifest.operations if op.kind == "artifact_key"]
+    assert [op.artifact_key for op in key_ops] == [framed]
+
+
+def test_manifest_rejects_foreign_framed_artifact_key() -> None:
+    """A framed key owned by a DIFFERENT run is still outside the namespace."""
+    foreign = generate_artifact_key("other/run", "node")
+    result = ErasureResult(run_id="slash/run", tenant_id="default", reason="rte")
+
+    with pytest.raises(ValueError, match="outside run namespace"):
+        build_cleanup_manifest(
+            result,
+            [foreign],
+            ["slash/run"],
+            artifact_store=FakeArtifactStore(),
+            econ_eraser=None,
+        )
 
 
 class _TenantRecordingEconEraser:
@@ -787,3 +827,54 @@ async def test_new_authorization_uses_materialized_state_without_log_replay(
     assert state is not None
     assert state["terminal_status"] == "completed"
     assert len(operations) == 3
+
+
+async def _force_run_terminal(database, run_id: str, *, updated_at: datetime) -> None:
+    """Force a seeded run to an aged COMPLETED state so run-TTL selects it."""
+    async with database.transaction() as connection:
+        await connection.execute(
+            "UPDATE runs SET status = ?, updated_at = ? WHERE run_id = ?",
+            ("COMPLETED", updated_at.astimezone(UTC).isoformat(), run_id),
+        )
+
+
+async def test_purge_runs_isolates_a_poisoned_run(env) -> None:
+    """One run that raises inside erase_run must not stall the whole tenant sweep.
+
+    purge_runs previously caught only LegalHoldError, so a single run whose
+    erasure raised ValueError (e.g. a manifest that fails validation) aborted the
+    entire sweep and stranded every later run. It now skips the poisoned run,
+    logs 'purge_skipped_run_error', and keeps erasing the rest.
+    """
+    old = datetime.now(UTC) - timedelta(days=60)
+    ttl = int(timedelta(days=30).total_seconds())
+    for run_id in ("good-1", "poisoned", "good-2"):
+        await env.seed_run(run_id, ssn=f"ssn-{run_id}")
+        await _force_run_terminal(env.database, run_id, updated_at=old)
+    await env.upsert_policy(RetentionPolicy(tenant_id="default", run_ttl_seconds=ttl))
+
+    original_erase = env.service.erase_run
+
+    async def poisoned_erase(run_id, *args, **kwargs):
+        if run_id == "poisoned":
+            # A ValidationError from manifest building is a ValueError subclass;
+            # a bare ValueError is the minimal stand-in for the same class.
+            raise ValueError("simulated poison: manifest validation failed")
+        return await original_erase(run_id, *args, **kwargs)
+
+    env.service.erase_run = poisoned_erase  # type: ignore[method-assign]
+
+    results = await env.service.purge_runs("default")
+
+    assert {result.run_id for result in results} == {"good-1", "good-2"}
+    logs = await env.log_repo.list_for_tenant()
+    skips = [row for row in logs if row["action"] == "purge_skipped_run_error"]
+    assert len(skips) == 1
+    assert skips[0]["run_id"] == "poisoned"
+    # The good runs were genuinely erased, not merely skipped.
+    for run_id in ("good-1", "good-2"):
+        run = await env.run_repo.get(run_id)
+        assert f"ssn-{run_id}" not in str(run.final_output)
+    # The poisoned run's PII is untouched (it was skipped, not erased).
+    poisoned = await env.run_repo.get("poisoned")
+    assert "ssn-poisoned" in str(poisoned.final_output)

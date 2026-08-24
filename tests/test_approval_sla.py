@@ -178,7 +178,11 @@ class TestApprovalRepositoryListOverdue:
             graph_version_ref=record.graph_version_ref,
         )
 
-        assert escalated.status is ApprovalStatus.ESCALATED
+        # Alert latch: the row stays PENDING (resolvable) but is fenced out of
+        # the overdue sweep via a nulled deadline + the escalated marker.
+        assert escalated.status is ApprovalStatus.PENDING
+        assert escalated.sla_deadline is None
+        assert escalated.urgency_metadata["escalated"] is True
         assert (
             await repository.get(
                 record.approval_id,
@@ -187,6 +191,8 @@ class TestApprovalRepositoryListOverdue:
             )
             == escalated
         )
+        # And it is no longer overdue, so the checker will not re-escalate it.
+        assert await reader.list_overdue() == []
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +368,16 @@ class TestApprovalServiceEscalate:
         assert result.resolution.decision == ApprovalDecision.REJECT
         assert result.resolution.actor.subject == "sla_enforcer"
 
-    async def test_alert_marks_escalated(self, service, repo):
-        """escalate with action=alert marks as ESCALATED."""
+    async def test_alert_latches_pending_out_of_sla_sweep(self, service, repo):
+        """escalate with action=alert keeps the row PENDING but latches it.
+
+        An alert is a nudge, not a decision. Flipping the row to ESCALATED hides
+        it from list/get and makes the run unresolvable forever; instead the
+        alert nulls sla_deadline (so list_overdue stops matching) and sets
+        urgency_metadata['escalated'] while leaving status PENDING so a human can
+        still resolve it. (Renamed from test_alert_marks_escalated, which pinned
+        the bug.)
+        """
         original = _make_record(
             escalation_action="alert",
             sla_deadline=datetime.now(UTC) - timedelta(minutes=5),
@@ -373,7 +387,9 @@ class TestApprovalServiceEscalate:
 
         result = await service.escalate(original.approval_id)
 
-        assert result.status == ApprovalStatus.ESCALATED
+        assert result.status is ApprovalStatus.PENDING
+        assert result.urgency_metadata["escalated"] is True
+        assert result.sla_deadline is None
 
     async def test_already_escalated_is_noop(self, service, repo):
         """escalate on ESCALATED approval is a no-op."""
