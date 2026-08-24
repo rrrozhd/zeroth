@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11]
+
+### Fixed
+
+- sandbox isolation (P1): `settings.sandbox` was read by nobody — the factory built
+  `ExecutableUnitRunner()` bare, so untrusted executable units always ran on the default LOCAL
+  backend regardless of configuration. The factory now builds a `SandboxManager` from
+  `settings.sandbox` (byte-equal to the bare default under default settings; sidecar client
+  constructed lazily and fail-closed when its secret is unset). Separately,
+  `_run_with_prepared_environment` dispatched only docker-vs-local, so a SIDECAR-configured manager
+  silently executed on the host; a SIDECAR branch now delegates to the sidecar. Verified with a real
+  container run (a host-only path is absent inside the docker sandbox) and a runner-path dispatch
+  test proving SIDECAR no longer falls through to local execution.
+
 ## [0.23.10]
 
 ### Fixed

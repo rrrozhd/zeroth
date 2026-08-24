@@ -327,3 +327,68 @@ async def test_runner_allows_exit_code_only_for_non_zero_exit(tmp_path: Path) ->
     )
 
     assert result.output_data == {"exit_code": 7}
+
+
+@pytest.mark.asyncio
+async def test_runner_dispatches_sidecar_not_local(tmp_path: Path) -> None:
+    """A SIDECAR-configured manager must reach the sidecar through the runner's
+    prepared-environment dispatch — pre-fix it silently fell through to
+    _run_locally, executing untrusted code on the host (audit P1)."""
+    from unittest.mock import AsyncMock, Mock
+
+    from zeroth.integrations.execution.sandbox import SandboxBackendMode, SandboxConfig
+    from zeroth.integrations.sandbox.models import SidecarExecuteResponse
+
+    # If the buggy local path is taken, the real script runs and prints THIS, so
+    # the sidecar-vs-local outcome is an unambiguous data difference, not an error.
+    script = tmp_path / "unit.py"
+    script.write_text('print(\'{"answer": "local", "score": 0}\')')
+    manifest = WrappedCommandUnitManifest(
+        unit_id="sidecar-unit",
+        onboarding_mode=ExecutionMode.WRAPPED_COMMAND,
+        runtime="command",
+        artifact_source=CommandArtifactSource(ref=str(script)),
+        entrypoint_type="command",
+        input_mode=InputMode.CLI_ARGS,
+        output_mode=OutputMode.JSON_STDOUT,
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        run_config=RunConfig(command=[sys.executable, str(script)]),
+        cache_identity_fields={"script": script.name},
+    )
+    registry = ExecutableUnitRegistry()
+    registry.register(
+        ExecutableUnitBinding(
+            manifest_ref="eu://sidecar-unit",
+            manifest=manifest,
+            input_model=DemoInput,
+            output_model=DemoOutput,
+            allowed_env_keys=("PATH",),
+        )
+    )
+    sidecar_client = AsyncMock()
+    sidecar_client.execute.return_value = SidecarExecuteResponse(
+        execution_id="e",
+        status="completed",
+        returncode=0,
+        stdout='{"answer": "sidecar", "score": 1}',
+        stderr="",
+        duration_seconds=0.1,
+        timed_out=False,
+    )
+    manager = SandboxManager(
+        config=SandboxConfig(backend=SandboxBackendMode.SIDECAR),
+        sidecar_client=sidecar_client,
+        base_env={"PATH": os.environ["PATH"]},
+    )
+    local_spy = Mock(wraps=manager._run_locally)
+    manager._run_locally = local_spy  # type: ignore[method-assign]
+
+    result = await ExecutableUnitRunner(
+        registry, sandbox_manager=manager, project_materializer=lambda _m, _c: None
+    ).run_manifest_ref("eu://sidecar-unit", {"name": "x", "count": 1})
+
+    assert result.output_data == {"answer": "sidecar", "score": 1}
+    assert result.sandbox_result.backend == "sidecar"
+    sidecar_client.execute.assert_awaited_once()
+    local_spy.assert_not_called()  # the previously-broken host-execution path
