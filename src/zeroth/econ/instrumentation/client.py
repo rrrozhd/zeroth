@@ -26,6 +26,7 @@ class InstrumentationClient:
         buffer_max_events: int = 1000,
         flush_interval_ms: int = 500,
         headers_provider: Optional[Callable[[], dict[str, Any]]] = None,
+        asgi_app: Any | None = None,
     ):
         self.config = InstrumentationConfig(
             base_url=base_url.rstrip("/"),
@@ -36,7 +37,12 @@ class InstrumentationClient:
         )
         # headers_provider (Zeroth vendor addition): forwarded to the transport so
         # each flush can attach fresh auth headers. See VENDOR.md.
-        self.transport = TelemetryTransport(self.config, headers_provider=headers_provider)
+        # asgi_app (Zeroth vendor addition): forwarded so a bundled deploy delivers
+        # cost events in-process to the mounted econ plane instead of the external
+        # localhost default. See VENDOR.md.
+        self.transport = TelemetryTransport(
+            self.config, headers_provider=headers_provider, asgi_app=asgi_app
+        )
         self.transport.start()
 
     def track_execution(self, event: ExecutionEvent) -> None:

@@ -272,27 +272,34 @@ async def bootstrap_scoped_service(
         )
         regulus_self_auth = make_self_auth_headers_provider(_self_api_key)
 
+        # Resolve the bundled in-process mount ONCE for both econ paths. A default
+        # bundled deploy points regulus.base_url at the EXTERNAL localhost:8000
+        # topology, but the plane is actually mounted at /regulus on this service's
+        # own port. Both the cost-event WRITE path (RegulusClient) and the budget
+        # READ path (BudgetEnforcer) must dispatch straight into the mounted ASGI
+        # app (guarded exactly like the /regulus mount in app.py); otherwise every
+        # write POSTs to a refused socket — retried, then dropped, so spend stays 0
+        # and caps never trip — and the read silently fails open.
+        econ_plane_app = None
+        try:
+            from zeroth.econ.plane.main import app as econ_plane_app
+        except ImportError:
+            econ_plane_app = None
+
         regulus_client = RegulusClient(
-            base_url=settings.regulus.base_url,
+            base_url=(
+                settings.regulus.base_url
+                if econ_plane_app is None
+                else "http://regulus.internal/v1"
+            ),
             timeout=settings.regulus.request_timeout,
             enabled=True,
             headers_provider=regulus_self_auth,
+            asgi_app=econ_plane_app,
         )
         # BudgetEnforcer wired here once econ.budget module lands (Plan 13-02).
         try:
             from zeroth.econ.analytics.budget import BudgetEnforcer
-
-            # Prefer the bundled in-process mount: a default bundled deploy points
-            # base_url at the EXTERNAL localhost:8000 topology, so without this the
-            # enforcer would hit a refused socket and silently fail-open — the cap
-            # never trips. When econ_plane is importable, dispatch straight to the
-            # mounted ASGI app (guarded exactly like the /regulus mount in app.py);
-            # otherwise fall back to the external-HTTP base_url path unchanged.
-            econ_plane_app = None
-            try:
-                from zeroth.econ.plane.main import app as econ_plane_app
-            except ImportError:
-                econ_plane_app = None
 
             budget_enforcer = BudgetEnforcer(
                 regulus_base_url=settings.regulus.base_url if econ_plane_app is None else None,

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     prometheus_enabled: bool = True
     otel_metrics_enabled: bool = False
     otel_metrics_otlp_endpoint: str = ""
+    # Platform-emitted execution telemetry names its capability by node_id and its
+    # implementation by model_name — rows the bundled deploy never pre-registers.
+    # With this on (default), the EXECUTION ingest path auto-upserts those rows so
+    # cost events land instead of 422-ing; the OUTCOME path keeps the strict guard.
+    auto_register_ingest_capabilities: bool = True
 
     model_config = SettingsConfigDict(env_prefix="ECP_", case_sensitive=False)
 
