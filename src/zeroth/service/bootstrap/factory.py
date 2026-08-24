@@ -323,11 +323,13 @@ async def bootstrap_scoped_service(
 
     if settings.regulus.enabled:
         regulus_client = RegulusClient(
-            base_url=(
-                settings.regulus.base_url
-                if econ_plane_app is None
-                else "http://regulus.internal/v1"
-            ),
+            # Keep base_url the operator-configured, RESOLVABLE value even when
+            # dispatching in-process: httpx.ASGITransport routes the cost-event POST
+            # by PATH (the host is ignored), so asgi_app alone lands events in the
+            # mounted plane. The readiness probe HTTP-GETs regulus_client.base_url,
+            # so it must stay a real host — pointing it at the unroutable
+            # 'regulus.internal' flips /health/ready to degraded (regression).
+            base_url=settings.regulus.base_url,
             timeout=settings.regulus.request_timeout,
             enabled=True,
             headers_provider=regulus_self_auth,
