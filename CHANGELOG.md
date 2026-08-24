@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.12]
+
+### Fixed
+
+- runtime agent correctness (P1): (1) restoring compacted history on a follow-up turn REPLACED the
+  freshly-assembled prompt, dropping the new user input/memory/thread-state — the run answered stale
+  context and could re-trigger compaction and wedge. The fresh turn is now appended after the
+  restored compacted history (by a recorded post-truncation new-turn count, not a head-offset slice
+  that would re-drop input under `messages_key` + `conversation_max_turns`). (2) an HITL-paused
+  subgraph resumed with `version=None` (latest), so a republish during the pause resumed the child
+  on a different graph version; the concrete deployment version is now persisted at subgraph start()
+  and reused at resume() (runs paused before this fix still fall back to latest).
+
 ## [0.23.11.1]
 
 ### Fixed

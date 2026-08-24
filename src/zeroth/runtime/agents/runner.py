@@ -590,8 +590,26 @@ class AgentRunner:
         messages: list[Any] = list(prompt.messages)
 
         # Phase 37: Restore compacted messages from thread state if available.
+        # Restoring must ADD this turn's new content to the compacted history, not
+        # REPLACE the freshly-assembled prompt: replacing dropped the new user
+        # input, this turn's memory, and its runtime context, so the run answered
+        # the prior turn's question and could re-wedge on the same stale context.
         if thread_state is not None and "compacted_messages" in thread_state:
-            messages = list(thread_state["compacted_messages"])
+            # prompt.messages is [system, user, *conversation]. The fresh user
+            # message (index 1) carries this turn's new input plus the memory and
+            # runtime-context blocks; the last ``conversation_new_turns`` messages
+            # are the chat turns new this turn. The compacted history already holds
+            # the system message and every previously-stored turn, so re-appending
+            # those would re-trigger compaction — only new content is appended.
+            new_turns = prompt.metadata.get("conversation_new_turns", 0)
+            fresh_user = prompt.messages[1]
+            # Keep the ``len(...) - new_turns`` form with the ``if new_turns``
+            # guard: ``prompt.messages[-0:]`` returns the ENTIRE list and would
+            # silently re-append the system+user messages when new_turns is 0.
+            new_tail = (
+                list(prompt.messages[len(prompt.messages) - new_turns :]) if new_turns else []
+            )
+            messages = list(thread_state["compacted_messages"]) + [fresh_user, *new_tail]
 
         # Phase 37: Context window compaction before first LLM invocation (per D-09).
         compaction_result: Any = None
