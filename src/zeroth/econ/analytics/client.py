@@ -7,6 +7,7 @@ with a clean stop() method that flushes pending events before shutdown.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from zeroth.econ.instrumentation import ExecutionEvent
 from zeroth.econ.instrumentation.client import InstrumentationClient
@@ -27,6 +28,7 @@ class RegulusClient:
         timeout: float = 5.0,
         enabled: bool = True,
         headers_provider: Callable[[], dict[str, str]] | None = None,
+        asgi_app: Any | None = None,
     ) -> None:
         self._base_url = base_url
         self._client = InstrumentationClient(
@@ -34,6 +36,7 @@ class RegulusClient:
             timeout=timeout,
             enabled=enabled,
             headers_provider=headers_provider,
+            asgi_app=asgi_app,
         )
 
     @property

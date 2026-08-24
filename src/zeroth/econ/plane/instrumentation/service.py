@@ -62,6 +62,69 @@ def _require_capability_and_implementation(
     return capability
 
 
+def _ensure_capability_and_implementation(
+    db: ScopedSession,
+    *,
+    tenant_id: str,
+    capability_id: str,
+    implementation_id: str | None,
+) -> None:
+    """Upsert the capability/implementation an execution event names, so
+    platform-emitted telemetry (capability_id=node_id, implementation_id=model)
+    lands instead of 422-ing on the strict existence guard.
+
+    DB-safe because ``ExecutionEvent`` has no FK to these tables — the guard is a
+    pure business rule. Uses ``flush`` (not ``commit``) to stay inside the ingest
+    transaction.
+
+    Ownership is preserved, not relaxed (A01-32): a capability/implementation id is
+    matched by its GLOBAL primary key, and only a genuinely-absent id is created —
+    in the bound tenant. An id that already exists but is owned by ANOTHER tenant is
+    rejected with the same strict error as before, never silently rebound and never
+    PK-collided. Within the bound tenant an implementation may be reused across
+    capabilities (one model, many nodes — the common ``gpt-4o`` case), which the
+    strict per-capability guard would wrongly 422.
+    """
+    # Reads are tenant-scoped (row-level security), so "absent" means absent IN the
+    # bound tenant. A genuinely-new id is created here; an id already owned by
+    # ANOTHER tenant is invisible to the scoped read but collides on the global
+    # primary key at flush — that collision is translated back to the strict
+    # ownership error (never a 500, never a silent cross-tenant rebind), preserving
+    # the A01-32 isolation contract. Within the bound tenant an implementation may
+    # be reused across capabilities (one model, many nodes).
+    capability = db.execute(
+        select(Capability).where(Capability.id == capability_id)
+    ).scalar_one_or_none()
+    if capability is None:
+        try:
+            db.add(Capability(id=capability_id, tenant_id=tenant_id, name=capability_id))
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ValueError("capability does not exist in the bound tenant") from exc
+    if implementation_id is None:
+        return
+    implementation = db.execute(
+        select(Implementation).where(Implementation.id == implementation_id)
+    ).scalar_one_or_none()
+    if implementation is None:
+        try:
+            db.add(
+                Implementation(
+                    id=implementation_id,
+                    tenant_id=tenant_id,
+                    capability_id=capability_id,
+                    name=implementation_id,
+                )
+            )
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ValueError(
+                "implementation does not belong to the capability in the bound tenant"
+            ) from exc
+
+
 def _derive_join_key_from_metadata(metadata: dict) -> str:
     for key in ("request_id", "trace_id", "run_id"):
         value = metadata.get(key)
@@ -332,12 +395,20 @@ def ingest_execution(
             existing, payload, join_key=join_key, metadata=metadata
         )
 
-    _require_capability_and_implementation(
-        db,
-        tenant_id=tenant_id,
-        capability_id=payload.capability_id,
-        implementation_id=payload.implementation_id,
-    )
+    if settings.auto_register_ingest_capabilities:
+        _ensure_capability_and_implementation(
+            db,
+            tenant_id=tenant_id,
+            capability_id=payload.capability_id,
+            implementation_id=payload.implementation_id,
+        )
+    else:
+        _require_capability_and_implementation(
+            db,
+            tenant_id=tenant_id,
+            capability_id=payload.capability_id,
+            implementation_id=payload.implementation_id,
+        )
 
     experiment = active_experiment(db, payload.capability_id, mode="AB")
     if experiment is not None and join_key:

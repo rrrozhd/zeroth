@@ -2547,7 +2547,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ",
       "legacy_name": "RegulusClient",
-      "signature": "(*, base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, headers_provider: 'Callable[[], dict[str, str]] | None' = None) -> 'None'"
+      "signature": "(*, base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, headers_provider: 'Callable[[], dict[str, str]] | None' = None, asgi_app: 'Any | None' = None) -> 'None'"
     },
     {
       "evidence": [
@@ -2878,7 +2878,7 @@
       "kind": "class",
       "legacy_module": "zeroth.core.econ.instrumentation",
       "legacy_name": "InstrumentationClient",
-      "signature": "(base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, buffer_max_events: 'int' = 1000, flush_interval_ms: 'int' = 500, headers_provider: 'Optional[Callable[[], dict[str, Any]]]' = None)"
+      "signature": "(base_url: 'str' = 'http://localhost:8000/v1', timeout: 'float' = 5.0, enabled: 'bool' = True, buffer_max_events: 'int' = 1000, flush_interval_ms: 'int' = 500, headers_provider: 'Optional[Callable[[], dict[str, Any]]]' = None, asgi_app: 'Any | None' = None)"
     },
     {
       "evidence": [

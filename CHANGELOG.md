@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9]
+
+### Fixed
+
+- econ cost-event WRITE path (P0): the bundled deploy built its `RegulusClient` against the
+  external `localhost:8000` default and posted cost events over a plain `httpx.Client`, so in a
+  bundled in-process deploy every event connection-refused and was dropped — tenant spend stayed
+  `0.0` and budget caps enforced against `$0`. The transport now carries an optional `asgi_app` and,
+  when set, dispatches cost-event writes in-process over `httpx.ASGITransport` (the exact mirror of
+  the budget READ seam); the factory wires the mounted plane into the write path. Execution ingest
+  now auto-registers the capability/implementation a platform event names (behind default-on
+  `ECP_AUTO_REGISTER_INGEST_CAPABILITIES`) so those events stop 422-ing, while preserving
+  cross-tenant ownership isolation and leaving the outcome path strict.
+
 ## [0.23.8.1.3] - 2026-08-13
 
 ### Changed
