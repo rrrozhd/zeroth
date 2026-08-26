@@ -466,7 +466,7 @@ async def certification_readiness(bootstrap: object) -> CertificationEvaluation:
             ),
         )
     return await service.production_readiness(
-        deployment.deployment_ref,
+        getattr(bootstrap, "serving_artifact_identity", None),
         deployment.tenant_id,
         deployment.workspace_id,
         now=utc_now(),

@@ -5,6 +5,7 @@ from zeroth.service.certifications.models import (
     CertificationEvaluation,
     CertificationState,
     OverrideScope,
+    ServingArtifactIdentity,
 )
 from zeroth.service.certifications.receipt import (
     PromotionReceiptPayload,
@@ -26,6 +27,7 @@ __all__ = [
     "OverrideScope",
     "PromotionReceiptPayload",
     "SignedPromotionReceipt",
+    "ServingArtifactIdentity",
     "receipt_digest",
     "promotion_receipt_verification",
     "sign_promotion_receipt",

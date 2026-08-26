@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         ServiceAuthConfig,
         ServiceAuthenticator,
     )
+    from zeroth.service.certifications.models import ServingArtifactIdentity
     from zeroth.service.deployments import Deployment, DeploymentService
 
 
@@ -116,6 +117,7 @@ class ServiceBootstrap:
     verifier: SigningKeyProvider | None = None
     # ZER-31: scoped certification evaluation and atomic promotion boundary.
     certification_service: object | None = None
+    serving_artifact_identity: ServingArtifactIdentity | None = None
     # LangGraph Agent Server gateway foundation. All remain absent when the
     # mode is disabled so the ordinary service creates no upstream client or
     # probe traffic.
@@ -189,6 +191,7 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             # component, not a change to the capability the fixture names.
             "verifier",
             "certification_service",
+            "serving_artifact_identity",
         }
     ]
 )

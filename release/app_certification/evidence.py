@@ -345,6 +345,53 @@ def _verify_attestation(argv: list[str]) -> None:
         raise ValueError("attestation signature verification returned malformed JSON")
 
 
+def verify_finalized_attestation(
+    report_path: Path,
+    root: Path,
+    *,
+    repository: str | None,
+    signer_repo: str | None,
+    signer_workflow: str | None,
+    signer_digest: str | None,
+) -> CertificationReport:
+    """Reverify the finalized signed provenance bound into a passing report."""
+    report = validate_report(report_path, root=root)
+    if report.candidate is None or report.evidence is None:
+        raise ValueError("finalized attestation requires a passing report")
+    provenance = _resolve(root, report.evidence.provenance.path)
+    document = _json_object(provenance)
+    if not isinstance(document.get("dsseEnvelope"), dict):
+        raise ValueError("promotion requires finalized signed attestation evidence")
+    if (
+        not isinstance(repository, str)
+        or not repository.strip()
+        or not isinstance(signer_repo, str)
+        or not signer_repo.strip()
+        or not isinstance(signer_workflow, str)
+        or not signer_workflow.strip()
+        or not isinstance(signer_digest, str)
+        or not signer_digest.strip()
+    ):
+        raise ValueError("promotion requires a complete attestation trust policy")
+    subject_repo = repository.strip().casefold()
+    signer_is_subject = signer_repo.strip().casefold() == subject_repo
+    workflow_is_subject = signer_workflow.strip().casefold().startswith(f"{subject_repo}/")
+    if signer_is_subject or workflow_is_subject:
+        raise ValueError("promotion rejects self-authored attestation evidence")
+    _validate_statement(_statement(document), report.candidate)
+    _verify_attestation(
+        _verification_command(
+            provenance,
+            report.candidate,
+            repository=repository,
+            signer_repo=signer_repo,
+            signer_workflow=signer_workflow,
+            signer_digest=signer_digest,
+        )
+    )
+    return report
+
+
 def finalize_attestation(
     bundle: Path,
     report_path: Path,

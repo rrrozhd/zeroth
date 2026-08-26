@@ -101,7 +101,7 @@ afterEach(async () => {
 });
 
 describe("deployment certification posture", () => {
-  it("shows production blockers and their remediation for the selected app", async () => {
+  it("does not associate an unpromoted app-name receipt with a deployment target", async () => {
     await act(async () => {
       root.render(
         <ToastProvider>
@@ -118,9 +118,11 @@ describe("deployment certification posture", () => {
     });
     await waitFor(() => {
       expect(container.textContent).toContain("Production certification");
-      expect(container.textContent).toContain("environment_not_certified");
-      expect(container.textContent).toContain("Certify the artifact for production.");
-      expect(container.textContent).toContain("approved recovery window");
+      expect(container.textContent).toContain(
+        "No promoted certification owns this deployment target.",
+      );
+      expect(container.textContent).not.toContain("environment_not_certified");
+      expect(container.textContent).not.toContain("approved recovery window");
     });
   });
 });

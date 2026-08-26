@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.10 \
+  --zeroth-version 0.23.10.1 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -144,8 +144,12 @@ or tampered passing report is rejected.
 
 ## Promote a certified artifact
 
-After validating a passing report and its retained evidence, issue a portable
+After finalizing the provenance into its DSSE/Sigstore bundle, issue a portable
 promotion receipt with `release.app_certification.issue_promotion_receipt`.
+Receipt issuance revalidates every retained evidence digest and re-verifies the
+bundle against the explicit repository, signer repository, signer workflow, and
+signer commit trust policy. Raw unsigned provenance, incomplete trust policy,
+self-authored evidence, and tampered finalization fail closed.
 The receipt signs the exact app commit, source digest, immutable image digest,
 evidence binding, report digest, tenant/workspace scope, allowed environments,
 and expiry. Register it with `POST /v1/certifications`.
@@ -153,15 +157,21 @@ and expiry. Register it with `POST /v1/certifications`.
 Certification state advances through `buildable`, `test_deployable`,
 `certified`, and `promoted`; invalidated evidence or artifact identity changes
 move it to `revoked`. A test-only receipt remains test-deployable, but production
-readiness stays false until a production receipt or an authorized environment
-policy override satisfies the gate.
+readiness stays false until a production-capable receipt, or an authorized
+environment policy override, is promoted to the exact serving target.
 
-Use `POST /v1/certifications/{id}/promote` with the exact commit, image digest,
-and production target key. A target is claimed atomically: retrying the same
-certification and target is idempotent, while a competing certification receives
-HTTP 409. Signature failures, verifier/storage failures, revocation, and commit
-or image mismatches fail closed. Identity mismatches revoke the receipt and
-release its target.
+Configure the process-owned serving identity with
+`ZEROTH_CERTIFICATION__SERVING_APP_COMMIT` and
+`ZEROTH_CERTIFICATION__SERVING_IMAGE_DIGEST`; the target comes from the
+persisted deployment selected when the service boots. Both identity values are
+required together. Then call `POST /v1/certifications/{id}/promote` with an
+empty JSON body. Target, commit, and digest are never accepted from the client.
+A target is claimed atomically: retrying the same certification and target is
+idempotent, while a competing certification receives HTTP 409. Signature
+failures, verifier/storage failures, revocation, unavailable serving identity,
+and commit or image mismatches fail closed. Readiness continuously compares the
+promoted identity with the serving identity; artifact drift revokes the receipt
+and releases its target.
 
 Administrators can submit a reasoned, scoped, time-bound exception through
 `POST /v1/certifications/{id}/override`. Overrides cover only receipt expiry or
@@ -169,7 +179,9 @@ environment policy; they cannot cover an invalid signature, malformed evidence,
 revocation, or artifact identity mismatch. `GET /v1/certifications` and
 `GET /v1/certifications/{id}` expose the active override, append-only audit
 timeline, blocker codes, and operator remediation. The deployment console and
-readiness response use the same central decision.
+readiness response use the same central decision. The console associates a
+certification only through an exact promotion target key; app-name similarity
+never grants readiness.
 
 ## Retained diagnostics
 

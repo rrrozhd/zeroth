@@ -13,6 +13,7 @@ from zeroth.service.certifications.models import (
     OverrideScope,
     PromotionConflictError,
     PromotionRejectedError,
+    ServingArtifactIdentity,
 )
 from zeroth.service.certifications.receipt import (
     PromotionReceiptPayload,
@@ -24,6 +25,11 @@ from zeroth.service.certifications.service import CertificationService
 NOW = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
 COMMIT = "1" * 40
 IMAGE = "sha256:" + "2" * 64
+ARTIFACT = ServingArtifactIdentity(
+    target_key="prod/support-agent",
+    app_commit=COMMIT,
+    image_digest=IMAGE,
+)
 
 
 def _signed_receipt(
@@ -39,7 +45,7 @@ def _signed_receipt(
         workspace_id="workspace-a",
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10",
+        zeroth_version="0.23.10.1",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE,
         source_digest="sha256:" + "3" * 64,
@@ -95,8 +101,28 @@ async def test_test_receipt_is_deployable_but_not_production_ready(service, sign
 
     assert record.state is CertificationState.TEST_DEPLOYABLE
     assert evaluation.production_ready is False
-    assert evaluation.blockers[0].code == "environment_not_certified"
-    assert "production" in evaluation.blockers[0].remediation
+    blockers = {blocker.code: blocker for blocker in evaluation.blockers}
+    assert "production_not_promoted" in blockers
+    assert "environment_not_certified" in blockers
+    assert "production" in blockers["environment_not_certified"].remediation
+
+
+async def test_valid_production_receipt_is_blocked_until_exact_target_is_promoted(
+    service, signer
+) -> None:
+    record = await service.register(
+        _signed_receipt(signer, "9" * 32), actor_id="certifier", now=NOW
+    )
+
+    evaluation = service.evaluate(
+        record,
+        environment="production",
+        now=NOW,
+        artifact_identity=ARTIFACT,
+    )
+
+    assert evaluation.production_ready is False
+    assert evaluation.blockers[0].code == "production_not_promoted"
 
 
 async def test_expiry_can_be_overridden_with_visible_time_bound_scope(service, signer) -> None:
@@ -106,7 +132,23 @@ async def test_expiry_can_be_overridden_with_visible_time_bound_scope(service, s
         now=NOW,
     )
     expired = NOW + timedelta(minutes=2)
-    assert service.evaluate(record, environment="production", now=expired).production_ready is False
+    record = await service.promote(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        artifact_identity=ARTIFACT,
+        actor_id="operator",
+        now=NOW,
+    )
+    assert (
+        service.evaluate(
+            record,
+            environment="production",
+            now=expired,
+            artifact_identity=ARTIFACT,
+        ).production_ready
+        is False
+    )
 
     record = await service.grant_override(
         record.certification_id,
@@ -119,13 +161,23 @@ async def test_expiry_can_be_overridden_with_visible_time_bound_scope(service, s
         now=expired,
     )
 
-    evaluation = service.evaluate(record, environment="production", now=expired)
+    evaluation = service.evaluate(
+        record,
+        environment="production",
+        now=expired,
+        artifact_identity=ARTIFACT,
+    )
     assert evaluation.production_ready is True
     assert evaluation.override_active is True
     assert record.override is not None
     assert record.override.reason == "incident recovery"
     after_override = expired + timedelta(minutes=11)
-    evaluation = service.evaluate(record, environment="production", now=after_override)
+    evaluation = service.evaluate(
+        record,
+        environment="production",
+        now=after_override,
+        artifact_identity=ARTIFACT,
+    )
     assert evaluation.production_ready is False
     assert evaluation.override_active is False
     assert evaluation.blockers[0].code == "receipt_expired"
@@ -141,9 +193,7 @@ async def test_identity_mismatch_revokes_and_cannot_be_overridden(service, signe
             record.certification_id,
             "tenant-a",
             "workspace-a",
-            target_key="prod/support-agent",
-            app_commit="9" * 40,
-            image_digest=IMAGE,
+            artifact_identity=ARTIFACT.model_copy(update={"app_commit": "9" * 40}),
             actor_id="operator",
             now=NOW,
         )
@@ -171,9 +221,7 @@ async def test_image_change_revokes_a_previously_promoted_receipt(service, signe
         record.certification_id,
         "tenant-a",
         "workspace-a",
-        target_key="prod/support-agent",
-        app_commit=COMMIT,
-        image_digest=IMAGE,
+        artifact_identity=ARTIFACT,
         actor_id="operator",
         now=NOW,
     )
@@ -183,15 +231,87 @@ async def test_image_change_revokes_a_previously_promoted_receipt(service, signe
             record.certification_id,
             "tenant-a",
             "workspace-a",
-            target_key="prod/support-agent",
-            app_commit=COMMIT,
-            image_digest="sha256:" + "8" * 64,
+            artifact_identity=ARTIFACT.model_copy(
+                update={"image_digest": "sha256:" + "8" * 64}
+            ),
             actor_id="operator",
             now=NOW,
         )
 
     changed = await service.get(record.certification_id, "tenant-a", "workspace-a")
     assert changed is not None and changed.state is CertificationState.REVOKED
+
+
+async def test_serving_artifact_replacement_revokes_production_readiness(service, signer) -> None:
+    record = await service.register(
+        _signed_receipt(signer, "8" * 32), actor_id="certifier", now=NOW
+    )
+    identity = ServingArtifactIdentity(
+        target_key="production/support-agent",
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
+    await service.promote(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        artifact_identity=identity,
+        actor_id="operator",
+        now=NOW,
+    )
+
+    replaced = ServingArtifactIdentity(
+        target_key=identity.target_key,
+        app_commit=COMMIT,
+        image_digest="sha256:" + "7" * 64,
+    )
+    evaluation = await service.production_readiness(
+        replaced,
+        "tenant-a",
+        "workspace-a",
+        now=NOW,
+    )
+
+    assert evaluation.production_ready is False
+    assert evaluation.blockers[0].code == "certification_revoked"
+    persisted = await service.get(record.certification_id, "tenant-a", "workspace-a")
+    assert persisted is not None and persisted.state is CertificationState.REVOKED
+
+
+async def test_serving_target_replacement_never_reuses_another_targets_promotion(
+    service, signer
+) -> None:
+    record = await service.register(
+        _signed_receipt(signer, "7" * 32), actor_id="certifier", now=NOW
+    )
+    identity = ServingArtifactIdentity(
+        target_key="production/support-agent",
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
+    await service.promote(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        artifact_identity=identity,
+        actor_id="operator",
+        now=NOW,
+    )
+
+    replacement = ServingArtifactIdentity(
+        target_key="production/attacker-selected-target",
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
+    evaluation = await service.production_readiness(
+        replacement,
+        "tenant-a",
+        "workspace-a",
+        now=NOW,
+    )
+
+    assert evaluation.production_ready is False
+    assert evaluation.blockers[0].code == "production_not_promoted"
 
 
 async def test_same_promotion_is_idempotent_and_competing_receipt_is_atomic(
@@ -204,9 +324,7 @@ async def test_same_promotion_is_idempotent_and_competing_receipt_is_atomic(
         _signed_receipt(signer, "1" * 32), actor_id="certifier", now=NOW
     )
     kwargs = {
-        "target_key": "prod/support-agent",
-        "app_commit": COMMIT,
-        "image_digest": IMAGE,
+        "artifact_identity": ARTIFACT,
         "actor_id": "operator",
         "now": NOW,
     }
@@ -239,9 +357,7 @@ async def test_event_failure_rolls_back_promotion(sqlite_db, signer, monkeypatch
             record.certification_id,
             "tenant-a",
             "workspace-a",
-            target_key="prod/support-agent",
-            app_commit=COMMIT,
-            image_digest=IMAGE,
+            artifact_identity=ARTIFACT,
             actor_id="operator",
             now=NOW,
         )
@@ -278,9 +394,7 @@ async def test_invalidated_signed_evidence_revokes_and_releases_target(
         record.certification_id,
         "tenant-a",
         "workspace-a",
-        target_key="prod/support-agent",
-        app_commit=COMMIT,
-        image_digest=IMAGE,
+        artifact_identity=ARTIFACT,
         actor_id="operator",
         now=NOW,
     )
@@ -319,7 +433,11 @@ async def test_storage_failure_fails_readiness_closed_with_bounded_metrics(signe
     service = CertificationService(UnavailableRepository(), verifier=signer, metrics=metrics)
 
     evaluation = await service.production_readiness(
-        "prod/customer-supplied-target",
+        ServingArtifactIdentity(
+            target_key="prod/customer-supplied-target",
+            app_commit=COMMIT,
+            image_digest=IMAGE,
+        ),
         "tenant-customer-supplied",
         "workspace-customer-supplied",
         now=NOW,

@@ -17,6 +17,7 @@ from zeroth.service.certifications.models import (
     OverrideScope,
     PromotionConflictError,
     PromotionRejectedError,
+    ServingArtifactIdentity,
 )
 from zeroth.service.certifications.receipt import SignedPromotionReceipt
 
@@ -29,12 +30,9 @@ class RegisterCertificationRequest(BaseModel):
 
 
 class PromoteCertificationRequest(BaseModel):
-    """Exact target and artifact identity requested for production."""
+    """Promotion intent; the target and artifact identity are server-owned."""
 
     model_config = ConfigDict(extra="forbid")
-    target_key: str = Field(min_length=1, max_length=255)
-    app_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
-    image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 class RevokeCertificationRequest(BaseModel):
@@ -93,7 +91,13 @@ def _service(request: Request):
     return service
 
 
-async def _response(service, record: AppCertification) -> CertificationResponse:
+def _artifact_identity(request: Request) -> ServingArtifactIdentity | None:
+    """Return only the typed server-owned identity attached during bootstrap."""
+    identity = getattr(request.app.state.bootstrap, "serving_artifact_identity", None)
+    return identity if isinstance(identity, ServingArtifactIdentity) else None
+
+
+async def _response(request: Request, service, record: AppCertification) -> CertificationResponse:
     payload = record.receipt.payload
     events = await service.events(record.certification_id, record.tenant_id, record.workspace_id)
     return CertificationResponse(
@@ -106,7 +110,12 @@ async def _response(service, record: AppCertification) -> CertificationResponse:
         state=record.state.value,
         promotion_target_key=record.promotion_target_key,
         override=record.override,
-        evaluation=service.evaluate(record, environment="production", now=utc_now()),
+        evaluation=service.evaluate(
+            record,
+            environment="production",
+            now=utc_now(),
+            artifact_identity=_artifact_identity(request),
+        ),
         events=tuple(events),
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -139,7 +148,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
             if "unique" in str(exc).lower():
                 raise HTTPException(status_code=409, detail="certification already exists") from exc
             raise
-        return await _response(_service(request), record)
+        return await _response(request, _service(request), record)
 
     @app.get("/certifications", response_model=list[CertificationResponse])
     async def list_certifications(request: Request) -> list[CertificationResponse]:
@@ -148,7 +157,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
         )
         service = _service(request)
         records = await service.list(principal.tenant_id, principal.workspace_id)
-        return [await _response(service, record) for record in records]
+        return [await _response(request, service, record) for record in records]
 
     @app.get("/certifications/{certification_id}", response_model=CertificationResponse)
     async def get_certification(
@@ -163,7 +172,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
         )
         if record is None:
             raise HTTPException(status_code=404, detail="certification not found")
-        return await _response(service, record)
+        return await _response(request, service, record)
 
     @app.post(
         "/certifications/{certification_id}/promote",
@@ -183,9 +192,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
                 certification_id,
                 principal.tenant_id,
                 principal.workspace_id,
-                target_key=body.target_key,
-                app_commit=body.app_commit,
-                image_digest=body.image_digest,
+                artifact_identity=_artifact_identity(request),
                 actor_id=principal.subject,
                 now=utc_now(),
             )
@@ -193,7 +200,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
             raise HTTPException(status_code=404, detail="certification not found") from exc
         except (PromotionRejectedError, PromotionConflictError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return await _response(service, record)
+        return await _response(request, service, record)
 
     @app.post(
         "/certifications/{certification_id}/revoke",
@@ -219,7 +226,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="certification not found") from exc
-        return await _response(service, record)
+        return await _response(request, service, record)
 
     @app.post(
         "/certifications/{certification_id}/override",
@@ -249,7 +256,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
             raise HTTPException(status_code=404, detail="certification not found") from exc
         except PromotionRejectedError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return await _response(service, record)
+        return await _response(request, service, record)
 
 
 __all__ = ["CertificationResponse", "register_certification_routes"]
