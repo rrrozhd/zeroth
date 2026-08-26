@@ -38,8 +38,10 @@ from pathlib import Path
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 __all__ = [
+    "DestinationNotADirectoryError",
     "OutboundDestinationError",
     "ResolvedOutboundURL",
+    "confine_directory",
     "confine_path",
     "resolve_outbound_url",
     "validate_outbound_url",
@@ -56,6 +58,16 @@ _LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localho
 
 class OutboundDestinationError(ValueError):
     """An outbound destination is outside what its sink declared it may reach."""
+
+
+class DestinationNotADirectoryError(OutboundDestinationError):
+    """A confined path is inside its root but is not an existing directory.
+
+    A subclass rather than a second family: callers that only care about the
+    boundary catch :class:`OutboundDestinationError` as before, while callers
+    that report containment escapes and shape failures under distinct codes
+    (the repo-manifest validator) can tell the two refusals apart.
+    """
 
 
 @dataclass(frozen=True)
@@ -238,5 +250,48 @@ def confine_path(path: str, *, root: Path, context: str) -> Path:
     if resolved_root not in resolved.parents:
         raise OutboundDestinationError(
             f"{context}: path {path!r} must resolve to a file inside the permitted root"
+        )
+    return resolved
+
+
+def confine_directory(path: str, *, root: Path, context: str) -> Path:
+    """Resolve ``path`` to an existing directory inside (or equal to) ``root``.
+
+    The file-shaped sibling above refuses the root itself because its callers
+    name writable destinations. Here the caller names a *working directory*,
+    and ``"."`` -- the root -- is the legitimate default, so equality with the
+    root is permitted. Resolution still happens before the containment check,
+    so a symlinked directory that resolves outside ``root`` fails containment
+    before its shape is ever considered.
+
+    Args:
+        path: The caller-supplied directory path, absolute or relative.
+        root: The directory the caller is confined to.
+        context: What is being configured, for the error message.
+
+    Returns:
+        The resolved directory, guaranteed to be ``root`` or inside it.
+
+    Raises:
+        OutboundDestinationError: The path is empty or resolves outside ``root``.
+        DestinationNotADirectoryError: The path stays inside ``root`` but does
+            not name an existing directory.
+    """
+    if not path or not path.strip():
+        raise OutboundDestinationError(f"{context}: path must not be empty")
+
+    resolved_root = root.expanduser().resolve()
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = resolved_root / candidate
+    resolved = candidate.resolve()
+
+    if resolved != resolved_root and resolved_root not in resolved.parents:
+        raise OutboundDestinationError(
+            f"{context}: path {path!r} must resolve to a directory inside the permitted root"
+        )
+    if not resolved.is_dir():
+        raise DestinationNotADirectoryError(
+            f"{context}: path {path!r} must name an existing directory"
         )
     return resolved

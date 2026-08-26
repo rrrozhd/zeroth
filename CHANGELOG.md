@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24]
+
+### Added
+
+- Repository-backed executable units, phase 1 (ZER-37): the versioned `.zeroth.yaml`
+  repo-manifest contract (`zeroth.contracts.repo_manifest`) — strict one-script v1 schema
+  with stable, forward-compatible validation codes; `load_untrusted_yaml`, the platform's
+  single sanctioned door for hostile YAML (alias/depth/size/duplicate-key hardening);
+  `confine_directory` boundary primitive; `guard_tree` hardened descriptor walk with a
+  streamed artifact tree digest (`zeroth.platform.primitives.treeguard`); and
+  `validate_staged_manifest` filesystem confinement checks for staged checkouts.
+- GitHub integration test substrate: an in-process fake GitHub API with real RS256
+  App-JWT verification, a smart-HTTP git server that asserts credential injection on
+  the wire, and hostile repository fixture builders (symlink escapes, crafted in-tree
+  `.git` entries, submodule gitlinks, LFS pointers, size bombs).
+
 ## [0.23.15.1]
 
 ### Fixed
