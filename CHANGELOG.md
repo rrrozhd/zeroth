@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.2]
+
+### Added
+
+- ZER-37 phase 5: the repository execution model — `RepositoryUnitManifest` +
+  `repository_checkout` artifact source with commit/config/tree identity, the
+  validator branch for repository units, per-run binding synthesis with the
+  `repo://` manifest-ref scheme, the runner's checkout-materializer seam
+  (staged trees land read-only under `checkout/`), smoke-assertion evaluation,
+  and the audit capture vocabulary's repository provenance keys
+  (commit/config/tree/manifest digests, checkout identity, smoke outcome).
+- Tenant- and workspace-scoped `repo_checkouts`/`repo_runs` persistence
+  (migration 028) with lease-fenced run claiming, checkout lifecycle states,
+  and signed checkout attestations mirroring the deployment attestation
+  pattern (unsigned-legacy when no signing key is configured).
+
 ## [0.24.1]
 
 ### Added

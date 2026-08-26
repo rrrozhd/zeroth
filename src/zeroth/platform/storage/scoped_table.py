@@ -53,6 +53,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "service/deployments/repository.py",
         "service/github/repository.py",
         "service/langgraph_gateway/enforcement_store.py",
+        "service/repositories/repository.py",
         "service/webhooks/repository.py",
     }
 )
@@ -86,6 +87,8 @@ _SERVICE_TABLES = (
     "node_audits",
     "quota_counters",
     "rate_limit_buckets",
+    "repo_checkouts",
+    "repo_runs",
     "retention_audit_log",
     "retention_cleanup_operations",
     "retention_cleanup_state",
@@ -108,6 +111,8 @@ _SERVICE_WORKSPACE_TABLES = frozenset(
         "deployment_versions",
         "graph_versions",
         "node_audits",
+        "repo_checkouts",
+        "repo_runs",
         "run_checkpoints",
         "runs",
         "side_effect_operations",
@@ -197,6 +202,22 @@ _TASK9_RESOURCE_OPERATIONS = {
     ),
     "rate_limit_buckets": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.UPDATE}
+    ),
+    "repo_checkouts": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "repo_runs": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
     ),
     "retention_audit_log": frozenset(
         {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}

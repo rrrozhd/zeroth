@@ -20,15 +20,18 @@ class ExecutionMode(StrEnum):
     """How the executable unit was onboarded into the system.
 
     NATIVE means it is a Python function, WRAPPED_COMMAND means it wraps
-    a CLI tool, PROJECT means it is a full project with build steps, and
-    INLINE means the source was authored directly (e.g. in the Studio's
-    code node) and always runs as a sandboxed subprocess.
+    a CLI tool, PROJECT means it is a full project with build steps, INLINE
+    means the source was authored directly (e.g. in the Studio's code node)
+    and always runs as a sandboxed subprocess, and REPOSITORY means the unit
+    was declared by a governed GitHub repository's ``.zeroth.yaml`` and runs
+    from a verified staged checkout.
     """
 
     NATIVE = "native"
     WRAPPED_COMMAND = "wrapped_command"
     PROJECT = "project"
     INLINE = "inline"
+    REPOSITORY = "repository"
 
 
 class InputMode(StrEnum):
@@ -120,6 +123,28 @@ class InlineSourceArtifactSource(ArtifactSource):
     language: Literal["python"] = "python"
 
 
+class RepositoryCheckoutArtifactSource(ArtifactSource):
+    """Artifact source for a verified staged checkout of a governed repository.
+
+    ``ref`` carries the checkout's tree digest (``sha256:...``), so the unit's
+    identity is content-addressed the same way inline source is; the remaining
+    fields pin exactly which installation, repository, commit, and manifest
+    configuration produced that tree. The tree itself is materialized into the
+    sandbox by an injected checkout materializer at run time.
+    """
+
+    kind: Literal["repository_checkout"] = "repository_checkout"
+    commit_sha: str
+    config_digest: str
+    repository_id: int
+    installation_id: int
+
+
+# RepositoryCheckoutArtifactSource is deliberately NOT a member: each concrete
+# manifest subtype narrows ``artifact_source`` to its own class, so the union
+# only types the abstract base — and the base's constructor signature is pinned
+# in tests/contracts/fixtures/backend_surface_canonical.json, which a wider
+# union would rewrite.
 ArtifactSourceType = Annotated[
     PythonModuleArtifactSource
     | CommandArtifactSource
@@ -329,7 +354,34 @@ class InlineUnitManifest(ExecutableUnitManifestBase):
         return self
 
 
+# Where the runner materializes a repository checkout inside the sandbox root.
+# The run_config of every RepositoryUnitManifest is expressed relative to it,
+# and it is the subtree the sandbox backends remount read-only.
+REPOSITORY_CHECKOUT_DIRNAME = "checkout"
+
+
+class RepositoryUnitManifest(ExecutableUnitManifestBase):
+    """Manifest for a script a governed repository declares in ``.zeroth.yaml``.
+
+    Translated from a validated manifest document against a verified staged
+    checkout (see :mod:`zeroth.integrations.execution.repo_units`). Repository
+    units always run as sandboxed subprocesses: the checkout tree is
+    materialized under ``checkout/`` in the sandbox root and rides read-only,
+    and the run command executes ``python3 -I`` on an entry path relative to
+    the working directory.
+    """
+
+    onboarding_mode: Literal[ExecutionMode.REPOSITORY] = ExecutionMode.REPOSITORY
+    runtime: Literal[RuntimeLanguage.PYTHON] = RuntimeLanguage.PYTHON
+    entrypoint_type: Literal[EntryPointType.COMMAND] = EntryPointType.COMMAND
+    artifact_source: RepositoryCheckoutArtifactSource
+
+
 ExecutableUnitManifest = Annotated[
-    NativeUnitManifest | WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
+    NativeUnitManifest
+    | WrappedCommandUnitManifest
+    | ProjectUnitManifest
+    | InlineUnitManifest
+    | RepositoryUnitManifest,
     Field(discriminator="onboarding_mode"),
 ]

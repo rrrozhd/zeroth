@@ -11840,6 +11840,8 @@ def test_service_workspace_scope_definitions_match_head_columns(
         "deployment_versions",
         "graph_versions",
         "node_audits",
+        "repo_checkouts",
+        "repo_runs",
         "run_checkpoints",
         "runs",
         "side_effect_operations",

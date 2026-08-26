@@ -107,6 +107,10 @@
     {
       "down_revision": "026",
       "revision": "027"
+    },
+    {
+      "down_revision": "027",
+      "revision": "028"
     }
   ],
   "tables": {
@@ -2310,6 +2314,559 @@
             "bucket_key"
           ],
           "name": "sqlite_autoindex_rate_limit_buckets_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "repo_checkouts": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "repository_pk",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "installation_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "repository_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "repository_full_name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "requested_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "resolved_commit_sha",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "git_tree_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "tree_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "config_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "manifest_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "script_name",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "state",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "failure_code",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": null,
+          "hidden": 0,
+          "name": "failure_detail",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 17,
+          "default": null,
+          "hidden": 0,
+          "name": "staged_path",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 18,
+          "default": null,
+          "hidden": 0,
+          "name": "file_count",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 19,
+          "default": null,
+          "hidden": 0,
+          "name": "size_bytes",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 20,
+          "default": null,
+          "hidden": 0,
+          "name": "has_lfs_pointers",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 21,
+          "default": "0",
+          "hidden": 0,
+          "name": "cache_hit",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 22,
+          "default": null,
+          "hidden": 0,
+          "name": "verified_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 23,
+          "default": null,
+          "hidden": 0,
+          "name": "expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 24,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_digest",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 25,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_signature",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 26,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_key_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 27,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_algorithm",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 28,
+          "default": null,
+          "hidden": 0,
+          "name": "attestation_payload_json",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 29,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 30,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE repo_checkouts ( id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, repository_pk TEXT NOT NULL, installation_id INTEGER NOT NULL, repository_id INTEGER NOT NULL, repository_full_name TEXT NOT NULL, requested_ref TEXT NOT NULL, resolved_commit_sha TEXT, git_tree_id TEXT, tree_digest TEXT, config_digest TEXT, manifest_digest TEXT, script_name TEXT, state TEXT NOT NULL, failure_code TEXT, failure_detail TEXT, staged_path TEXT, file_count INTEGER, size_bytes INTEGER, has_lfs_pointers INTEGER, cache_hit INTEGER NOT NULL DEFAULT 0, verified_at TEXT, expires_at TEXT, attestation_digest TEXT, attestation_signature TEXT, attestation_key_id TEXT, attestation_algorithm TEXT, attestation_payload_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (repository_pk) REFERENCES github_repositories (id) )",
+      "foreign_keys": [
+        {
+          "from": "repository_pk",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "github_repositories",
+          "to": "id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "created_at"
+          ],
+          "name": "idx_repo_checkouts_tenant_created",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "state",
+            "expires_at"
+          ],
+          "name": "idx_repo_checkouts_tenant_state",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "id"
+          ],
+          "name": "sqlite_autoindex_repo_checkouts_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "repo_runs": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "checkout_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "script_name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "input_payload_json",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "state",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "exit_code",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "failure_code",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "smoke_passed",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "output_payload_json",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "claimed_by",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": "0",
+          "hidden": 0,
+          "name": "claim_generation",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "claimed_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 14,
+          "default": null,
+          "hidden": 0,
+          "name": "lease_expires_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 15,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 16,
+          "default": null,
+          "hidden": 0,
+          "name": "started_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 17,
+          "default": null,
+          "hidden": 0,
+          "name": "finished_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 18,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE repo_runs ( id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', workspace_id TEXT, checkout_id TEXT NOT NULL, script_name TEXT NOT NULL, input_payload_json TEXT, state TEXT NOT NULL, exit_code INTEGER, failure_code TEXT, smoke_passed INTEGER, output_payload_json TEXT, claimed_by TEXT, claim_generation INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, lease_expires_at TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, updated_at TEXT NOT NULL, FOREIGN KEY (checkout_id) REFERENCES repo_checkouts (id) )",
+      "foreign_keys": [
+        {
+          "from": "checkout_id",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "repo_checkouts",
+          "to": "id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "checkout_id",
+            "created_at"
+          ],
+          "name": "idx_repo_runs_tenant_checkout",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "state",
+            "lease_expires_at"
+          ],
+          "name": "idx_repo_runs_tenant_state_due",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "id"
+          ],
+          "name": "sqlite_autoindex_repo_runs_1",
           "origin": "pk",
           "partial": false,
           "unique": true

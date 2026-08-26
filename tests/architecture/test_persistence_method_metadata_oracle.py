@@ -204,6 +204,20 @@ zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepositor
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|save_decision|CR
 zeroth.service.langgraph_gateway.enforcement_store|StoredCapabilityEvidenceProvider|evidence_for_governance_run|R
 zeroth.service.langgraph_gateway.enforcement_store|StoredCapabilityEvidenceProvider|evidence_for_run|N
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|create|C
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|expire_stale|NU
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|get|R
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|list_checkouts|N
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|record_attestation|U
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|record_failure|U
+zeroth.service.repositories.repository|SQLiteRepoCheckoutRepository|transition_state|U
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|cancel|U
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|claim_pending|RNU
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|create|C
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|fail|U
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|finish|U
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|get|R
+zeroth.service.repositories.repository|SQLiteRepoRunRepository|list_runs|N
 zeroth.service.webhooks.repository|WebhookRepository|claim_pending_delivery|RNU
 zeroth.service.webhooks.repository|WebhookRepository|create_subscription|C
 zeroth.service.webhooks.repository|WebhookRepository|deactivate_subscription|U
@@ -278,7 +292,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 192
+    assert len(METHOD_METADATA_ORACLE) == 206
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 
