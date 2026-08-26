@@ -360,6 +360,11 @@ class GitHubAppSettings(BaseModel):
     max_total_bytes: int = 500 * 1024 * 1024
     max_file_count: int = 50_000
     checkout_ttl_seconds: int = 900
+    # ZER-37 orchestration: where verified checkouts are staged before repo
+    # runs consume them (empty means a "stages" sibling of the resolved cache
+    # directory), and how often the repo-run worker polls for claimable runs.
+    staging_dir: str = ""
+    repo_run_poll_seconds: float = 1.0
 
 
 class LangGraphGatewaySettings(BaseModel):

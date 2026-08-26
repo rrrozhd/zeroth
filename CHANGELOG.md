@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.3]
+
+### Added
+
+- ZER-37 phase 6: checkout/run orchestration — `RepositoryUnitService` (fail-closed
+  checkout admission, staging pipeline, manifest validation, admission-digest
+  registration, signed attestations with TTL) and the lease-fenced `RepoRunWorker`
+  executing repository units through per-run runner instances with staged-path
+  materialization, smoke evaluation, and hash-chained audit records carrying the
+  full repository provenance set; maintenance sweep for expired checkouts; repo
+  staging/poll settings and construct-when-enabled bootstrap wiring.
+
 ## [0.24.2]
 
 ### Added
