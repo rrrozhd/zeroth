@@ -41,6 +41,11 @@ export type AuditVerification = S["AuditVerificationResponse"];
 export type DeploymentAttestation = S["DeploymentAttestationResponse"];
 export type AttestationVerification = S["AttestationVerificationResponse"];
 export type RollbackDeploymentRequest = S["RollbackDeploymentRequest"];
+export type CertificationResponse = S["CertificationResponse"];
+export type RegisterCertificationRequest = S["RegisterCertificationRequest"];
+export type PromoteCertificationRequest = S["PromoteCertificationRequest"];
+export type RevokeCertificationRequest = S["RevokeCertificationRequest"];
+export type CertificationOverrideRequest = S["CertificationOverrideRequest"];
 
 // GET /v1/metrics has no fixed schema — the OpenAPI spec types its 200 body as
 // an open object, so the generated operation's response type (`unknown`) flows
@@ -444,6 +449,55 @@ export function rollbackDeployment(
   const body: RollbackDeploymentRequest = { target_graph_version: targetGraphVersion };
   return apiFetch<DeploymentSummary>(
     `/v1/deployments/${encodeURIComponent(ref)}/rollback`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+// ---- Production certification ----
+
+export function listCertifications(): Promise<CertificationResponse[]> {
+  return apiFetch<CertificationResponse[]>("/v1/certifications");
+}
+
+export function getCertification(id: string): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(`/v1/certifications/${encodeURIComponent(id)}`);
+}
+
+export function registerCertification(
+  body: RegisterCertificationRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>("/v1/certifications", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function promoteCertification(
+  id: string,
+  body: PromoteCertificationRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/promote`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function revokeCertification(
+  id: string,
+  body: RevokeCertificationRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/revoke`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function overrideCertification(
+  id: string,
+  body: CertificationOverrideRequest,
+): Promise<CertificationResponse> {
+  return apiFetch<CertificationResponse>(
+    `/v1/certifications/${encodeURIComponent(id)}/override`,
     { method: "POST", body: JSON.stringify(body) },
   );
 }

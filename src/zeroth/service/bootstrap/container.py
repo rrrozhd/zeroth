@@ -114,6 +114,8 @@ class ServiceBootstrap:
     # even when ``signer`` is absent (signing disabled), because rows signed
     # before signing was turned off still have to verify. Never used to sign.
     verifier: SigningKeyProvider | None = None
+    # ZER-31: scoped certification evaluation and atomic promotion boundary.
+    certification_service: object | None = None
     # LangGraph Agent Server gateway foundation. All remain absent when the
     # mode is disabled so the ordinary service creates no upstream client or
     # probe traffic.
@@ -186,6 +188,7 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             # Same reason again: the verify-side provider is an additive
             # component, not a change to the capability the fixture names.
             "verifier",
+            "certification_service",
         }
     ]
 )

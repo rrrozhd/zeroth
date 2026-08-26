@@ -351,6 +351,14 @@ def identity_digest(identity: CandidateIdentity) -> str:
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
+def evidence_binding_digest(evidence: EvidenceBinding | None) -> str:
+    """Return the canonical digest of the retained evidence binding."""
+    if evidence is None:
+        raise ValueError("passing certification evidence is required")
+    payload = json.dumps(evidence.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
 def file_digest(path: Path) -> str:
     """Hash one retained evidence file."""
     digest = hashlib.sha256()

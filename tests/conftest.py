@@ -72,6 +72,8 @@ requires_docker = pytest.mark.skipif(not _docker_available(), reason="Docker not
 
 
 _CLEANUP_TABLES = (
+    "app_certification_events",
+    "app_certifications",
     "node_audits",
     "approvals",
     "runs",
