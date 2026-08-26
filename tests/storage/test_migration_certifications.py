@@ -18,6 +18,10 @@ def test_027_is_greenfield_scoped_unique_and_events_are_append_only(tmp_path) ->
             "027",
         )
         assert connection.execute("SELECT COUNT(*) FROM app_certifications").fetchone() == (0,)
+        event_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(app_certification_events)")
+        }
+        assert {"promotion_target_key", "override_expires_at"} <= event_columns
         values = (
             "row-a",
             "tenant-a",
@@ -45,7 +49,8 @@ def test_027_is_greenfield_scoped_unique_and_events_are_append_only(tmp_path) ->
         connection.execute(
             "INSERT INTO app_certification_events "
             "(event_id, tenant_id, workspace_id, certification_id, event_type, state, "
-            "actor_id, scopes_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "promotion_target_key, actor_id, scopes_json, override_expires_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "event-a",
                 "tenant-a",
@@ -53,10 +58,19 @@ def test_027_is_greenfield_scoped_unique_and_events_are_append_only(tmp_path) ->
                 "cert-a",
                 "registered",
                 "certified",
+                "production/support-agent",
                 "certifier",
                 "[]",
+                "2026-08-26T12:15:00+00:00",
                 "2026-08-26T12:00:00+00:00",
             ),
+        )
+        assert connection.execute(
+            "SELECT promotion_target_key, override_expires_at "
+            "FROM app_certification_events WHERE event_id = 'event-a'"
+        ).fetchone() == (
+            "production/support-agent",
+            "2026-08-26T12:15:00+00:00",
         )
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             connection.execute(

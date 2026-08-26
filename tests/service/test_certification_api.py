@@ -45,7 +45,7 @@ def _receipt(
             workspace_id=workspace_id,
             app_name="support-agent",
             app_commit=COMMIT,
-            zeroth_version="0.23.10.1",
+            zeroth_version="0.23.10.2",
             image_reference="registry.example/support-agent",
             image_digest=IMAGE,
             source_digest="sha256:" + "3" * 64,
@@ -228,6 +228,11 @@ async def test_override_requires_admin_and_is_visible_and_auditable(sqlite_db) -
             json={},
             headers=operator_headers(),
         )
+        revoked = client.post(
+            f"/v1/certifications/{receipt.payload.certification_id}/revoke",
+            json={"reason": "artifact replaced"},
+            headers=operator_headers(),
+        )
 
     assert denied.status_code == 403
     assert granted.status_code == 200
@@ -238,8 +243,17 @@ async def test_override_requires_admin_and_is_visible_and_auditable(sqlite_db) -
     assert body["evaluation"]["blockers"][0]["code"] == "production_not_promoted"
     assert body["events"][-1]["event_type"] == "override_granted"
     assert body["events"][-1]["actor_id"] == "admin-1"
+    assert (
+        datetime.fromisoformat(body["events"][-1]["override_expires_at"].replace("Z", "+00:00"))
+        == expiry
+    )
     assert promoted.status_code == 200
     assert promoted.json()["evaluation"]["production_ready"] is True
+    assert revoked.status_code == 200
+    history = revoked.json()["events"]
+    promoted_event = next(event for event in history if event["event_type"] == "promoted")
+    assert promoted_event["promotion_target_key"] == "production/support-agent"
+    assert revoked.json()["promotion_target_key"] is None
 
 
 async def test_tampered_receipt_fails_closed_and_foreign_scope_is_hidden(sqlite_db) -> None:
@@ -339,10 +353,10 @@ async def test_health_revokes_promotion_when_server_owned_artifact_changes(
     assert fetched.json()["state"] == "revoked"
 
 
-async def test_foreign_tenant_certification_is_hidden_as_not_found(sqlite_db) -> None:
+async def test_foreign_tenant_cannot_promote_the_served_deployment(sqlite_db) -> None:
     auth_config = scoped_auth_config(
         ("tenant-a", "tenant-a-key", ServiceRole.OPERATOR, "tenant-a", "workspace-a"),
-        ("tenant-b", "tenant-b-key", ServiceRole.REVIEWER, "tenant-b", "workspace-b"),
+        ("tenant-b", "tenant-b-key", ServiceRole.OPERATOR, "tenant-b", "workspace-b"),
     )
     service, deployment = await deploy_service(
         sqlite_db,
@@ -364,23 +378,54 @@ async def test_foreign_tenant_certification_is_hidden_as_not_found(sqlite_db) ->
     app.state.bootstrap.certification_service = CertificationService(
         CertificationRepository(sqlite_db), verifier=signer
     )
-    receipt = _receipt(
+    app.state.bootstrap.serving_artifact_identity = ServingArtifactIdentity(
+        target_key=deployment.deployment_ref,
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
+    tenant_a_receipt = _receipt(
         signer,
         "e" * 32,
         tenant_id="tenant-a",
         workspace_id="workspace-a",
     )
+    tenant_b_receipt = _receipt(
+        signer,
+        "8" * 32,
+        tenant_id="tenant-b",
+        workspace_id="workspace-b",
+    )
 
     with TestClient(app) as client:
-        created = client.post(
+        tenant_a_created = client.post(
             "/v1/certifications",
-            json={"receipt": receipt.model_dump(mode="json")},
+            json={"receipt": tenant_a_receipt.model_dump(mode="json")},
             headers=api_key_headers("tenant-a-key"),
         )
-        hidden = client.get(
-            f"/v1/certifications/{receipt.payload.certification_id}",
+        tenant_b_created = client.post(
+            "/v1/certifications",
+            json={"receipt": tenant_b_receipt.model_dump(mode="json")},
             headers=api_key_headers("tenant-b-key"),
         )
+        hidden = client.get(
+            f"/v1/certifications/{tenant_a_receipt.payload.certification_id}",
+            headers=api_key_headers("tenant-b-key"),
+        )
+        foreign = client.post(
+            f"/v1/certifications/{tenant_b_receipt.payload.certification_id}/promote",
+            json={},
+            headers=api_key_headers("tenant-b-key"),
+        )
+        owner = client.post(
+            f"/v1/certifications/{tenant_a_receipt.payload.certification_id}/promote",
+            json={},
+            headers=api_key_headers("tenant-a-key"),
+        )
 
-    assert created.status_code == 201
+    assert tenant_a_created.status_code == 201
+    assert tenant_b_created.status_code == 201
     assert hidden.status_code == 404
+    assert foreign.status_code == 404
+    assert foreign.json() == {"detail": "deployment not found"}
+    assert owner.status_code == 200
+    assert owner.json()["state"] == "promoted"

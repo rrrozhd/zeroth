@@ -196,13 +196,22 @@
           "cid": 6,
           "default": null,
           "hidden": 0,
+          "name": "promotion_target_key",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
           "name": "actor_id",
           "not_null": true,
           "primary_key_position": 0,
           "type": "TEXT"
         },
         {
-          "cid": 7,
+          "cid": 8,
           "default": null,
           "hidden": 0,
           "name": "reason",
@@ -211,7 +220,7 @@
           "type": "TEXT"
         },
         {
-          "cid": 8,
+          "cid": 9,
           "default": null,
           "hidden": 0,
           "name": "scopes_json",
@@ -220,7 +229,16 @@
           "type": "TEXT"
         },
         {
-          "cid": 9,
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "override_expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
           "default": null,
           "hidden": 0,
           "name": "created_at",
@@ -229,7 +247,7 @@
           "type": "TEXT"
         }
       ],
-      "constraint_definition": "CREATE TABLE app_certification_events ( event_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT, certification_id TEXT NOT NULL, event_type TEXT NOT NULL, state TEXT NOT NULL CHECK ( state IN ('buildable', 'test_deployable', 'certified', 'promoted', 'revoked') ), actor_id TEXT NOT NULL, reason TEXT, scopes_json TEXT NOT NULL, created_at TEXT NOT NULL )",
+      "constraint_definition": "CREATE TABLE app_certification_events ( event_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT, certification_id TEXT NOT NULL, event_type TEXT NOT NULL, state TEXT NOT NULL CHECK ( state IN ('buildable', 'test_deployable', 'certified', 'promoted', 'revoked') ), promotion_target_key TEXT, actor_id TEXT NOT NULL, reason TEXT, scopes_json TEXT NOT NULL, override_expires_at TEXT, created_at TEXT NOT NULL )",
       "foreign_keys": [],
       "indexes": [
         {

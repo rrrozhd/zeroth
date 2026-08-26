@@ -12227,7 +12227,7 @@
       ],
       "module": "zeroth.service.certifications.models",
       "name": "CertificationEvent",
-      "signature": "(*, event_id: str, certification_id: str, tenant_id: str, workspace_id: str | None = None, event_type: str, state: zeroth.service.certifications.models.CertificationState, actor_id: str, reason: str | None = None, scopes: tuple[zeroth.service.certifications.models.OverrideScope, ...] = (), created_at: datetime.datetime) -> None"
+      "signature": "(*, event_id: str, certification_id: str, tenant_id: str, workspace_id: str | None = None, event_type: str, state: zeroth.service.certifications.models.CertificationState, promotion_target_key: str | None = None, actor_id: str, reason: str | None = None, scopes: tuple[zeroth.service.certifications.models.OverrideScope, ...] = (), override_expires_at: pydantic.types.AwareDatetime | None = None, created_at: datetime.datetime) -> None"
     },
     {
       "evidence": [

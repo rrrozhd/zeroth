@@ -94,9 +94,11 @@ class CertificationEvent(BaseModel):
     workspace_id: str | None = None
     event_type: str
     state: CertificationState
+    promotion_target_key: str | None = None
     actor_id: str
     reason: str | None = None
     scopes: tuple[OverrideScope, ...] = ()
+    override_expires_at: AwareDatetime | None = None
     created_at: datetime
 
 

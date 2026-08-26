@@ -52,9 +52,11 @@ def upgrade() -> None:
             state TEXT NOT NULL CHECK (
                 state IN ('buildable', 'test_deployable', 'certified', 'promoted', 'revoked')
             ),
+            promotion_target_key TEXT,
             actor_id TEXT NOT NULL,
             reason TEXT,
             scopes_json TEXT NOT NULL,
+            override_expires_at TEXT,
             created_at TEXT NOT NULL
         )
     """)

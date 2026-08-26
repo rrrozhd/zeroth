@@ -2765,6 +2765,10 @@ export interface components {
             event_id: string;
             /** Event Type */
             event_type: string;
+            /** Override Expires At */
+            override_expires_at?: string | null;
+            /** Promotion Target Key */
+            promotion_target_key?: string | null;
             /** Reason */
             reason?: string | null;
             /**

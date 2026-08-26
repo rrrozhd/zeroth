@@ -325,9 +325,13 @@ class CertificationRepository:
             "certification_id": record.certification_id,
             "event_type": event_type,
             "state": record.state.value,
+            "promotion_target_key": record.promotion_target_key,
             "actor_id": actor_id,
             "reason": reason,
             "scopes_json": to_json_value(tuple(scope.value for scope in scopes)),
+            "override_expires_at": (
+                record.override.expires_at.isoformat() if record.override else None
+            ),
             "created_at": at.isoformat(),
         }
 
@@ -371,9 +375,17 @@ class CertificationRepository:
             workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
             event_type=str(row["event_type"]),
             state=CertificationState(str(row["state"])),
+            promotion_target_key=(
+                str(row["promotion_target_key"]) if row["promotion_target_key"] else None
+            ),
             actor_id=str(row["actor_id"]),
             reason=str(row["reason"]) if row["reason"] else None,
             scopes=tuple(OverrideScope(value) for value in scopes),
+            override_expires_at=(
+                datetime.fromisoformat(str(row["override_expires_at"]))
+                if row["override_expires_at"]
+                else None
+            ),
             created_at=datetime.fromisoformat(str(row["created_at"])),
         )
 
