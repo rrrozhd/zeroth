@@ -1,6 +1,6 @@
 [project]
 name = "zeroth-core"
-version = "0.23.10.8"
+version = "0.23.10.9"
 description = "Governed medium-code platform for production-grade multi-agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
