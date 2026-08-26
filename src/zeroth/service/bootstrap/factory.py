@@ -451,6 +451,14 @@ async def bootstrap_scoped_service(
     # rotated away from, and survives signing being switched off, so rows signed
     # earlier stay verifiable. Absent only when no key material exists at all.
     verifier = await build_verification_provider_async(settings.provenance, secret_provider)
+    from zeroth.service.certifications.repository import CertificationRepository
+    from zeroth.service.certifications.service import CertificationService
+
+    certification_service = CertificationService(
+        CertificationRepository(database),
+        verifier=verifier,
+        metrics=metrics_collector,
+    )
     if signer is None:
         _logging.getLogger(__name__).warning(
             "provenance signing key unresolved for mode=%r; deployment "
@@ -858,6 +866,7 @@ async def bootstrap_scoped_service(
             secret_provider=secret_provider,
             signer=signer,
             verifier=verifier,
+            certification_service=certification_service,
             policy_guard=policy_guard,
             langgraph_gateway_proxy=gateway_proxy,
             langgraph_gateway_transport=gateway_transport,

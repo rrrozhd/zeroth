@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.20 \
+  --zeroth-version 0.23.10 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -141,6 +141,35 @@ container without executing candidate code. The finalizer cryptographically
 verifies the bundle against the expected GitHub OIDC issuer, repositories,
 workflow, and commits before replacing the unsigned predicate. A hand-written
 or tampered passing report is rejected.
+
+## Promote a certified artifact
+
+After validating a passing report and its retained evidence, issue a portable
+promotion receipt with `release.app_certification.issue_promotion_receipt`.
+The receipt signs the exact app commit, source digest, immutable image digest,
+evidence binding, report digest, tenant/workspace scope, allowed environments,
+and expiry. Register it with `POST /v1/certifications`.
+
+Certification state advances through `buildable`, `test_deployable`,
+`certified`, and `promoted`; invalidated evidence or artifact identity changes
+move it to `revoked`. A test-only receipt remains test-deployable, but production
+readiness stays false until a production receipt or an authorized environment
+policy override satisfies the gate.
+
+Use `POST /v1/certifications/{id}/promote` with the exact commit, image digest,
+and production target key. A target is claimed atomically: retrying the same
+certification and target is idempotent, while a competing certification receives
+HTTP 409. Signature failures, verifier/storage failures, revocation, and commit
+or image mismatches fail closed. Identity mismatches revoke the receipt and
+release its target.
+
+Administrators can submit a reasoned, scoped, time-bound exception through
+`POST /v1/certifications/{id}/override`. Overrides cover only receipt expiry or
+environment policy; they cannot cover an invalid signature, malformed evidence,
+revocation, or artifact identity mismatch. `GET /v1/certifications` and
+`GET /v1/certifications/{id}` expose the active override, append-only audit
+timeline, blocker codes, and operator remediation. The deployment console and
+readiness response use the same central decision.
 
 ## Retained diagnostics
 

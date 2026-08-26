@@ -50,6 +50,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "platform/artifacts/store.py",
         "platform/secrets/vault.py",
         "runtime/agents/thread_store.py",
+        "service/certifications/repository.py",
         "service/deployments/repository.py",
         "service/langgraph_gateway/enforcement_store.py",
         "service/webhooks/repository.py",
@@ -67,6 +68,8 @@ ASYNC_NON_PERSISTENCE_MODULES = frozenset(
 """Persistence-shaped modules explicitly classified as in-memory metadata helpers."""
 
 _SERVICE_TABLES = (
+    "app_certification_events",
+    "app_certifications",
     "approvals",
     "audit_chain_heads",
     "contract_versions",
@@ -100,6 +103,8 @@ _SERVICE_TABLES = (
 )
 _SERVICE_WORKSPACE_TABLES = frozenset(
     {
+        "app_certification_events",
+        "app_certifications",
         "approvals",
         "deployment_versions",
         "graph_versions",
@@ -121,6 +126,17 @@ _DERIVED_WORKSPACE_SCOPE_TABLES = frozenset(
     }
 )
 _TASK9_RESOURCE_OPERATIONS = {
+    "app_certification_events": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.READ, ResourceOperation.ENUMERATE}
+    ),
+    "app_certifications": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
     "approvals": frozenset(
         {
             ResourceOperation.CREATE,

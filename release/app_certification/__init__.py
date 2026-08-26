@@ -17,12 +17,14 @@ from .models import (
     EvidenceBinding,
     EvidenceFile,
     SmokeSpec,
+    evidence_binding_digest,
     file_digest,
     identity_digest,
     load_declaration,
     validate_report,
     write_report,
 )
+from .promotion import issue_promotion_receipt
 from .runner import (
     CertificationRunner,
     CommandResult,
@@ -46,9 +48,11 @@ __all__ = [
     "HttpResult",
     "SmokeSpec",
     "execute_command",
+    "evidence_binding_digest",
     "file_digest",
     "finalize_attestation",
     "identity_digest",
+    "issue_promotion_receipt",
     "load_declaration",
     "measure_candidate_identity",
     "scaffold_checkout",

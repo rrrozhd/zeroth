@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10] - 2026-08-26
+
+### Added
+
+- Add signed, expiring app-certification receipts and a tenant-scoped API for
+  registration, inspection, revocation, authorized overrides, and atomic
+  production promotion.
+- Surface certification blockers and remediation through readiness, bounded
+  metrics, generated API clients, and the deployment console.
+
+### Security
+
+- Fail production promotion closed for untrusted, expired, environment-invalid,
+  revoked, commit-mismatched, or image-mismatched certification evidence while
+  preserving test deployment eligibility.
+
 ## [0.23.9.20] - 2026-08-19
 
 ### Security

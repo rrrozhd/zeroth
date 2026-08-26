@@ -63,3 +63,13 @@ def test_trusted_static_configuration_can_deliver_platform_admin() -> None:
         {"X-API-Key": "trusted-secret"}
     )
     assert principal.roles == [ServiceRole.PLATFORM_ADMIN]
+
+
+def test_certification_override_is_reserved_for_admin_roles() -> None:
+    from zeroth.governance.identity import ServiceRole
+    from zeroth.service.api.authorization import ROLE_PERMISSIONS, Permission
+
+    assert Permission.CERTIFICATION_OVERRIDE not in ROLE_PERMISSIONS[ServiceRole.OPERATOR]
+    assert Permission.CERTIFICATION_OVERRIDE not in ROLE_PERMISSIONS[ServiceRole.REVIEWER]
+    assert Permission.CERTIFICATION_OVERRIDE in ROLE_PERMISSIONS[ServiceRole.ADMIN]
+    assert Permission.CERTIFICATION_OVERRIDE in ROLE_PERMISSIONS[ServiceRole.PLATFORM_ADMIN]
