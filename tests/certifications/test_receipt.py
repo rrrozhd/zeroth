@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import base64
 import importlib
+import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pytest
 
 
 COMMIT = "1" * 40
@@ -10,9 +15,8 @@ SOURCE_DIGEST = "sha256:" + "3" * 64
 ZEROTH_COMMIT = "4" * 40
 
 
-def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
+def test_release_rejects_unsigned_promotion_evidence(tmp_path) -> None:
     promotion = importlib.import_module("release.app_certification.promotion")
-    receipt = importlib.import_module("zeroth.service.certifications.receipt")
     models = importlib.import_module("release.app_certification.models")
     evidence = importlib.import_module("release.app_certification.evidence")
     signing = importlib.import_module("zeroth.platform.signing")
@@ -20,7 +24,7 @@ def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
     candidate = models.CandidateIdentity(
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10",
+        zeroth_version="0.23.10.1",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE_DIGEST,
         source_digest=SOURCE_DIGEST,
@@ -28,7 +32,7 @@ def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
     sbom = tmp_path / "sbom.json"
     sbom.write_text(
         '{"spdxVersion":"SPDX-2.3","packages":'
-        '[{"name":"zeroth-core","versionInfo":"0.23.10"}]}\n',
+        '[{"name":"zeroth-core","versionInfo":"0.23.10.1"}]}\n',
         encoding="utf-8",
     )
     evidence.bind_sbom(sbom, candidate)
@@ -53,6 +57,85 @@ def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
     signer = signing.EnvHmacSigner(key_id="certifier-1", keys={"certifier-1": b"secret"})
     issued_at = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
 
+    with pytest.raises(ValueError, match="finalized"):
+        promotion.issue_promotion_receipt(
+            report_path,
+            root=tmp_path,
+            signer=signer,
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            environments=("test", "production"),
+            issued_at=issued_at,
+            expires_at=issued_at + timedelta(hours=1),
+            certification_id="a" * 32,
+        )
+
+
+def test_release_issues_receipt_only_after_finalized_attestation_verification(
+    tmp_path, monkeypatch
+) -> None:
+    promotion = importlib.import_module("release.app_certification.promotion")
+    receipt = importlib.import_module("zeroth.service.certifications.receipt")
+    models = importlib.import_module("release.app_certification.models")
+    evidence = importlib.import_module("release.app_certification.evidence")
+    signing = importlib.import_module("zeroth.platform.signing")
+    candidate = models.CandidateIdentity(
+        app_name="support-agent",
+        app_commit=COMMIT,
+        zeroth_version="0.23.10.1",
+        image_reference="registry.example/support-agent",
+        image_digest=IMAGE_DIGEST,
+        source_digest=SOURCE_DIGEST,
+    )
+    sbom = tmp_path / "sbom.json"
+    sbom.write_text(
+        '{"spdxVersion":"SPDX-2.3","packages":'
+        '[{"name":"zeroth-core","versionInfo":"0.23.10.1"}]}\n',
+        encoding="utf-8",
+    )
+    evidence.bind_sbom(sbom, candidate)
+    provenance = tmp_path / "provenance.json"
+    evidence.write_provenance(
+        provenance,
+        candidate,
+        zeroth_commit=ZEROTH_COMMIT,
+        sbom_digest=models.file_digest(sbom),
+        build_material_digests={
+            "source": SOURCE_DIGEST,
+            "image": IMAGE_DIGEST,
+            "sbom": models.file_digest(sbom),
+            "lock": "sha256:" + "5" * 64,
+        },
+    )
+    report_path = tmp_path / "report.json"
+    models.write_report(
+        models.CertificationReport.passed(candidate, sbom, provenance, root=tmp_path),
+        report_path,
+    )
+    bundle = tmp_path / "bundle.json"
+    bundle.write_text(
+        json.dumps(
+            {"dsseEnvelope": {"payload": base64.b64encode(provenance.read_bytes()).decode()}}
+        ),
+        encoding="utf-8",
+    )
+    verification_calls: list[list[str]] = []
+
+    def verified(argv, **kwargs):
+        verification_calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(evidence.subprocess, "run", verified)
+    trust = {
+        "repository": "owner/support-agent",
+        "signer_repo": "rrrozhd/zeroth",
+        "signer_workflow": "rrrozhd/zeroth/.github/workflows/app-certification.yml",
+        "signer_digest": ZEROTH_COMMIT,
+    }
+    evidence.finalize_attestation(bundle, report_path, tmp_path, **trust)
+    signer = signing.EnvHmacSigner(key_id="certifier-1", keys={"certifier-1": b"secret"})
+    issued_at = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+
     signed = promotion.issue_promotion_receipt(
         report_path,
         root=tmp_path,
@@ -63,6 +146,7 @@ def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
         issued_at=issued_at,
         expires_at=issued_at + timedelta(hours=1),
         certification_id="a" * 32,
+        **trust,
     )
 
     assert receipt.verify_promotion_receipt(signed, signer) is True
@@ -72,12 +156,36 @@ def test_release_issues_a_signed_exact_promotion_receipt(tmp_path) -> None:
         models.CertificationReport.model_validate_json(report_path.read_text()).evidence
     )
     assert signed.payload.report_digest == models.file_digest(report_path)
-    assert signed.payload.environments == ("test", "production")
+    assert len(verification_calls) == 2
+    assert all("--deny-self-hosted-runners" in call for call in verification_calls)
 
-    tampered = signed.model_copy(
-        update={"payload": signed.payload.model_copy(update={"image_digest": "sha256:" + "9" * 64})}
-    )
-    assert receipt.verify_promotion_receipt(tampered, signer) is False
+    with pytest.raises(ValueError, match="self-authored"):
+        promotion.issue_promotion_receipt(
+            report_path,
+            root=tmp_path,
+            signer=signer,
+            tenant_id="tenant-a",
+            environments=("production",),
+            issued_at=issued_at,
+            expires_at=issued_at + timedelta(hours=1),
+            repository="owner/support-agent",
+            signer_repo="OWNER/SUPPORT-AGENT",
+            signer_workflow="owner/support-agent/.github/workflows/certify.yml",
+            signer_digest=ZEROTH_COMMIT,
+        )
+
+    provenance.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="sha256"):
+        promotion.issue_promotion_receipt(
+            report_path,
+            root=tmp_path,
+            signer=signer,
+            tenant_id="tenant-a",
+            environments=("production",),
+            issued_at=issued_at,
+            expires_at=issued_at + timedelta(hours=1),
+            **trust,
+        )
 
 
 def test_promotion_receipt_fails_closed_for_missing_or_unknown_signature() -> None:
@@ -89,7 +197,7 @@ def test_promotion_receipt_fails_closed_for_missing_or_unknown_signature() -> No
         tenant_id="tenant-a",
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10",
+        zeroth_version="0.23.10.1",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE_DIGEST,
         source_digest=SOURCE_DIGEST,

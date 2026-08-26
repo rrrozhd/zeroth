@@ -27,6 +27,24 @@ class OverrideScope(StrEnum):
     ENVIRONMENT_POLICY = "environment_policy"
 
 
+class ServingArtifactIdentity(BaseModel):
+    """Server-owned identity of the deployment artifact currently being served."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target_key: str = Field(min_length=1, max_length=255)
+    app_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("target_key")
+    @classmethod
+    def _target_nonblank(cls, value: str) -> str:
+        """Reject whitespace-only deployment target keys."""
+        if not value.strip():
+            raise ValueError("target_key must not be blank")
+        return value
+
+
 class CertificationOverride(BaseModel):
     """Time-bound administrative exception retained with the certification."""
 
@@ -138,5 +156,6 @@ __all__ = [
     "OverrideScope",
     "PromotionConflictError",
     "PromotionRejectedError",
+    "ServingArtifactIdentity",
     "state_for_environments",
 ]

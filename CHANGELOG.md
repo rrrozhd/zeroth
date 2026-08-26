@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.1] - 2026-08-26
+
+### Security
+
+- Reverify finalized signed provenance before issuing promotion receipts.
+- Bind promotion and readiness to the server-owned serving target and artifact
+  identity, revoking certification when the serving artifact changes.
+
 ## [0.23.10] - 2026-08-26
 
 ### Added

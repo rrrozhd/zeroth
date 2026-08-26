@@ -4208,16 +4208,9 @@ export interface components {
         };
         /**
          * PromoteCertificationRequest
-         * @description Exact target and artifact identity requested for production.
+         * @description Promotion intent; the target and artifact identity are server-owned.
          */
-        PromoteCertificationRequest: {
-            /** App Commit */
-            app_commit: string;
-            /** Image Digest */
-            image_digest: string;
-            /** Target Key */
-            target_key: string;
-        };
+        PromoteCertificationRequest: Record<string, never>;
         /**
          * PromotionReceiptPayload
          * @description Immutable certification claims accepted by the runtime promotion gate.

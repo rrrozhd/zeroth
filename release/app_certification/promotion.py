@@ -14,7 +14,8 @@ from zeroth.service.certifications.receipt import (
     sign_promotion_receipt,
 )
 
-from .models import evidence_binding_digest, file_digest, validate_report
+from .evidence import verify_finalized_attestation
+from .models import evidence_binding_digest, file_digest
 
 
 def issue_promotion_receipt(
@@ -28,9 +29,20 @@ def issue_promotion_receipt(
     issued_at: datetime,
     expires_at: datetime,
     certification_id: str | None = None,
+    repository: str | None = None,
+    signer_repo: str | None = None,
+    signer_workflow: str | None = None,
+    signer_digest: str | None = None,
 ) -> SignedPromotionReceipt:
     """Validate retained evidence and sign its exact candidate identity."""
-    report = validate_report(report_path, root=root)
+    report = verify_finalized_attestation(
+        report_path,
+        root,
+        repository=repository,
+        signer_repo=signer_repo,
+        signer_workflow=signer_workflow,
+        signer_digest=signer_digest,
+    )
     if report.status != "passed" or report.candidate is None or report.evidence is None:
         raise ValueError("promotion receipt requires a passing candidate-bound report")
     candidate = report.candidate

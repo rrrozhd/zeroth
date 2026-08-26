@@ -15,6 +15,7 @@ from zeroth.service.certifications.models import (
     CertificationState,
     OverrideScope,
     PromotionRejectedError,
+    ServingArtifactIdentity,
     state_for_environments,
 )
 from zeroth.service.certifications.receipt import (
@@ -91,8 +92,7 @@ class CertificationService:
         *,
         environment: str,
         now: datetime,
-        app_commit: str | None = None,
-        image_digest: str | None = None,
+        artifact_identity: ServingArtifactIdentity | None = None,
     ) -> CertificationEvaluation:
         """Return the decision consumed by API, probes, metrics, and console."""
         payload = record.receipt.payload
@@ -123,7 +123,36 @@ class CertificationService:
                     remediation="Restore the configured certification trust provider and retry.",
                 )
             )
-        if app_commit is not None and app_commit != payload.app_commit:
+        if environment == "production":
+            if record.state is not CertificationState.PROMOTED or not record.promotion_target_key:
+                blockers.append(
+                    CertificationBlocker(
+                        code="production_not_promoted",
+                        message="The certification has not been promoted to a production target.",
+                        remediation=(
+                            "Promote the certification to the exact serving deployment target."
+                        ),
+                    )
+                )
+            elif artifact_identity is None:
+                blockers.append(
+                    CertificationBlocker(
+                        code="serving_artifact_identity_unavailable",
+                        message="The serving artifact identity could not be verified.",
+                        remediation=("Configure the server-owned serving commit and image digest."),
+                    )
+                )
+            elif artifact_identity.target_key != record.promotion_target_key:
+                blockers.append(
+                    CertificationBlocker(
+                        code="promotion_target_mismatch",
+                        message="The serving target does not match the promoted target.",
+                        remediation=(
+                            "Promote a valid receipt to the exact serving deployment target."
+                        ),
+                    )
+                )
+        if artifact_identity is not None and artifact_identity.app_commit != payload.app_commit:
             blockers.append(
                 CertificationBlocker(
                     code="commit_mismatch",
@@ -131,7 +160,7 @@ class CertificationService:
                     remediation="Certify the exact commit being promoted.",
                 )
             )
-        if image_digest is not None and image_digest != payload.image_digest:
+        if artifact_identity is not None and artifact_identity.image_digest != payload.image_digest:
             blockers.append(
                 CertificationBlocker(
                     code="image_digest_mismatch",
@@ -177,7 +206,9 @@ class CertificationService:
             ),
             production_ready=(
                 environment == "production"
-                and record.state is not CertificationState.REVOKED
+                and record.state is CertificationState.PROMOTED
+                and artifact_identity is not None
+                and record.promotion_target_key == artifact_identity.target_key
                 and not blockers
             ),
             override_active=active_override,
@@ -190,9 +221,7 @@ class CertificationService:
         tenant_id: str,
         workspace_id: str | None,
         *,
-        target_key: str,
-        app_commit: str,
-        image_digest: str,
+        artifact_identity: ServingArtifactIdentity | None,
         actor_id: str,
         now: datetime,
     ) -> AppCertification:
@@ -200,11 +229,14 @@ class CertificationService:
         record = await self.get(certification_id, tenant_id, workspace_id)
         if record is None:
             raise KeyError(certification_id)
+        if artifact_identity is None:
+            self._metric("promote", "blocked")
+            raise PromotionRejectedError("serving artifact identity is unavailable")
         payload = record.receipt.payload
         mismatch: tuple[str, str] | None = None
-        if app_commit != payload.app_commit:
+        if artifact_identity.app_commit != payload.app_commit:
             mismatch = ("commit", "promotion commit does not match certified commit")
-        elif image_digest != payload.image_digest:
+        elif artifact_identity.image_digest != payload.image_digest:
             mismatch = (
                 "image digest",
                 "promotion image digest does not match certified image digest",
@@ -226,20 +258,20 @@ class CertificationService:
             record,
             environment="production",
             now=now,
-            app_commit=app_commit,
-            image_digest=image_digest,
+            artifact_identity=artifact_identity,
         )
-        if not evaluation.production_ready:
+        admission_blockers = tuple(
+            blocker for blocker in evaluation.blockers if blocker.code != "production_not_promoted"
+        )
+        if admission_blockers:
             self._metric("promote", "blocked")
-            blocker = evaluation.blockers[0] if evaluation.blockers else None
-            raise PromotionRejectedError(
-                blocker.message if blocker else "certification is not production ready"
-            )
+            blocker = admission_blockers[0]
+            raise PromotionRejectedError(blocker.message)
         promoted = await self.repository.promote(
             certification_id,
             tenant_id,
             workspace_id,
-            target_key=target_key,
+            target_key=artifact_identity.target_key,
             actor_id=actor_id,
             at=now,
         )
@@ -310,17 +342,38 @@ class CertificationService:
 
     async def production_readiness(
         self,
-        target_key: str,
+        artifact_identity: ServingArtifactIdentity | None,
         tenant_id: str,
         workspace_id: str | None,
         *,
         now: datetime,
     ) -> CertificationEvaluation:
         """Fail closed for missing state or a storage verification fault."""
+        if artifact_identity is None:
+            evaluation = _missing_readiness(
+                "serving_artifact_identity_unavailable",
+                "The serving artifact identity could not be verified.",
+                "Configure the server-owned serving commit and image digest.",
+            )
+            self._readiness_metric(evaluation)
+            return evaluation
         try:
-            record = await self.repository.get_by_target(target_key, tenant_id, workspace_id)
+            record = await self.repository.get_by_target(
+                artifact_identity.target_key, tenant_id, workspace_id
+            )
             if record is not None:
                 record = await self._revoke_invalid(record)
+            if record is not None and record.state is not CertificationState.REVOKED:
+                mismatch = _artifact_mismatch(record, artifact_identity)
+                if mismatch is not None:
+                    record = await self.repository.revoke(
+                        record.certification_id,
+                        tenant_id,
+                        workspace_id,
+                        reason=mismatch,
+                        actor_id="system:serving-artifact-verifier",
+                        at=now,
+                    )
         except Exception:  # noqa: BLE001 - health must fail closed
             evaluation = _missing_readiness(
                 "certification_storage_unavailable",
@@ -335,7 +388,12 @@ class CertificationService:
                     "Register a trusted production receipt and promote it to this target.",
                 )
             else:
-                evaluation = self.evaluate(record, environment="production", now=now)
+                evaluation = self.evaluate(
+                    record,
+                    environment="production",
+                    now=now,
+                    artifact_identity=artifact_identity,
+                )
         self._readiness_metric(evaluation)
         return evaluation
 
@@ -381,6 +439,18 @@ def _missing_readiness(code: str, message: str, remediation: str) -> Certificati
             ),
         ),
     )
+
+
+def _artifact_mismatch(
+    record: AppCertification, artifact_identity: ServingArtifactIdentity
+) -> str | None:
+    """Describe serving identity drift from the signed receipt, if any."""
+    payload = record.receipt.payload
+    if artifact_identity.app_commit != payload.app_commit:
+        return "serving app commit no longer matches the certified commit"
+    if artifact_identity.image_digest != payload.image_digest:
+        return "serving image digest no longer matches the certified image digest"
+    return None
 
 
 __all__ = ["CertificationService"]

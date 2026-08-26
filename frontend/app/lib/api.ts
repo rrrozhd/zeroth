@@ -472,13 +472,10 @@ export function registerCertification(
   });
 }
 
-export function promoteCertification(
-  id: string,
-  body: PromoteCertificationRequest,
-): Promise<CertificationResponse> {
+export function promoteCertification(id: string): Promise<CertificationResponse> {
   return apiFetch<CertificationResponse>(
     `/v1/certifications/${encodeURIComponent(id)}/promote`,
-    { method: "POST", body: JSON.stringify(body) },
+    { method: "POST", body: JSON.stringify({} satisfies PromoteCertificationRequest) },
   );
 }
 

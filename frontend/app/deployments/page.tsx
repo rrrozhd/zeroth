@@ -579,12 +579,7 @@ function DeploymentDetail({
 function CertificationPanel({ refId }: { refId: string }) {
   const certifications = useLoad<CertificationResponse[]>(listCertifications);
   const records = certifications.data ?? [];
-  const record =
-    records.find((item) => item.promotion_target_key === refId) ??
-    records.find(
-      (item) => refId === item.app_name || refId.endsWith(`/${item.app_name}`),
-    ) ??
-    null;
+  const record = records.find((item) => item.promotion_target_key === refId) ?? null;
 
   return (
     <Card label="Production certification" pad={14}>
@@ -598,11 +593,11 @@ function CertificationPanel({ refId }: { refId: string }) {
             production blocked
           </Pill>
           <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-            No certification receipt is associated with this deployment.
+            No promoted certification owns this deployment target.
           </span>
           <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
-            Remediation: register a trusted production receipt for this app, then promote it to
-            this deployment reference.
+            Remediation: configure the server-owned artifact identity, register a trusted
+            production receipt, and promote it to this exact deployment reference.
           </span>
         </div>
       ) : (

@@ -13,12 +13,14 @@ from tests.service.helpers import (
     scoped_auth_config,
 )
 from zeroth.governance.identity import ServiceRole
+from zeroth.platform.config.settings import CertificationSettings, get_settings
 from zeroth.platform.signing import EnvHmacSigner
 from zeroth.service.bootstrap.factory import bootstrap_scoped_app as bootstrap_app
 from zeroth.service.certifications.receipt import (
     PromotionReceiptPayload,
     sign_promotion_receipt,
 )
+from zeroth.service.certifications.models import ServingArtifactIdentity
 from zeroth.service.certifications.repository import CertificationRepository
 from zeroth.service.certifications.service import CertificationService
 from zeroth.service.api.health import DependencyStatus
@@ -43,7 +45,7 @@ def _receipt(
             workspace_id=workspace_id,
             app_name="support-agent",
             app_commit=COMMIT,
-            zeroth_version="0.23.10",
+            zeroth_version="0.23.10.1",
             image_reference="registry.example/support-agent",
             image_digest=IMAGE,
             source_digest="sha256:" + "3" * 64,
@@ -71,7 +73,39 @@ async def _app(sqlite_db):
         verifier=signer,
         metrics=service.metrics_collector,
     )
+    app.state.bootstrap.serving_artifact_identity = ServingArtifactIdentity(
+        target_key=deployment.deployment_ref,
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
     return app, signer
+
+
+async def test_bootstrap_binds_server_settings_to_the_persisted_deployment_target(
+    sqlite_db, monkeypatch
+) -> None:
+    _, deployment = await deploy_service(
+        sqlite_db,
+        agent_graph(graph_id="graph-certification-server-identity"),
+        deployment_ref="production/server-owned-target",
+    )
+    settings = get_settings().model_copy(
+        update={
+            "certification": CertificationSettings(
+                serving_app_commit=COMMIT,
+                serving_image_digest=IMAGE,
+            )
+        }
+    )
+    monkeypatch.setattr("zeroth.service.bootstrap.factory.get_settings", lambda: settings)
+
+    app = await bootstrap_app(sqlite_db, deployment_ref=deployment.deployment_ref)
+
+    assert app.state.bootstrap.serving_artifact_identity == ServingArtifactIdentity(
+        target_key=deployment.deployment_ref,
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
 
 
 async def test_signed_exact_receipt_promotes_and_exposes_audit_and_metrics(
@@ -96,11 +130,7 @@ async def test_signed_exact_receipt_promotes_and_exposes_audit_and_metrics(
         )
         promoted = client.post(
             f"/v1/certifications/{receipt.payload.certification_id}/promote",
-            json={
-                "target_key": "production/support-agent",
-                "app_commit": COMMIT,
-                "image_digest": IMAGE,
-            },
+            json={},
             headers=operator_headers(),
         )
         fetched = client.get(
@@ -112,6 +142,8 @@ async def test_signed_exact_receipt_promotes_and_exposes_audit_and_metrics(
 
     assert created.status_code == 201
     assert created.json()["state"] == "certified"
+    assert created.json()["evaluation"]["production_ready"] is False
+    assert created.json()["evaluation"]["blockers"][0]["code"] == ("production_not_promoted")
     assert promoted.status_code == 200
     assert promoted.json()["state"] == "promoted"
     assert promoted.json()["evaluation"]["production_ready"] is True
@@ -149,11 +181,7 @@ async def test_test_deployment_path_remains_available_but_production_is_blocked(
         deployments = client.get("/v1/deployments", headers=operator_headers())
         promotion = client.post(
             f"/v1/certifications/{receipt.payload.certification_id}/promote",
-            json={
-                "target_key": "production/support-agent",
-                "app_commit": COMMIT,
-                "image_digest": IMAGE,
-            },
+            json={},
             headers=operator_headers(),
         )
         readiness = client.get("/health/ready")
@@ -195,15 +223,23 @@ async def test_override_requires_admin_and_is_visible_and_auditable(sqlite_db) -
             json=payload,
             headers=admin_headers(),
         )
+        promoted = client.post(
+            f"/v1/certifications/{receipt.payload.certification_id}/promote",
+            json={},
+            headers=operator_headers(),
+        )
 
     assert denied.status_code == 403
     assert granted.status_code == 200
     body = granted.json()
     assert body["override"]["reason"] == "approved recovery window"
     assert body["evaluation"]["override_active"] is True
-    assert body["evaluation"]["production_ready"] is True
+    assert body["evaluation"]["production_ready"] is False
+    assert body["evaluation"]["blockers"][0]["code"] == "production_not_promoted"
     assert body["events"][-1]["event_type"] == "override_granted"
     assert body["events"][-1]["actor_id"] == "admin-1"
+    assert promoted.status_code == 200
+    assert promoted.json()["evaluation"]["production_ready"] is True
 
 
 async def test_tampered_receipt_fails_closed_and_foreign_scope_is_hidden(sqlite_db) -> None:
@@ -230,6 +266,77 @@ async def test_tampered_receipt_fails_closed_and_foreign_scope_is_hidden(sqlite_
 
     assert rejected.status_code == 409
     assert hidden.status_code == 404
+
+
+async def test_promotion_rejects_caller_supplied_target_and_artifact_identity(sqlite_db) -> None:
+    app, signer = await _app(sqlite_db)
+    app.state.bootstrap.serving_artifact_identity = ServingArtifactIdentity(
+        target_key="production/support-agent",
+        app_commit=COMMIT,
+        image_digest=IMAGE,
+    )
+    receipt = _receipt(signer, "f" * 32)
+
+    with TestClient(app) as client:
+        client.post(
+            "/v1/certifications",
+            json={"receipt": receipt.model_dump(mode="json")},
+            headers=operator_headers(),
+        )
+        forged = client.post(
+            f"/v1/certifications/{receipt.payload.certification_id}/promote",
+            json={
+                "target_key": "production/attacker-selected-target",
+                "app_commit": COMMIT,
+                "image_digest": IMAGE,
+            },
+            headers=operator_headers(),
+        )
+
+    assert forged.status_code == 422
+
+
+async def test_health_revokes_promotion_when_server_owned_artifact_changes(
+    sqlite_db, monkeypatch
+) -> None:
+    async def redis_disabled(*args, **kwargs):
+        return DependencyStatus(status="unavailable")
+
+    async def regulus_ok(*args, **kwargs):
+        return DependencyStatus(status="ok")
+
+    monkeypatch.setattr("zeroth.service.api.health.check_redis", redis_disabled)
+    monkeypatch.setattr("zeroth.service.api.health.check_regulus", regulus_ok)
+    app, signer = await _app(sqlite_db)
+    receipt = _receipt(signer, "6" * 32)
+
+    with TestClient(app) as client:
+        client.post(
+            "/v1/certifications",
+            json={"receipt": receipt.model_dump(mode="json")},
+            headers=operator_headers(),
+        )
+        promoted = client.post(
+            f"/v1/certifications/{receipt.payload.certification_id}/promote",
+            json={},
+            headers=operator_headers(),
+        )
+        app.state.bootstrap.serving_artifact_identity = ServingArtifactIdentity(
+            target_key="production/support-agent",
+            app_commit=COMMIT,
+            image_digest="sha256:" + "7" * 64,
+        )
+        readiness = client.get("/health/ready")
+        fetched = client.get(
+            f"/v1/certifications/{receipt.payload.certification_id}",
+            headers=operator_headers(),
+        )
+
+    assert promoted.status_code == 200
+    assert readiness.status_code == 200
+    assert readiness.json()["production_ready"] is False
+    assert readiness.json()["certification"]["blockers"][0]["code"] == ("certification_revoked")
+    assert fetched.json()["state"] == "revoked"
 
 
 async def test_foreign_tenant_certification_is_hidden_as_not_found(sqlite_db) -> None:

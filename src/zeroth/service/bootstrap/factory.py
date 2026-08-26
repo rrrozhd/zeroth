@@ -451,9 +451,20 @@ async def bootstrap_scoped_service(
     # rotated away from, and survives signing being switched off, so rows signed
     # earlier stay verifiable. Absent only when no key material exists at all.
     verifier = await build_verification_provider_async(settings.provenance, secret_provider)
+    from zeroth.service.certifications.models import ServingArtifactIdentity
     from zeroth.service.certifications.repository import CertificationRepository
     from zeroth.service.certifications.service import CertificationService
 
+    certification_settings = settings.certification
+    serving_artifact_identity = (
+        ServingArtifactIdentity(
+            target_key=deployment.deployment_ref,
+            app_commit=certification_settings.serving_app_commit,
+            image_digest=certification_settings.serving_image_digest,
+        )
+        if certification_settings.serving_app_commit and certification_settings.serving_image_digest
+        else None
+    )
     certification_service = CertificationService(
         CertificationRepository(database),
         verifier=verifier,
@@ -867,6 +878,7 @@ async def bootstrap_scoped_service(
             signer=signer,
             verifier=verifier,
             certification_service=certification_service,
+            serving_artifact_identity=serving_artifact_identity,
             policy_guard=policy_guard,
             langgraph_gateway_proxy=gateway_proxy,
             langgraph_gateway_transport=gateway_transport,

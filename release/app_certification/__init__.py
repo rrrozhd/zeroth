@@ -5,6 +5,7 @@ from .evidence import (
     finalize_attestation,
     validate_image_archive,
     validate_source_archive,
+    verify_finalized_attestation,
     write_provenance,
 )
 from .models import (
@@ -59,6 +60,7 @@ __all__ = [
     "bind_sbom",
     "validate_image_archive",
     "validate_source_archive",
+    "verify_finalized_attestation",
     "validate_report",
     "write_report",
     "write_provenance",

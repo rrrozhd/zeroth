@@ -4020,30 +4020,8 @@
       },
       "PromoteCertificationRequest": {
         "additionalProperties": false,
-        "description": "Exact target and artifact identity requested for production.",
-        "properties": {
-          "app_commit": {
-            "pattern": "^[0-9a-f]{40}$",
-            "title": "App Commit",
-            "type": "string"
-          },
-          "image_digest": {
-            "pattern": "^sha256:[0-9a-f]{64}$",
-            "title": "Image Digest",
-            "type": "string"
-          },
-          "target_key": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Target Key",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target_key",
-          "app_commit",
-          "image_digest"
-        ],
+        "description": "Promotion intent; the target and artifact identity are server-owned.",
+        "properties": {},
         "title": "PromoteCertificationRequest",
         "type": "object"
       },
