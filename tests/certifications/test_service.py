@@ -45,7 +45,7 @@ def _signed_receipt(
         workspace_id="workspace-a",
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10.1",
+        zeroth_version="0.23.10.2",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE,
         source_digest="sha256:" + "3" * 64,
@@ -339,6 +339,52 @@ async def test_same_promotion_is_idempotent_and_competing_receipt_is_atomic(
 
     with pytest.raises(PromotionConflictError):
         await service.promote(second.certification_id, "tenant-a", "workspace-a", **kwargs)
+
+
+async def test_event_history_snapshots_promotion_target_and_override_expiry(
+    service, signer
+) -> None:
+    record = await service.register(
+        _signed_receipt(signer, "6" * 32), actor_id="certifier", now=NOW
+    )
+    override_expiry = NOW + timedelta(minutes=15)
+    await service.grant_override(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        scopes=(OverrideScope.RECEIPT_EXPIRED,),
+        reason="approved recovery window",
+        expires_at=override_expiry,
+        actor_id="admin",
+        now=NOW,
+    )
+    await service.promote(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        artifact_identity=ARTIFACT,
+        actor_id="operator",
+        now=NOW,
+    )
+    await service.revoke(
+        record.certification_id,
+        "tenant-a",
+        "workspace-a",
+        reason="artifact replaced",
+        actor_id="operator",
+        now=NOW + timedelta(minutes=1),
+    )
+
+    events = await service.events(record.certification_id, "tenant-a", "workspace-a")
+    override_event = next(event for event in events if event.event_type == "override_granted")
+    promoted_event = next(event for event in events if event.event_type == "promoted")
+    revoked_event = next(event for event in events if event.event_type == "revoked")
+    revoked = await service.get(record.certification_id, "tenant-a", "workspace-a")
+
+    assert override_event.override_expires_at == override_expiry
+    assert promoted_event.promotion_target_key == ARTIFACT.target_key
+    assert revoked_event.promotion_target_key is None
+    assert revoked is not None and revoked.promotion_target_key is None
 
 
 async def test_event_failure_rolls_back_promotion(sqlite_db, signer, monkeypatch) -> None:

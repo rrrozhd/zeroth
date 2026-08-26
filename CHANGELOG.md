@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.2] - 2026-08-26
+
+### Security
+
+- Bind production promotion authorization to the currently served deployment
+  scope.
+- Retain immutable promotion-target and override-expiry snapshots in the
+  certification audit timeline.
+
 ## [0.23.10.1] - 2026-08-26
 
 ### Security

@@ -183,9 +183,7 @@ def register_certification_routes(app: FastAPI | APIRouter) -> None:
         certification_id: str,
         body: PromoteCertificationRequest,
     ) -> CertificationResponse:
-        principal = await require_permission(
-            request, Permission.DEPLOYMENT_ADMIN, enforce_deployment_scope=False
-        )
+        principal = await require_permission(request, Permission.DEPLOYMENT_ADMIN)
         service = _service(request)
         try:
             record = await service.promote(

@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.10.1 \
+  --zeroth-version 0.23.10.2 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
@@ -171,14 +171,16 @@ idempotent, while a competing certification receives HTTP 409. Signature
 failures, verifier/storage failures, revocation, unavailable serving identity,
 and commit or image mismatches fail closed. Readiness continuously compares the
 promoted identity with the serving identity; artifact drift revokes the receipt
-and releases its target.
+and releases its target. Promotion also requires the caller to own the currently
+served deployment scope.
 
 Administrators can submit a reasoned, scoped, time-bound exception through
 `POST /v1/certifications/{id}/override`. Overrides cover only receipt expiry or
 environment policy; they cannot cover an invalid signature, malformed evidence,
 revocation, or artifact identity mismatch. `GET /v1/certifications` and
 `GET /v1/certifications/{id}` expose the active override, append-only audit
-timeline, blocker codes, and operator remediation. The deployment console and
+timeline, including the exact promotion target and override expiry captured by
+each event, blocker codes, and operator remediation. The deployment console and
 readiness response use the same central decision. The console associates a
 certification only through an exact promotion target key; app-name similarity
 never grants readiness.

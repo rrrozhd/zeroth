@@ -850,6 +850,27 @@
           "event_type": {
             "type": "string"
           },
+          "override_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {

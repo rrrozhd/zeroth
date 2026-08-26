@@ -1001,6 +1001,29 @@
             "title": "Event Type",
             "type": "string"
           },
+          "override_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Expires At"
+          },
+          "promotion_target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Target Key"
+          },
           "reason": {
             "anyOf": [
               {
