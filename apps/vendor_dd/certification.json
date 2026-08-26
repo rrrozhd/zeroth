@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "app_name": "vendor-dd",
+  "zeroth_version": "0.23.10.2",
+  "lock_path": "uv.lock",
+  "dockerfile": "apps/vendor_dd/Dockerfile.certification",
+  "image_reference": "vendor-dd:certification",
+  "sbom_path": "evidence/vendor-dd.spdx.json",
+  "provenance_path": "evidence/vendor-dd.provenance.json",
+  "semantic_path": "apps/vendor_dd/certification.semantic.json",
+  "targets": {
+    "graph_builders": [
+      "apps.vendor_dd.graphs:build_main_graph",
+      "apps.vendor_dd.graphs:build_dimension_graph",
+      "apps.vendor_dd.graphs:build_chat_graph"
+    ],
+    "contracts": "apps.vendor_dd.contracts:CONTRACTS",
+    "auth_config": "apps.vendor_dd.entrypoint:build_auth_config",
+    "policy_guard": "apps.vendor_dd.entrypoint:build_policy_guard",
+    "migration_runner": "apps.vendor_dd.migrations:migrate",
+    "frontend_path": "frontend"
+  },
+  "smoke": {
+    "method": "POST",
+    "path": "/v1/runs",
+    "request_json": {
+      "input_payload": {
+        "vendor_name": "Nimbus Analytics",
+        "description": "Deterministic certification dossier",
+        "jurisdiction": "DE",
+        "category": "product_analytics"
+      }
+    },
+    "expected_status": 202,
+    "expected_json": {
+      "status": "queued",
+      "deployment_ref": "vendor-dd"
+    },
+    "headers_from_env": {
+      "X-API-Key": "APP_CERTIFICATION_API_KEY"
+    }
+  }
+}

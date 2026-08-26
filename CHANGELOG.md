@@ -7,6 +7,252 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.2] - 2026-08-26
+
+### Security
+
+- Bind production promotion authorization to the currently served deployment
+  scope.
+- Retain immutable promotion-target and override-expiry snapshots in the
+  certification audit timeline.
+
+## [0.23.10.1] - 2026-08-26
+
+### Security
+
+- Reverify finalized signed provenance before issuing promotion receipts.
+- Bind promotion and readiness to the server-owned serving target and artifact
+  identity, revoking certification when the serving artifact changes.
+
+## [0.23.10] - 2026-08-26
+
+### Added
+
+- Add signed, expiring app-certification receipts and a tenant-scoped API for
+  registration, inspection, revocation, authorized overrides, and atomic
+  production promotion.
+- Surface certification blockers and remediation through readiness, bounded
+  metrics, generated API clients, and the deployment console.
+
+### Security
+
+- Fail production promotion closed for untrusted, expired, environment-invalid,
+  revoked, commit-mismatched, or image-mismatched certification evidence while
+  preserving test deployment eligibility.
+
+## [0.23.9.20] - 2026-08-19
+
+### Security
+
+- Keep the root-owned candidate supervisor isolated with `-I -S` while loading
+  certifier dependencies only from its trusted interpreter environment.
+
+## [0.23.9.19] - 2026-08-18
+
+### Security
+
+- Validate the candidate account's locked, private, privilege-free identity and
+  effective POSIX access before direct certification.
+- Contain migration descendants behind a stable run-owned pidfd boundary and
+  treat account-wide process inventory only as a fail-closed leak signal.
+
+## [0.23.9.18] - 2026-08-18
+
+### Security
+
+- Bind every certification check to one certifier-owned declaration snapshot
+  and fail closed when candidate execution changes protected path identities.
+- Require an inactive, login-disabled, privilege-free candidate account and
+  target cleanup only at surviving candidate process IDs.
+
+## [0.23.9.17] - 2026-08-18
+
+### Security
+
+- Validate the source-bound runtime tenant before workflow output and shell use,
+  and keep the physical runtime image tag certifier-owned.
+- Require a distinct low-privilege identity and candidate-inaccessible result
+  paths for every direct certification run.
+
+## [0.23.9.16] - 2026-08-18
+
+### Security
+
+- Bind migrations and runtime containers to the validated semantic database
+  backend, and fail the reusable workflow closed when PostgreSQL is unprovisioned.
+- Emit an executable environment-authenticated certification runtime and retain
+  original certifier diagnostics when cleanup also fails.
+
+## [0.23.9.15] - 2026-08-17
+
+### Security
+
+- Isolate certification images behind collision-checked run tags, remove only
+  exact created image identities, and authenticate a canonical fail-closed
+  cleanup inventory.
+- Probe the exact runtime's Regulus imports, capabilities, authenticated budget,
+  and instrumentation paths in both candidate modes, and generate complete
+  deterministic semantic manifests from scaffold inputs.
+
+## [0.23.9.14] - 2026-08-17
+
+### Security
+
+- Replace candidate-authored semantic results with a committed, source-bound
+  static certification contract; keep only migration effects as dynamic input.
+- Sweep the dedicated candidate user after migration checks, contain candidate
+  builds in a bounded disposable BuildKit scope, include Regulus in the runtime
+  lock, and authenticate retained cleanup and workflow-stage evidence.
+
+## [0.23.9.13] - 2026-08-17
+
+### Security
+
+- Treat candidate evidence as provisional data, reject direct process and
+  descriptor control in declared targets, verify retained source against an
+  external Git commit tree, and contain dependency hooks inside bounded,
+  unconditionally cleaned container scopes.
+
+## [0.23.9.12] - 2026-08-17
+
+### Security
+
+- Supervise candidate imports, reducer resolution, and migration schema changes
+  from certifier-owned processes, and retain workflow reports outside the app checkout.
+
+## [0.23.9.11] - 2026-08-17
+
+### Security
+
+- Run certified applications on a digest-pinned certifier runtime, exercise
+  fresh migrations for the selected database backend, and validate app-local
+  custom reducers inside the contained candidate process.
+
+## [0.23.9.10] - 2026-08-17
+
+### Security
+
+- Bind certified container startup to the exact verified Zeroth wheel and
+  reject Dockerfiles that resolve outside the digest-bound build context.
+
+## [0.23.9.9] - 2026-08-17
+
+### Security
+
+- Isolate trusted certification checks from candidate dependencies and bind the exact installed Zeroth wheel.
+
+### Fixed
+
+- Preserve detailed failed certification reports and reject shape-compatible service authentication objects.
+
+## [0.23.9.8.1] - 2026-08-17
+
+### Fixed
+
+- Use supported bounded rotation for local Docker certification logs.
+
+## [0.23.9.8] - 2026-08-17
+
+### Security
+
+- Require candidate-owned migration targets and complete runtime graph
+  validation, including contract and custom-reducer resolution.
+- Refuse redirected smoke exchanges and frontend symlink escapes, then bind
+  signed provenance to the exact image name, SBOM inventory, certifier commit,
+  and retained build materials.
+- Bound certification jobs, containers, candidate descendants, archives, and
+  retained logs while replacing early-failure reports atomically.
+
+## [0.23.9.7] - 2026-08-16
+
+### Security
+
+- Separate candidate serialization from trusted finalization, execute frontend
+  drift tooling only from the pinned certifier, and terminate the complete HTTP
+  exchange at one wall-clock and response-size boundary.
+
+## [0.23.9.6] - 2026-08-16
+
+### Security
+
+- Isolate candidate target imports from mutable certifier modules, bound smoke
+  response size and read time, and stream retained-file hashing.
+
+## [0.23.9.5] - 2026-08-16
+
+### Security
+
+- Remove the candidate-writable certification result channel, bind semantic
+  evidence to the declared target sources, and cap importer output.
+- Preserve hidden handoffs, declared frontend paths, and final signed-report
+  verdict integrity throughout the reusable workflow.
+
+## [0.23.9.4] - 2026-08-16
+
+### Security
+
+- Separate low-privilege candidate imports and their diagnostic output from
+  supervisor-owned semantic finalization and the authoritative report.
+- Keep Docker inspection in the trusted runner and expose the isolated locked
+  frontend tool tree at the deterministic checker path.
+
+## [0.23.9.3] - 2026-08-16
+
+### Security
+
+- Isolate trusted and candidate check startup from app-controlled Python hooks
+  and require certifier-owned structured results instead of interpreter exit.
+- Build certification images from exact committed source archives and bind the
+  source digest through reports, SBOM, provenance, and verifier verdicts.
+
+## [0.23.9.2.1] - 2026-08-14
+
+### Fixed
+
+- Isolate the vendor-dd readiness regression from collection-time Regulus URL
+  defaults.
+
+## [0.23.9.2] - 2026-08-14
+
+### Security
+
+- Isolate candidate setup and semantic imports from pinned certifier and handoff
+  files, then digest-bind a fresh unprivileged verifier verdict before OIDC.
+- Validate classic Docker config/layer bytes and OCI descriptor/config/layer
+  bytes; reject unsafe or ambiguous archive members.
+
+### Fixed
+
+- Bootstrap the `vendor-dd` certification service in its seeded tenant scope.
+- Register semantic failure fixtures and the reviewed certification persistence
+  binding in the requirement and architecture gates.
+
+## [0.23.9.1] - 2026-08-14
+
+### Security
+
+- Bind app certification to certifier-owned semantic checks and exact retained
+  evidence.
+- Isolate candidate execution from the privileged provenance-attestation job.
+
+### Fixed
+
+- Reject unhealthy readiness payloads and retain canonical reports for
+  pre-certification failures.
+- Add a tested certification scaffold and semantic negative fixtures.
+
+## [0.23.9] - 2026-08-13
+
+### Added
+
+- Publish a reusable generated-app certification workflow with immutable
+  certifier checkout, measured app and image identity, isolated packaged and
+  ephemeral smoke boundaries, SPDX SBOM, provenance attestation, and retained
+  failure diagnostics.
+- Add the ready-to-run `vendor-dd` certification declaration and non-root image
+  reference, including environment-resolved authentication with no literal
+  secret in the declaration.
+
 ## [0.23.8.1.3] - 2026-08-13
 
 ### Changed
@@ -51,6 +297,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.23.8] - 2026-08-13
 
+### Added
+
+- Add a strict generated-app certification declaration and fail-closed runner
+  with argv-only checks, deterministic smoke assertions, measured candidate
+  identity, and retained SBOM and provenance evidence.
+
 ### Fixed
 
 - A tool call from a provider that supplies no call id no longer collides with the same call in a
@@ -89,7 +341,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (ZER-49 follow-up).
 - A pre-existing PostgreSQL econ database reports its schema state rather than failing at read time
   on a column only the migration chain adds (ZER-49 follow-up, A01-11).
-
 
 ## [0.23.7] - 2026-08-13
 

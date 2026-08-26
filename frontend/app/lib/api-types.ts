@@ -314,6 +314,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/certifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Certifications */
+        get: operations["list_certifications_v1_certifications_get"];
+        put?: never;
+        /** Create Certification */
+        post: operations["create_certification_v1_certifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/certifications/{certification_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Certification */
+        get: operations["get_certification_v1_certifications__certification_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/certifications/{certification_id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Override Certification */
+        post: operations["override_certification_v1_certifications__certification_id__override_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/certifications/{certification_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Certification */
+        post: operations["promote_certification_v1_certifications__certification_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/certifications/{certification_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Certification */
+        post: operations["revoke_certification_v1_certifications__certification_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/connectors": {
         parameters: {
             query?: never;
@@ -2622,6 +2708,160 @@ export interface components {
             savings_pct?: number | null;
         };
         /**
+         * CertificationBlocker
+         * @description Machine-readable blocker paired with a console remediation.
+         */
+        CertificationBlocker: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * Overridable
+             * @default false
+             */
+            overridable: boolean;
+            /** Remediation */
+            remediation: string;
+        };
+        /**
+         * CertificationEvaluation
+         * @description Central readiness decision reused by API, probes, metrics, and console.
+         */
+        CertificationEvaluation: {
+            /**
+             * Blockers
+             * @default []
+             */
+            blockers: components["schemas"]["CertificationBlocker"][];
+            /** Certification Id */
+            certification_id?: string | null;
+            /**
+             * Override Active
+             * @default false
+             */
+            override_active: boolean;
+            /** Production Ready */
+            production_ready: boolean;
+            state?: components["schemas"]["CertificationState"] | null;
+            /** Test Deployable */
+            test_deployable: boolean;
+        };
+        /**
+         * CertificationEvent
+         * @description One append-only certification audit event.
+         */
+        CertificationEvent: {
+            /** Actor Id */
+            actor_id: string;
+            /** Certification Id */
+            certification_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Override Expires At */
+            override_expires_at?: string | null;
+            /** Promotion Target Key */
+            promotion_target_key?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Scopes
+             * @default []
+             */
+            scopes: components["schemas"]["OverrideScope"][];
+            state: components["schemas"]["CertificationState"];
+            /** Tenant Id */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
+        /**
+         * CertificationOverride
+         * @description Time-bound administrative exception retained with the certification.
+         */
+        CertificationOverride: {
+            /** Actor Id */
+            actor_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Reason */
+            reason: string;
+            /** Scopes */
+            scopes: components["schemas"]["OverrideScope"][];
+        };
+        /**
+         * CertificationOverrideRequest
+         * @description Authorized, scoped, expiring exception request.
+         */
+        CertificationOverrideRequest: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Reason */
+            reason: string;
+            /** Scopes */
+            scopes: components["schemas"]["OverrideScope"][];
+        };
+        /**
+         * CertificationResponse
+         * @description One certification with the central decision and audit evidence.
+         */
+        CertificationResponse: {
+            /** App Commit */
+            app_commit: string;
+            /** App Name */
+            app_name: string;
+            /** Certification Id */
+            certification_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            evaluation: components["schemas"]["CertificationEvaluation"];
+            /** Events */
+            events: components["schemas"]["CertificationEvent"][];
+            /** Image Digest */
+            image_digest: string;
+            override: components["schemas"]["CertificationOverride"] | null;
+            /** Promotion Target Key */
+            promotion_target_key: string | null;
+            /** State */
+            state: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace Id */
+            workspace_id: string | null;
+        };
+        /**
+         * CertificationState
+         * @description Lifecycle state for one immutable candidate identity.
+         * @enum {string}
+         */
+        CertificationState: "buildable" | "test_deployable" | "certified" | "promoted" | "revoked";
+        /**
          * ConnectorCreateRequest
          * @description Payload for creating a runtime-managed connector.
          */
@@ -3372,6 +3612,7 @@ export interface components {
          */
         HealthResponse: {
             audit_delivery?: components["schemas"]["AuditDeliveryHealth"] | null;
+            certification?: components["schemas"]["CertificationEvaluation"] | null;
             /** Deployment Ref */
             deployment_ref: string;
             /** Deployment Version */
@@ -3379,6 +3620,11 @@ export interface components {
             /** Graph Version Ref */
             graph_version_ref: string;
             langgraph_gateway?: components["schemas"]["LangGraphGatewayHealth"] | null;
+            /**
+             * Production Ready
+             * @default false
+             */
+            production_ready: boolean;
             /**
              * Status
              * @default ok
@@ -3945,6 +4191,12 @@ export interface components {
             side_effect: "read_only" | "side_effecting" | "unknown";
         };
         /**
+         * OverrideScope
+         * @description Explicitly overridable production-readiness blockers.
+         * @enum {string}
+         */
+        OverrideScope: "receipt_expired" | "environment_policy";
+        /**
          * PortDefinitionResponse
          * @description A port on a node type.
          */
@@ -3957,6 +4209,57 @@ export interface components {
             label: string;
             /** Type */
             type: string;
+        };
+        /**
+         * PromoteCertificationRequest
+         * @description Promotion intent; the target and artifact identity are server-owned.
+         */
+        PromoteCertificationRequest: Record<string, never>;
+        /**
+         * PromotionReceiptPayload
+         * @description Immutable certification claims accepted by the runtime promotion gate.
+         */
+        PromotionReceiptPayload: {
+            /** App Commit */
+            app_commit: string;
+            /** App Name */
+            app_name: string;
+            /** Certification Id */
+            certification_id: string;
+            /** Environments */
+            environments: ("test" | "production")[];
+            /** Evidence Digest */
+            evidence_digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Image Digest */
+            image_digest: string;
+            /** Image Reference */
+            image_reference: string;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /** Report Digest */
+            report_digest: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Source Digest */
+            source_digest: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Zeroth Version */
+            zeroth_version: string;
         };
         /**
          * PublicContractSchemaResponse
@@ -4059,13 +4362,23 @@ export interface components {
          * @description Serialized readiness payload with schema-revision evidence.
          */
         ReadinessResponse: {
+            certification: components["schemas"]["CertificationEvaluation"];
             /** Checks */
             checks?: {
                 [key: string]: components["schemas"]["DependencyStatus"];
             };
+            /** Production Ready */
+            production_ready: boolean;
             schema_revision: components["schemas"]["SchemaRevision"];
             /** Status */
             status: string;
+        };
+        /**
+         * RegisterCertificationRequest
+         * @description A portable certification receipt to retain and evaluate.
+         */
+        RegisterCertificationRequest: {
+            receipt: components["schemas"]["SignedPromotionReceipt"];
         };
         /**
          * RegisteredTool
@@ -4136,6 +4449,14 @@ export interface components {
             run_ttl_seconds?: number | null;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * RevokeCertificationRequest
+         * @description Operator reason retained with an explicit revocation.
+         */
+        RevokeCertificationRequest: {
+            /** Reason */
+            reason: string;
         };
         /**
          * RightsizingRequest
@@ -4475,6 +4796,21 @@ export interface components {
          * @enum {string}
          */
         SideEffectClass: "read_only" | "side_effecting" | "unknown";
+        /**
+         * SignedPromotionReceipt
+         * @description Certification payload plus a keyed signature over its canonical digest.
+         */
+        SignedPromotionReceipt: {
+            /** Digest */
+            digest: string;
+            payload: components["schemas"]["PromotionReceiptPayload"];
+            /** Signature */
+            signature?: string | null;
+            /** Signing Algorithm */
+            signing_algorithm?: string | null;
+            /** Signing Key Id */
+            signing_key_id?: string | null;
+        };
         /**
          * SpendReport
          * @description Deployment-wide spend attribution, ranked by right-sizing opportunity.
@@ -5705,6 +6041,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_certifications_v1_certifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"][];
+                };
+            };
+        };
+    };
+    create_certification_v1_certifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterCertificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_certification_v1_certifications__certification_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                certification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    override_certification_v1_certifications__certification_id__override_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                certification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CertificationOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_certification_v1_certifications__certification_id__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                certification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteCertificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_certification_v1_certifications__certification_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                certification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeCertificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationResponse"];
                 };
             };
             /** @description Validation Error */

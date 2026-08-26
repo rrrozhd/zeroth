@@ -21,6 +21,8 @@ IMAGE_EXPORT_COMMAND = (
     "langgraph",
     "--extra",
     "langgraph-gateway",
+    "--extra",
+    "regulus",
     "--no-emit-project",
     "--no-annotate",
     "--no-header",
