@@ -392,3 +392,111 @@ async def test_runner_dispatches_sidecar_not_local(tmp_path: Path) -> None:
     assert result.sandbox_result.backend == "sidecar"
     sidecar_client.execute.assert_awaited_once()
     local_spy.assert_not_called()  # the previously-broken host-execution path
+
+
+@pytest.mark.asyncio
+async def test_runner_sidecar_output_file_json_round_trips_through_workspace_capture(
+    tmp_path: Path,
+) -> None:
+    """ZER-37: run_binding on backend=sidecar with OUTPUT_FILE_JSON stages the
+    workspace (upload before execute), asks the sidecar to capture the
+    RELATIVE output file, rewrites the host ZEROTH_*_FILE env paths to their
+    /workspace form, and consumes the captured payload through the normal
+    extract_output path. Pre-fix the request carried raw host tempdir paths
+    and no workspace at all, so OUTPUT_FILE_JSON units could never work."""
+    import base64
+    import json
+    import tarfile
+    from io import BytesIO
+
+    from zeroth.integrations.execution.sandbox import SandboxBackendMode, SandboxConfig
+    from zeroth.integrations.sandbox.models import (
+        SidecarExecuteRequest,
+        SidecarExecuteResponse,
+    )
+
+    class RecordingSidecarClient:
+        def __init__(self, response: SidecarExecuteResponse) -> None:
+            self.events: list[str] = []
+            self.uploads: list[tuple[str, bytes]] = []
+            self.requests: list[SidecarExecuteRequest] = []
+            self._response = response
+
+        async def upload_workspace(self, workspace_id: str, tar_content: bytes) -> None:
+            self.events.append("upload")
+            self.uploads.append((workspace_id, bytes(tar_content)))
+
+        async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
+            self.events.append("execute")
+            self.requests.append(request)
+            return self._response
+
+    payload = json.dumps({"answer": "sidecar", "score": 2}).encode()
+    client = RecordingSidecarClient(
+        SidecarExecuteResponse(
+            execution_id="exec",
+            status="completed",
+            returncode=0,
+            stdout="",
+            stderr="",
+            duration_seconds=0.1,
+            output_file_b64=base64.b64encode(payload).decode(),
+        )
+    )
+    script = tmp_path / "unit.py"
+    script.write_text("raise SystemExit('must never run on the host')", encoding="utf-8")
+    manifest = WrappedCommandUnitManifest(
+        unit_id="sidecar-capture-unit",
+        onboarding_mode=ExecutionMode.WRAPPED_COMMAND,
+        runtime="command",
+        artifact_source=CommandArtifactSource(ref=str(script)),
+        entrypoint_type="command",
+        input_mode=InputMode.INPUT_FILE_JSON,
+        output_mode=OutputMode.OUTPUT_FILE_JSON,
+        input_contract_ref="contract://input",
+        output_contract_ref="contract://output",
+        run_config=RunConfig(command=[sys.executable, str(script)]),
+        cache_identity_fields={"script": script.name},
+    )
+    registry = ExecutableUnitRegistry()
+    registry.register(
+        ExecutableUnitBinding(
+            manifest_ref="eu://sidecar-capture-unit",
+            manifest=manifest,
+            input_model=DemoInput,
+            output_model=DemoOutput,
+            allowed_env_keys=("PATH",),
+        )
+    )
+    manager = SandboxManager(
+        config=SandboxConfig(backend=SandboxBackendMode.SIDECAR),
+        sidecar_client=client,
+        base_env={"PATH": os.environ["PATH"]},
+    )
+    runner = ExecutableUnitRunner(registry, sandbox_manager=manager)
+
+    result = await runner.run_binding(
+        registry.get("eu://sidecar-capture-unit"),
+        {"name": "x", "count": 1},
+        read_only_paths=("vendor",),
+    )
+
+    # the captured file came back through the normal extract_output path
+    assert result.output_data == {"answer": "sidecar", "score": 2}
+    assert result.extracted_output is not None
+    assert result.extracted_output.payload == {"answer": "sidecar", "score": 2}
+    assert result.sandbox_result is not None
+    assert result.sandbox_result.backend == "sidecar"
+
+    assert client.events == ["upload", "execute"]
+    request = client.requests[0]
+    assert request.workspace_id is not None
+    assert request.working_directory == "/workspace"
+    assert request.capture_output_file == "zeroth-output.json"
+    assert request.read_only_paths == ["vendor"]
+    # host tempdir paths were rewritten to their container form
+    assert request.environment["ZEROTH_OUTPUT_FILE"] == "/workspace/zeroth-output.json"
+    assert request.environment["ZEROTH_INPUT_FILE"] == "/workspace/zeroth-input.json"
+    # the injected input file travelled in the staged tree
+    with tarfile.open(fileobj=BytesIO(client.uploads[0][1]), mode="r:") as archive:
+        assert "zeroth-input.json" in archive.getnames()

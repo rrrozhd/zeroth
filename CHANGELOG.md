@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1]
+
+### Added
+
+- ZER-37 phase 2: the GitHub App integration core (`zeroth.integrations.github`) — RS256
+  App-JWT issuance, a repo-scoped installation-token broker with a lifetime redaction
+  history, a governed GitHub REST client, object-level tree policy (Phase A), a scrubbed
+  credential-invisible git subprocess runner, and the checkout pipeline (API-pinned
+  commit fetch into a per-tenant bare cache, hostile-tree hardening, staged materialization).
+- ZER-37 service layer: tenant-bound `github_installations`/`github_repositories`/
+  `github_webhook_deliveries` persistence (migration 027), the HMAC-verified inbound
+  GitHub webhook receiver on a delegated auth path, installation claim/refresh service,
+  maintenance worker, `github` settings block, and construct-when-enabled bootstrap.
+- ZER-37 sidecar staging channel: hardened tar workspace uploads
+  (`PUT /workspaces/{id}`), per-execution named-volume staging via offline helper
+  containers, bounded output-file capture, read-only subtree mounts on the docker
+  backend, and end-to-end dispatch plumbing that stages sandbox trees to the sidecar
+  with rewritten container paths.
+
+### Fixed
+
+- Sidecar executions longer than 60 seconds no longer fail client-side: the sidecar
+  client's per-request deadline now tracks the execution timeout.
+- The sidecar dispatch path no longer ships host filesystem paths in workload
+  environment variables, and honors the staged working directory.
+
 ## [0.24]
 
 ### Added

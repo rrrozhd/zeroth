@@ -338,6 +338,30 @@ class PolicySettings(BaseModel):
     """
 
 
+class GitHubAppSettings(BaseModel):
+    """GitHub App integration configuration (ZER-37).
+
+    ``enabled`` gates construction of the whole surface: when False nothing is
+    built and the webhook route is not registered. Secrets never live here --
+    ``private_key_secret_name`` and ``webhook_secret_name`` are logical names
+    resolved through the shared :class:`SecretProvider` (WS-F). The three
+    ``max_*`` caps mirror the :class:`GitHubAppConfig` defaults so the frozen
+    integration config can be built from settings without re-stating them.
+    """
+
+    enabled: bool = False
+    app_id: str = ""
+    api_base_url: str = "https://api.github.com"
+    git_base_url: str = "https://github.com"
+    private_key_secret_name: str = "github.app_private_key"
+    webhook_secret_name: str = "github.webhook_secret"
+    cache_dir: str = ""
+    max_file_bytes: int = 50 * 1024 * 1024
+    max_total_bytes: int = 500 * 1024 * 1024
+    max_file_count: int = 50_000
+    checkout_ttl_seconds: int = 900
+
+
 class LangGraphGatewaySettings(BaseModel):
     """Configuration for the optional Agent Server-compatible gateway."""
 
@@ -476,6 +500,7 @@ class ZerothSettings(BaseSettings):
     policy: PolicySettings = Field(default_factory=PolicySettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     langgraph_gateway: LangGraphGatewaySettings = Field(default_factory=LangGraphGatewaySettings)
+    github: GitHubAppSettings = Field(default_factory=GitHubAppSettings)
 
     @classmethod
     def settings_customise_sources(
@@ -501,7 +526,7 @@ ZerothSettings.__signature__ = inspect.signature(ZerothSettings).replace(
     parameters=[
         parameter
         for name, parameter in _settings_parameters.items()
-        if name not in {"approval_notifications", "langgraph_gateway"}
+        if name not in {"approval_notifications", "github", "langgraph_gateway"}
     ]
 )
 

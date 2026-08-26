@@ -96,6 +96,27 @@ async def test_execute_argv_applies_shared_hardening_without_host_mounts(monkeyp
     assert [token for token in cmd if token.startswith("--network")] == [
         "--network=zeroth-sandbox-hardened"
     ]
+    # ZER-37 pins the whole argv: a request that stages no workspace must
+    # assemble a byte-identical command line, with no volume tokens at all.
+    assert cmd == [
+        "docker",
+        "run",
+        "--rm",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--tmpfs",
+        "/tmp",
+        "--network=zeroth-sandbox-hardened",
+        "-w",
+        "/workspace",
+        "python:3.12",
+        "python",
+        "-c",
+        "pass",
+    ]
 
 
 @pytest.mark.parametrize(

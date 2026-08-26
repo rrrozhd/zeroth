@@ -60,6 +60,22 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "cost_measurement",
         "estimated_cost_usd",
     ),
+    # ZER-37: sidecar workspace staging. Additive and optional on all three
+    # models; a request naming none of them behaves exactly as before, and the
+    # response payload field is carried on the immediate execute response only.
+    "zeroth.integrations.sandbox.models:SidecarExecuteRequest": (
+        "capture_output_file",
+        "read_only_paths",
+        "workspace_id",
+    ),
+    "zeroth.integrations.sandbox.models:SidecarExecuteResponse": (
+        "output_file_b64",
+        "output_file_truncated",
+    ),
+    "zeroth.integrations.sandbox.models:SidecarStatusResponse": (
+        "output_file_b64",
+        "output_file_truncated",
+    ),
     "zeroth.contracts.langgraph_gateway.models:RunCapabilityEvidence": (
         "adapter_version",
         "inventory_fingerprint",
@@ -93,6 +109,9 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.governance.retention.models:ErasureResult": ("operations_deleted",),
     "zeroth.platform.config.settings:ZerothSettings": (
         "approval_notifications",
+        # ZER-37: the GitHub App integration settings block. Additive and
+        # default-off; hidden for the same reason as the gateway block.
+        "github",
         "langgraph_gateway",
     ),
     "zeroth.runtime.agents.provider:ProviderResponse": (
@@ -133,6 +152,14 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "decision_repository",
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
+        # ZER-37: optional GitHub App integration components, absent unless
+        # settings.github.enabled -- additive, like the gateway fields.
+        "github_client",
+        "github_integration_service",
+        "github_maintenance_worker",
+        "github_repository",
+        "github_token_broker",
+        "github_webhook_secret_resolver",
         "inventory_registration_repository",
         "langgraph_enforcement_service",
         "langgraph_gateway_capability_reporter",

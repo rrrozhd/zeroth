@@ -166,6 +166,15 @@ async def _service_runtime_lifespan(app: FastAPI):
             retention_worker.poll_loop(), name="retention-purge"
         )
 
+    # ZER-37: GitHub maintenance janitor (webhook delivery ledger pruning).
+    # None unless settings.github.enabled built the integration surface.
+    github_maintenance_task: asyncio.Task | None = None
+    github_maintenance_worker = getattr(app.state.bootstrap, "github_maintenance_worker", None)
+    if github_maintenance_worker is not None:
+        github_maintenance_task = asyncio.create_task(
+            github_maintenance_worker.poll_loop(), name="github-maintenance"
+        )
+
     # Phase 16: ARQ wakeup consumer task.
     arq_consumer_task: asyncio.Task | None = None
     arq_pool = getattr(app.state.bootstrap, "arq_pool", None)
@@ -234,6 +243,12 @@ async def _service_runtime_lifespan(app: FastAPI):
         retention_worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await retention_worker_task
+
+    # Shutdown GitHub maintenance janitor.
+    if github_maintenance_task is not None:
+        github_maintenance_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await github_maintenance_task
 
     # Close webhook HTTP client.
     webhook_http_client = getattr(app.state.bootstrap, "webhook_http_client", None)

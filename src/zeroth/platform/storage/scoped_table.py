@@ -51,6 +51,7 @@ ASYNC_PERSISTENCE_MODULES = frozenset(
         "platform/secrets/vault.py",
         "runtime/agents/thread_store.py",
         "service/deployments/repository.py",
+        "service/github/repository.py",
         "service/langgraph_gateway/enforcement_store.py",
         "service/webhooks/repository.py",
     }
@@ -73,6 +74,9 @@ _SERVICE_TABLES = (
     "decision_records",
     "deployment_versions",
     "enforcement_heartbeats",
+    "github_installations",
+    "github_repositories",
+    "github_webhook_deliveries",
     "graph_versions",
     "langgraph_decisions",
     "langgraph_inventories",
@@ -150,6 +154,25 @@ _TASK9_RESOURCE_OPERATIONS = {
         }
     ),
     "enforcement_heartbeats": frozenset({ResourceOperation.CREATE, ResourceOperation.READ}),
+    "github_installations": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "github_repositories": frozenset(
+        {
+            ResourceOperation.CREATE,
+            ResourceOperation.READ,
+            ResourceOperation.ENUMERATE,
+            ResourceOperation.UPDATE,
+        }
+    ),
+    "github_webhook_deliveries": frozenset(
+        {ResourceOperation.CREATE, ResourceOperation.ENUMERATE, ResourceOperation.DELETE}
+    ),
     "graph_versions": frozenset(
         {
             ResourceOperation.CREATE,
