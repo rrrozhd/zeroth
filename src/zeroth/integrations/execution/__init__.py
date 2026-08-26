@@ -61,6 +61,7 @@ from zeroth.integrations.execution.models import (
     RuntimeLanguage,
     WrappedCommandUnitManifest,
 )
+from zeroth.integrations.execution.repo_units import validate_staged_manifest
 from zeroth.integrations.execution.runner import (
     ExecutableUnitAdmissionError,
     ExecutableUnitBinding,
@@ -158,4 +159,5 @@ __all__ = [
     "docker_container_running",
     "extract_output",
     "inject_input",
+    "validate_staged_manifest",
 ]
