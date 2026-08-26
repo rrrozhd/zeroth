@@ -350,35 +350,36 @@ async def _measure(
             json={"input_payload": {"value": sequence}},
             headers=headers(target.scope.secrets["operator"]),
         )
-        if response.status_code == 202:
-            return await _accepted_row(
-                target,
-                profile,
-                sequence,
-                profile_started,
-                started,
-                cpu_started,
-                response,
-            )
-        finished = time.perf_counter()
-        retry = response.headers.get("Retry-After")
-        lifecycle = [
-            {"state": "submitted", "at_ms": (started - profile_started) * 1000},
-            {"state": "rejected", "at_ms": (finished - profile_started) * 1000},
-        ]
-        return _row(
+
+    if response.status_code == 202:
+        return await _accepted_row(
             target,
             profile,
             sequence,
-            response.status_code,
-            int(retry) if retry else None,
-            (started - profile_started) * 1000,
-            (finished - profile_started) * 1000,
-            0,
-            str(target.scope.service.worker.worker_id),
-            (time.process_time() - cpu_started) / max(finished - started, 1e-9) * 100,
-            lifecycle,
+            profile_started,
+            started,
+            cpu_started,
+            response,
         )
+    finished = time.perf_counter()
+    retry = response.headers.get("Retry-After")
+    lifecycle = [
+        {"state": "submitted", "at_ms": (started - profile_started) * 1000},
+        {"state": "rejected", "at_ms": (finished - profile_started) * 1000},
+    ]
+    return _row(
+        target,
+        profile,
+        sequence,
+        response.status_code,
+        int(retry) if retry else None,
+        (started - profile_started) * 1000,
+        (finished - profile_started) * 1000,
+        0,
+        str(target.scope.service.worker.worker_id),
+        (time.process_time() - cpu_started) / max(finished - started, 1e-9) * 100,
+        lifecycle,
+    )
 
 
 async def _run_profile(targets: list[Target], name: str, settings: dict) -> list[dict]:

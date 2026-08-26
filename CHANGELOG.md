@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10.9] - 2026-08-26
+
+### Fixed
+
+- Release load-probe request concurrency immediately after each HTTP response,
+  before terminal settlement or rejection evidence is collected.
+
 ## [0.23.10.8] - 2026-08-18
 
 ### Fixed
