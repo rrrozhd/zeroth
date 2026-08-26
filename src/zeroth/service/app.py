@@ -246,6 +246,16 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_connector_routes(v1_router)
     register_manifest_routes(v1_router)
 
+    # ZER-37: repository-unit routes ride the same enabled flag as the GitHub
+    # integration -- register_repo_routes is a no-op unless the bootstrap
+    # carries the integration + repository-unit components, so a disabled (or
+    # bare inventory) bootstrap keeps them out of every route contract. Unlike
+    # the HMAC webhook receiver these are ordinary credentialed routes, so
+    # they go through the standard /v1 + unversioned dual mount.
+    from zeroth.service.api.repo_api import register_repo_routes
+
+    register_repo_routes(v1_router, bootstrap)
+
     app.include_router(v1_router)
 
     # ZER-37: the GitHub webhook receiver, registered once directly on the
@@ -303,6 +313,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_deployment_routes(compat_router)
     register_connector_routes(compat_router)
     register_manifest_routes(compat_router)
+    register_repo_routes(compat_router, bootstrap)
 
     app.include_router(compat_router)
 

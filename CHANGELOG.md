@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.4]
+
+### Added
+
+- ZER-37 phase 7: the repository API surface — installation claim/listing,
+  repository listing, ref resolution, checkout creation with validation
+  reports and attestations, repository runs, and run evidence bundles, all
+  tenant-scoped with byte-identical not-found parity and three new
+  `repository:*` permissions.
+- Security closure: the minted installation token is now a canary across all
+  observable surfaces (proven against a run that authenticated with it on the
+  wire), a backend-parity pin for repository units, and settings-absorption
+  hardening — both `zeroth.yaml` and `.env` paths resolve once at process
+  start (`ZEROTH_SETTINGS_FILE` / `ZEROTH_ENV_FILE` overrides), so a
+  post-start directory change into a hostile checkout cannot re-target
+  platform configuration.
+
 ## [0.24.3]
 
 ### Added

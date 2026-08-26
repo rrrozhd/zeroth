@@ -173,6 +173,16 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
     "src/zeroth/service/api/econ_analytics_api.py": {
         (("_windowed_runs_and_audits",), ("bootstrap", "audit_repository")): frozenset({"list"}),
     },
+    # ZER-37: the repo-run evidence route reads the run's audit records through
+    # the bootstrap's deployment-scoped audit repository, mirroring
+    # audit_api.get_run_evidence (tenant + workspace scoped, per-record
+    # require_resource_scope before serialization).
+    "src/zeroth/service/api/repo_api.py": {
+        (
+            ("register_repo_routes", "get_repository_run_evidence"),
+            ("bootstrap", "audit_repository"),
+        ): frozenset({"list_by_run"}),
+    },
     "src/zeroth/service/api/retention_api.py": {
         (
             ("register_retention_routes", "_erase_tenant"),
@@ -4413,6 +4423,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/api/audit_api.py::list_audits::list",
     "src/zeroth/service/api/authentication.py::record_service_denial::write",
     "src/zeroth/service/api/econ_analytics_api.py::_windowed_runs_and_audits::list",
+    "src/zeroth/service/api/repo_api.py::get_repository_run_evidence::list_by_run",
     "src/zeroth/service/api/retention_api.py::_erase_tenant::list_erasable",
     "src/zeroth/service/api/retention_api.py::_require_run_tenant::list",
     "src/zeroth/service/api/rightsizing_api.py::rightsizing_opportunities::list",

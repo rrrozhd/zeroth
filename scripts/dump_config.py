@@ -33,8 +33,12 @@ PREAMBLE = """# Configuration Reference
 
 Every Zeroth setting is loaded from (in priority order): environment variables
 (`ZEROTH_` prefix, nested via `__`), a local `.env` file, then `zeroth.yaml`.
-This reference is auto-generated from `zeroth.platform.config.settings` via
-`scripts/dump_config.py` — **do not edit by hand**.
+Both file paths are resolved once at process start from the launch working
+directory; set `ZEROTH_ENV_FILE` and `ZEROTH_SETTINGS_FILE` to absolute paths
+to pin them explicitly (recommended for deployments that execute
+repository-backed workloads). This reference is auto-generated from
+`zeroth.platform.config.settings` via `scripts/dump_config.py` — **do not
+edit by hand**.
 
 CI runs `python scripts/dump_config.py --check` on every PR and fails if this
 file is stale.
