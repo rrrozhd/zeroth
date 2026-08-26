@@ -705,19 +705,39 @@ async def bootstrap_scoped_service(
     github_integration_service: object | None = None
     github_maintenance_worker: object | None = None
     github_webhook_secret_resolver: object | None = None
+    repo_checkout_repository: object | None = None
+    repo_run_repository: object | None = None
+    repository_unit_service: object | None = None
+    repo_run_worker: object | None = None
     if settings.github.enabled:
         if shutil.which("git") is None:
             raise DeploymentBootstrapError(
                 "GitHub integration is enabled but the 'git' binary is not on PATH"
             )
+        import tempfile
+        from pathlib import Path
+
+        from zeroth.contracts.repo_manifest import RepoUnitPolicy
+        from zeroth.integrations.execution.integrity import AdmissionController
         from zeroth.integrations.github.app_jwt import AppJwtIssuer
+        from zeroth.integrations.github.checkout import CheckoutService
         from zeroth.integrations.github.client import GitHubAppClient
         from zeroth.integrations.github.config import GitHubAppConfig
+        from zeroth.integrations.github.git_cli import GitInvocation
         from zeroth.integrations.github.token_broker import InstallationTokenBroker
         from zeroth.platform.secrets.provider import resolve_secret_async
         from zeroth.service.github.janitor import GitHubMaintenanceWorker
         from zeroth.service.github.repository import SQLiteGitHubRepository
         from zeroth.service.github.service import GitHubIntegrationService
+        from zeroth.service.repositories.repository import (
+            SQLiteRepoCheckoutRepository,
+            SQLiteRepoRunRepository,
+        )
+        from zeroth.service.repositories.service import (
+            RepoCheckoutPipelineRecorder,
+            RepositoryUnitService,
+        )
+        from zeroth.service.repositories.worker import RepoRunWorker
 
         github_config = GitHubAppConfig(
             app_id=settings.github.app_id,
@@ -742,8 +762,72 @@ async def bootstrap_scoped_service(
             jwt_issuer=github_jwt_issuer,
             tenant_id=deployment.tenant_id,
         )
+        # ZER-37 orchestration glue: checkout staging, repo-run persistence,
+        # the repository-unit service, and the repo-run execution worker. The
+        # staging root defaults to a "stages" sibling of the resolved cache
+        # directory; directories are created lazily at first use, not here.
+        github_cache_root = (
+            Path(settings.github.cache_dir)
+            if settings.github.cache_dir
+            else Path(tempfile.gettempdir()) / "zeroth-github" / "cache"
+        )
+        github_staging_root = (
+            Path(settings.github.staging_dir)
+            if settings.github.staging_dir
+            else github_cache_root.parent / "stages"
+        )
+        repo_checkout_repository = SQLiteRepoCheckoutRepository(database)
+        repo_run_repository = SQLiteRepoRunRepository(database)
+        # One admission controller shared by the staging service (which
+        # registers each checkout's trusted manifest digest) and the run
+        # worker's per-run runners (which enforce it). Repository units are
+        # python3-only in v1, so the runtime/command allowlists pin that.
+        repo_admission_controller = AdmissionController(
+            allowed_runtimes={"python"}, allowed_commands={"python3"}
+        )
+        repo_policy = RepoUnitPolicy()
+        github_checkout_service = CheckoutService(
+            github_config,
+            github_client,
+            github_token_broker,
+            GitInvocation(),
+            cache_dir=github_cache_root,
+            store=RepoCheckoutPipelineRecorder(repo_checkout_repository),
+        )
+        repository_unit_service = RepositoryUnitService(
+            checkout_repository=repo_checkout_repository,
+            run_repository=repo_run_repository,
+            github_repository=github_repository,
+            checkout_service=github_checkout_service,
+            admission_controller=repo_admission_controller,
+            policy=repo_policy,
+            staging_root=github_staging_root,
+            signer=signer,
+            checkout_ttl_seconds=settings.github.checkout_ttl_seconds,
+        )
+        # The worker shares the bootstrap runner's SandboxManager (so repo
+        # runs honour settings.sandbox) but builds a private per-run
+        # ExecutableUnitRunner around it, because the checkout-materializer
+        # seam is per-run state.
+        repo_run_worker = RepoRunWorker(
+            checkout_repository=repo_checkout_repository,
+            run_repository=repo_run_repository,
+            github_repository=github_repository,
+            audit_repository=audit_repository,
+            policy=repo_policy,
+            sandbox_manager=resolved_executable_unit_runner.sandbox_manager,
+            admission_controller=repo_admission_controller,
+            deployment_ref=deployment.deployment_ref,
+            tenant_id=deployment.tenant_id,
+            workspace_id=deployment.workspace_id,
+            poll_interval=settings.github.repo_run_poll_seconds,
+        )
         github_maintenance_worker = GitHubMaintenanceWorker(
-            github_repository, tenant_id=deployment.tenant_id
+            github_repository,
+            tenant_id=deployment.tenant_id,
+            checkout_repository=repo_checkout_repository,
+            staging_root=github_staging_root,
+            workspace_id=deployment.workspace_id,
         )
         github_secret_name = settings.github.webhook_secret_name
         github_tenant_id = deployment.tenant_id
@@ -999,6 +1083,10 @@ async def bootstrap_scoped_service(
             github_integration_service=github_integration_service,
             github_maintenance_worker=github_maintenance_worker,
             github_webhook_secret_resolver=github_webhook_secret_resolver,
+            repo_checkout_repository=repo_checkout_repository,
+            repo_run_repository=repo_run_repository,
+            repository_unit_service=repository_unit_service,
+            repo_run_worker=repo_run_worker,
             # The *configured* freshness window, so the status routes report
             # the threshold this deployment actually runs with rather than the
             # module default. Read unconditionally: the setting always has a

@@ -165,6 +165,13 @@ class ServiceBootstrap:
     github_integration_service: object | None = None
     github_maintenance_worker: object | None = None
     github_webhook_secret_resolver: object | None = None
+    # ZER-37 orchestration glue: repository-unit persistence, the staging
+    # service, and the repo-run execution worker. Absent unless
+    # ``settings.github.enabled`` built the GitHub integration surface.
+    repo_checkout_repository: object | None = None
+    repo_run_repository: object | None = None
+    repository_unit_service: object | None = None
+    repo_run_worker: object | None = None
 
 
 _bootstrap_parameters = inspect.signature(ServiceBootstrap).parameters
@@ -205,6 +212,10 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             "github_integration_service",
             "github_maintenance_worker",
             "github_webhook_secret_resolver",
+            "repo_checkout_repository",
+            "repo_run_repository",
+            "repository_unit_service",
+            "repo_run_worker",
         }
     ]
 )

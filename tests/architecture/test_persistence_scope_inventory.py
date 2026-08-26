@@ -193,6 +193,11 @@ _AUDIT_REPOSITORY_REVIEWED_COLLABORATOR_EDGES = {
             ("bootstrap", "audit_repository"),
         ): frozenset({"list"}),
     },
+    # ZER-37: the repo-run worker writes ONE terminal NodeAuditRecord per run
+    # through the bootstrap's deployment-scoped audit repository.
+    "src/zeroth/service/repositories/worker.py": {
+        (("RepoRunWorker", "_write_audit"), ("self", "_audit_repository")): frozenset({"write"}),
+    },
 }
 
 
@@ -4422,6 +4427,7 @@ _AUDIT_REPOSITORY_PUBLIC_CALL_INVENTORY = (
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
     "src/zeroth/service/audit_isolation_probe.py::_drive_audit_resource::write",
+    "src/zeroth/service/repositories/worker.py::_write_audit::write",
 )
 
 

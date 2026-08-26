@@ -175,6 +175,15 @@ async def _service_runtime_lifespan(app: FastAPI):
             github_maintenance_worker.poll_loop(), name="github-maintenance"
         )
 
+    # ZER-37: repo-run execution worker (claims and executes repository runs).
+    # None unless settings.github.enabled built the repository surface.
+    repo_run_worker_task: asyncio.Task | None = None
+    repo_run_worker = getattr(app.state.bootstrap, "repo_run_worker", None)
+    if repo_run_worker is not None:
+        repo_run_worker_task = asyncio.create_task(
+            repo_run_worker.poll_loop(), name="repo-run-worker"
+        )
+
     # Phase 16: ARQ wakeup consumer task.
     arq_consumer_task: asyncio.Task | None = None
     arq_pool = getattr(app.state.bootstrap, "arq_pool", None)
@@ -249,6 +258,13 @@ async def _service_runtime_lifespan(app: FastAPI):
         github_maintenance_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await github_maintenance_task
+
+    # Shutdown repo-run execution worker. Cancellation mid-run leaves the run
+    # RUNNING; its lapsed lease hands it to the next claim generation.
+    if repo_run_worker_task is not None:
+        repo_run_worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await repo_run_worker_task
 
     # Close webhook HTTP client.
     webhook_http_client = getattr(app.state.bootstrap, "webhook_http_client", None)

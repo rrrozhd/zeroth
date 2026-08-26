@@ -168,6 +168,12 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "langgraph_gateway_transport",
         "langgraph_gateway_websocket_handler",
         "policy_guard",
+        # ZER-37 orchestration glue: repository-unit persistence, service, and
+        # run worker -- optional alongside the GitHub integration components.
+        "repo_checkout_repository",
+        "repo_run_repository",
+        "repo_run_worker",
+        "repository_unit_service",
         "role_registry",
         "run_attestation_repository",
         "tool_decision_service",
