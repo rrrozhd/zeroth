@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.5]
+
+### Added
+
+- ZER-37 phase 8: the console Repositories page — installation claim and
+  listing, repository selection, ref resolution and checkout creation with
+  digest and validation-report rendering, run launch with polled status and
+  smoke outcome, and the provenance card surfacing the checkout attestation
+  and run evidence.
+
 ## [0.24.4]
 
 ### Added

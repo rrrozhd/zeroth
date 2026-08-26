@@ -21,6 +21,7 @@ export const NAV: NavGroup[] = [
       { label: "Studio", href: "/studio" },
       { label: "Templates", href: "/templates" },
       { label: "Connectors", href: "/connectors" },
+      { label: "Repositories", href: "/repos" },
       { label: "Webhooks", href: "/webhooks" },
     ],
   },
