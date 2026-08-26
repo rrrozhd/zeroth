@@ -13,7 +13,7 @@ PYTHONPATH=/path/to/zeroth python -m release.app_certification scaffold \
   --root . \
   --app-name my-app \
   --module my_app \
-  --zeroth-version 0.23.9.19 \
+  --zeroth-version 0.23.9.20 \
   --zeroth-ref <FULL_ZEROTH_COMMIT_SHA>
 ```
 
