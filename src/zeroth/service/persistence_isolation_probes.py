@@ -35,6 +35,10 @@ from zeroth.governance.decisions.request import (
     DecisionVerdict,
     NormalizedAction,
 )
+from zeroth.governance.guardrails.policy import (
+    GuardrailPolicyPatch,
+    GuardrailPolicyRepository,
+)
 from zeroth.governance.guardrails.rate_limit import QuotaEnforcer, TokenBucketRateLimiter
 from zeroth.governance.retention.audit_log_repository import RetentionAuditLogRepository
 from zeroth.governance.retention.cleanup_manifest import (
@@ -51,7 +55,10 @@ from zeroth.governance.retention.policy_repository import RetentionPolicyReposit
 from zeroth.integrations.langgraph import InventoryCoverage, ToolDecisionKind
 from zeroth.integrations.memory.config_repository import MemoryConnectorConfigRepository
 from zeroth.integrations.persistence.runs.checkpoint_store import CheckpointRowStore
-from zeroth.integrations.persistence.runs.run_repository import RunRepository
+from zeroth.integrations.persistence.runs.run_repository import (
+    GuardrailAdmissionCoordinator,
+    RunRepository,
+)
 from zeroth.integrations.persistence.runs.thread_repository import ThreadRepository
 from zeroth.platform.dispatch.operations import OperationState, SideEffectOperationStore
 from zeroth.platform.storage import (
@@ -980,8 +987,53 @@ async def _drive_quota_counters(database: AsyncDatabase, operation: ResourceOper
         assert (await owner.get("driver-key"))["value"] == 1
 
 
+async def _drive_guardrail_policy_revisions(
+    database: AsyncDatabase,
+    operation: ResourceOperation,
+) -> None:
+    """Exercise immutable guardrail policy revisions across tenant scopes."""
+    owner = GuardrailPolicyRepository.scoped(database, _scope("driver-owner"))
+    foreign = GuardrailPolicyRepository.scoped(database, _scope("driver-foreign"))
+    await owner.append(
+        scope="tenant",
+        policy=GuardrailPolicyPatch(max_concurrency=2),
+        changed_by="driver-owner",
+    )
+    if operation is O.CREATE:
+        await foreign.append(
+            scope="tenant",
+            policy=GuardrailPolicyPatch(max_concurrency=3),
+            changed_by="driver-foreign",
+        )
+        assert len(await owner.history()) == len(await foreign.history()) == 1
+    elif operation is O.READ:
+        assert await foreign.current("tenant") is None
+        assert (await owner.effective("driver-deployment")).max_concurrency == 2
+    else:
+        assert await foreign.history() == []
+        assert len(await owner.history()) == 1
+
+
+async def _drive_guardrail_admission_state(
+    database: AsyncDatabase,
+    operation: ResourceOperation,
+) -> None:
+    """Exercise shared admission coordination without crossing tenant scopes."""
+    owner = GuardrailAdmissionCoordinator(database, _scope("driver-owner"))
+    foreign = GuardrailAdmissionCoordinator(database, _scope("driver-foreign"))
+    await owner.coordinate("driver-deployment")
+    if operation is O.CREATE:
+        await foreign.coordinate("driver-deployment")
+        assert await owner.exists("driver-deployment")
+        assert await foreign.exists("driver-deployment")
+    else:
+        assert not await foreign.exists("driver-deployment")
+        assert await owner.exists("driver-deployment")
+
+
 class _DriverContract(BaseModel):
     """Represent the DriverContract contract used by isolation probes."""
+
     value: str
 
 

@@ -82,8 +82,8 @@ def _contract() -> dict[str, object]:
                 role="anonymous",
                 expected_json={
                     "schema_revision": {
-                        "applied": "026",
-                        "head": "026",
+                        "applied": "029",
+                        "head": "029",
                         "state": "current",
                     }
                 },
@@ -266,9 +266,9 @@ def test_contract_requires_every_scenario_and_pins_approval_and_lifecycle_invari
         AcceptanceContract.model_validate(weak_migrations)
 
     stale_migrations = _contract()
-    stale_migrations["scenarios"]["migrations"]["steps"][0]["expected_json"][
-        "schema_revision"
-    ]["applied"] = "025"
+    stale_migrations["scenarios"]["migrations"]["steps"][0]["expected_json"]["schema_revision"][
+        "applied"
+    ] = "025"
     with pytest.raises(ValidationError, match="migrations must pin current schema revisions"):
         AcceptanceContract.model_validate(stale_migrations)
 
@@ -370,8 +370,8 @@ async def test_runner_produces_identity_bound_report_and_cleans_owned_resources(
             200,
             {
                 "schema_revision": {
-                    "applied": "026",
-                    "head": "026",
+                    "applied": "029",
+                    "head": "029",
                     "state": "current",
                 }
             },

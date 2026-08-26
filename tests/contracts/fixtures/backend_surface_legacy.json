@@ -8321,6 +8321,16 @@
     },
     {
       "evidence": [
+        "schema_model:zeroth.core.service.guardrail_api"
+      ],
+      "id": "zeroth.core.service.guardrail_api:GuardrailPolicyResponse",
+      "kind": "class",
+      "legacy_module": "zeroth.core.service.guardrail_api",
+      "legacy_name": "GuardrailPolicyResponse",
+      "signature": "(*, tenant_revision: zeroth.core.guardrails.policy.GuardrailPolicyRevision | None, deployment_revision: zeroth.core.guardrails.policy.GuardrailPolicyRevision | None, effective: zeroth.core.guardrails.policy.EffectiveGuardrailSettings) -> None"
+    },
+    {
+      "evidence": [
         "schema_model:zeroth.core.service.health"
       ],
       "id": "zeroth.core.service.health:DependencyStatus",

@@ -15,7 +15,7 @@ def test_027_is_greenfield_scoped_unique_and_events_are_append_only(tmp_path) ->
     connection = sqlite3.connect(database_path)
     try:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "027",
+            "029",
         )
         assert connection.execute("SELECT COUNT(*) FROM app_certifications").fetchone() == (0,)
         event_columns = {

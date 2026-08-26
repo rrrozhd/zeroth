@@ -126,6 +126,11 @@
   },
   {
     "method": "GET",
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "operation_id": "get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get"
+  },
+  {
+    "method": "GET",
     "path": "/v1/deployments/{deployment_ref}/input-contract",
     "operation_id": "get_input_contract_v1_deployments__deployment_ref__input_contract_get"
   },
@@ -343,6 +348,16 @@
     "method": "GET",
     "path": "/v1/enforcement/deployments/{deployment_ref}/status",
     "operation_id": "read_deployment_status_v1_enforcement_deployments__deployment_ref__status_get"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/guardrails",
+    "operation_id": "get_tenant_guardrails_v1_guardrails_get"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/guardrails/history",
+    "operation_id": "get_guardrail_history_v1_guardrails_history_get"
   },
   {
     "method": "GET",
@@ -583,6 +598,16 @@
     "method": "PUT",
     "path": "/v1/connectors/{ref}",
     "operation_id": "update_connector_v1_connectors__ref__put"
+  },
+  {
+    "method": "PUT",
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "operation_id": "put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/v1/guardrails",
+    "operation_id": "put_tenant_guardrails_v1_guardrails_put"
   },
   {
     "method": "PUT",

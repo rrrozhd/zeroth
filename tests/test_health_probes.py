@@ -364,14 +364,12 @@ async def test_register_health_routes_adds_endpoints():
 
 def test_readiness_openapi_preserves_response_component() -> None:
     schema = _readiness_app(FakeDatabase()).openapi()
-    response_schema = schema["paths"]["/health/ready"]["get"]["responses"]["200"][
-        "content"
-    ]["application/json"]["schema"]
+    response_schema = schema["paths"]["/health/ready"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
 
     assert response_schema == {"$ref": "#/components/schemas/ReadinessResponse"}
-    assert "schema_revision" in schema["components"]["schemas"]["ReadinessResponse"][
-        "required"
-    ]
+    assert "schema_revision" in schema["components"]["schemas"]["ReadinessResponse"]["required"]
 
 
 @pytest.mark.asyncio
@@ -379,7 +377,7 @@ async def test_readiness_reports_current_service_schema_revision():
     """A migrated service exposes the applied and shipped Alembic revisions."""
     from fastapi.testclient import TestClient
 
-    database = RevisionDatabase(["027"])
+    database = RevisionDatabase(["029"])
 
     with (
         patch(
@@ -395,8 +393,8 @@ async def test_readiness_reports_current_service_schema_revision():
 
     assert response.json()["status"] == "ok"
     assert response.json().get("schema_revision") == {
-        "applied": "027",
-        "head": "027",
+        "applied": "029",
+        "head": "029",
         "state": "current",
     }
     assert database.queries.count("SELECT version_num FROM alembic_version LIMIT 2") == 1
@@ -408,7 +406,7 @@ async def test_readiness_reports_current_service_schema_revision():
     [
         (["026"], "026", "behind"),
         ([], None, "unknown"),
-        (["026", "027"], None, "unknown"),
+        (["028", "029"], None, "unknown"),
         (["foreign"], "foreign", "unknown"),
     ],
 )
@@ -427,21 +425,19 @@ def test_readiness_degrades_for_stale_or_unknown_service_schema(
             new=AsyncMock(return_value=DependencyStatus(status="ok")),
         ),
     ):
-        response = TestClient(_readiness_app(RevisionDatabase(revisions))).get(
-            "/health/ready"
-        )
+        response = TestClient(_readiness_app(RevisionDatabase(revisions))).get("/health/ready")
 
     assert response.json()["status"] == "degraded"
     assert response.json()["schema_revision"] == {
         "applied": applied,
-        "head": "027",
+        "head": "029",
         "state": state,
     }
 
 
 @pytest.mark.asyncio
 async def test_service_schema_revision_read_has_an_explicit_timeout() -> None:
-    database = RevisionDatabase(["027"], revision_delay=1)
+    database = RevisionDatabase(["029"], revision_delay=1)
 
     revision = await asyncio.wait_for(
         check_schema_revision(database, timeout_seconds=0.001),
@@ -450,7 +446,7 @@ async def test_service_schema_revision_read_has_an_explicit_timeout() -> None:
 
     assert revision.model_dump() == {
         "applied": None,
-        "head": "027",
+        "head": "029",
         "state": "unknown",
     }
     assert database.queries == ["SELECT version_num FROM alembic_version LIMIT 2"]

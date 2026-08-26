@@ -24,7 +24,7 @@ def test_release_rejects_unsigned_promotion_evidence(tmp_path) -> None:
     candidate = models.CandidateIdentity(
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10.2",
+        zeroth_version="0.23.11",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE_DIGEST,
         source_digest=SOURCE_DIGEST,
@@ -32,7 +32,7 @@ def test_release_rejects_unsigned_promotion_evidence(tmp_path) -> None:
     sbom = tmp_path / "sbom.json"
     sbom.write_text(
         '{"spdxVersion":"SPDX-2.3","packages":'
-        '[{"name":"zeroth-core","versionInfo":"0.23.10.2"}]}\n',
+        '[{"name":"zeroth-core","versionInfo":"0.23.11"}]}\n',
         encoding="utf-8",
     )
     evidence.bind_sbom(sbom, candidate)
@@ -82,7 +82,7 @@ def test_release_issues_receipt_only_after_finalized_attestation_verification(
     candidate = models.CandidateIdentity(
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10.2",
+        zeroth_version="0.23.11",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE_DIGEST,
         source_digest=SOURCE_DIGEST,
@@ -90,7 +90,7 @@ def test_release_issues_receipt_only_after_finalized_attestation_verification(
     sbom = tmp_path / "sbom.json"
     sbom.write_text(
         '{"spdxVersion":"SPDX-2.3","packages":'
-        '[{"name":"zeroth-core","versionInfo":"0.23.10.2"}]}\n',
+        '[{"name":"zeroth-core","versionInfo":"0.23.11"}]}\n',
         encoding="utf-8",
     )
     evidence.bind_sbom(sbom, candidate)
@@ -197,7 +197,7 @@ def test_promotion_receipt_fails_closed_for_missing_or_unknown_signature() -> No
         tenant_id="tenant-a",
         app_name="support-agent",
         app_commit=COMMIT,
-        zeroth_version="0.23.10.2",
+        zeroth_version="0.23.11",
         image_reference="registry.example/support-agent",
         image_digest=IMAGE_DIGEST,
         source_digest=SOURCE_DIGEST,

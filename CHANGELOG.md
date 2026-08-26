@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11] - 2026-08-26
+
+### Added
+
+- Integrate fail-closed application certification, promotion evidence, and the
+  generated vendor certification workflow.
+- Integrate distributed ingress guardrails, scoped concurrency enforcement,
+  load evidence, and recovery release gates.
+
 ## [0.23.10.2] - 2026-08-26
 
 ### Security
@@ -341,6 +350,204 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (ZER-49 follow-up).
 - A pre-existing PostgreSQL econ database reports its schema state rather than failing at read time
   on a column only the migration chain adds (ZER-49 follow-up, A01-11).
+
+## [0.23.10.9] - 2026-08-26
+
+### Fixed
+
+- Release load-probe request concurrency immediately after each HTTP response,
+  before terminal settlement or rejection evidence is collected.
+
+## [0.23.10.8] - 2026-08-18
+
+### Fixed
+
+- Measure load latency uniformly to the HTTP response while retaining accepted
+  run settlement as separate lifecycle evidence.
+
+## [0.23.10.7] - 2026-08-18
+
+### Fixed
+
+- Require one ordered, same-row fault recovery chain and retain an atomic receipt
+  binding load observations to the immutable exact-HEAD source archive.
+
+## [0.23.10.6] - 2026-08-18
+
+### Fixed
+
+- Bind baseline and candidate load measurements to distinct fresh PostgreSQL
+  and Redis service instances.
+
+## [0.23.10.5] - 2026-08-18
+
+### Fixed
+
+- Bind the load baseline to the canonical exact-base archive, keep executor
+  attribution within the run settlement bound, and require observed successful
+  work before a service restart is reported as recovered.
+
+## [0.23.10.4] - 2026-08-18
+
+### Fixed
+
+- Fail closed on measured baseline source identity, per-deployment executor fairness,
+  drain and cancellation lifecycles, and local service readiness.
+
+## [0.23.10.3] - 2026-08-18
+
+### Fixed
+
+- Bind load evidence to observed executor ownership and exact request lifecycle,
+  and derive baseline provenance inside the frozen measurement environment.
+
+## [0.23.10.2] - 2026-08-17
+
+### Fixed
+
+- Bind load baselines to measured source receipts, enforce fairness at every workload scope,
+  and retain exact per-request cancellation, drain, and worker-loss evidence.
+
+## [0.23.10.1] - 2026-08-17
+
+### Fixed
+
+- Bind load and recovery comparisons to independent observations from the same
+  pinned capacity environment and require exact lifecycle accounting.
+
+## [0.23.10] - 2026-08-17
+
+### Added
+
+- Gate release candidates on versioned load, fairness, overload and automatic-recovery
+  profiles with candidate-bound raw evidence and accepted-run accounting.
+
+## [0.23.9.11] - 2026-08-17
+
+### Fixed
+
+- Reject run-state writes after their worker lease expires and distributed capacity is reassigned.
+
+## [0.23.9.10] - 2026-08-17
+
+### Fixed
+
+- Fence inline approval drive writes against concurrent cancellation.
+- Publish completed approval audits only after the continuation status transition succeeds.
+- Keep conditional run writes update-only so deleted runs remain deleted.
+
+## [0.23.9.9] - 2026-08-17
+
+### Fixed
+
+- Preserve terminal admin cancellation when a resolved approval resumes concurrently.
+
+## [0.23.9.8] - 2026-08-17
+
+### Fixed
+
+- Preserve admin cancellation across concurrent shutdown and interrupt status writes.
+- Qualify lease and write-fence cleanup by generation when a worker reclaims a replayed run.
+- Expose guardrail controls only for the deployment whose configured baseline the service owns.
+
+## [0.23.9.7] - 2026-08-17
+
+### Fixed
+
+- Make admin cancellation and lease revocation one atomic scoped update.
+
+## [0.23.9.6] - 2026-08-17
+
+### Fixed
+
+- Reject unsafe refill rates and cap rate-limit retry guidance at one day.
+- Return guardrail revision metadata, active overrides, and effective settings from one
+  transactionally consistent snapshot.
+
+## [0.23.9.5] - 2026-08-17
+
+### Fixed
+
+- Scope failed-run replay to the exact tenant and workspace when run IDs collide.
+- Preserve checkpoint recovery after reclaimed-run setup failures.
+
+## [0.23.9.4] - 2026-08-17
+
+### Fixed
+
+- Retry startup orphan recovery after temporary shared concurrency saturation frees.
+
+## [0.23.9.3] - 2026-08-17
+
+### Fixed
+
+- Keep lease claims, recovery checkpoints, lifecycle writes, worker maintenance, and admin
+  cancellation inside the run's composite tenant and workspace identity.
+
+## [0.23.9.2] - 2026-08-17
+
+### Fixed
+
+- Serialize lease renewal with capacity reallocation and use database statement time for
+  distributed token refill and quota rollover decisions.
+
+## [0.23.9.1] - 2026-08-16
+
+### Fixed
+
+- Use the database clock for lease claims, concurrency, orphan recovery, and renewal so replica
+  clock skew cannot exceed the configured concurrency cap.
+
+## [0.23.9] - 2026-08-16
+
+### Fixed
+
+- Keep deployment guardrail reads and writes inside the app tenant, even when a foreign
+  principal owns the referenced deployment.
+- Refuse expired lease renewal from database time after shared concurrency reallocates the slot.
+- Preserve monotonic token-bucket refill timestamps across clock-skewed replicas.
+- Order append-only guardrail revisions by database-generated precedence so later resets remain
+  effective regardless of replica clock skew.
+
+## [0.23.8.2] - 2026-08-16
+
+### Fixed
+
+- Compose active append-only guardrail overrides across partial revisions and support explicit
+  per-field inheritance resets without changing live admission counters.
+
+## [0.23.8.1.1] - 2026-08-14
+
+### Fixed
+
+- Preserve distinct durable concurrency-saturation records for null and literal
+  workspace identities using canonical typed scope encoding.
+- Correct the documented quota retry boundary to its rolling 24-hour window,
+  and retain PostgreSQL replica tests for rate and quota capacity enforcement.
+
+## [0.23.8.1] - 2026-08-14
+
+### Fixed
+
+- Require explicit unscoped tenant authority for tenant-wide guardrail policy
+  and history while preserving workspace-bound deployment administration.
+- Compose API admission and worker concurrency from the same configured
+  baseline, retaining every field across sequential partial revisions.
+- Reserve local recovery capacity before claiming orphans, fence expired or
+  reclaimed leases before execution, and keep saturation outcomes per claim.
+- Persist bounded, deduplicated, scope-isolated concurrency saturation evidence
+  with effective utilization, and use a time-based queue retry interval.
+
+## [0.23.8] - 2026-08-14
+
+### Added
+
+- Add bounded, append-only tenant and deployment ingress-guardrail policies,
+  with field-wise precedence, atomic shared queue and capacity enforcement,
+  actionable retry responses, scoped audit evidence, and guardrail metrics.
+- Add authorized guardrail inspection and editing to the HTTP API and
+  Deployments console, including effective values, inherited overrides, and
+  inline validation and remediation feedback.
 
 ## [0.23.7] - 2026-08-13
 

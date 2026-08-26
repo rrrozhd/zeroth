@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from zeroth.runtime.runs.models import Run, Thread, ThreadMemoryBinding, ThreadStatus
+from zeroth.runtime.runs.models import Run, RunStatus, Thread, ThreadMemoryBinding, ThreadStatus
 
 __all__ = ["CheckpointStore", "RunReader", "RunWriter", "ThreadStore"]
 
@@ -39,6 +39,10 @@ class RunWriter(Protocol):
 
     async def put(self, run: Run) -> Run:
         """Save (insert or update) a run and return the persisted version."""
+        ...
+
+    async def put_if_status(self, run: Run, expected_status: RunStatus) -> Run:
+        """Save a run only while its persisted status matches the snapshot."""
         ...
 
 

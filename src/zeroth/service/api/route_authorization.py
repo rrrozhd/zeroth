@@ -48,6 +48,7 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "create_deployment",
         "promote_certification",
         "revoke_certification",
+        "put_deployment_guardrails",
         "rollback_deployment",
     ),
     **_routes(
@@ -56,6 +57,7 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "get_attestation_verify",
         "get_certification",
         "get_deployment_metadata",
+        "get_deployment_guardrails",
         "get_input_contract",
         "get_output_contract",
         "get_result_error_state_schema",
@@ -70,6 +72,12 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "swagger_ui_redirect",
     ),
     **_routes(Permission.CERTIFICATION_OVERRIDE, "override_certification"),
+    **_routes(
+        Permission.GUARDRAIL_TENANT_ADMIN,
+        "get_guardrail_history",
+        "get_tenant_guardrails",
+        "put_tenant_guardrails",
+    ),
     **_routes(
         Permission.ECON_ADMIN,
         "regulus_costing_estimate",

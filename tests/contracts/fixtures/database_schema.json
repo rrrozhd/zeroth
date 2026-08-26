@@ -107,6 +107,14 @@
     {
       "down_revision": "026",
       "revision": "027"
+    },
+    {
+      "down_revision": "027",
+      "revision": "028"
+    },
+    {
+      "down_revision": "028",
+      "revision": "029"
     }
   ],
   "tables": {
@@ -1450,6 +1458,172 @@
           ],
           "name": "sqlite_autoindex_graph_versions_1",
           "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "guardrail_admission_state": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_scope",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 3,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE guardrail_admission_state ( tenant_id TEXT NOT NULL, workspace_id TEXT, workspace_scope TEXT NOT NULL, deployment_ref TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (tenant_id, workspace_scope, deployment_ref), CHECK ((workspace_id IS NULL AND workspace_scope = 'null') OR (workspace_id IS NOT NULL AND workspace_scope = 'value:' || workspace_id)))",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_scope",
+            "deployment_ref"
+          ],
+          "name": "sqlite_autoindex_guardrail_admission_state_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "guardrail_policy_revisions": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "revision_order",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "revision_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "scope_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": "''",
+          "hidden": 0,
+          "name": "deployment_ref",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "policy_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "changed_by",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE guardrail_policy_revisions ( revision_order INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id TEXT NOT NULL, revision_id TEXT NOT NULL, scope_type TEXT NOT NULL CHECK (scope_type IN ('tenant', 'deployment')), deployment_ref TEXT NOT NULL DEFAULT '', policy_json TEXT NOT NULL, changed_by TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (tenant_id, revision_id))",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "scope_type",
+            "deployment_ref",
+            "revision_order"
+          ],
+          "name": "idx_guardrail_policy_lookup",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "revision_id"
+          ],
+          "name": "sqlite_autoindex_guardrail_policy_revisions_1",
+          "origin": "u",
           "partial": false,
           "unique": true
         }

@@ -448,6 +448,56 @@
     "methods": [
       "GET"
     ],
+    "name": "get_tenant_guardrails",
+    "path": "/v1/guardrails",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "PUT"
+    ],
+    "name": "put_tenant_guardrails",
+    "path": "/v1/guardrails",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_guardrail_history",
+    "path": "/v1/guardrails/history",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_deployment_guardrails",
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "PUT"
+    ],
+    "name": "put_deployment_guardrails",
+    "path": "/v1/deployments/{deployment_ref}/guardrails",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
     "name": "get_metrics",
     "path": "/v1/metrics",
     "permission": "metrics:read",
@@ -1575,6 +1625,56 @@
     "name": "get_run",
     "path": "/runs/{run_id}",
     "permission": "run:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_tenant_guardrails",
+    "path": "/guardrails",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "PUT"
+    ],
+    "name": "put_tenant_guardrails",
+    "path": "/guardrails",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_guardrail_history",
+    "path": "/guardrails/history",
+    "permission": "guardrail:tenant-admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_deployment_guardrails",
+    "path": "/deployments/{deployment_ref}/guardrails",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "PUT"
+    ],
+    "name": "put_deployment_guardrails",
+    "path": "/deployments/{deployment_ref}/guardrails",
+    "permission": "deployment:admin",
     "disposition": "permission"
   },
   {
