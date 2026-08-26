@@ -10264,6 +10264,26 @@
       "legacy_module": "zeroth.service.api.health",
       "legacy_name": "AuditDeliveryHealth",
       "signature": "(*, queue_depth: int, queued: int, delivered: int, retried: int, rejected: int, failed: int, abandoned: int, losing_events: bool) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.integrations.execution.models"
+      ],
+      "id": "zeroth.integrations.execution.models:RepositoryCheckoutArtifactSource",
+      "kind": "class",
+      "legacy_module": "zeroth.integrations.execution.models",
+      "legacy_name": "RepositoryCheckoutArtifactSource",
+      "signature": "(*, kind: Literal['repository_checkout'] = 'repository_checkout', ref: str, commit_sha: str, config_digest: str, repository_id: int, installation_id: int) -> None"
+    },
+    {
+      "evidence": [
+        "schema_model:zeroth.integrations.execution.models"
+      ],
+      "id": "zeroth.integrations.execution.models:RepositoryUnitManifest",
+      "kind": "class",
+      "legacy_module": "zeroth.integrations.execution.models",
+      "legacy_name": "RepositoryUnitManifest",
+      "signature": "(*, unit_id: str, version: Annotated[int, Ge(ge=1)] = 1, onboarding_mode: Literal[<ExecutionMode.REPOSITORY: 'repository'>] = <ExecutionMode.REPOSITORY: 'repository'>, runtime: Literal[<RuntimeLanguage.PYTHON: 'python'>] = <RuntimeLanguage.PYTHON: 'python'>, artifact_source: zeroth.integrations.execution.models.RepositoryCheckoutArtifactSource, build_config: zeroth.integrations.execution.models.BuildConfig | None = None, run_config: zeroth.integrations.execution.models.RunConfig = <factory>, entrypoint_type: Literal[<EntryPointType.COMMAND: 'command'>] = <EntryPointType.COMMAND: 'command'>, input_mode: zeroth.integrations.execution.models.InputMode, output_mode: zeroth.integrations.execution.models.OutputMode, input_contract_ref: str, output_contract_ref: str, environment_variables: list[zeroth.integrations.execution.models.EnvironmentVariable] = <factory>, dependencies: list[zeroth.integrations.execution.models.DependencySpec] = <factory>, capability_requests: list[str] = <factory>, resource_limits: zeroth.integrations.execution.models.ResourceLimits = <factory>, timeout_seconds: Annotated[int | None, Gt(gt=0)] = None, cache_identity_fields: dict[str, str] = <factory>, audit_settings: zeroth.integrations.execution.models.AuditSettings = <factory>, execution_placement: Literal['local_only', 'remote_only', 'local_or_remote'] = 'local_only', side_effect: bool = False, integrity: zeroth.integrations.execution.integrity.ManifestIntegrityRecord | None = None, metadata: dict[str, typing.Any] = <factory>) -> None"
     }
   ],
   "immutable": true,

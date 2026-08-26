@@ -15,9 +15,12 @@ import tempfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
+
+if TYPE_CHECKING:
+    from zeroth.integrations.execution.repo_units import CheckoutMaterializer
 
 from zeroth.contracts.graph import OperationIdentity
 from zeroth.governance.audit.capture_vocabulary import normalize_reason_code
@@ -32,10 +35,12 @@ from zeroth.integrations.execution.io import (
     inject_input,
 )
 from zeroth.integrations.execution.models import (
+    REPOSITORY_CHECKOUT_DIRNAME,
     ExecutableUnitManifest,
     InlineUnitManifest,
     NativeUnitManifest,
     ProjectUnitManifest,
+    RepositoryUnitManifest,
     WrappedCommandUnitManifest,
 )
 from zeroth.integrations.execution.sandbox import (
@@ -214,6 +219,12 @@ class ExecutableUnitRunner:
         self.secret_resolver = secret_resolver
         self.admission_controller = admission_controller
         self.project_materializer = project_materializer
+        # ZER-37: the repository checkout seam. A plain attribute, not a
+        # constructor keyword, because this constructor's signature is pinned
+        # in tests/contracts/fixtures/backend_surface_canonical.json; the
+        # service wiring sets it after construction, and repository execution
+        # fails closed while it is None.
+        self.checkout_materializer: CheckoutMaterializer | None = None
         self._built_cache_keys: set[str] = set()
 
     async def run_manifest_ref(
@@ -414,6 +425,18 @@ class ExecutableUnitRunner:
             raise ExecutableUnitExecutionError(
                 "project execution requires an injected trusted project materializer"
             )
+        checkout_materializer = self.checkout_materializer
+        if isinstance(manifest, RepositoryUnitManifest):
+            if checkout_materializer is None:
+                raise ExecutableUnitExecutionError(
+                    "repository execution requires an injected trusted checkout materializer"
+                )
+            # The whole checkout subtree rides read-only on every backend: v1
+            # repo manifests only offer json_stdin/json_stdout/exit_code_only,
+            # so no IO file is ever written inside the tree.
+            read_only_paths = tuple(
+                dict.fromkeys((*read_only_paths, REPOSITORY_CHECKOUT_DIRNAME))
+            )
         enforcement = dict(enforcement_context or {})
         manifest_env, secret_env_keys = await self._manifest_environment(manifest)
         secret_filtered_env = self._apply_allowed_secrets(
@@ -454,6 +477,11 @@ class ExecutableUnitRunner:
                 if inspect.isawaitable(materialized):
                     await materialized
                 cwd = self._resolve_workdir(sandbox_root, manifest.run_config.working_directory)
+            if isinstance(manifest, RepositoryUnitManifest):
+                assert checkout_materializer is not None
+                checkout_dir = sandbox_root / REPOSITORY_CHECKOUT_DIRNAME
+                checkout_dir.mkdir(parents=True, exist_ok=True)
+                await checkout_materializer.materialize(manifest.artifact_source, checkout_dir)
             if isinstance(manifest, InlineUnitManifest):
                 # Inline units carry their code with them — materialize it as
                 # the entry file the manifest's run command expects.
@@ -825,7 +853,12 @@ class ExecutableUnitRunner:
 
     def _resource_constraints_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
+        manifest: (
+            WrappedCommandUnitManifest
+            | ProjectUnitManifest
+            | InlineUnitManifest
+            | RepositoryUnitManifest
+        ),
         enforcement_context: Mapping[str, Any],
     ) -> ResourceConstraints | None:
         """Translate manifest limits plus policy network mode into sandbox constraints."""
@@ -854,7 +887,12 @@ class ExecutableUnitRunner:
 
     def _command_for(
         self,
-        manifest: WrappedCommandUnitManifest | ProjectUnitManifest | InlineUnitManifest,
+        manifest: (
+            WrappedCommandUnitManifest
+            | ProjectUnitManifest
+            | InlineUnitManifest
+            | RepositoryUnitManifest
+        ),
         argv: Sequence[str] = (),
     ) -> list[str]:
         """Build the full command list from the manifest's config plus extra args."""
