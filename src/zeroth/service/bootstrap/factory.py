@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from typing import Any
 
@@ -693,6 +694,69 @@ async def bootstrap_scoped_service(
             poll_interval=settings.retention.worker_poll_interval,
         )
 
+    # ZER-37: the GitHub App integration surface, constructed only when
+    # settings.github.enabled is true. When disabled nothing is built and the
+    # webhook route is never registered (the path 404s like any other unknown
+    # route). Enabled without the git binary fails the deployment loudly at
+    # bootstrap instead of failing the first checkout at run time.
+    github_repository: object | None = None
+    github_client: object | None = None
+    github_token_broker: object | None = None
+    github_integration_service: object | None = None
+    github_maintenance_worker: object | None = None
+    github_webhook_secret_resolver: object | None = None
+    if settings.github.enabled:
+        if shutil.which("git") is None:
+            raise DeploymentBootstrapError(
+                "GitHub integration is enabled but the 'git' binary is not on PATH"
+            )
+        from zeroth.integrations.github.app_jwt import AppJwtIssuer
+        from zeroth.integrations.github.client import GitHubAppClient
+        from zeroth.integrations.github.config import GitHubAppConfig
+        from zeroth.integrations.github.token_broker import InstallationTokenBroker
+        from zeroth.platform.secrets.provider import resolve_secret_async
+        from zeroth.service.github.janitor import GitHubMaintenanceWorker
+        from zeroth.service.github.repository import SQLiteGitHubRepository
+        from zeroth.service.github.service import GitHubIntegrationService
+
+        github_config = GitHubAppConfig(
+            app_id=settings.github.app_id,
+            api_base_url=settings.github.api_base_url,
+            git_base_url=settings.github.git_base_url,
+            private_key_secret_name=settings.github.private_key_secret_name,
+            max_file_bytes=settings.github.max_file_bytes,
+            max_total_bytes=settings.github.max_total_bytes,
+            max_file_count=settings.github.max_file_count,
+        )
+        github_jwt_issuer = AppJwtIssuer(
+            github_config, secret_provider, tenant_id=deployment.tenant_id
+        )
+        github_client = GitHubAppClient(github_config, github_jwt_issuer)
+        github_token_broker = InstallationTokenBroker(github_client)
+        github_repository = SQLiteGitHubRepository(database)
+        github_integration_service = GitHubIntegrationService(
+            github_repository,
+            github_client,
+            github_token_broker,
+            config=github_config,
+            jwt_issuer=github_jwt_issuer,
+            tenant_id=deployment.tenant_id,
+        )
+        github_maintenance_worker = GitHubMaintenanceWorker(
+            github_repository, tenant_id=deployment.tenant_id
+        )
+        github_secret_name = settings.github.webhook_secret_name
+        github_tenant_id = deployment.tenant_id
+        github_secret_provider = secret_provider
+
+        async def _resolve_github_webhook_secret() -> str | None:
+            """Resolve the webhook secret through the shared secret provider."""
+            return await resolve_secret_async(
+                github_secret_provider, github_secret_name, tenant_id=github_tenant_id
+            )
+
+        github_webhook_secret_resolver = _resolve_github_webhook_secret
+
     # ZER-8: the tool-enforcement surface. Wired unconditionally -- an SDK
     # adapter that cannot reach a decision endpoint falls back to its own
     # deny-everything default, so leaving this behind a flag would make the
@@ -929,6 +993,12 @@ async def bootstrap_scoped_service(
             inventory_registration_repository=inventory_registration_repository,
             run_attestation_repository=run_attestation_repository,
             enforcement_heartbeat_repository=enforcement_heartbeat_repository,
+            github_repository=github_repository,
+            github_client=github_client,
+            github_token_broker=github_token_broker,
+            github_integration_service=github_integration_service,
+            github_maintenance_worker=github_maintenance_worker,
+            github_webhook_secret_resolver=github_webhook_secret_resolver,
             # The *configured* freshness window, so the status routes report
             # the threshold this deployment actually runs with rather than the
             # module default. Read unconditionally: the setting always has a

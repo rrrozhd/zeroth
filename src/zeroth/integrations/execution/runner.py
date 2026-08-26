@@ -268,11 +268,16 @@ class ExecutableUnitRunner:
         *,
         enforcement_context: Mapping[str, Any] | None = None,
         operation_identity: OperationIdentity | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> ExecutableUnitRunResult:
         """Run an executable unit from a binding directly.
 
         Validates the input, then dispatches to either native Python execution
         or sandboxed subprocess execution depending on the manifest type.
+        ``read_only_paths`` names sandbox-relative subtrees the backend should
+        remount read-only (ZER-37); it defaults to empty -- the repository
+        execution phase populates it -- and is ignored by native units, which
+        run no sandbox at all.
         """
         validated_input = self._validate_input(binding.input_model, payload)
         input_data = validated_input.model_dump(mode="json")
@@ -302,6 +307,7 @@ class ExecutableUnitRunner:
             validated_input,
             operation_identity=operation_identity,
             enforcement_context=enforcement_context,
+            read_only_paths=read_only_paths,
         )
 
     async def run_inline_source(
@@ -395,6 +401,7 @@ class ExecutableUnitRunner:
         *,
         enforcement_context: Mapping[str, Any] | None = None,
         operation_identity: OperationIdentity | None = None,
+        read_only_paths: Sequence[str] = (),
     ) -> ExecutableUnitRunResult:
         """Run a command or project unit as a sandboxed subprocess.
 
@@ -460,8 +467,16 @@ class ExecutableUnitRunner:
             )
             overlay_env = dict(secret_filtered_env)
             overlay_env.update(injected.env)
+            capture_output_file: str | None = None
             if manifest.output_mode.value == "output_file_json":
                 overlay_env["ZEROTH_OUTPUT_FILE"] = str(output_file)
+                # The sandbox-relative twin of the host path above: the sidecar
+                # backend asks the sidecar to capture this file and writes the
+                # returned payload back to the host path, so extract_output
+                # below reads it exactly as it does for the other backends.
+                capture_output_file = (
+                    cwd.relative_to(sandbox_root) / "zeroth-output.json"
+                ).as_posix()
             timeout_seconds = self._effective_timeout(
                 manifest.timeout_seconds,
                 enforcement.get("timeout_override_seconds"),
@@ -495,6 +510,8 @@ class ExecutableUnitRunner:
                 timeout_seconds=timeout_seconds,
                 resource_constraints=resource_constraints,
                 sandbox_strictness_mode=sandbox_strictness_mode,
+                read_only_paths=read_only_paths,
+                capture_output_file=capture_output_file,
             )
             if sandbox_result.returncode != 0 and manifest.output_mode.value != "exit_code_only":
                 raise ExecutableUnitExecutionError(
@@ -600,6 +617,8 @@ class ExecutableUnitRunner:
         timeout_seconds: float | None = None,
         resource_constraints: ResourceConstraints | None = None,
         sandbox_strictness_mode: SandboxStrictnessMode | None = None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
     ) -> SandboxExecutionResult:
         """Run a command through the sandbox manager with optional policy overrides."""
         sandbox_manager = self._sandbox_manager_with_strictness(sandbox_strictness_mode)
@@ -622,6 +641,8 @@ class ExecutableUnitRunner:
                 input_text,
                 timeout_seconds,
                 resource_constraints,
+                read_only_paths,
+                capture_output_file,
             )
         return await asyncio.to_thread(
             sandbox_manager.run,
@@ -663,6 +684,8 @@ class ExecutableUnitRunner:
         input_text: str | None,
         timeout_seconds: float | None,
         resource_constraints: ResourceConstraints | None,
+        read_only_paths: Sequence[str] = (),
+        capture_output_file: str | None = None,
     ) -> SandboxExecutionResult:
         """Dispatch execution through SandboxManager internals using a prepared sandbox root."""
         backend = sandbox_manager._resolve_backend(resource_constraints)  # noqa: SLF001
@@ -678,6 +701,10 @@ class ExecutableUnitRunner:
                 timeout_seconds=timeout_seconds,
                 environment=environment,
                 resource_constraints=resource_constraints,
+                sandbox_root=sandbox_root,
+                relative_cwd=relative_cwd,
+                read_only_paths=read_only_paths,
+                capture_output_file=capture_output_file,
             )
         if backend.value == "docker":
             return sandbox_manager._run_in_docker(  # noqa: SLF001
@@ -688,6 +715,7 @@ class ExecutableUnitRunner:
                 relative_cwd=relative_cwd,
                 environment=environment,
                 resource_constraints=resource_constraints,
+                read_only_paths=read_only_paths,
             )
         return sandbox_manager._run_locally(  # noqa: SLF001
             command=command,
@@ -696,6 +724,7 @@ class ExecutableUnitRunner:
             cwd=cwd,
             environment=environment,
             resource_constraints=resource_constraints,
+            read_only_paths=read_only_paths,
         )
 
     def _apply_allowed_secrets(

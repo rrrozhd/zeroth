@@ -201,6 +201,13 @@ PUBLIC_ROUTE_PATHS = frozenset({"/console"})
 # pretending the unresolved econ global-vs-tenant policy belongs to this table.
 DELEGATED_MOUNT_PATHS = frozenset({"/regulus"})
 
+# Routes whose handler owns a fail-closed HMAC signature check over the raw
+# request body (ZER-37: the GitHub webhook receiver verifies
+# X-Hub-Signature-256). The sender cannot carry Zeroth credentials, so the
+# authorization disposition is "delegated" -- authenticated, just not by this
+# table -- mirroring the mounted-application exemption above.
+HMAC_ROUTE_PATHS = frozenset({"/integrations/github/webhook"})
+
 
 def permission_for_route_name(name: str | None) -> Permission | None:
     """Return a declared permission, or ``None`` only for an explicit public route."""
@@ -215,6 +222,8 @@ def route_authorization_disposition(route: object) -> tuple[Permission | None, s
     """Return the authoritative permission and disposition for one route."""
     path = getattr(route, "path", None)
     if path in DELEGATED_MOUNT_PATHS:
+        return None, "delegated"
+    if path in HMAC_ROUTE_PATHS:
         return None, "delegated"
     if path in PUBLIC_ROUTE_PATHS:
         return None, "public"
@@ -247,6 +256,7 @@ async def authorize_matched_route(request: Request) -> None:
 
 __all__ = [
     "DELEGATED_MOUNT_PATHS",
+    "HMAC_ROUTE_PATHS",
     "PUBLIC_ROUTE_NAMES",
     "PUBLIC_ROUTE_PATHS",
     "ROUTE_PERMISSIONS",

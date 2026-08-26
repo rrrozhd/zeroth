@@ -103,6 +103,10 @@
     {
       "down_revision": "025",
       "revision": "026"
+    },
+    {
+      "down_revision": "026",
+      "revision": "027"
     }
   ],
   "tables": {
@@ -1004,6 +1008,379 @@
             "heartbeat_id"
           ],
           "name": "sqlite_autoindex_enforcement_heartbeats_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "github_installations": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "installation_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "account_login",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "account_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "repository_selection",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "last_verified_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "suspended_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "revoked_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE github_installations ( id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', installation_id INTEGER NOT NULL, account_login TEXT NOT NULL, account_type TEXT NOT NULL, repository_selection TEXT NOT NULL, status TEXT NOT NULL, last_verified_at TEXT, suspended_at TEXT, revoked_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "id"
+          ],
+          "name": "sqlite_autoindex_github_installations_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "installation_id"
+          ],
+          "name": "uq_github_installations_tenant_installation",
+          "origin": "c",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "github_repositories": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "installation_pk",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "repo_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "owner",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "full_name",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": "0",
+          "hidden": 0,
+          "name": "private",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "default_branch",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "status",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "added_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "removed_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE github_repositories ( id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', installation_pk TEXT NOT NULL, repo_id INTEGER NOT NULL, owner TEXT NOT NULL, name TEXT NOT NULL, full_name TEXT NOT NULL, private INTEGER NOT NULL DEFAULT 0, default_branch TEXT NOT NULL, status TEXT NOT NULL, added_at TEXT NOT NULL, removed_at TEXT, FOREIGN KEY (installation_pk) REFERENCES github_installations (id) )",
+      "foreign_keys": [
+        {
+          "from": "installation_pk",
+          "id": 0,
+          "match": "NONE",
+          "on_delete": "NO ACTION",
+          "on_update": "NO ACTION",
+          "seq": 0,
+          "table": "github_installations",
+          "to": "id"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "id"
+          ],
+          "name": "sqlite_autoindex_github_repositories_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "installation_pk",
+            "repo_id"
+          ],
+          "name": "uq_github_repositories_tenant_installation_repo",
+          "origin": "c",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "github_webhook_deliveries": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": "'default'",
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "delivery_guid",
+          "not_null": true,
+          "primary_key_position": 2,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "event",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "action",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "installation_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "received_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": "1",
+          "hidden": 0,
+          "name": "handled",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "INTEGER"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE github_webhook_deliveries ( tenant_id TEXT NOT NULL DEFAULT 'default', delivery_guid TEXT NOT NULL, event TEXT NOT NULL, action TEXT, installation_id INTEGER, received_at TEXT NOT NULL, handled INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (tenant_id, delivery_guid) )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "received_at"
+          ],
+          "name": "idx_github_webhook_deliveries_tenant_received",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "tenant_id",
+            "delivery_guid"
+          ],
+          "name": "sqlite_autoindex_github_webhook_deliveries_1",
           "origin": "pk",
           "partial": false,
           "unique": true

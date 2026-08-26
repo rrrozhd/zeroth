@@ -8,11 +8,14 @@ prevent outbound access unless explicitly permitted.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import math
+import tempfile
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from zeroth.integrations.execution.constraints import (
@@ -29,6 +32,14 @@ from zeroth.integrations.sandbox.models import (
     SidecarExecuteRequest,
     SidecarExecuteResponse,
     SidecarStatusResponse,
+)
+from zeroth.integrations.sandbox.staging import (
+    WorkspaceStore,
+    WorkspaceValidationCode,
+    WorkspaceValidationError,
+    resolve_helper_image,
+    split_reauthored_tar,
+    validate_workspace_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +70,17 @@ def _resolved_timeout(requested: float | None) -> float:
 #: runs before it -- so they need a bound of their own.
 DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS = 30.0
 
+#: Deadline for the ZER-37 staging invocations (volume create/rm, the
+#: populate helper fed a re-authored tar on stdin, the capture helper).
+#: Longer than the plain docker-command deadline because populate moves up to
+#: the full workspace byte cap through a container's stdin.
+DEFAULT_STAGING_COMMAND_TIMEOUT_SECONDS = 60.0
+
+#: Ceiling on a captured workspace output file. The bounded reader retains one
+#: extra byte so overflow is observable; an overflowing capture drops the
+#: payload and reports ``output_file_truncated`` instead.
+DEFAULT_MAX_OUTPUT_FILE_BYTES = 16_777_216
+
 #: How many terminal executions keep their captured stdout/stderr.
 #:
 #: ``_executions`` is never evicted, because it doubles as the permanent
@@ -83,6 +105,11 @@ class _ExecutionState:
     cleanup_task: asyncio.Task[None] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cleanup_done: asyncio.Event = field(default_factory=asyncio.Event)
+    #: ZER-37: docker volumes this execution created; ``_finalize`` removes
+    #: them on every path (success, timeout, cancel, error).
+    owned_volumes: list[str] = field(default_factory=list)
+    #: ZER-37: the claimed workspace spool file; deleted by ``_finalize``.
+    claimed_spool: Path | None = None
 
 
 class SidecarExecutor:
@@ -103,6 +130,13 @@ class SidecarExecutor:
         # can still narrow them without a public-surface change.
         self._docker_command_timeout_seconds = DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS
         self._retained_payload_executions = DEFAULT_RETAINED_PAYLOAD_EXECUTIONS
+        # ZER-37 workspace staging, same idiom: plain attributes, wired by the
+        # app (store) or narrowed by tests. ``_helper_image`` of ``None`` means
+        # "resolve from the environment at use".
+        self.workspace_store: WorkspaceStore | None = None
+        self._staging_command_timeout_seconds = DEFAULT_STAGING_COMMAND_TIMEOUT_SECONDS
+        self._max_output_file_bytes = DEFAULT_MAX_OUTPUT_FILE_BYTES
+        self._helper_image: str | None = None
         self._executions: dict[str, SidecarExecuteResponse] = {}
         self._states: dict[str, _ExecutionState] = {}
         self._registry_lock = asyncio.Lock()
@@ -110,11 +144,22 @@ class SidecarExecutor:
     async def execute(self, request: SidecarExecuteRequest) -> SidecarExecuteResponse:
         """Run a command in an isolated Docker container."""
         validate_docker_image_reference(request.image)
+        if request.workspace_id is not None:
+            # Boundary charset validation for every string that becomes a
+            # docker volume name: the workspace id itself, and the execution
+            # id the per-execution volume names embed. Raised before any
+            # registration or side effect; ValueError maps to a 422 upstream.
+            validate_workspace_id(request.workspace_id)
+            validate_workspace_id(request.execution_id)
+            if self.workspace_store is None:
+                # No staging channel on this executor: the id cannot be known.
+                raise WorkspaceValidationError(WorkspaceValidationCode.WORKSPACE_UNKNOWN)
         # Resolved up front so a rejected timeout fails before a container, a
         # network or a coroutine exists. Evaluating it inline at the wait_for
         # left self._communicate_bounded(...) constructed and never awaited.
         execution_timeout = _resolved_timeout(request.timeout_seconds)
         network_name = f"zeroth-sandbox-{request.execution_id}"
+        main_volume = f"zeroth-ws-{request.execution_id}"
         started_at = time.perf_counter()
         execution_task = asyncio.current_task()
         assert execution_task is not None
@@ -144,6 +189,15 @@ class SidecarExecutor:
         )
 
         try:
+            # Step 0 (ZER-37): claim the staged workspace before any docker
+            # side effect exists, so an unknown or consumed workspace fails
+            # with nothing to unwind.
+            workspace_spool: Path | None = None
+            if request.workspace_id is not None:
+                assert self.workspace_store is not None  # validated above
+                workspace_spool = await self.workspace_store.claim(request.workspace_id)
+                state.claimed_spool = workspace_spool
+
             # Step 1: Create isolated network
             network_flags = ["--internal"] if not request.network_access else []
             await self._run_cmd(
@@ -156,6 +210,35 @@ class SidecarExecutor:
             state.owns_network = True
             if state.cancel_requested:
                 return self._persist_cancelled(request.execution_id, started_at)
+
+            # Step 1b (ZER-37): create and populate the per-execution named
+            # volumes. Sources are volume NAMES, never host paths -- the "no
+            # host mounts" pin in test_executor_argv.py stays true.
+            volume_flags: list[str] = []
+            if workspace_spool is not None:
+                helper_image = validate_docker_image_reference(
+                    self._helper_image or resolve_helper_image()
+                )
+                await self._run_staging_cmd(
+                    self._docker_binary, "volume", "create", main_volume
+                )
+                state.owned_volumes.append(main_volume)
+                ro_routes: list[tuple[str, str]] = []
+                for index, ro_path in enumerate(request.read_only_paths):
+                    ro_volume = f"{main_volume}-ro{index}"
+                    await self._run_staging_cmd(
+                        self._docker_binary, "volume", "create", ro_volume
+                    )
+                    state.owned_volumes.append(ro_volume)
+                    ro_routes.append((ro_path, ro_volume))
+                await self._populate_workspace_volumes(
+                    workspace_spool, main_volume, ro_routes, helper_image
+                )
+                if state.cancel_requested:
+                    return self._persist_cancelled(request.execution_id, started_at)
+                volume_flags = ["-v", f"{main_volume}:/workspace"]
+                for ro_path, ro_volume in ro_routes:
+                    volume_flags.extend(["-v", f"{ro_volume}:/workspace/{ro_path}:ro"])
 
             # Step 2: Build docker run command
             resource_flags = build_docker_resource_flags(constraints)
@@ -171,6 +254,7 @@ class SidecarExecutor:
                 f"--network={network_name}",
                 *resource_flags,
                 *env_flags,
+                *volume_flags,
                 "-w",
                 request.working_directory,
                 request.image,
@@ -226,6 +310,21 @@ class SidecarExecutor:
             stdout = stdout_bytes.decode(errors="replace")
             stderr = stderr_bytes.decode(errors="replace")
 
+            # ZER-37: bring back the requested output file after the workload
+            # exits. The payload rides the immediate execute response ONLY;
+            # the persisted record stores None so the payload never joins the
+            # ageing arithmetic, while the truncation marker survives.
+            output_file_b64: str | None = None
+            output_file_truncated = False
+            if (
+                workspace_spool is not None
+                and request.capture_output_file is not None
+                and status != "cancelled"
+            ):
+                output_file_b64, output_file_truncated = await self._capture_output_file(
+                    main_volume, request.capture_output_file
+                )
+
             response = SidecarExecuteResponse(
                 execution_id=request.execution_id,
                 status=status,
@@ -236,8 +335,12 @@ class SidecarExecutor:
                 timed_out=timed_out,
                 stdout_truncated=stdout_truncated,
                 stderr_truncated=stderr_truncated,
+                output_file_b64=output_file_b64,
+                output_file_truncated=output_file_truncated,
             )
-            self._executions[request.execution_id] = response
+            self._executions[request.execution_id] = response.model_copy(
+                update={"output_file_b64": None}
+            )
             self._retire_old_payloads()
             return response
 
@@ -276,6 +379,10 @@ class SidecarExecutor:
             timed_out=response.timed_out,
             stdout_truncated=response.stdout_truncated,
             stderr_truncated=response.stderr_truncated,
+            # The persisted record always stores None for the payload; only
+            # the truncation marker replays through get_status.
+            output_file_b64=response.output_file_b64,
+            output_file_truncated=response.output_file_truncated,
         )
 
     async def cancel(self, execution_id: str) -> bool:
@@ -313,6 +420,14 @@ class SidecarExecutor:
                 await self._run_cmd(self._docker_binary, "network", "rm", network_name)
             except Exception:  # noqa: BLE001
                 logger.warning("Failed to remove network %s", network_name)
+        # ZER-37: owned volumes and the claimed spool go on every path --
+        # _finalize runs from execute()'s ``finally``, so success, timeout,
+        # cancellation and error all pass through here.
+        for volume in state.owned_volumes:
+            await self._remove_volume(volume)
+        if state.claimed_spool is not None:
+            with suppress(OSError):
+                state.claimed_spool.unlink(missing_ok=True)
         state.cleanup_done.set()
         async with self._registry_lock:
             if self._states.get(execution_id) is state:
@@ -420,12 +535,15 @@ class SidecarExecutor:
             raise
         return stdout, stderr, stdout_truncated, stderr_truncated
 
-    async def _read_bounded(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
-        """Drain a stream while retaining no more than the configured cap."""
+    async def _read_bounded(
+        self, stream: asyncio.StreamReader, cap: int | None = None
+    ) -> tuple[bytes, bool]:
+        """Drain a stream while retaining no more than the given cap."""
+        limit = self._max_output_bytes if cap is None else cap
         retained = bytearray()
         truncated = False
         while chunk := await stream.read(65_536):
-            remaining = self._max_output_bytes - len(retained)
+            remaining = limit - len(retained)
             if remaining > 0:
                 retained.extend(chunk[:remaining])
             if len(chunk) > remaining:
@@ -515,6 +633,179 @@ class SidecarExecutor:
             msg = f"Command {args} failed with rc={proc.returncode}: {stderr_text}"
             raise RuntimeError(msg)
         return stdout, stderr
+
+    async def _run_staging_cmd(
+        self, *args: str, stdin_path: Path | None = None
+    ) -> tuple[bytes, bytes]:
+        """Run a ZER-37 staging command under the (longer) staging deadline.
+
+        ``stdin_path`` feeds a spooled, sidecar-authored tar straight to the
+        child's stdin as an inherited file descriptor -- no byte ever pumps
+        through the event loop. The failure message carries the argv and exit
+        code but NOT stderr: helper stderr can echo member-derived strings.
+        """
+        stdin_file = stdin_path.open("rb") if stdin_path is not None else None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdin=stdin_file,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=self._staging_command_timeout_seconds
+                )
+            except (TimeoutError, asyncio.CancelledError):
+                if proc.returncode is None:
+                    proc.kill()
+                    with suppress(ProcessLookupError):
+                        await proc.wait()
+                raise
+        finally:
+            if stdin_file is not None:
+                stdin_file.close()
+        if proc.returncode != 0:
+            msg = f"Staging command {args} failed with rc={proc.returncode}"
+            raise RuntimeError(msg)
+        return stdout, stderr
+
+    async def _run_capture_cmd(
+        self, *args: str, max_bytes: int
+    ) -> tuple[bytes, bool, int | None]:
+        """Run a capture helper, retaining at most ``max_bytes`` of stdout.
+
+        Returns ``(stdout, overflowed, returncode)`` under the staging
+        deadline; the child is killed and reaped on timeout or cancellation.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_task = asyncio.create_task(self._read_bounded(proc.stdout, cap=max_bytes))
+        stderr_task = asyncio.create_task(self._read_bounded(proc.stderr, cap=4096))
+        try:
+            await asyncio.wait_for(
+                proc.wait(), timeout=self._staging_command_timeout_seconds
+            )
+            (data, overflowed), _ = await asyncio.gather(stdout_task, stderr_task)
+        except BaseException:
+            stdout_task.cancel()
+            stderr_task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            if proc.returncode is None:
+                proc.kill()
+                with suppress(ProcessLookupError):
+                    await proc.wait()
+            raise
+        return data, overflowed, proc.returncode
+
+    async def _populate_workspace_volumes(
+        self,
+        spool_path: Path,
+        main_volume: str,
+        ro_routes: list[tuple[str, str]],
+        helper_image: str,
+    ) -> None:
+        """Split the claimed spool into per-volume streams and extract them.
+
+        One sequential pass re-authors the spool into one fresh tar per
+        volume (main plus one per read-only prefix, prefix stripped so each
+        archive is rooted at its own mountpoint). Each helper container then
+        extracts its sidecar-authored stream from stdin -- it never parses a
+        header the sidecar did not write.
+        """
+        with tempfile.TemporaryDirectory(dir=str(spool_path.parent)) as scratch:
+            scratch_dir = Path(scratch)
+            plan: list[tuple[str, Path, str]] = [("", scratch_dir / "main.tar", main_volume)]
+            for index, (ro_path, ro_volume) in enumerate(ro_routes):
+                plan.append((ro_path, scratch_dir / f"ro{index}.tar", ro_volume))
+
+            def _split() -> None:
+                streams = [(prefix, path.open("wb")) for prefix, path, _ in plan]
+                try:
+                    split_reauthored_tar(
+                        spool_path, [(prefix, stream) for prefix, stream in streams]
+                    )
+                finally:
+                    for _, stream in streams:
+                        stream.close()
+
+            await asyncio.to_thread(_split)
+            for _, tar_path, volume in plan:
+                await self._run_staging_cmd(
+                    self._docker_binary,
+                    "run",
+                    "--rm",
+                    "-i",
+                    "--network=none",
+                    "--cap-drop",
+                    "ALL",
+                    "--security-opt",
+                    "no-new-privileges",
+                    "-v",
+                    f"{volume}:/w",
+                    helper_image,
+                    "tar",
+                    "-x",
+                    "-f",
+                    "-",
+                    "-C",
+                    "/w",
+                    stdin_path=tar_path,
+                )
+
+    async def _capture_output_file(
+        self, main_volume: str, relative_path: str
+    ) -> tuple[str | None, bool]:
+        """Read one file back from the main workspace volume, bounded.
+
+        Returns ``(payload_b64, truncated)``. A missing file, a failed helper
+        or a capture error yields ``(None, False)``; an overflow past the cap
+        drops the payload and reports ``(None, True)``.
+        """
+        cap = self._max_output_file_bytes
+        helper_image = validate_docker_image_reference(
+            self._helper_image or resolve_helper_image()
+        )
+        try:
+            data, overflowed, returncode = await self._run_capture_cmd(
+                self._docker_binary,
+                "run",
+                "--rm",
+                "--network=none",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "-v",
+                f"{main_volume}:/w:ro",
+                helper_image,
+                "cat",
+                f"/w/{relative_path}",
+                max_bytes=cap + 1,
+            )
+        except Exception:  # noqa: BLE001 - capture must not fail the execution
+            logger.warning("Failed to capture output file from volume %s", main_volume)
+            return None, False
+        if returncode != 0:
+            return None, False
+        if overflowed or len(data) > cap:
+            return None, True
+        return base64.b64encode(data).decode("ascii"), False
+
+    async def _remove_volume(self, volume: str) -> None:
+        """Force-remove an owned volume, retrying once before giving up."""
+        for attempt in (0, 1):
+            try:
+                await self._run_staging_cmd(
+                    self._docker_binary, "volume", "rm", "-f", volume
+                )
+                return
+            except Exception:  # noqa: BLE001
+                if attempt:
+                    logger.warning("Failed to remove workspace volume %s", volume)
 
 
 __all__ = ["SidecarExecutor"]

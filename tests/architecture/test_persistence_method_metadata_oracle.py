@@ -184,6 +184,16 @@ zeroth.service.deployments.repository|SQLiteDeploymentRepository|create|CRU
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|get|R
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|list|N
 zeroth.service.deployments.repository|SQLiteDeploymentRepository|next_version|R
+zeroth.service.github.repository|SQLiteGitHubRepository|get_installation|R
+zeroth.service.github.repository|SQLiteGitHubRepository|get_repository|R
+zeroth.service.github.repository|SQLiteGitHubRepository|list_installations|N
+zeroth.service.github.repository|SQLiteGitHubRepository|list_repositories|N
+zeroth.service.github.repository|SQLiteGitHubRepository|prune_deliveries|ND
+zeroth.service.github.repository|SQLiteGitHubRepository|record_delivery|C
+zeroth.service.github.repository|SQLiteGitHubRepository|set_installation_status|U
+zeroth.service.github.repository|SQLiteGitHubRepository|set_repository_status|U
+zeroth.service.github.repository|SQLiteGitHubRepository|upsert_installation|CRU
+zeroth.service.github.repository|SQLiteGitHubRepository|upsert_repository|CRU
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|count_decisions|N
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|get_attestation|N
 zeroth.service.langgraph_gateway.enforcement_store|LangGraphEnforcementRepository|get_attestation_by_run_id|R
@@ -268,7 +278,7 @@ def test_discovered_repository_type_is_the_exported_class_identity() -> None:
 
 
 def test_exact_metadata_oracle_covers_every_discovered_method_identity() -> None:
-    assert len(METHOD_METADATA_ORACLE) == 182
+    assert len(METHOD_METADATA_ORACLE) == 192
     _assert_exact_metadata(_discovered_method_operations())
     _assert_runtime_metadata()
 

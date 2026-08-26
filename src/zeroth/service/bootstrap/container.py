@@ -156,6 +156,15 @@ class ServiceBootstrap:
     report the threshold this deployment is *configured* with, not the
     module default. ``None`` leaves the routes on that default.
     """
+    # ZER-37: the GitHub App integration surface. All remain absent unless
+    # ``settings.github.enabled`` is true, so the ordinary service constructs
+    # no GitHub client, broker, or webhook route.
+    github_repository: object | None = None
+    github_client: object | None = None
+    github_token_broker: object | None = None
+    github_integration_service: object | None = None
+    github_maintenance_worker: object | None = None
+    github_webhook_secret_resolver: object | None = None
 
 
 _bootstrap_parameters = inspect.signature(ServiceBootstrap).parameters
@@ -186,6 +195,16 @@ ServiceBootstrap.__signature__ = inspect.signature(ServiceBootstrap).replace(
             # Same reason again: the verify-side provider is an additive
             # component, not a change to the capability the fixture names.
             "verifier",
+            # ZER-37 fields follow the same additive-component rule: the
+            # protected surface fixture pins ``ServiceBootstrap.__init__``,
+            # and the optional GitHub integration components do not change
+            # the capability that fixture names.
+            "github_repository",
+            "github_client",
+            "github_token_broker",
+            "github_integration_service",
+            "github_maintenance_worker",
+            "github_webhook_secret_resolver",
         }
     ]
 )
