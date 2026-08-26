@@ -4,12 +4,26 @@ Configuration is loaded with the following priority (highest wins):
 1. Environment variables with ZEROTH_ prefix
 2. .env file values
 3. zeroth.yaml defaults
+
+The YAML source path is pinned ONCE, at module import: ``ZEROTH_SETTINGS_FILE``
+(or ``zeroth.yaml`` when unset) is resolved to an absolute path against the
+working directory the process was launched from. Imports happen at process
+start, so an operator who starts a zeroth process inside its configuration
+directory keeps today's behavior exactly, and ``ZEROTH_SETTINGS_FILE`` names
+the file explicitly when the launch directory is elsewhere. What the pin
+removes is retargeting-after-start (ZER-37): once the process has imported
+this module, a later ``os.chdir`` -- for example into a hostile repository
+checkout that ships its own ``zeroth.yaml`` -- can no longer change which
+file platform settings are read from. A missing file at the pinned path is
+not an error; the YAML layer simply contributes nothing, as before.
 """
 
 from __future__ import annotations
 
 import inspect
+import os
 import re
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
@@ -24,6 +38,7 @@ from pydantic import (
 )
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     YamlConfigSettingsSource,
@@ -37,6 +52,17 @@ from zeroth.platform.config.models import HttpClientSettings, RegulusSettings
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_EMBEDDING_DIMENSIONS = 1536
 _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
+
+# ZER-37 settings-absorption hardening: the YAML source path is resolved
+# exactly once, when this module is imported, so the file the platform reads
+# is fixed by the launch environment (launch CWD or ZEROTH_SETTINGS_FILE) and
+# a later os.chdir into an untrusted tree cannot re-target it. See the module
+# docstring for the operator contract.
+_SETTINGS_YAML_PATH = Path(os.environ.get("ZEROTH_SETTINGS_FILE", "zeroth.yaml")).resolve()
+# The .env source is pinned the same way for the same reason: dotenv resolution
+# happens per-construction, so an unpinned relative ".env" inside a checkout
+# would be absorbed after a chdir exactly like the YAML file.
+_SETTINGS_ENV_PATH = Path(os.environ.get("ZEROTH_ENV_FILE", ".env")).resolve()
 
 
 class DatabaseSettings(BaseModel):
@@ -475,6 +501,9 @@ class ZerothSettings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_prefix="ZEROTH_",
         env_nested_delimiter="__",
+        # Documents the default file NAME only; the source constructed in
+        # settings_customise_sources always reads _SETTINGS_YAML_PATH, the
+        # absolute path pinned at module import (ZER-37).
         yaml_file="zeroth.yaml",
         env_file=".env",
         env_file_encoding="utf-8",
@@ -517,12 +546,26 @@ class ZerothSettings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
         **kwargs: Any,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Return sources in priority order: init kwargs > env > .env > YAML."""
+        """Return sources in priority order: init kwargs > env > .env > YAML.
+
+        The YAML source reads the import-time-pinned absolute path (see
+        ``_SETTINGS_YAML_PATH``), never the ``yaml_file`` name from
+        ``model_config`` resolved against the current working directory --
+        that resolution is what let a post-start ``os.chdir`` swap in an
+        untrusted ``zeroth.yaml``. The ``.env`` source is rebuilt on the
+        import-time-pinned ``_SETTINGS_ENV_PATH`` for the same reason. A
+        missing file at either pinned path still contributes nothing rather
+        than erroring.
+        """
         return (
             init_settings,
             env_settings,
-            dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            DotEnvSettingsSource(
+                settings_cls,
+                env_file=_SETTINGS_ENV_PATH,
+                env_file_encoding="utf-8",
+            ),
+            YamlConfigSettingsSource(settings_cls, yaml_file=_SETTINGS_YAML_PATH),
         )
 
 

@@ -28,6 +28,7 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         Permission.AUDIT_READ,
         "get_deployment_evidence",
         "get_deployment_timeline",
+        "get_repository_run_evidence",
         "get_run_evidence",
         "get_run_timeline",
         "list_audits",
@@ -125,6 +126,24 @@ ROUTE_PERMISSIONS: dict[str, Permission] = {
         "get_unit_economics",
         "get_waste",
         "rightsizing_opportunities",
+    ),
+    **_routes(
+        Permission.REPOSITORY_ADMIN,
+        "claim_repo_installation",
+    ),
+    **_routes(
+        Permission.REPOSITORY_READ,
+        "get_checkout_attestation",
+        "get_repository_checkout",
+        "get_repository_run",
+        "list_installation_repositories",
+        "list_repo_installations",
+        "resolve_repository_ref",
+    ),
+    **_routes(
+        Permission.REPOSITORY_RUN,
+        "create_repository_checkout",
+        "create_repository_run",
     ),
     **_routes(
         Permission.RETENTION_ADMIN,
