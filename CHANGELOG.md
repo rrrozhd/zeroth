@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9.20] - 2026-08-19
+
+### Security
+
+- Keep the root-owned candidate supervisor isolated with `-I -S` while loading
+  certifier dependencies only from its trusted interpreter environment.
+
 ## [0.23.9.19] - 2026-08-18
 
 ### Security

@@ -33,7 +33,8 @@ _PROBE_BOOTSTRAP = (
 _ROOT_BOUNDARY_BOOTSTRAP = (
     "import pathlib,runpy,sys;"
     "certifier=pathlib.Path(sys.argv.pop(1));"
-    "sys.path[:0]=[str(certifier),str(certifier/'src')];"
+    "trusted_site=pathlib.Path(sys.argv.pop(1)).resolve(strict=True);"
+    "sys.path[:0]=[str(certifier),str(certifier/'src'),str(trusted_site)];"
     "runpy.run_module('release.app_certification.candidate_supervisor',run_name='__main__')"
 )
 
@@ -221,6 +222,12 @@ def _root_boundary_argv(user: str, inner: list[str]) -> list[str]:
         "-c",
         _ROOT_BOUNDARY_BOOTSTRAP,
         str(Path(__file__).parents[2].resolve()),
+        str(
+            Path(sys.executable).absolute().parent.parent
+            / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        ),
         "--root-boundary",
         user,
         "--",
