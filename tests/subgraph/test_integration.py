@@ -142,6 +142,7 @@ def _make_run_repository() -> AsyncMock:
     repo = AsyncMock()
     repo.create = AsyncMock(side_effect=lambda r: r)
     repo.put = AsyncMock(side_effect=lambda r: r)
+    repo.put_if_status = AsyncMock(side_effect=lambda r, _expected: r)
     repo.get = AsyncMock(return_value=None)
     repo.write_checkpoint = AsyncMock()
     return repo

@@ -45,7 +45,7 @@ def _receipt(
             workspace_id=workspace_id,
             app_name="support-agent",
             app_commit=COMMIT,
-            zeroth_version="0.23.10.2",
+            zeroth_version="0.23.11",
             image_reference="registry.example/support-agent",
             image_digest=IMAGE,
             source_digest="sha256:" + "3" * 64,

@@ -704,6 +704,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deployments/{deployment_ref}/guardrails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Deployment Guardrails */
+        get: operations["get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get"];
+        /** Put Deployment Guardrails */
+        put: operations["put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deployments/{deployment_ref}/input-contract": {
         parameters: {
             query?: never;
@@ -1785,6 +1803,41 @@ export interface paths {
          * @description Record the tool inventory an adapter declares for one deployment.
          */
         post: operations["register_tool_inventory_v1_enforcement_registrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/guardrails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tenant Guardrails */
+        get: operations["get_tenant_guardrails_v1_guardrails_get"];
+        /** Put Tenant Guardrails */
+        put: operations["put_tenant_guardrails_v1_guardrails_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/guardrails/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Guardrail History */
+        get: operations["get_guardrail_history_v1_guardrails_history_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3346,6 +3399,39 @@ export interface components {
             updated_at: string;
         };
         /**
+         * EffectiveGuardrailSettings
+         * @description Concrete product defaults after tenant and deployment composition.
+         */
+        EffectiveGuardrailSettings: {
+            /**
+             * Backpressure Queue Depth
+             * @default 100
+             */
+            backpressure_queue_depth: number;
+            /**
+             * Max Concurrency
+             * @default 8
+             */
+            max_concurrency: number;
+            /** Quota Daily Limit */
+            quota_daily_limit?: number | null;
+            /**
+             * Rate Limit Burst
+             * @default 0
+             */
+            rate_limit_burst: number;
+            /**
+             * Rate Limit Capacity
+             * @default 10
+             */
+            rate_limit_capacity: number;
+            /**
+             * Rate Limit Refill Rate
+             * @default 1
+             */
+            rate_limit_refill_rate: number;
+        };
+        /**
          * ErasureRequestBody
          * @description Request body for POST /retention/erasure-requests.
          *
@@ -3555,6 +3641,62 @@ export interface components {
          * @enum {string}
          */
         GovernanceLevel: "admission" | "observed" | "enforced";
+        /**
+         * GuardrailPolicyPatch
+         * @description A bounded partial policy; explicitly supplied null quota means unlimited.
+         */
+        GuardrailPolicyPatch: {
+            /** Backpressure Queue Depth */
+            backpressure_queue_depth?: number | null;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
+            /** Quota Daily Limit */
+            quota_daily_limit?: number | null;
+            /** Rate Limit Burst */
+            rate_limit_burst?: number | null;
+            /** Rate Limit Capacity */
+            rate_limit_capacity?: number | null;
+            /** Rate Limit Refill Rate */
+            rate_limit_refill_rate?: number | null;
+            /** Reset Fields */
+            reset_fields?: ("rate_limit_capacity" | "rate_limit_refill_rate" | "rate_limit_burst" | "quota_daily_limit" | "backpressure_queue_depth" | "max_concurrency")[];
+        };
+        /**
+         * GuardrailPolicyResponse
+         * @description Latest explicit revisions and their composed effective settings.
+         */
+        GuardrailPolicyResponse: {
+            /** @description Return the deployment scope's composed active overrides. */
+            readonly deployment_overrides: components["schemas"]["GuardrailPolicyPatch"] | null;
+            deployment_revision: components["schemas"]["GuardrailPolicyRevision"] | null;
+            effective: components["schemas"]["EffectiveGuardrailSettings"];
+            /** @description Return the tenant scope's composed active overrides. */
+            readonly tenant_overrides: components["schemas"]["GuardrailPolicyPatch"] | null;
+            tenant_revision: components["schemas"]["GuardrailPolicyRevision"] | null;
+        };
+        /**
+         * GuardrailPolicyRevision
+         * @description One immutable operator change in the append-only history.
+         */
+        GuardrailPolicyRevision: {
+            /** Changed By */
+            changed_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deployment Ref */
+            deployment_ref: string | null;
+            policy: components["schemas"]["GuardrailPolicyPatch"];
+            /** Revision Id */
+            revision_id: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "tenant" | "deployment";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -6738,6 +6880,72 @@ export interface operations {
             };
         };
     };
+    get_deployment_guardrails_v1_deployments__deployment_ref__guardrails_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_deployment_guardrails_v1_deployments__deployment_ref__guardrails_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardrailPolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_input_contract_v1_deployments__deployment_ref__input_contract_get: {
         parameters: {
             query?: never;
@@ -8056,6 +8264,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tenant_guardrails_v1_guardrails_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailPolicyResponse"];
+                };
+            };
+        };
+    };
+    put_tenant_guardrails_v1_guardrails_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardrailPolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_guardrail_history_v1_guardrails_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailPolicyRevision"][];
                 };
             };
         };

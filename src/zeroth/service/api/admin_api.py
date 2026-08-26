@@ -17,7 +17,6 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from zeroth.contracts.governed import RunStatus
-from zeroth.platform.primitives.clock import utc_now
 from zeroth.runtime.orchestration.interrupts import InterruptManager
 from zeroth.runtime.orchestration.token_lifecycle import TokenLifecycleAdapter
 from zeroth.runtime.orchestration.token_snapshot_store import (
@@ -98,20 +97,19 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             return _serialize_run(run)
         try:
             await _apply_token_lifecycle(bootstrap, run_id, InterruptManager.cancel_run)
-            run = await _transition_run(
-                bootstrap,
+            run = await bootstrap.run_repository.cancel(
                 run_id,
-                RunStatus.FAILED,
+                bootstrap.deployment.deployment_ref,
                 failure_state=RunFailureState(
                     reason="operator_cancelled", message="cancelled by admin"
                 ),
             )
         except (ValueError, TokenSnapshotConcurrencyError) as exc:
             raise _run_conflict(exc) from exc
-        # Clear lease so any worker won't resume it.
-        lease_manager = getattr(bootstrap, "lease_manager", None)
-        if lease_manager is not None:
-            await lease_manager.clear_lease(run_id)
+        except KeyError as exc:
+            if await bootstrap.run_repository.get(run_id) is None:
+                raise _run_row_gone(run_id) from exc
+            raise
         return _serialize_run(run)
 
     @app.post("/admin/runs/{run_id}/replay", response_model=RunStatusResponse)
@@ -135,9 +133,16 @@ def register_admin_routes(app: FastAPI | APIRouter) -> None:
             )
         try:
             await _apply_token_lifecycle(bootstrap, run_id, InterruptManager.pause_run)
-            run = await _transition_run(bootstrap, run_id, RunStatus.WAITING_INTERRUPT)
+            run = await bootstrap.run_repository.interrupt(
+                run_id,
+                bootstrap.deployment.deployment_ref,
+            )
         except (ValueError, TokenSnapshotConcurrencyError) as exc:
             raise _run_conflict(exc) from exc
+        except KeyError as exc:
+            if await bootstrap.run_repository.get(run_id) is None:
+                raise _run_row_gone(run_id) from exc
+            raise
         return _serialize_run(run)
 
 
@@ -363,13 +368,9 @@ async def _replay_failed_run(request: Request, run_id: str) -> RunStatusResponse
     identity of its failure: no ``failure_state`` for the dead-letter view to
     match, no lease, and a retry count reset to zero.
 
-    Wrapping the three repository calls in an outer transaction is not
-    available here: ``AsyncSQLiteDatabase.transaction`` opens a *fresh
-    connection* per call, so the repository's own writes would block on the
-    outer connection's write lock rather than join it. The status predicate
-    does the work the ``transition`` call used to -- FAILED is the only
-    status a replay may start from, so a concurrent change loses the CAS and
-    comes back as the same 409 as before, having written nothing.
+    The repository owns the transaction and adds its trusted tenant/workspace
+    predicates. FAILED plus the deployment ref form the remaining CAS, so a
+    concurrent state change loses without touching any colliding foreign row.
     """
     bootstrap = _bootstrap(request)
     await require_permission(request, Permission.RUN_ADMIN)
@@ -384,31 +385,7 @@ async def _replay_failed_run(request: Request, run_id: str) -> RunStatusResponse
             status_code=status.HTTP_409_CONFLICT,
             detail="only failed runs can be replayed",
         )
-    async with repository.database.transaction(write_lock=True) as conn:
-        requeued = await conn.fetch_one(
-            """
-            UPDATE runs
-            SET status = ?,
-                error = NULL,
-                failure_state = NULL,
-                failure_count = 0,
-                lease_worker_id = NULL,
-                lease_expires_at = NULL,
-                updated_at = ?
-            WHERE run_id = ?
-              AND deployment_ref = ?
-              AND status = ?
-            RETURNING run_id
-            """,
-            (
-                RunStatus.PENDING.value,
-                utc_now().isoformat(),
-                run_id,
-                deployment_ref,
-                RunStatus.FAILED.value,
-            ),
-        )
-    if requeued is None:
+    if not await repository.replay_failed(run_id, deployment_ref):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="only failed runs can be replayed",

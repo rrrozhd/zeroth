@@ -18,7 +18,7 @@ from tests.conftest import requires_docker
 from zeroth.integrations.persistence.runs import RunRepository
 from zeroth.platform.dispatch.lease import LeaseManager
 from zeroth.runtime.orchestration.run_worker import RunWorker
-from zeroth.runtime.runs import Run, RunStatus
+from zeroth.runtime.runs import Run, RunFailureState, RunStatus
 
 DEPLOYMENT = "fencing-deployment"
 WORKER_A = "worker-a"
@@ -133,6 +133,63 @@ class TestLeaseFencingDualBackend:
         assert run is not None
         assert run.current_step == "live-step"
 
+    async def test_expired_worker_cannot_write_after_different_run_reuses_slot(
+        self,
+        dual_database,
+    ) -> None:
+        """An expired owner cannot outlive the capacity slot it surrendered."""
+        from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+        repository = RunRepository.for_default_compatibility(dual_database)
+        manager = LeaseManager(dual_database)
+        expired_run = await _pending_run(dual_database)
+        replacement_run = await _pending_run(dual_database)
+        scope = {"tenant_id": "default", "workspace_id": None, "max_concurrency": 1}
+
+        assert await manager.claim_pending(DEPLOYMENT, WORKER_A, **scope) == expired_run
+        await repository.transition(expired_run, RunStatus.RUNNING)
+        generation = await manager.current_generation(expired_run)
+        assert generation == 1
+        stale = await repository.get(expired_run)
+        assert stale is not None
+        repository.install_fence(expired_run, WORKER_A, generation)
+
+        replacement_claimed = asyncio.Event()
+
+        async def stale_write() -> None:
+            await replacement_claimed.wait()
+            stale.current_step = "expired-worker-step"
+            await repository.put(stale)
+
+        write = asyncio.create_task(stale_write())
+        try:
+            await _expire_lease(dual_database, expired_run)
+            assert await manager.claim_pending(DEPLOYMENT, WORKER_B, **scope) == replacement_run
+            replacement_claimed.set()
+            with pytest.raises(FencedRunWriteRejectedError):
+                await write
+            assert (
+                await manager.commit_fenced(
+                    expired_run,
+                    WORKER_A,
+                    generation=generation,
+                    current_step="expired-direct-step",
+                )
+                is False
+            )
+        finally:
+            replacement_claimed.set()
+            if not write.done():
+                write.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await write
+            repository.clear_fence(expired_run, WORKER_A, generation)
+
+        persisted = await repository.get(expired_run)
+        assert persisted is not None
+        assert persisted.current_step not in {"expired-worker-step", "expired-direct-step"}
+        assert await manager.current_holder(replacement_run) == WORKER_B
+
     async def test_orphan_reclaim_advances_the_generation(self, dual_database) -> None:
         manager = LeaseManager(dual_database)
         run_id = await _pending_run(dual_database)
@@ -183,6 +240,153 @@ class _StallingOrchestrator:
 class _FakeGraph:
     nodes: list = []
     entry_step: str = "start"
+
+
+class _RecordingOrchestrator:
+    def __init__(self) -> None:
+        self.driven: list[str] = []
+
+    async def _drive(self, graph, run):
+        del graph
+        self.driven.append(run.run_id)
+        return run
+
+    async def resume_graph(self, graph, run_id: str):
+        del graph
+        self.driven.append(run_id)
+        return None
+
+    @property
+    def approval_service(self):
+        return None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_admin_cancel_atomically_fences_pending_worker(
+    dual_database,
+    monkeypatch,
+) -> None:
+    """Cancellation and lease revocation must be one stale-write fence."""
+    admin_repository = RunRepository.for_default_compatibility(dual_database)
+    worker_repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=worker_repository,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, worker.worker_id) == run_id
+
+    original_get = worker_repository.get
+    reads = 0
+    transition_read = asyncio.Event()
+    release_transition = asyncio.Event()
+
+    async def pause_stale_transition_read(claimed_run_id: str):
+        nonlocal reads
+        run = await original_get(claimed_run_id)
+        reads += 1
+        if reads == 2:
+            assert run is not None
+            assert run.status is RunStatus.PENDING
+            transition_read.set()
+            await release_transition.wait()
+        return run
+
+    monkeypatch.setattr(worker_repository, "get", pause_stale_transition_read)
+    execution = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
+    await asyncio.wait_for(transition_read.wait(), timeout=5)
+    try:
+        cancelled = await admin_repository.cancel(
+            run_id,
+            DEPLOYMENT,
+            failure_state=RunFailureState(
+                reason="operator_cancelled",
+                message="cancelled by admin",
+            ),
+        )
+    finally:
+        release_transition.set()
+        await asyncio.wait_for(execution, timeout=5)
+
+    async with dual_database.transaction() as connection:
+        row = await connection.fetch_one(
+            "SELECT status, lease_worker_id, lease_acquired_at, lease_expires_at "
+            "FROM runs WHERE run_id = ?",
+            (run_id,),
+        )
+    assert row is not None
+    assert cancelled.status is RunStatus.FAILED
+    assert row["status"] == RunStatus.FAILED.value
+    assert row["lease_worker_id"] is None
+    assert row["lease_acquired_at"] is None
+    assert row["lease_expires_at"] is None
+    assert orchestrator.driven == []
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_expired_recovery_lease_is_not_executed_after_replica_takeover(
+    dual_database,
+) -> None:
+    repo = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=1)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await repo.transition(run_id, RunStatus.RUNNING)
+    await _expire_lease(dual_database, run_id)
+    assert await manager.claim_orphaned(DEPLOYMENT, worker.worker_id) == [run_id]
+
+    # SQLite CURRENT_TIMESTAMP has one-second precision; wait until strictly
+    # after the expiry because equality is still renewable by contract.
+    await asyncio.sleep(2.1)
+    assert await manager.claim_orphaned(DEPLOYMENT, WORKER_B) == [run_id]
+    await worker._execute_leased_run(run_id, is_recovery=True)
+
+    assert orchestrator.driven == []
+    assert await manager.current_holder(run_id) == WORKER_B
+    assert await manager.current_generation(run_id) == 3
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_execute_when_fence_install_loses_race(sqlite_db) -> None:
+    repo = RunRepository.for_default_compatibility(sqlite_db)
+    manager = LeaseManager(sqlite_db)
+    orchestrator = _RecordingOrchestrator()
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repo,
+        orchestrator=orchestrator,
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=1,
+    )
+    run_id = await _pending_run(sqlite_db)
+    assert await manager.claim_pending(DEPLOYMENT, worker.worker_id) == run_id
+
+    async def _ownership_moved_before_fence(claimed_run_id: str, generation: int | None) -> bool:
+        del claimed_run_id, generation
+        return False
+
+    worker._install_write_fence = _ownership_moved_before_fence  # type: ignore[method-assign]
+    await worker._execute_leased_run(run_id, is_recovery=True)
+
+    assert orchestrator.driven == []
 
 
 @requires_docker
@@ -456,7 +660,7 @@ async def test_a_displaced_workers_run_state_write_is_fenced_out(dual_database) 
         with pytest.raises(FencedRunWriteRejectedError):
             await repo.put(run)
     finally:
-        repo.clear_fence(run_id)
+        repo.clear_fence(run_id, WORKER_A, generation)
 
     persisted = await repo.get(run_id)
     assert persisted.metadata.get("written_by") == WORKER_A, (
@@ -605,7 +809,7 @@ async def test_a_displaced_put_leaves_no_checkpoint_or_thread_write(dual_databas
         with pytest.raises(FencedRunWriteRejectedError):
             await repo.put(run)
     finally:
-        repo.clear_fence(run_id)
+        repo.clear_fence(run_id, WORKER_A, generation)
 
     after = await repo.get_checkpoint(checkpoint_id)
     assert after.metadata.get("written_by") == WORKER_A, (
@@ -643,10 +847,14 @@ async def test_graceful_shutdown_stops_the_drive_before_releasing(dual_database)
     drive_states_at_release: list[bool] = []
     original_release = worker._release_to_pending
 
-    async def _spying_release(target_run_id: str) -> None:
+    async def _spying_release(
+        target_run_id: str,
+        *,
+        generation: int | None = None,
+    ) -> None:
         drive = worker._active_drives.get(target_run_id)
         drive_states_at_release.append(drive is None or drive.done())
-        await original_release(target_run_id)
+        await original_release(target_run_id, generation=generation)
 
     worker._release_to_pending = _spying_release  # type: ignore[method-assign]
 
@@ -671,3 +879,229 @@ async def test_graceful_shutdown_stops_the_drive_before_releasing(dual_database)
     )
     final = await repo.get(run_id)
     assert final is not None and final.status is RunStatus.PENDING
+
+
+def _operator_cancelled() -> RunFailureState:
+    return RunFailureState(
+        reason="operator_cancelled",
+        message="cancelled by admin",
+    )
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_admin_cancel_wins_over_stale_shutdown_hand_back(
+    dual_database,
+    monkeypatch,
+) -> None:
+    """A stale shutdown snapshot must not restore PENDING after cancellation."""
+    admin_repository = RunRepository.for_default_compatibility(dual_database)
+    worker_repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=worker_repository,
+        orchestrator=_RecordingOrchestrator(),
+        graph=_FakeGraph(),
+        lease_manager=manager,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, worker.worker_id) == run_id
+    assert await manager.current_generation(run_id) == 1
+    await worker_repository.transition(run_id, RunStatus.RUNNING)
+    worker._lease_generations[run_id] = 1
+
+    stale_read = asyncio.Event()
+    release_stale_write = asyncio.Event()
+    original_get = worker_repository.get
+
+    async def pause_after_stale_read(target_run_id: str):
+        run = await original_get(target_run_id)
+        stale_read.set()
+        await release_stale_write.wait()
+        return run
+
+    monkeypatch.setattr(worker_repository, "get", pause_after_stale_read)
+    hand_back = asyncio.create_task(worker._release_to_pending(run_id))
+    waiting_for_read = asyncio.create_task(stale_read.wait())
+    done, _ = await asyncio.wait(
+        {hand_back, waiting_for_read},
+        timeout=5,
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    assert done, "shutdown hand-back did not reach its status write"
+    try:
+        cancelled = await admin_repository.cancel(
+            run_id,
+            DEPLOYMENT,
+            failure_state=_operator_cancelled(),
+        )
+    finally:
+        release_stale_write.set()
+    await asyncio.wait_for(hand_back, timeout=5)
+    waiting_for_read.cancel()
+
+    final = await admin_repository.get(run_id)
+    assert cancelled.status is RunStatus.FAILED
+    assert final is not None and final.status is RunStatus.FAILED
+    assert await manager.current_holder(run_id) is None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_admin_cancel_wins_over_stale_cross_replica_interrupt(
+    dual_database,
+) -> None:
+    """A scoped interrupt CAS must never overwrite terminal cancellation."""
+    admin_repository = RunRepository.for_default_compatibility(dual_database)
+    interrupt_repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await admin_repository.transition(run_id, RunStatus.RUNNING)
+
+    async def stale_interrupt() -> None:
+        with contextlib.suppress(ValueError):
+            await interrupt_repository.interrupt(run_id, DEPLOYMENT)
+
+    cancelled, _ = await asyncio.gather(
+        admin_repository.cancel(
+            run_id,
+            DEPLOYMENT,
+            failure_state=_operator_cancelled(),
+        ),
+        stale_interrupt(),
+    )
+
+    final = await admin_repository.get(run_id)
+    assert cancelled.status is RunStatus.FAILED
+    assert final is not None and final.status is RunStatus.FAILED
+    assert await manager.current_holder(run_id) is None
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_stale_generation_cannot_clear_new_same_worker_lease_or_fence(
+    dual_database,
+) -> None:
+    """Generation N cleanup must not revoke or unfence generation N+1."""
+    from zeroth.platform.dispatch.lease import FencedRunWriteRejectedError
+
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await repository.transition(run_id, RunStatus.RUNNING)
+    await repository.cancel(
+        run_id,
+        DEPLOYMENT,
+        failure_state=_operator_cancelled(),
+    )
+    assert await repository.replay_failed(run_id, DEPLOYMENT) is True
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    assert await manager.current_generation(run_id) == 2
+    repository.install_fence(run_id, WORKER_A, 2)
+
+    assert await manager.release_lease(run_id, WORKER_A, generation=1) is False
+    assert repository.clear_fence(run_id, WORKER_A, generation=1) is False
+    assert await manager.current_holder(run_id) == WORKER_A
+    assert await manager.current_generation(run_id) == 2
+
+    await _expire_lease(dual_database, run_id)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_B) == run_id
+    stale = await repository.get(run_id)
+    assert stale is not None
+    stale.current_step = "generation-one-cleanup"
+    with pytest.raises(FencedRunWriteRejectedError):
+        await repository.put(stale)
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_shutdown_hand_back_without_registered_generation_fails_closed(
+    dual_database,
+) -> None:
+    """Shutdown cleanup must never discover and clear a newer generation."""
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repository,
+        orchestrator=_RecordingOrchestrator(),
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        worker_id=WORKER_A,
+    )
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    await repository.transition(run_id, RunStatus.RUNNING)
+    await repository.cancel(
+        run_id,
+        DEPLOYMENT,
+        failure_state=_operator_cancelled(),
+    )
+    assert await repository.replay_failed(run_id, DEPLOYMENT) is True
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    assert await manager.current_generation(run_id) == 2
+    await repository.transition(run_id, RunStatus.RUNNING)
+
+    await worker._release_to_pending(run_id)
+
+    final = await repository.get(run_id)
+    assert final is not None and final.status is RunStatus.RUNNING
+    assert await manager.current_holder(run_id) == WORKER_A
+    assert await manager.current_generation(run_id) == 2
+
+
+@requires_docker
+@pytest.mark.asyncio
+async def test_worker_refuses_overlapping_generations_for_the_same_run(
+    dual_database,
+) -> None:
+    """A replay cannot replace one worker's still-unwinding local drive."""
+    repository = RunRepository.for_default_compatibility(dual_database)
+    manager = LeaseManager(dual_database, lease_duration_seconds=60)
+    worker = RunWorker(
+        deployment_ref=DEPLOYMENT,
+        run_repository=repository,
+        orchestrator=_RecordingOrchestrator(),
+        graph=_FakeGraph(),
+        lease_manager=manager,
+        max_concurrency=2,
+        worker_id=WORKER_A,
+    )
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def blocking_drive(run_id: str, *, is_recovery: bool) -> None:
+        del run_id, is_recovery
+        first_started.set()
+        await release_first.wait()
+
+    worker._drive_run = blocking_drive  # type: ignore[method-assign]
+    run_id = await _pending_run(dual_database)
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    first_execution = asyncio.create_task(worker._execute_leased_run(run_id, is_recovery=False))
+    await asyncio.wait_for(first_started.wait(), timeout=5)
+    first_drive = worker._active_drives[run_id]
+
+    await repository.cancel(
+        run_id,
+        DEPLOYMENT,
+        failure_state=_operator_cancelled(),
+    )
+    assert await repository.replay_failed(run_id, DEPLOYMENT) is True
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_A) == run_id
+    assert await manager.current_generation(run_id) == 2
+
+    await worker._execute_leased_run(run_id, is_recovery=False)
+    assert worker._active_drives[run_id] is first_drive
+    assert worker._lease_generations[run_id] == 1
+    assert await manager.current_holder(run_id) is None
+    assert await manager.claim_pending(DEPLOYMENT, WORKER_B) == run_id
+    assert await manager.current_generation(run_id) == 3
+
+    release_first.set()
+    await asyncio.wait_for(first_execution, timeout=5)
+    assert await manager.current_holder(run_id) == WORKER_B
+    assert await manager.current_generation(run_id) == 3

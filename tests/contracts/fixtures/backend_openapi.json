@@ -1966,6 +1966,54 @@
         ],
         "type": "object"
       },
+      "EffectiveGuardrailSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "backpressure_queue_depth": {
+            "default": 100,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "default": 8,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_burst": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "rate_limit_capacity": {
+            "default": 10,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "type": "number"
+          },
+          "rate_limit_refill_rate": {
+            "default": 1,
+            "maximum": 100000.0,
+            "minimum": 1.1574074074074073e-05,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "ErasureRequestBody": {
         "additionalProperties": false,
         "properties": {
@@ -2238,6 +2286,200 @@
           "enforced"
         ],
         "type": "string"
+      },
+      "GuardrailPolicyPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "backpressure_queue_depth": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quota_daily_limit": {
+            "anyOf": [
+              {
+                "maximum": 1000000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_burst": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_capacity": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limit_refill_rate": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.1574074074074073e-05,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_fields": {
+            "items": {
+              "enum": [
+                "rate_limit_capacity",
+                "rate_limit_refill_rate",
+                "rate_limit_burst",
+                "quota_daily_limit",
+                "backpressure_queue_depth",
+                "max_concurrency"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "GuardrailPolicyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deployment_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
+          },
+          "deployment_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective": {
+            "$ref": "#/components/schemas/EffectiveGuardrailSettings"
+          },
+          "tenant_overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
+          },
+          "tenant_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailPolicyRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tenant_revision",
+          "deployment_revision",
+          "effective",
+          "tenant_overrides",
+          "deployment_overrides"
+        ],
+        "type": "object"
+      },
+      "GuardrailPolicyRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deployment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuardrailPolicyPatch"
+          },
+          "revision_id": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "deployment"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "scope",
+          "deployment_ref",
+          "policy",
+          "changed_by",
+          "created_at"
+        ],
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7213,6 +7455,88 @@
         ]
       }
     },
+    "/v1/deployments/{deployment_ref}/guardrails": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deployment_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/v1/deployments/{deployment_ref}/input-contract": {
       "get": {
         "parameters": [
@@ -8508,6 +8832,80 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuardrailPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardrailPolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/v1/guardrails/history": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailPolicyRevision"
+                  },
+                  "type": "array"
                 }
               }
             }

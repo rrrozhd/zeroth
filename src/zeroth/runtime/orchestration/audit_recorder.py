@@ -223,7 +223,8 @@ class RuntimeAuditRecorder:
         audit_record: Mapping[str, Any],
         *,
         started_at: datetime | None = None,
-    ) -> None:
+        defer_audit: bool = False,
+    ) -> NodeAuditRecord | None:
         """Save a record of this node's execution to the run history and audit log.
 
         Creates an audit entry (if an audit repository is configured) and
@@ -241,6 +242,7 @@ class RuntimeAuditRecorder:
         # it completed_at==started_at and the record reports a zero duration.
         completed_at = datetime.now(UTC)
         node_started_at = started_at or completed_at
+        completed_audit: NodeAuditRecord | None = None
         if self.audit_repository is not None:
             # Promote token_usage and cost fields from runner audit record
             # to top-level NodeAuditRecord fields for queryability.
@@ -251,33 +253,33 @@ class RuntimeAuditRecorder:
                 else None
             )
             tool_calls, memory_interactions = self.typed_fields(redacted_audit_record)
-            await self.audit_repository.write(
-                NodeAuditRecord(
-                    audit_id=self.stored_audit_id(run.run_id, audit_ref),
-                    run_id=run.run_id,
-                    thread_id=run.thread_id,
-                    tenant_id=run.tenant_id,
-                    workspace_id=run.workspace_id,
-                    node_id=node_id,
-                    node_version=node.node_version,
-                    graph_version_ref=run.graph_version_ref,
-                    deployment_ref=run.deployment_ref,
-                    attempt=1,
-                    status="completed",
-                    started_at=node_started_at,
-                    completed_at=completed_at,
-                    input_snapshot=redacted_input,
-                    output_snapshot=redacted_output,
-                    execution_metadata=redacted_audit_record,
-                    token_usage=token_usage,
-                    cost_usd=redacted_audit_record.get("cost_usd"),
-                    estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
-                    cost_measurement=redacted_audit_record.get("cost_measurement"),
-                    cost_event_id=redacted_audit_record.get("cost_event_id"),
-                    tool_calls=tool_calls,
-                    memory_interactions=memory_interactions,
-                )
+            completed_audit = NodeAuditRecord(
+                audit_id=self.stored_audit_id(run.run_id, audit_ref),
+                run_id=run.run_id,
+                thread_id=run.thread_id,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+                node_id=node_id,
+                node_version=node.node_version,
+                graph_version_ref=run.graph_version_ref,
+                deployment_ref=run.deployment_ref,
+                attempt=1,
+                status="completed",
+                started_at=node_started_at,
+                completed_at=completed_at,
+                input_snapshot=redacted_input,
+                output_snapshot=redacted_output,
+                execution_metadata=redacted_audit_record,
+                token_usage=token_usage,
+                cost_usd=redacted_audit_record.get("cost_usd"),
+                estimated_cost_usd=redacted_audit_record.get("estimated_cost_usd"),
+                cost_measurement=redacted_audit_record.get("cost_measurement"),
+                cost_event_id=redacted_audit_record.get("cost_event_id"),
+                tool_calls=tool_calls,
+                memory_interactions=memory_interactions,
             )
+            if not defer_audit:
+                await self.audit_repository.write(completed_audit)
         run.execution_history.append(
             RunHistoryEntry(
                 node_id=node_id,
@@ -293,6 +295,13 @@ class RuntimeAuditRecorder:
             )
         )
         run.completed_steps = [entry.node_id for entry in run.execution_history]
+        return completed_audit
+
+    async def write_prepared(self, record: NodeAuditRecord) -> None:
+        """Persist an audit record prepared before a guarded state transition."""
+        if self.audit_repository is None:
+            raise RuntimeError("audit repository is not configured")
+        await self.audit_repository.write(record)
 
     async def record_failed_execution(
         self,

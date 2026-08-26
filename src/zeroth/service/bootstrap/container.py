@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from zeroth.governance.audit import AuditRepository
     from zeroth.governance.guardrails.config import GuardrailConfig
     from zeroth.governance.guardrails.dead_letter import DeadLetterManager
+    from zeroth.governance.guardrails.policy import GuardrailPolicyRepository
     from zeroth.governance.guardrails.rate_limit import (
         QuotaEnforcer,
         TokenBucketRateLimiter,
@@ -64,6 +65,9 @@ class ServiceBootstrap:
     worker: RunWorker | None = None
     lease_manager: LeaseManager | None = None
     guardrail_config: GuardrailConfig | None = None
+    guardrail_policy_repository: GuardrailPolicyRepository | None = field(
+        default=None, init=False, repr=False
+    )
     rate_limiter: TokenBucketRateLimiter | None = None
     quota_enforcer: QuotaEnforcer | None = None
     dead_letter_manager: DeadLetterManager | None = None

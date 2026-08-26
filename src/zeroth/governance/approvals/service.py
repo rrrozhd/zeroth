@@ -494,7 +494,7 @@ class ApprovalService:
             )
             run.status = RunStatus.FAILED
             run.touch()
-            persisted = await self.run_repository.put(run)
+            persisted = await self.run_repository.put_if_status(run, RunStatus.WAITING_APPROVAL)
             await self._record_decision_audit(record, run, status="rejected", output_payload={})
             return persisted
 
@@ -511,11 +511,11 @@ class ApprovalService:
             run.metadata["approval_resolved_payload"] = record.proposed_payload or {}
         run.metadata["approval_resolved_id"] = approval_id
 
+        run.status = RunStatus.PENDING
         run.touch()
-        await self.run_repository.put(run)
-        # WAITING_APPROVAL -> PENDING so the worker's poll loop will re-claim it.
-        run = await self.run_repository.transition(record.run_id, RunStatus.PENDING)
-        return run
+        # Persist the resolved metadata and claimable status in one conditional
+        # write so a concurrent terminal cancellation cannot be overwritten.
+        return await self.run_repository.put_if_status(run, RunStatus.WAITING_APPROVAL)
 
     async def continue_run(
         self,
@@ -546,7 +546,6 @@ class ApprovalService:
         run.pending_approval = None
         run.current_node_ids = [record.node_id]
         run.current_step = record.node_id
-        run.status = RunStatus.RUNNING
 
         decision = record.resolution.decision
         if decision is ApprovalDecision.REJECT:
@@ -555,7 +554,7 @@ class ApprovalService:
             )
             run.status = RunStatus.FAILED
             run.touch()
-            persisted = await self.run_repository.put(run)
+            persisted = await self.run_repository.put_if_status(run, RunStatus.WAITING_APPROVAL)
             await self._record_decision_audit(record, run, status="rejected", output_payload={})
             return persisted
 

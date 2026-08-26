@@ -26,6 +26,7 @@ from zeroth.service.api.cost_api import register_cost_routes
 from zeroth.service.api.econ_analytics_api import register_econ_analytics_routes
 from zeroth.service.api.econ_dashboard_api import register_econ_dashboard_routes
 from zeroth.service.api.enforcement_api import register_enforcement_routes
+from zeroth.service.api.guardrail_api import register_guardrail_routes
 from zeroth.service.api.health import (
     HealthResponse,
     audit_delivery_health,
@@ -206,6 +207,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_audit_routes(v1_router)
     register_approval_routes(v1_router)
     register_run_routes(v1_router)
+    register_guardrail_routes(v1_router)
 
     # Studio graph authoring API
     from zeroth.service.api.studio_api import router as studio_router
@@ -264,6 +266,7 @@ def create_app(bootstrap: ServiceBootstrapLike) -> FastAPI:
     register_audit_routes(compat_router)
     register_approval_routes(compat_router)
     register_run_routes(compat_router)
+    register_guardrail_routes(compat_router)
     register_admin_routes(compat_router)
     register_cost_routes(compat_router)
     register_rightsizing_routes(compat_router)

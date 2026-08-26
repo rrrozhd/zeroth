@@ -162,9 +162,7 @@ def test_pypi_promotion_depends_on_the_final_gate_not_only_the_candidate_one():
         ("publish-pypi", "evidence-gate-final", "final"),
     ],
 )
-def test_the_gate_a_promotion_depends_on_really_runs_the_validator(
-    promotion_job, gate_job, phase
-):
+def test_the_gate_a_promotion_depends_on_really_runs_the_validator(promotion_job, gate_job, phase):
     """Depending on a job *named* like a gate proves nothing.
 
     Renaming the command, dropping the phase, or narrowing it with a trigger
@@ -352,8 +350,7 @@ def _uploaded_paths(path: Path, job_name: str) -> list[str]:
 
 def _is_covered(cited: str, uploaded: list[str]) -> bool:
     return any(
-        fnmatch(cited, pattern) or cited.startswith(pattern.rstrip("*"))
-        for pattern in uploaded
+        fnmatch(cited, pattern) or cited.startswith(pattern.rstrip("*")) for pattern in uploaded
     )
 
 
@@ -364,6 +361,7 @@ def _is_covered(cited: str, uploaded: list[str]) -> bool:
         "package",
         "langgraph",
         "untrusted-code",
+        "load-recovery",
         "deployment-smoke",
         "remote-acceptance",
         "promotion",
@@ -515,9 +513,7 @@ def test_pull_request_checks_stay_fast():
     for path in _pull_request_workflows():
         script = "\n".join(_scripts(path).values())
         uses = " ".join(
-            str(step.get("uses", ""))
-            for job in _jobs(path).values()
-            for step in _steps(job)
+            str(step.get("uses", "")) for job in _jobs(path).values() for step in _steps(job)
         )
         haystack = f"{script}\n{uses}"
         for expensive in RELEASE_ONLY_WORK:
