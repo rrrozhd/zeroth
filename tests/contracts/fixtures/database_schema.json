@@ -103,6 +103,10 @@
     {
       "down_revision": "025",
       "revision": "026"
+    },
+    {
+      "down_revision": "026",
+      "revision": "027"
     }
   ],
   "tables": {
@@ -127,6 +131,308 @@
           ],
           "name": "sqlite_autoindex_alembic_version_1",
           "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "app_certification_events": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "event_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "certification_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "event_type",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "state",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "promotion_target_key",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "actor_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "reason",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "scopes_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "override_expires_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE app_certification_events ( event_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT, certification_id TEXT NOT NULL, event_type TEXT NOT NULL, state TEXT NOT NULL CHECK ( state IN ('buildable', 'test_deployable', 'certified', 'promoted', 'revoked') ), promotion_target_key TEXT, actor_id TEXT NOT NULL, reason TEXT, scopes_json TEXT NOT NULL, override_expires_at TEXT, created_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "tenant_id",
+            "workspace_id",
+            "certification_id",
+            "created_at"
+          ],
+          "name": "idx_app_certification_events_timeline",
+          "origin": "c",
+          "partial": false,
+          "unique": false
+        },
+        {
+          "columns": [
+            "event_id"
+          ],
+          "name": "sqlite_autoindex_app_certification_events_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        }
+      ]
+    },
+    "app_certifications": {
+      "columns": [
+        {
+          "cid": 0,
+          "default": null,
+          "hidden": 0,
+          "name": "row_id",
+          "not_null": false,
+          "primary_key_position": 1,
+          "type": "TEXT"
+        },
+        {
+          "cid": 1,
+          "default": null,
+          "hidden": 0,
+          "name": "tenant_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 2,
+          "default": null,
+          "hidden": 0,
+          "name": "workspace_id",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 3,
+          "default": null,
+          "hidden": 0,
+          "name": "certification_id",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 4,
+          "default": null,
+          "hidden": 0,
+          "name": "receipt_json",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 5,
+          "default": null,
+          "hidden": 0,
+          "name": "receipt_digest",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 6,
+          "default": null,
+          "hidden": 0,
+          "name": "state",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 7,
+          "default": null,
+          "hidden": 0,
+          "name": "promotion_target_key",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 8,
+          "default": null,
+          "hidden": 0,
+          "name": "promoted_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 9,
+          "default": null,
+          "hidden": 0,
+          "name": "revoked_at",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 10,
+          "default": null,
+          "hidden": 0,
+          "name": "revocation_reason",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 11,
+          "default": null,
+          "hidden": 0,
+          "name": "override_json",
+          "not_null": false,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 12,
+          "default": null,
+          "hidden": 0,
+          "name": "created_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        },
+        {
+          "cid": 13,
+          "default": null,
+          "hidden": 0,
+          "name": "updated_at",
+          "not_null": true,
+          "primary_key_position": 0,
+          "type": "TEXT"
+        }
+      ],
+      "constraint_definition": "CREATE TABLE app_certifications ( row_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT, certification_id TEXT NOT NULL, receipt_json TEXT NOT NULL, receipt_digest TEXT NOT NULL, state TEXT NOT NULL CHECK ( state IN ('buildable', 'test_deployable', 'certified', 'promoted', 'revoked') ), promotion_target_key TEXT, promoted_at TEXT, revoked_at TEXT, revocation_reason TEXT, override_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL )",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "row_id"
+          ],
+          "name": "sqlite_autoindex_app_certifications_1",
+          "origin": "pk",
+          "partial": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "tenant_id",
+            null,
+            "promotion_target_key"
+          ],
+          "name": "uq_app_certifications_promoted_target",
+          "origin": "c",
+          "partial": true,
+          "unique": true
+        },
+        {
+          "columns": [
+            "tenant_id",
+            null,
+            "certification_id"
+          ],
+          "name": "uq_app_certifications_scoped_identity",
+          "origin": "c",
           "partial": false,
           "unique": true
         }

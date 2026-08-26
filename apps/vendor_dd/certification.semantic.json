@@ -1,0 +1,1951 @@
+{
+  "capabilities": {
+    "external_api_call": "external_api_call",
+    "filesystem_read": "filesystem_read",
+    "filesystem_write": "filesystem_write",
+    "memory_read": "memory_read",
+    "memory_write": "memory_write",
+    "network_read": "network_read",
+    "network_write": "network_write",
+    "process_spawn": "process_spawn",
+    "secret_access": "secret_access"
+  },
+  "contracts": {
+    "contract://vendor-dd/assessment": {
+      "$defs": {
+        "DimensionSummary": {
+          "description": "One panel finding, summarized in the final memo.",
+          "properties": {
+            "dimension": {
+              "title": "Dimension",
+              "type": "string"
+            },
+            "note": {
+              "title": "Note",
+              "type": "string"
+            },
+            "rating": {
+              "maximum": 5,
+              "minimum": 1,
+              "title": "Rating",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "dimension",
+            "rating",
+            "note"
+          ],
+          "title": "DimensionSummary",
+          "type": "object"
+        }
+      },
+      "additionalProperties": true,
+      "description": "The report writer's final memo.",
+      "properties": {
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "decision": {
+          "title": "Decision",
+          "type": "string"
+        },
+        "dimension_summaries": {
+          "items": {
+            "$ref": "#/$defs/DimensionSummary"
+          },
+          "title": "Dimension Summaries",
+          "type": "array"
+        },
+        "executive_summary": {
+          "title": "Executive Summary",
+          "type": "string"
+        },
+        "risk_score": {
+          "title": "Risk Score",
+          "type": "number"
+        },
+        "tier": {
+          "title": "Tier",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "vendor_slug",
+        "tier",
+        "risk_score",
+        "decision",
+        "executive_summary"
+      ],
+      "title": "AssessmentReport",
+      "type": "object"
+    },
+    "contract://vendor-dd/chat-reply": {
+      "additionalProperties": true,
+      "description": "Output of the follow-up chat deployment.",
+      "properties": {
+        "reply": {
+          "title": "Reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reply"
+      ],
+      "title": "ChatReply",
+      "type": "object"
+    },
+    "contract://vendor-dd/chat-turn": {
+      "additionalProperties": true,
+      "description": "Input of the follow-up chat deployment (message-list agent).",
+      "properties": {
+        "messages": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "vendor": {
+          "default": "",
+          "title": "Vendor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "messages"
+      ],
+      "title": "ChatTurn",
+      "type": "object"
+    },
+    "contract://vendor-dd/dimension-finding": {
+      "additionalProperties": true,
+      "description": "One dimension analyst's verdict \u2014 the child graph's output contract.",
+      "properties": {
+        "dimension": {
+          "title": "Dimension",
+          "type": "string"
+        },
+        "rating": {
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Rating",
+          "type": "integer"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "red_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Red Flags",
+          "type": "array"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension",
+        "vendor_slug",
+        "rating",
+        "rationale"
+      ],
+      "title": "DimensionFinding",
+      "type": "object"
+    },
+    "contract://vendor-dd/dossier": {
+      "additionalProperties": true,
+      "description": "Public input contract: what a requester submits about a vendor.",
+      "properties": {
+        "annual_spend_usd": {
+          "default": 0.0,
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "subprocessors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subprocessors",
+          "type": "array"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "website": {
+          "default": "",
+          "title": "Website",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "description",
+        "jurisdiction",
+        "category"
+      ],
+      "title": "VendorDossier",
+      "type": "object"
+    },
+    "contract://vendor-dd/grounded": {
+      "additionalProperties": true,
+      "description": "Normalized dossier plus retrieved policy context (RAG output).",
+      "properties": {
+        "annual_spend_usd": {
+          "default": 0.0,
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "pipeline": {
+          "default": "vendor-dd/v1",
+          "title": "Pipeline",
+          "type": "string"
+        },
+        "policy_context": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Policy Context",
+          "type": "array"
+        },
+        "priority": {
+          "default": "standard",
+          "title": "Priority",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "subprocessors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subprocessors",
+          "type": "array"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        },
+        "vendor_website": {
+          "default": "",
+          "title": "Vendor Website",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "description",
+        "jurisdiction",
+        "category",
+        "vendor_slug",
+        "spend_band",
+        "data_risk",
+        "query",
+        "dimensions"
+      ],
+      "title": "GroundedDossier",
+      "type": "object"
+    },
+    "contract://vendor-dd/mapped-dossier": {
+      "additionalProperties": true,
+      "description": "Dossier after the intake edge mapping (rename/constant/default applied).",
+      "properties": {
+        "annual_spend_usd": {
+          "default": 0.0,
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "pipeline": {
+          "default": "vendor-dd/v1",
+          "title": "Pipeline",
+          "type": "string"
+        },
+        "priority": {
+          "default": "standard",
+          "title": "Priority",
+          "type": "string"
+        },
+        "subprocessors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subprocessors",
+          "type": "array"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_website": {
+          "default": "",
+          "title": "Vendor Website",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "description",
+        "jurisdiction",
+        "category"
+      ],
+      "title": "MappedDossier",
+      "type": "object"
+    },
+    "contract://vendor-dd/metrics": {
+      "additionalProperties": true,
+      "description": "Screening report plus financial metrics from the project unit.",
+      "properties": {
+        "annual_spend_usd": {
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "financial_metrics": {
+          "additionalProperties": true,
+          "title": "Financial Metrics",
+          "type": "object"
+        },
+        "financials_found": {
+          "default": false,
+          "title": "Financials Found",
+          "type": "boolean"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "policy_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Citations",
+          "type": "array"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_slug",
+        "vendor_name",
+        "jurisdiction",
+        "category",
+        "annual_spend_usd",
+        "data_access",
+        "data_risk",
+        "spend_band",
+        "dimensions",
+        "summary"
+      ],
+      "title": "MetricsReport",
+      "type": "object"
+    },
+    "contract://vendor-dd/normalized": {
+      "additionalProperties": true,
+      "description": "Dossier enriched by the inline normalize unit.",
+      "properties": {
+        "annual_spend_usd": {
+          "default": 0.0,
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "pipeline": {
+          "default": "vendor-dd/v1",
+          "title": "Pipeline",
+          "type": "string"
+        },
+        "priority": {
+          "default": "standard",
+          "title": "Priority",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "subprocessors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subprocessors",
+          "type": "array"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        },
+        "vendor_website": {
+          "default": "",
+          "title": "Vendor Website",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_name",
+        "description",
+        "jurisdiction",
+        "category",
+        "vendor_slug",
+        "spend_band",
+        "data_risk",
+        "query",
+        "dimensions"
+      ],
+      "title": "NormalizedDossier",
+      "type": "object"
+    },
+    "contract://vendor-dd/panel-branch": {
+      "additionalProperties": true,
+      "description": "One dimension brief \u2014 the child graph's public input contract.",
+      "properties": {
+        "brief": {
+          "title": "Brief",
+          "type": "string"
+        },
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "dimension": {
+          "title": "Dimension",
+          "type": "string"
+        },
+        "financial_metrics": {
+          "additionalProperties": true,
+          "title": "Financial Metrics",
+          "type": "object"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "policy_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Citations",
+          "type": "array"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "default": "small",
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension",
+        "vendor_slug",
+        "vendor_name",
+        "brief"
+      ],
+      "title": "PanelBranch",
+      "type": "object"
+    },
+    "contract://vendor-dd/panel-findings": {
+      "additionalProperties": true,
+      "description": "Fan-in output: the panel list now holds DimensionFinding dicts.",
+      "properties": {
+        "annual_spend_usd": {
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "financial_metrics": {
+          "additionalProperties": true,
+          "title": "Financial Metrics",
+          "type": "object"
+        },
+        "financials_found": {
+          "default": false,
+          "title": "Financials Found",
+          "type": "boolean"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "panel": {
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Panel",
+          "type": "array"
+        },
+        "policy_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Citations",
+          "type": "array"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_slug",
+        "vendor_name",
+        "jurisdiction",
+        "category",
+        "annual_spend_usd",
+        "data_access",
+        "data_risk",
+        "spend_band",
+        "dimensions",
+        "summary",
+        "panel"
+      ],
+      "title": "PanelFindings",
+      "type": "object"
+    },
+    "contract://vendor-dd/panel-prep": {
+      "additionalProperties": true,
+      "description": "Metrics report plus the per-dimension briefs to fan out on.",
+      "properties": {
+        "annual_spend_usd": {
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "financial_metrics": {
+          "additionalProperties": true,
+          "title": "Financial Metrics",
+          "type": "object"
+        },
+        "financials_found": {
+          "default": false,
+          "title": "Financials Found",
+          "type": "boolean"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "panel": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Panel",
+          "type": "array"
+        },
+        "policy_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Citations",
+          "type": "array"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_slug",
+        "vendor_name",
+        "jurisdiction",
+        "category",
+        "annual_spend_usd",
+        "data_access",
+        "data_risk",
+        "spend_band",
+        "dimensions",
+        "summary",
+        "panel"
+      ],
+      "title": "PanelPrep",
+      "type": "object"
+    },
+    "contract://vendor-dd/risk-decision": {
+      "additionalProperties": true,
+      "description": "Deterministic scoring output of the inline risk-score unit.",
+      "properties": {
+        "data_access": {
+          "default": "internal",
+          "title": "Data Access",
+          "type": "string"
+        },
+        "drivers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Drivers",
+          "type": "array"
+        },
+        "panel": {
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Panel",
+          "type": "array"
+        },
+        "risk_score": {
+          "title": "Risk Score",
+          "type": "number"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "default": "small",
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "tier": {
+          "title": "Tier",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_slug",
+        "vendor_name",
+        "risk_score",
+        "tier"
+      ],
+      "title": "RiskDecision",
+      "type": "object"
+    },
+    "contract://vendor-dd/sanctions-query": {
+      "description": "Input of the sanctions screening tool.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SanctionsQuery",
+      "type": "object"
+    },
+    "contract://vendor-dd/sanctions-verdict": {
+      "description": "Output of the sanctions screening tool.",
+      "properties": {
+        "list_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "List Name"
+        },
+        "listed": {
+          "title": "Listed",
+          "type": "boolean"
+        },
+        "match_score": {
+          "default": 0.0,
+          "title": "Match Score",
+          "type": "number"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "listed"
+      ],
+      "title": "SanctionsVerdict",
+      "type": "object"
+    },
+    "contract://vendor-dd/screening": {
+      "additionalProperties": true,
+      "description": "The screening analyst's structured verdict.\n\nEcho fields (slug, jurisdiction, spend, dimensions, \u2026) are part of the\nschema on purpose: the agent is the narrowing point of the pipeline, and\ndownstream deterministic stages need these identifiers.",
+      "properties": {
+        "annual_spend_usd": {
+          "title": "Annual Spend Usd",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "data_access": {
+          "title": "Data Access",
+          "type": "string"
+        },
+        "data_risk": {
+          "title": "Data Risk",
+          "type": "integer"
+        },
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "title": "Jurisdiction",
+          "type": "string"
+        },
+        "policy_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Citations",
+          "type": "array"
+        },
+        "sanctions_status": {
+          "default": "clear",
+          "title": "Sanctions Status",
+          "type": "string"
+        },
+        "spend_band": {
+          "title": "Spend Band",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "vendor_name": {
+          "title": "Vendor Name",
+          "type": "string"
+        },
+        "vendor_slug": {
+          "title": "Vendor Slug",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vendor_slug",
+        "vendor_name",
+        "jurisdiction",
+        "category",
+        "annual_spend_usd",
+        "data_access",
+        "data_risk",
+        "spend_band",
+        "dimensions",
+        "summary"
+      ],
+      "title": "ScreeningReport",
+      "type": "object"
+    },
+    "contract://vendor-dd/stamped": {
+      "additionalProperties": true,
+      "description": "Final output: the report wrapped with its integrity fingerprint.",
+      "properties": {
+        "report": {
+          "additionalProperties": true,
+          "title": "Report",
+          "type": "object"
+        },
+        "stamp": {
+          "title": "Stamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "report",
+        "stamp"
+      ],
+      "title": "StampedReport",
+      "type": "object"
+    }
+  },
+  "graphs": [
+    {
+      "created_at": "1970-01-01T00:00:00Z",
+      "deployment_settings": {
+        "tenant_id": "tenant-acme"
+      },
+      "edges": [
+        {
+          "condition": null,
+          "edge_id": "intake-normalize",
+          "enabled": true,
+          "kind": "data",
+          "mapping": {
+            "operations": [
+              {
+                "operation": "passthrough",
+                "source_path": "vendor_name",
+                "target_path": "vendor_name"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "description",
+                "target_path": "description"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "jurisdiction",
+                "target_path": "jurisdiction"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "category",
+                "target_path": "category"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "annual_spend_usd",
+                "target_path": "annual_spend_usd"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "data_access",
+                "target_path": "data_access"
+              },
+              {
+                "operation": "passthrough",
+                "source_path": "subprocessors",
+                "target_path": "subprocessors"
+              },
+              {
+                "operation": "rename",
+                "source_path": "website",
+                "target_path": "vendor_website"
+              },
+              {
+                "operation": "constant",
+                "target_path": "pipeline",
+                "value": "vendor-dd/v1"
+              },
+              {
+                "default_value": "standard",
+                "operation": "default",
+                "source_path": "priority",
+                "target_path": "priority"
+              }
+            ]
+          },
+          "metadata": {},
+          "source_node_id": "intake",
+          "target_node_id": "normalize"
+        },
+        {
+          "condition": null,
+          "edge_id": "normalize-policy",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "normalize",
+          "target_node_id": "policy-context"
+        },
+        {
+          "condition": null,
+          "edge_id": "policy-screen",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "policy-context",
+          "target_node_id": "screen"
+        },
+        {
+          "condition": null,
+          "edge_id": "screen-uses-sanctions",
+          "enabled": true,
+          "kind": "tool",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "screen",
+          "target_node_id": "sanctions-screen"
+        },
+        {
+          "condition": null,
+          "edge_id": "screen-metrics",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "screen",
+          "target_node_id": "financial-metrics"
+        },
+        {
+          "condition": null,
+          "edge_id": "metrics-panel",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "financial-metrics",
+          "target_node_id": "prepare-panel"
+        },
+        {
+          "condition": null,
+          "edge_id": "panel-dimensions",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "prepare-panel",
+          "target_node_id": "dimension-panel"
+        },
+        {
+          "condition": null,
+          "edge_id": "dimensions-score",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "dimension-panel",
+          "target_node_id": "risk-score"
+        },
+        {
+          "condition": {
+            "allow_cycle_traversal": false,
+            "branch_rule": "expression",
+            "expression": "payload.tier == 'high' or payload.tier == 'critical'",
+            "metadata": {},
+            "operand_refs": []
+          },
+          "edge_id": "score-review",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "risk-score",
+          "target_node_id": "risk-review"
+        },
+        {
+          "condition": {
+            "allow_cycle_traversal": false,
+            "branch_rule": "expression",
+            "expression": "payload.tier == 'low' or payload.tier == 'medium'",
+            "metadata": {},
+            "operand_refs": []
+          },
+          "edge_id": "score-report",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "risk-score",
+          "target_node_id": "report"
+        },
+        {
+          "condition": null,
+          "edge_id": "review-report",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "risk-review",
+          "target_node_id": "report"
+        },
+        {
+          "condition": null,
+          "edge_id": "report-stamp-edge",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "report",
+          "target_node_id": "report-stamp"
+        }
+      ],
+      "entry_step": "intake",
+      "execution_settings": {
+        "audit_enabled": true,
+        "default_timeout_seconds": null,
+        "failure_policy": "fail_fast",
+        "max_total_runtime_seconds": null,
+        "max_total_steps": 60,
+        "max_visits_per_edge": null,
+        "max_visits_per_node": 10
+      },
+      "graph_id": "vendor-dd",
+      "metadata": {},
+      "name": "Vendor due-diligence desk",
+      "nodes": [
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": "Public input contract of the workflow.",
+            "labels": {},
+            "tags": [],
+            "title": "Dossier intake"
+          },
+          "entrypoint": {},
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/dossier",
+          "join_config": null,
+          "node_id": "intake",
+          "node_type": "entrypoint",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/dossier",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [
+            "process_spawn"
+          ],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Normalize dossier (inline code)"
+          },
+          "executable_unit": {
+            "execution_mode": "inline",
+            "inline_source": "\"\"\"normalize: validate the mapped dossier and derive routing fields.\"\"\"\nimport json\nimport re\nimport sys\n\npayload = json.load(sys.stdin)\n\nname = payload.get(\"vendor_name\", \"\").strip()\nif not name:\n    raise SystemExit(\"vendor_name is required\")\n\nslug = re.sub(r\"[^a-z0-9]+\", \"-\", name.lower()).strip(\"-\")\n\nspend = float(payload.get(\"annual_spend_usd\") or 0.0)\nif spend >= 1_000_000:\n    band = \"large\"\nelif spend >= 250_000:\n    band = \"medium\"\nelif spend >= 50_000:\n    band = \"small\"\nelse:\n    band = \"micro\"\n\ndata_risk = {\"none\": 0, \"internal\": 1, \"confidential\": 2, \"regulated_pii\": 3}.get(\n    payload.get(\"data_access\", \"internal\"), 1\n)\n\nout = dict(payload)\nout.update(\n    vendor_slug=slug,\n    spend_band=band,\n    data_risk=data_risk,\n    query=(\n        \"third-party vendor policy for \"\n        + payload.get(\"category\", \"general\")\n        + \" handling \"\n        + payload.get(\"data_access\", \"internal\")\n        + \" data\"\n    ),\n    dimensions=[\"financial\", \"security\", \"compliance\"],\n)\njson.dump(out, sys.stdout)\n",
+            "manifest_ref": "",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": 30
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/mapped-dossier",
+          "join_config": null,
+          "node_id": "normalize",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/normalized",
+          "parallel_config": null,
+          "policy_bindings": [
+            "policy://vendor-dd/sandboxed-units"
+          ]
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [
+            "memory_read"
+          ],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Ground on policy corpus (RAG)"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/normalized",
+          "join_config": null,
+          "node_id": "policy-context",
+          "node_type": "retrieval",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/grounded",
+          "parallel_config": null,
+          "policy_bindings": [],
+          "retrieval": {
+            "as_name": "policy_context",
+            "connector_ref": "key_value",
+            "query_key": "query",
+            "scope": "shared",
+            "top_k": 3
+          }
+        },
+        {
+          "agent": {
+            "cascade_enabled": false,
+            "cheap_model": null,
+            "context_window": null,
+            "conversation_max_turns": null,
+            "criticality": "medium",
+            "input_messages_key": null,
+            "instruction": "[vendor-dd:screen] You are a senior third-party-risk analyst. You MUST call the sanctions_screen tool for the vendor's legal name and once for each named subprocessor BEFORE you answer \u2014 never set sanctions_status without having called the tool for that exact name, even if you believe it is clear. Call it exactly once per name, never twice. Then conclude. Ground your findings on the policy_context excerpts and cite the policy ids you relied on in policy_citations. Copy vendor_slug, vendor_name, jurisdiction, category, annual_spend_usd, data_access, data_risk, spend_band and dimensions from the input unchanged. Set sanctions_status to 'hit' if any screened name is listed, otherwise 'clear'. Return JSON matching the output schema.",
+            "max_tool_calls": 8,
+            "mcp_servers": [],
+            "memory_refs": [],
+            "model_params": {
+              "temperature": 0.1
+            },
+            "model_provider": "openai/gpt-4.1",
+            "persist_conversation": false,
+            "retry_policy": {},
+            "state_persistence": {},
+            "template_memory_bindings": [],
+            "template_ref": null,
+            "thread_participation": "none",
+            "timeout_seconds": null,
+            "tool_bindings": [
+              {
+                "arguments": [
+                  {
+                    "description": "Exact legal name to screen.",
+                    "name": "name",
+                    "required": true,
+                    "type": "string"
+                  }
+                ],
+                "description": "Screen a single legal entity name against the consolidated sanctions denylist. Returns whether the name is listed and on which list.",
+                "name": "sanctions_screen",
+                "required_capabilities": [],
+                "target_node_id": "sanctions-screen"
+              }
+            ],
+            "tool_refs": []
+          },
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Screening analyst"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/grounded",
+          "join_config": null,
+          "node_id": "screen",
+          "node_type": "agent",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/screening",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": "Native unit exposed to the screening agent as a tool.",
+            "labels": {},
+            "tags": [],
+            "title": "Sanctions denylist screen"
+          },
+          "executable_unit": {
+            "execution_mode": "native",
+            "inline_source": null,
+            "manifest_ref": "eu://vendor-dd/sanctions-screen",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": null
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/sanctions-query",
+          "join_config": null,
+          "node_id": "sanctions-screen",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/sanctions-verdict",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [
+            "process_spawn"
+          ],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Financial metrics (project unit)"
+          },
+          "executable_unit": {
+            "execution_mode": "project",
+            "inline_source": null,
+            "manifest_ref": "eu://vendor-dd/financial-metrics",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": 60
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/screening",
+          "join_config": null,
+          "node_id": "financial-metrics",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/metrics",
+          "parallel_config": null,
+          "policy_bindings": [
+            "policy://vendor-dd/sandboxed-units"
+          ]
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": "Builds one brief per risk dimension and fans out.",
+            "labels": {},
+            "tags": [],
+            "title": "Prepare dimension panel"
+          },
+          "executable_unit": {
+            "execution_mode": "native",
+            "inline_source": null,
+            "manifest_ref": "eu://vendor-dd/prepare-panel",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": null
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/metrics",
+          "join_config": null,
+          "node_id": "prepare-panel",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/panel-prep",
+          "parallel_config": {
+            "batch_size": null,
+            "branch_timeout_seconds": null,
+            "fail_mode": "fail_fast",
+            "max_branches": 4,
+            "max_concurrency": null,
+            "merge_strategy": "collect",
+            "reducer_ref": null,
+            "split_path": "panel"
+          },
+          "policy_bindings": []
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": "Runs the published vendor-dd-dimension graph per branch.",
+            "labels": {},
+            "tags": [],
+            "title": "Dimension analysis (child workflow)"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/panel-branch",
+          "join_config": null,
+          "node_id": "dimension-panel",
+          "node_type": "subgraph",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/dimension-finding",
+          "parallel_config": null,
+          "policy_bindings": [],
+          "subgraph": {
+            "graph_ref": "vendor-dd-dimension",
+            "max_depth": 3,
+            "thread_participation": "isolated",
+            "version": null
+          }
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [
+            "process_spawn"
+          ],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Risk scoring (inline code)"
+          },
+          "executable_unit": {
+            "execution_mode": "inline",
+            "inline_source": "\"\"\"risk-score: deterministic weighted scoring over the fan-in panel.\"\"\"\nimport json\nimport sys\n\npayload = json.load(sys.stdin)\n\nfindings = [f for f in payload.get(\"panel\") or [] if isinstance(f, dict)]\nratings = [f.get(\"rating\", 3) for f in findings] or [3]\npanel_component = (sum(ratings) / len(ratings)) / 5.0 * 60.0\n\ndrivers = []\nscore = panel_component\nworst = max(findings, key=lambda f: f.get(\"rating\", 0), default=None)\nif worst is not None:\n    drivers.append(\n        \"worst dimension: \" + worst.get(\"dimension\", \"?\") + \" rated \" + str(worst.get(\"rating\"))\n    )\n\ndata_risk = int(payload.get(\"data_risk\") or 0)\nscore += data_risk * 5.0\nif data_risk >= 3:\n    drivers.append(\"regulated personal data access\")\n\nif payload.get(\"sanctions_status\") == \"hit\":\n    score += 20.0\n    drivers.append(\"sanctions denylist match (TPR-002: human review mandatory)\")\n\nmetrics = payload.get(\"financial_metrics\") or {}\nif metrics.get(\"going_concern_flag\"):\n    score += 10.0\n    drivers.append(\"going-concern flag from financial metrics\")\n\nscore = round(min(score, 100.0), 1)\ntier = \"low\" if score < 35 else \"medium\" if score < 55 else \"high\" if score < 75 else \"critical\"\n\nout = dict(payload)\nout.update(risk_score=score, tier=tier, drivers=drivers)\njson.dump(out, sys.stdout)\n",
+            "manifest_ref": "",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": 30
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/panel-findings",
+          "join_config": null,
+          "node_id": "risk-score",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/risk-decision",
+          "parallel_config": null,
+          "policy_bindings": [
+            "policy://vendor-dd/sandboxed-units"
+          ]
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": "TPR-005: high/critical tiers require human approval.",
+            "labels": {},
+            "tags": [],
+            "title": "Risk reviewer sign-off"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "human_approval": {
+            "approval_payload_schema_ref": "contract://vendor-dd/risk-decision",
+            "approval_policy_config": {},
+            "delegate_identity": null,
+            "escalation_action": null,
+            "pause_behavior_config": {},
+            "resolution_schema_ref": "contract://vendor-dd/risk-decision",
+            "sla_timeout_seconds": null
+          },
+          "input_contract_ref": "contract://vendor-dd/risk-decision",
+          "join_config": null,
+          "node_id": "risk-review",
+          "node_type": "human_approval",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/risk-decision",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "agent": {
+            "cascade_enabled": false,
+            "cheap_model": null,
+            "context_window": null,
+            "conversation_max_turns": null,
+            "criticality": "medium",
+            "input_messages_key": null,
+            "instruction": "[vendor-dd:report] You are the third-party-risk report writer. Draft the final vendor assessment memo from the risk decision in the input. Copy vendor_name, vendor_slug, tier and risk_score unchanged. Set decision to 'approved' for low tier, 'conditional' for medium and high, 'rejected' for critical. Summarize each panel finding in dimension_summaries and derive concrete follow-up conditions. Return JSON matching the output schema.",
+            "max_tool_calls": null,
+            "mcp_servers": [],
+            "memory_refs": [],
+            "model_params": {
+              "temperature": 0.2
+            },
+            "model_provider": "openai/gpt-4o-mini",
+            "persist_conversation": false,
+            "retry_policy": {},
+            "state_persistence": {},
+            "template_memory_bindings": [],
+            "template_ref": null,
+            "thread_participation": "none",
+            "timeout_seconds": null,
+            "tool_bindings": [],
+            "tool_refs": []
+          },
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Assessment report writer"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/risk-decision",
+          "join_config": null,
+          "node_id": "report",
+          "node_type": "agent",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/assessment",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "audit_config": {},
+          "capability_bindings": [
+            "process_spawn"
+          ],
+          "display": {
+            "description": "Wraps the memo with its sha256 fingerprint.",
+            "labels": {},
+            "tags": [],
+            "title": "Integrity stamp (openssl)"
+          },
+          "executable_unit": {
+            "execution_mode": "wrapped_command",
+            "inline_source": null,
+            "manifest_ref": "eu://vendor-dd/report-stamp",
+            "output_extraction_strategy": "json_stdout",
+            "runtime_binding": null,
+            "sandbox_config": {},
+            "timeout_seconds": 30
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd@1",
+          "input_contract_ref": "contract://vendor-dd/assessment",
+          "join_config": null,
+          "node_id": "report-stamp",
+          "node_type": "executable_unit",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/stamped",
+          "parallel_config": null,
+          "policy_bindings": [
+            "policy://vendor-dd/sandboxed-units"
+          ]
+        }
+      ],
+      "policy_bindings": [],
+      "status": "draft",
+      "tenant_id": "default",
+      "updated_at": "1970-01-01T00:00:00Z",
+      "version": 1,
+      "workspace_id": null
+    },
+    {
+      "created_at": "1970-01-01T00:00:00Z",
+      "deployment_settings": {
+        "tenant_id": "tenant-acme"
+      },
+      "edges": [
+        {
+          "condition": null,
+          "edge_id": "dim-intake-analyst",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "dim-intake",
+          "target_node_id": "dim-analyst"
+        }
+      ],
+      "entry_step": "dim-intake",
+      "execution_settings": {
+        "audit_enabled": true,
+        "default_timeout_seconds": null,
+        "failure_policy": "fail_fast",
+        "max_total_runtime_seconds": null,
+        "max_total_steps": 10,
+        "max_visits_per_edge": null,
+        "max_visits_per_node": 10
+      },
+      "graph_id": "vendor-dd-dimension",
+      "metadata": {},
+      "name": "Vendor DD \u2014 dimension analysis",
+      "nodes": [
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Dimension brief intake"
+          },
+          "entrypoint": {},
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd-dimension@1",
+          "input_contract_ref": "contract://vendor-dd/panel-branch",
+          "join_config": null,
+          "node_id": "dim-intake",
+          "node_type": "entrypoint",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/panel-branch",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "agent": {
+            "cascade_enabled": false,
+            "cheap_model": null,
+            "context_window": null,
+            "conversation_max_turns": null,
+            "criticality": "medium",
+            "input_messages_key": null,
+            "instruction": "[vendor-dd:dimension] You are a specialist third-party-risk analyst for one risk dimension. Assess the vendor strictly for the dimension named in the input brief, considering the flags, sanctions status, and financial metrics provided. Copy dimension and vendor_slug from the input unchanged. Rate 1 (negligible) to 5 (severe), justify in rationale, and list concrete red_flags. Return JSON matching the output schema.",
+            "max_tool_calls": null,
+            "mcp_servers": [],
+            "memory_refs": [],
+            "model_params": {
+              "temperature": 0.1
+            },
+            "model_provider": "openai/gpt-4o-mini",
+            "persist_conversation": false,
+            "retry_policy": {},
+            "state_persistence": {},
+            "template_memory_bindings": [],
+            "template_ref": null,
+            "thread_participation": "none",
+            "timeout_seconds": null,
+            "tool_bindings": [],
+            "tool_refs": []
+          },
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Dimension analyst"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd-dimension@1",
+          "input_contract_ref": "contract://vendor-dd/panel-branch",
+          "join_config": null,
+          "node_id": "dim-analyst",
+          "node_type": "agent",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/dimension-finding",
+          "parallel_config": null,
+          "policy_bindings": []
+        }
+      ],
+      "policy_bindings": [],
+      "status": "draft",
+      "tenant_id": "default",
+      "updated_at": "1970-01-01T00:00:00Z",
+      "version": 1,
+      "workspace_id": null
+    },
+    {
+      "created_at": "1970-01-01T00:00:00Z",
+      "deployment_settings": {
+        "tenant_id": "tenant-acme"
+      },
+      "edges": [
+        {
+          "condition": null,
+          "edge_id": "chat-intake-analyst",
+          "enabled": true,
+          "kind": "data",
+          "mapping": null,
+          "metadata": {},
+          "source_node_id": "chat-intake",
+          "target_node_id": "chat-analyst"
+        }
+      ],
+      "entry_step": "chat-intake",
+      "execution_settings": {
+        "audit_enabled": true,
+        "default_timeout_seconds": null,
+        "failure_policy": "fail_fast",
+        "max_total_runtime_seconds": null,
+        "max_total_steps": 10,
+        "max_visits_per_edge": null,
+        "max_visits_per_node": 10
+      },
+      "graph_id": "vendor-dd-chat",
+      "metadata": {},
+      "name": "Vendor DD \u2014 follow-up chat",
+      "nodes": [
+        {
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Chat turn intake"
+          },
+          "entrypoint": {},
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd-chat@1",
+          "input_contract_ref": "contract://vendor-dd/chat-turn",
+          "join_config": null,
+          "node_id": "chat-intake",
+          "node_type": "entrypoint",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/chat-turn",
+          "parallel_config": null,
+          "policy_bindings": []
+        },
+        {
+          "agent": {
+            "cascade_enabled": false,
+            "cheap_model": null,
+            "context_window": null,
+            "conversation_max_turns": 20,
+            "criticality": "medium",
+            "input_messages_key": "messages",
+            "instruction": "[vendor-dd:chat] You are the third-party-risk desk assistant. Answer follow-up questions about completed vendor assessments. Be precise about tiers, drivers, and policy references. When the conversation history contains earlier turns, use them. Return JSON matching the output schema.",
+            "max_tool_calls": null,
+            "mcp_servers": [],
+            "memory_refs": [],
+            "model_params": {
+              "temperature": 0.2
+            },
+            "model_provider": "openai/gpt-4o-mini",
+            "persist_conversation": true,
+            "retry_policy": {},
+            "state_persistence": {},
+            "template_memory_bindings": [],
+            "template_ref": null,
+            "thread_participation": "none",
+            "timeout_seconds": null,
+            "tool_bindings": [],
+            "tool_refs": []
+          },
+          "audit_config": {},
+          "capability_bindings": [],
+          "display": {
+            "description": null,
+            "labels": {},
+            "tags": [],
+            "title": "Assessment Q&A analyst"
+          },
+          "execution_config": {},
+          "graph_version_ref": "vendor-dd-chat@1",
+          "input_contract_ref": "contract://vendor-dd/chat-turn",
+          "join_config": null,
+          "node_id": "chat-analyst",
+          "node_type": "agent",
+          "node_version": 1,
+          "output_contract_ref": "contract://vendor-dd/chat-reply",
+          "parallel_config": null,
+          "policy_bindings": []
+        }
+      ],
+      "policy_bindings": [],
+      "status": "draft",
+      "tenant_id": "default",
+      "updated_at": "1970-01-01T00:00:00Z",
+      "version": 1,
+      "workspace_id": null
+    }
+  ],
+  "policies": {
+    "policy://vendor-dd/sandboxed-units": {
+      "allowed_capabilities": [
+        "process_spawn"
+      ],
+      "allowed_secrets": [],
+      "approval_required_for_side_effects": false,
+      "denied_capabilities": [],
+      "network_mode": null,
+      "policy_id": "policy://vendor-dd/sandboxed-units",
+      "sandbox_strictness_mode": null,
+      "timeout_override_seconds": null
+    }
+  },
+  "reducers": [],
+  "schema_version": 1,
+  "service_config": {
+    "auth_config": {
+      "api_keys": [
+        {
+          "credential_id": "vendor-dd-ops",
+          "roles": [
+            "operator",
+            "reviewer",
+            "admin"
+          ],
+          "secret": "vendor-dd-ops-key",
+          "subject": "vendor-dd-ops",
+          "tenant_id": "tenant-acme",
+          "workspace_id": null
+        }
+      ],
+      "bearer": null,
+      "custom_roles": {},
+      "revoked_credential_ids": []
+    },
+    "database_backend": "sqlite"
+  },
+  "target_sources": {
+    "apps.vendor_dd.contracts:CONTRACTS": "sha256:5a3e5844ec4722199e6d52ef694b56d77e6b08fcd760c696b72398fb6852425e",
+    "apps.vendor_dd.entrypoint:build_auth_config": "sha256:5b3eaea9393857a1ca15e5a84ce2a944b6ba2ca2b71434e1078608f2a37c4ccd",
+    "apps.vendor_dd.entrypoint:build_policy_guard": "sha256:5b3eaea9393857a1ca15e5a84ce2a944b6ba2ca2b71434e1078608f2a37c4ccd",
+    "apps.vendor_dd.graphs:build_chat_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
+    "apps.vendor_dd.graphs:build_dimension_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
+    "apps.vendor_dd.graphs:build_main_graph": "sha256:a28989e7da419334fead3b80129c5ded4b0a91672f64779a660373cd89bf1f01",
+    "apps.vendor_dd.migrations:migrate": "sha256:2f88aa566e7edb8ba3a51b1ebafcb509068c93a43f7a552b06d66a5b390ba2d8"
+  },
+  "zeroth_version": "0.23.10.2"
+}

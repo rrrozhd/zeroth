@@ -338,6 +338,20 @@ class PolicySettings(BaseModel):
     """
 
 
+class CertificationSettings(BaseModel):
+    """Server-owned identity of the artifact served by this process."""
+
+    serving_app_commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    serving_image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _complete_identity(self) -> CertificationSettings:
+        """Reject a partial serving identity so readiness always fails explicitly."""
+        if (self.serving_app_commit is None) != (self.serving_image_digest is None):
+            raise ValueError("serving app commit and image digest must be configured together")
+        return self
+
+
 class LangGraphGatewaySettings(BaseModel):
     """Configuration for the optional Agent Server-compatible gateway."""
 
@@ -473,6 +487,7 @@ class ZerothSettings(BaseSettings):
     tracing: TracingSettings = Field(default_factory=TracingSettings)
     secrets: SecretsSettings = Field(default_factory=SecretsSettings)
     provenance: ProvenanceSigningSettings = Field(default_factory=ProvenanceSigningSettings)
+    certification: CertificationSettings = Field(default_factory=CertificationSettings)
     policy: PolicySettings = Field(default_factory=PolicySettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     langgraph_gateway: LangGraphGatewaySettings = Field(default_factory=LangGraphGatewaySettings)
@@ -501,7 +516,7 @@ ZerothSettings.__signature__ = inspect.signature(ZerothSettings).replace(
     parameters=[
         parameter
         for name, parameter in _settings_parameters.items()
-        if name not in {"approval_notifications", "langgraph_gateway"}
+        if name not in {"approval_notifications", "certification", "langgraph_gateway"}
     ]
 )
 

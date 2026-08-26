@@ -92,6 +92,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
     "zeroth.governance.retention.models:ErasureResult": ("operations_deleted",),
     "zeroth.platform.config.settings:ZerothSettings": (
         "approval_notifications",
+        "certification",
         "langgraph_gateway",
     ),
     "zeroth.runtime.agents.provider:ProviderResponse": (
@@ -126,9 +127,15 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "custom_roles",
         "revoked_credential_ids",
     ),
-    "zeroth.service.api.health:HealthResponse": ("audit_delivery", "langgraph_gateway"),
+    "zeroth.service.api.health:HealthResponse": (
+        "audit_delivery",
+        "certification",
+        "langgraph_gateway",
+        "production_ready",
+    ),
     "zeroth.service.bootstrap.container:ServiceBootstrap": (
         "audit_delivery_queue",
+        "certification_service",
         "decision_repository",
         "enforcement_heartbeat_repository",
         "enforcement_stale_after_seconds",
@@ -142,6 +149,7 @@ HIDDEN_CONSTRUCTOR_FIELDS: dict[str, tuple[str, ...]] = {
         "policy_guard",
         "role_registry",
         "run_attestation_repository",
+        "serving_artifact_identity",
         "tool_decision_service",
         "verifier",
     ),

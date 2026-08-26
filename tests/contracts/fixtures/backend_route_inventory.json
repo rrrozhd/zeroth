@@ -226,6 +226,66 @@
   {
     "kind": "APIRoute",
     "methods": [
+      "POST"
+    ],
+    "name": "create_certification",
+    "path": "/v1/certifications",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_certifications",
+    "path": "/v1/certifications",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_certification",
+    "path": "/v1/certifications/{certification_id}",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "promote_certification",
+    "path": "/v1/certifications/{certification_id}/promote",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "revoke_certification",
+    "path": "/v1/certifications/{certification_id}/revoke",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "override_certification",
+    "path": "/v1/certifications/{certification_id}/override",
+    "permission": "certification:override",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
       "GET"
     ],
     "name": "list_audits",
@@ -1295,6 +1355,66 @@
     "name": "get_deployment_metadata",
     "path": "/deployments/{deployment_ref}/metadata",
     "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_certification",
+    "path": "/certifications",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_certifications",
+    "path": "/certifications",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_certification",
+    "path": "/certifications/{certification_id}",
+    "permission": "deployment:read",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "promote_certification",
+    "path": "/certifications/{certification_id}/promote",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "revoke_certification",
+    "path": "/certifications/{certification_id}/revoke",
+    "permission": "deployment:admin",
+    "disposition": "permission"
+  },
+  {
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "override_certification",
+    "path": "/certifications/{certification_id}/override",
+    "permission": "certification:override",
     "disposition": "permission"
   },
   {
