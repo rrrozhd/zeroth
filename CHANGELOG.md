@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0.1]
+
+### Fixed
+
+- Point the studio node-type test at the category mechanism it now uses. It still asserted the
+  `creatable` flag that `NodeTypeResponse` could not keep — that model is an immutable legacy
+  capability pinned in `backend_surface_legacy.json`, so "drawable but not authorable" moved to the
+  existing `category` field as `"imported"`.
+
 ## [0.25]
 
 ### Added
